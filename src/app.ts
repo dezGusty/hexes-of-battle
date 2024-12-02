@@ -69,7 +69,7 @@ export class HexesApp {
   private needToAddHighscore: boolean = false;
 
   constructor(public app: Application) {
-    this.currentGameState = GameState.InMenu;
+    // this.currentGameState = GameState.InMenu;
   }
 
   /**
@@ -220,6 +220,20 @@ export class HexesApp {
     }
   }
 
+  public pixelToHex(x: number, y: number): { q: number, r: number } {
+    const OFFSET_X = 50;
+    const OFFSET_Y = 150;
+
+    x -= OFFSET_X;
+    y -= OFFSET_Y;
+    const cellSize = this.CELL_SIZE / Math.sqrt(3);
+
+    const q = (x * Math.sqrt(3) / 3 - y / 3) / cellSize;
+    const r = y * 2 / 3 / cellSize;
+    return { q, r };
+  }
+
+
   public setupMainLoop(): void {
     this.app.ticker.maxFPS = 60;
 
@@ -264,6 +278,14 @@ export class HexesApp {
     document.addEventListener('keyup', (event) => {
       if (this.currentGameState === GameState.InGame) {
 
+      }
+    });
+
+    document.addEventListener('mousedown', (event) => {
+      if (this.currentGameState === GameState.InGame) {
+        console.log(`Mouse down: ${event.clientX}, ${event.clientY}`);
+        let hexCoords = this.pixelToHex(event.clientX, event.clientY);
+        console.log(`clicked cell: ${hexCoords.q}, ${hexCoords.r}`);
       }
     });
 
