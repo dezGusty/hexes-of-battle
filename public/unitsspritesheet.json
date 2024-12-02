@@ -1,0 +1,95 @@
+{
+    "frames": {
+        "peasant_fork_right.png": {
+            "frame": {
+                "x": 0,
+                "y": 0,
+                "w": 80,
+                "h": 80
+            }
+        },
+        "peasant_archer_right.png": {
+            "frame": {
+                "x": 160,
+                "y": 0,
+                "w": 80,
+                "h": 80
+            }
+        },
+        "pikeman_left.png": {
+            "frame": {
+                "x": 320,
+                "y": 0,
+                "w": 80,
+                "h": 80
+            }
+        },
+        "swordman_left.png": {
+            "frame": {
+                "x": 80,
+                "y": 160,
+                "w": 80,
+                "h": 80
+            }
+        },
+        "arbalest_left.png": {
+            "frame": {
+                "x": 240,
+                "y": 160,
+                "w": 80,
+                "h": 80
+            }
+        },
+        "halberdier_left.png": {
+            "frame": {
+                "x": 0,
+                "y": 320,
+                "w": 80,
+                "h": 80
+            }
+        },
+        "paladin_left.png": {
+            "frame": {
+                "x": 160,
+                "y": 320,
+                "w": 80,
+                "h": 80
+            }
+        },
+        "longowman_left.png": {
+            "frame": {
+                "x": 320,
+                "y": 320,
+                "w": 80,
+                "h": 80
+            }
+        },
+        "magic_elemental_left.png": {
+            "frame": {
+                "x": 80,
+                "y": 480,
+                "w": 80,
+                "h": 80
+            }
+        },
+        "rock_elemental_left.png": {
+            "frame": {
+                "x": 240,
+                "y": 480,
+                "w": 80,
+                "h": 80
+            }
+        }
+    },
+    "animations": {        
+    },
+    "meta": {
+        "image": "imagunit.png",
+        "format": "RGBA8888",
+        "size": {
+            "w": 60,
+            "h": 40
+        },
+        "scale": "1.0"
+    }
+}
