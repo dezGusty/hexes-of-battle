@@ -1,5 +1,6 @@
-import { Application, Sprite, Assets, Text, TextStyle, BitmapText, Spritesheet, Texture, Container, TextStyleOptions } from 'pixi.js';
+import { Application, Sprite, Assets, Text, TextStyle, BitmapText, Spritesheet, Texture, Container, TextStyleOptions, textStyleToCSS } from 'pixi.js';
 import pkg from './../package.json';
+import { HexMap } from './hex-map';
 
 export enum GameState {
   InMenu,
@@ -13,24 +14,17 @@ export class HexesApp {
 
   private currentGameState: GameState = GameState.InGame;
   private version: string = pkg.version;
+  private hexMap: HexMap = new HexMap(15, 11);
+  private NATIVE_RESOLUTION = { width: 1600, height: 900 };
 
   private terrainTextureNames: string[] = [];
   private unitsTextureNames: string[] = [];
-  private bonusTextureNames: string[] = [];
-  private crittersTextureNames: string[] = [];
-  private obstaclesTextureNames: string[] = [];
 
   private terrainSheet?: Spritesheet = undefined;
   private terrainTexture?: Texture = undefined;
   private hexagonSheet?: Spritesheet = undefined;
   private unitsSheet?: Spritesheet = undefined;
 
-  private mappedBonusTexNames: string[] = [];
-  private bonusSprites: Sprite[] = [];
-  private crittersSprites: Sprite[] = [];
-  private obstaclesSprites: Sprite[] = [];
-
-  private touchTexture?: Texture = undefined;
   private touchSpriteLeft: Sprite = new Sprite();
   private touchSpriteRight: Sprite = new Sprite();
   private displayOnScreenTouchControls: boolean = false;
@@ -38,6 +32,10 @@ export class HexesApp {
   private fpsText?: BitmapText;
   private instructionsText?: Text;
   private messagesText?: Text;
+
+  private coordsTexts: BitmapText[] = [];
+
+  private hexHoverSprite?: Sprite;
 
 
   // Add render groups for layering
@@ -86,14 +84,15 @@ export class HexesApp {
     // Wait for the Renderer to be available
     await this.app.init({
       background: '#102229',
-      width: this.CELL_SIZE * 30,
-      height: this.CELL_SIZE * 20,
+      width: this.NATIVE_RESOLUTION.width,
+      height: this.NATIVE_RESOLUTION.height,
       resizeTo: containingElement
     });
 
     console.log('App started, size: ' + this.app.screen.width + 'x' + this.app.screen.height);
     this.tempMessage = 'App started, size: ' + this.app.screen.width + 'x' + this.app.screen.height;
     this.setScalingForSize(this.app.screen.width, this.app.screen.height);
+    this.tempMessage += "\nScaling factor: " + this.renderContainer.scale.x.toFixed(2) + 'x' + this.renderContainer.scale.y.toFixed(2);
 
     // The application will create a canvas element for you that you
     // can then insert into the DOM
@@ -127,7 +126,7 @@ export class HexesApp {
       this.instructionsText.text = this.tempMessage + "\nResized to: " + width + 'x' + height;
       console.log('Resized to: ' + width + 'x' + height);
     }
-    const originalWindowSize = { width: this.CELL_SIZE * 25, height: this.CELL_SIZE * 10 };
+    const originalWindowSize = this.NATIVE_RESOLUTION;
     // keep the aspect ratio
     const scaling = { x: width / originalWindowSize.width, y: height / originalWindowSize.height };
     const minScale = Math.min(scaling.x, scaling.y);
@@ -147,7 +146,7 @@ export class HexesApp {
 
     this.terrainTexture = await Assets.load('terrain1background.png');
 
-    this.hexagonSheet = await Assets.load('hexesspritesheet.json');
+    this.hexagonSheet = await Assets.load('hexesspritesheet2.json');
     if (!this.hexagonSheet) {
       console.error('Failed to load the hexes spritesheet');
     }
@@ -176,7 +175,7 @@ export class HexesApp {
       style,
     });
     this.instructionsText.x = 230;
-    this.instructionsText.y = 90;
+    this.instructionsText.y = 10;
     this.uiRenderGroup.addChild(this.instructionsText);
 
     this.messagesText = new Text({
@@ -201,37 +200,34 @@ export class HexesApp {
     // Generate the terrain map (randomly)
     let terrainSprite = new Sprite(this.terrainTexture);
     terrainSprite.scale.set(2, 2);
+    terrainSprite.x = 0;
+    terrainSprite.y = 0;
     this.terrainRenderGroup.addChild(terrainSprite);
 
-    const OFFSET_X = 50;
-    const OFFSET_Y = 150;
-
-    const GAME_MAP_WIDTH = 30 / 2;
-    const GAME_MAP_HEIGHT = 20 / 2;
-    for (let j = 0; j < GAME_MAP_HEIGHT; j++) {
-      const columnXOffset = j % 2 === 0 ? 0 : this.CELL_SIZE / 2;
-
-      for (let i = 0; i < GAME_MAP_WIDTH; i++) {
+    this.hexMap.setOffset(150, 180);
+    for (let j = 0; j < this.hexMap.height; j++) {
+      for (let i = 0; i < this.hexMap.width; i++) {
         const gameSprite = new Sprite(this.hexagonSheet?.textures['hex_empty.png']);
-        gameSprite.x = columnXOffset + OFFSET_X + i * this.CELL_SIZE;
-        gameSprite.y = OFFSET_Y + j * this.CELL_SIZE * 0.75;
+        // let { x, y } = this.hexMap.getCellTopCornerCoords({ x: i, y: j });
+        let { x, y } = this.hexMap.hexToPixel(i, j);
+        x -= this.hexMap.cellSize().x / 2;
+        y -= this.hexMap.cellSize().y / 2;
+
+        gameSprite.x = x;
+        gameSprite.y = y;
         this.mainRenderGroup.addChild(gameSprite);
+
+        let coordsText = new BitmapText({ text: `${i},${j}`, style: this.DEFAULT_FONT_STYLE, });
+        coordsText.x = x;
+        coordsText.y = y;
+
+        this.coordsTexts.push(coordsText);
+        this.uiRenderGroup.addChild(coordsText);
       }
     }
   }
 
-  public pixelToHex(x: number, y: number): { q: number, r: number } {
-    const OFFSET_X = 50;
-    const OFFSET_Y = 150;
 
-    x -= OFFSET_X;
-    y -= OFFSET_Y;
-    const cellSize = this.CELL_SIZE / Math.sqrt(3);
-
-    const q = (x * Math.sqrt(3) / 3 - y / 3) / cellSize;
-    const r = y * 2 / 3 / cellSize;
-    return { q, r };
-  }
 
 
   public setupMainLoop(): void {
@@ -283,9 +279,51 @@ export class HexesApp {
 
     document.addEventListener('mousedown', (event) => {
       if (this.currentGameState === GameState.InGame) {
-        console.log(`Mouse down: ${event.clientX}, ${event.clientY}`);
-        let hexCoords = this.pixelToHex(event.clientX, event.clientY);
-        console.log(`clicked cell: ${hexCoords.q}, ${hexCoords.r}`);
+        let scaledX = event.clientX / this.renderContainer.scale.x - this.renderContainerOffset.x;
+        let scaledY = event.clientY / this.renderContainer.scale.y - this.renderContainerOffset.y;
+
+        let hexCoords = this.hexMap.pixelToHex(scaledX, scaledY);
+        if (this.messagesText) this.messagesText.text = `Mouse down: ${event.clientX}, ${event.clientY} 
+        => scaled: ${scaledX}, ${scaledY}
+        => clicked cell: ${hexCoords.x}, ${hexCoords.y}`;
+
+        if (hexCoords.x >= 0 && hexCoords.x < this.hexMap.width && hexCoords.y >= 0 && hexCoords.y < this.hexMap.height) {
+          if (!this.hexHoverSprite) {
+            this.hexHoverSprite = new Sprite(this.hexagonSheet?.textures['hex_usable_yellow.png']);
+            this.mainRenderGroup.addChild(this.hexHoverSprite);
+          }
+
+          if (this.hexHoverSprite) {
+            const hexHoverCoords = this.hexMap.hexToPixel(hexCoords.x, hexCoords.y);
+            this.hexHoverSprite.x = hexHoverCoords.x - this.hexMap.cellSize().x / 2;
+            this.hexHoverSprite.y = hexHoverCoords.y - this.hexMap.cellSize().y / 2;
+          }
+        }
+      }
+    });
+
+    document.addEventListener('mousemove', (event) => {
+      if (this.currentGameState === GameState.InGame) {
+        let scaledX = event.clientX / this.renderContainer.scale.x - this.renderContainerOffset.x;
+        let scaledY = event.clientY / this.renderContainer.scale.y - this.renderContainerOffset.y;
+
+        let hexCoords = this.hexMap.pixelToHex(scaledX, scaledY);
+        if (this.messagesText) this.messagesText.text = `Mouse move: ${event.clientX}, ${event.clientY} 
+        => scaled: ${scaledX}, ${scaledY}
+        => over cell: ${hexCoords.x}, ${hexCoords.y}`;
+
+        if (hexCoords.x >= 0 && hexCoords.x < this.hexMap.width && hexCoords.y >= 0 && hexCoords.y < this.hexMap.height) {
+          if (!this.hexHoverSprite) {
+            this.hexHoverSprite = new Sprite(this.hexagonSheet?.textures['hex_usable_yellow.png']);
+            this.mainRenderGroup.addChild(this.hexHoverSprite);
+          }
+
+          if (this.hexHoverSprite) {
+            const hexHoverCoords = this.hexMap.hexToPixel(hexCoords.x, hexCoords.y);
+            this.hexHoverSprite.x = hexHoverCoords.x - this.hexMap.cellSize().x / 2;
+            this.hexHoverSprite.y = hexHoverCoords.y - this.hexMap.cellSize().y / 2;
+          }
+        }
       }
     });
 

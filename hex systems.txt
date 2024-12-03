@@ -1,5 +1,5 @@
 A coparison of some turn based strategy games using hexes for battle screens:
-- megabattle 2: 9x7
+- megabattle 2: 9x7 (note: not using real hexes)
 - heroes 2: 11x9
 - heroes 3: 15x11
 - eador - masters of the broken world: 8x8

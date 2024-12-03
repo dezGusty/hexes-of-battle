@@ -1,0 +1,63 @@
+{
+    "frames": {
+        "hex_empty.png": {
+            "frame": {
+                "x": 1,
+                "y": 1,
+                "w": 80,
+                "h": 92
+            }
+        },
+        "hex_selected_green.png": {
+            "frame": {
+                "x": 83,
+                "y": 1,
+                "w": 80,
+                "h": 92
+            }
+        },
+        "hex_usable_yellow.png": {
+            "frame": {
+                "x": 165,
+                "y": 1,
+                "w": 80,
+                "h": 92
+            }
+        },
+        "hex_action_red.png": {
+            "frame": {
+                "x": 247,
+                "y": 1,
+                "w": 80,
+                "h": 92
+            }
+        },
+        "hex_action_disabled_gray.png": {
+            "frame": {
+                "x": 329,
+                "y": 1,
+                "w": 80,
+                "h": 92
+            }
+        },
+        "empty.png": {
+            "frame": {
+                "x": 411,
+                "y": 1,
+                "w": 80,
+                "h": 92
+            }
+        }
+    },
+    "animations": {        
+    },
+    "meta": {
+        "image": "new_hex.png",
+        "format": "RGBA8888",
+        "size": {
+            "w": 80,
+            "h": 92
+        },
+        "scale": "1.0"
+    }
+}
