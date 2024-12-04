@@ -125,6 +125,15 @@ export class HexesApp {
 
   }
 
+  private enterFullscreen() {
+    const containingElement: HTMLElement | null = document.getElementById('game');
+    if (!containingElement) {
+      console.error('Failed to find the game container element');
+      return;
+    }
+    containingElement.requestFullscreen();
+  }
+
   private setScalingForSize(width: number, height: number) {
     if (this.instructionsText) {
       this.instructionsText.text = this.tempMessage + "\nResized to: " + width + 'x' + height;
@@ -159,6 +168,13 @@ export class HexesApp {
     if (!this.unitsSheet) {
       console.error('Failed to load the units spritesheet');
     }
+
+    // Set the mouse cursor
+
+    // const interaction = this.app.renderer.plugins.interaction;
+    // interaction.cursorStyles["pointer"] = "url('./img/cartoon-pointer-96x96.png'), auto";
+    this.renderContainer.interactive = true;
+    this.renderContainer.cursor = "pointer";
 
   }
 
@@ -235,7 +251,7 @@ export class HexesApp {
       this.unitRenderSubgroups.push(new Container({ isRenderGroup: true }));
       this.unitRenderGroup.addChild(this.unitRenderSubgroups[i]);
     }
-    
+
     // Add some random units
     for (let j = this.hexMap.height - 1; j >= 0; j--) {
       for (let i = this.hexMap.width - 1; i >= 0; i--) {
@@ -300,6 +316,12 @@ export class HexesApp {
     document.addEventListener('keyup', (event) => {
       if (this.currentGameState === GameState.InGame) {
 
+      }
+    });
+
+    document.addEventListener('click', (event) => {
+      if (event.x < 10 && event.y < 10) {
+        this.enterFullscreen();
       }
     });
 
