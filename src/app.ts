@@ -34,6 +34,7 @@ export class HexesApp {
   private messagesText?: Text;
 
   private coordsTexts: BitmapText[] = [];
+  private unitSprites: Sprite[] = [];
 
   private hexHoverSprite?: Sprite;
 
@@ -41,6 +42,8 @@ export class HexesApp {
   // Add render groups for layering
   private terrainRenderGroup: Container = new Container({ isRenderGroup: true });
   private mainRenderGroup: Container = new Container({ isRenderGroup: true });
+  private unitRenderSubgroups: Container[] = [];
+  private unitRenderGroup: Container = new Container({ isRenderGroup: true });
   private uiRenderGroup: Container = new Container({ isRenderGroup: true });
   private renderContainer: Container = new Container();
 
@@ -103,6 +106,7 @@ export class HexesApp {
 
     this.renderContainer.addChild(this.terrainRenderGroup);
     this.renderContainer.addChild(this.mainRenderGroup);
+    this.renderContainer.addChild(this.unitRenderGroup);
     this.renderContainer.addChild(this.uiRenderGroup);
 
     await this.loadAssets();
@@ -223,6 +227,28 @@ export class HexesApp {
 
         this.coordsTexts.push(coordsText);
         this.uiRenderGroup.addChild(coordsText);
+      }
+    }
+
+    for (let i = 0; i < this.hexMap.height; i++) {
+      // Add a render group
+      this.unitRenderSubgroups.push(new Container({ isRenderGroup: true }));
+      this.unitRenderGroup.addChild(this.unitRenderSubgroups[i]);
+    }
+    
+    // Add some random units
+    for (let j = this.hexMap.height - 1; j >= 0; j--) {
+      for (let i = this.hexMap.width - 1; i >= 0; i--) {
+        let { x, y } = this.hexMap.hexToPixel(i, j);
+        x -= this.hexMap.cellSize().x / 2;
+        y -= this.hexMap.cellSize().y / 2;
+
+        const unitSprite = new Sprite(this.unitsSheet?.textures['peasant_fork_right.png']);
+        unitSprite.x = x;
+        unitSprite.y = y;
+        this.unitSprites.push(unitSprite);
+
+        this.unitRenderSubgroups[j].addChild(unitSprite);
       }
     }
   }
