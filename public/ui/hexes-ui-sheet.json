@@ -1,0 +1,79 @@
+{
+    "frames": {
+        "cursor_arrow.png": {
+            "frame": {
+                "x": 1,
+                "y": 1,
+                "w": 32,
+                "h": 32
+            }
+        },
+        "cur_run_to.png": {
+            "frame": {
+                "x": 35,
+                "y": 1,
+                "w": 32,
+                "h": 32
+            }
+        },
+        "cur_sword.png": {
+            "frame": {
+                "x": 69,
+                "y": 1,
+                "w": 32,
+                "h": 32
+            }
+        },
+        "cur_gs_arrow.png": {
+            "frame": {
+                "x": 1,
+                "y": 35,
+                "w": 64,
+                "h": 64
+            }
+        },
+        "btn_simple.png": {
+            "frame": {
+                "x": 1,
+                "y": 101,
+                "w": 48,
+                "h": 48
+            }
+        },
+        "btn_simple_hover.png": {
+            "frame": {
+                "x": 51,
+                "y": 101,
+                "w": 48,
+                "h": 48
+            }
+        },
+        "btn_simple_click.png": {
+            "frame": {
+                "x": 101,
+                "y": 101,
+                "w": 48,
+                "h": 48
+            }
+        },
+        "glyph_fullscreen.png": {
+            "frame": {
+                "x": 103,
+                "y": 1,
+                "w": 32,
+                "h": 32
+            }
+        }
+    },
+    "animations": {        
+    },
+    "meta": {
+        "image": "hexes-ui.png",
+        "format": "RGBA8888",
+        "size": {
+            "w": 150,
+            "h": 200
+        },
+        "scale": "1.0"
+    }
+}

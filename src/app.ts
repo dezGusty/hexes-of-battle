@@ -1,6 +1,7 @@
-import { Application, Sprite, Assets, Text, TextStyle, BitmapText, Spritesheet, Texture, Container, TextStyleOptions, textStyleToCSS } from 'pixi.js';
+import { Application, Sprite, Assets, Text, TextStyle, BitmapText, Spritesheet, Texture, Container, TextStyleOptions, textStyleToCSS, EventSystem } from 'pixi.js';
 import pkg from './../package.json';
 import { HexMap } from './hex-map';
+import { CommonControls } from './common-controls';
 
 export enum GameState {
   InMenu,
@@ -23,11 +24,15 @@ export class HexesApp {
   private terrainSheet?: Spritesheet = undefined;
   private terrainTexture?: Texture = undefined;
   private hexagonSheet?: Spritesheet = undefined;
+  private uiSheet?: Spritesheet = undefined;
   private unitsSheet?: Spritesheet = undefined;
 
   private touchSpriteLeft: Sprite = new Sprite();
   private touchSpriteRight: Sprite = new Sprite();
+  private softCursorSprite: Sprite = new Sprite();
   private displayOnScreenTouchControls: boolean = false;
+
+  private commonControls: CommonControls = new CommonControls();
 
   private fpsText?: BitmapText;
   private instructionsText?: Text;
@@ -45,6 +50,7 @@ export class HexesApp {
   private unitRenderSubgroups: Container[] = [];
   private unitRenderGroup: Container = new Container({ isRenderGroup: true });
   private uiRenderGroup: Container = new Container({ isRenderGroup: true });
+  private uiPlusRenderGroup: Container = new Container({ isRenderGroup: true });
   private renderContainer: Container = new Container();
 
   private renderContainerOffset: { x: number, y: number } = { x: 0, y: 0 };
@@ -108,9 +114,12 @@ export class HexesApp {
     this.renderContainer.addChild(this.mainRenderGroup);
     this.renderContainer.addChild(this.unitRenderGroup);
     this.renderContainer.addChild(this.uiRenderGroup);
+    this.renderContainer.addChild(this.uiPlusRenderGroup);
 
     await this.loadAssets();
     await this.loadSounds();
+
+    this.initializeCommonControls();
 
     this.initializeMapAndGame();
     await this.initializeTexts();
@@ -125,14 +134,7 @@ export class HexesApp {
 
   }
 
-  private enterFullscreen() {
-    const containingElement: HTMLElement | null = document.getElementById('game');
-    if (!containingElement) {
-      console.error('Failed to find the game container element');
-      return;
-    }
-    containingElement.requestFullscreen();
-  }
+  
 
   private setScalingForSize(width: number, height: number) {
     if (this.instructionsText) {
@@ -143,6 +145,8 @@ export class HexesApp {
     // keep the aspect ratio
     const scaling = { x: width / originalWindowSize.width, y: height / originalWindowSize.height };
     const minScale = Math.min(scaling.x, scaling.y);
+    // const minScale = scaling.y * 2;
+
     this.renderContainer.scale.set(minScale, minScale);
 
     // Set-up an offset for the render container.
@@ -169,21 +173,23 @@ export class HexesApp {
       console.error('Failed to load the units spritesheet');
     }
 
-    // Set the mouse cursor
+    this.uiSheet = await Assets.load('ui/hexes-ui-sheet.json');
+    if (!this.uiSheet) {
+      console.error('Failed to load the UI spritesheet');
+    }
 
-    // const interaction = this.app.renderer.plugins.interaction;
-    // interaction.cursorStyles["pointer"] = "url('./img/cartoon-pointer-96x96.png'), auto";
+    this.softCursorSprite = new Sprite(this.uiSheet.textures['cur_gs_arrow.png']);
+    // this.renderContainer.cursor = 'none';
     this.renderContainer.interactive = true;
-    this.renderContainer.cursor = "pointer";
-
+    this.uiPlusRenderGroup.addChild(this.softCursorSprite);
   }
 
   public async initializeTexts() {
     await Assets.load('./GustysSerpentsFontL.xml');
 
     this.fpsText = new BitmapText({ text: 'FPS: 0', style: this.DEFAULT_FONT_STYLE, });
-    this.fpsText.x = 10;
-    this.fpsText.y = 10;
+    this.fpsText.x = 62;
+    this.fpsText.y = 2;
     this.fpsText.alpha = 0.7;
     this.uiRenderGroup.addChild(this.fpsText);
 
@@ -213,6 +219,22 @@ export class HexesApp {
 
 
     console.log('Loaded sounds...');
+
+  }
+
+  public initializeCommonControls(): void {
+    this.commonControls.initializeButtons();
+    this.uiRenderGroup.addChild(this.commonControls.fullscreenToggleButton);
+    this.uiRenderGroup.addChild(this.commonControls.zoomInButton);
+    this.uiRenderGroup.addChild(this.commonControls.zoomOutButton);
+
+    this.commonControls.zoomInButton.onPress.connect(() => {
+      console.log('Zoom in');
+    });
+
+    this.commonControls.zoomOutButton.onPress.connect(() => {
+      console.log('Zoom out');
+    });
 
   }
 
@@ -319,21 +341,18 @@ export class HexesApp {
       }
     });
 
-    document.addEventListener('click', (event) => {
-      if (event.x < 10 && event.y < 10) {
-        this.enterFullscreen();
-      }
-    });
-
     document.addEventListener('mousedown', (event) => {
       if (this.currentGameState === GameState.InGame) {
-        let scaledX = event.clientX / this.renderContainer.scale.x - this.renderContainerOffset.x;
-        let scaledY = event.clientY / this.renderContainer.scale.y - this.renderContainerOffset.y;
+        const offsetCorrectedX = event.clientX - this.renderContainerOffset.x;
+        const offsetCorrectedY = event.clientY - this.renderContainerOffset.y;
+
+        let scaledX = offsetCorrectedX / this.renderContainer.scale.x;
+        let scaledY = offsetCorrectedY / this.renderContainer.scale.y;
 
         let hexCoords = this.hexMap.pixelToHex(scaledX, scaledY);
-        if (this.messagesText) this.messagesText.text = `Mouse down: ${event.clientX}, ${event.clientY} 
-        => scaled: ${scaledX}, ${scaledY}
-        => clicked cell: ${hexCoords.x}, ${hexCoords.y}`;
+        // if (this.messagesText) this.messagesText.text = `Mouse down: ${event.clientX}, ${event.clientY} 
+        // => offset corrected: ${offsetCorrectedX}, ${offsetCorrectedY}
+        // => clicked cell: ${hexCoords.x}, ${hexCoords.y}`;
 
         if (hexCoords.x >= 0 && hexCoords.x < this.hexMap.width && hexCoords.y >= 0 && hexCoords.y < this.hexMap.height) {
           if (!this.hexHoverSprite) {
@@ -352,13 +371,22 @@ export class HexesApp {
 
     document.addEventListener('mousemove', (event) => {
       if (this.currentGameState === GameState.InGame) {
-        let scaledX = event.clientX / this.renderContainer.scale.x - this.renderContainerOffset.x;
-        let scaledY = event.clientY / this.renderContainer.scale.y - this.renderContainerOffset.y;
+        const offsetCorrectedX = event.clientX - this.renderContainerOffset.x;
+        const offsetCorrectedY = event.clientY - this.renderContainerOffset.y;
+
+        this.softCursorSprite.x = offsetCorrectedX;
+        this.softCursorSprite.y = offsetCorrectedY;
+
+        let scaledX = offsetCorrectedX / this.renderContainer.scale.x;
+        let scaledY = offsetCorrectedY / this.renderContainer.scale.y;
+
+        this.softCursorSprite.x = scaledX;
+        this.softCursorSprite.y = scaledY;
 
         let hexCoords = this.hexMap.pixelToHex(scaledX, scaledY);
-        if (this.messagesText) this.messagesText.text = `Mouse move: ${event.clientX}, ${event.clientY} 
-        => scaled: ${scaledX}, ${scaledY}
-        => over cell: ${hexCoords.x}, ${hexCoords.y}`;
+        // if (this.messagesText) this.messagesText.text = `Mouse move: ${event.clientX}, ${event.clientY} 
+        // => scaled: ${scaledX}, ${scaledY}
+        // => over cell: ${hexCoords.x}, ${hexCoords.y}`;
 
         if (hexCoords.x >= 0 && hexCoords.x < this.hexMap.width && hexCoords.y >= 0 && hexCoords.y < this.hexMap.height) {
           if (!this.hexHoverSprite) {
@@ -370,6 +398,12 @@ export class HexesApp {
             const hexHoverCoords = this.hexMap.hexToPixel(hexCoords.x, hexCoords.y);
             this.hexHoverSprite.x = hexHoverCoords.x - this.hexMap.cellSize().x / 2;
             this.hexHoverSprite.y = hexHoverCoords.y - this.hexMap.cellSize().y / 2;
+          }
+        }
+        else {
+          if (this.hexHoverSprite) {
+            this.mainRenderGroup.removeChild(this.hexHoverSprite);
+            this.hexHoverSprite = undefined;
           }
         }
       }
