@@ -5,12 +5,26 @@ export class HexMap {
   private CELL_WIDTH = 80;
   private CELL_HEIGHT = 92;
 
+  static readonly ZOOM_LEVEL_MIN = 0.5;
+  static readonly ZOOM_LEVEL_MAX = 2;
+
+  private zoomLevel_ = 1;
+
   public offset(): { x: number, y: number } { return { x: this.OFFSET_X, y: this.OFFSET_Y }; }
   public setOffset(x: number, y: number) { this.OFFSET_X = x; this.OFFSET_Y = y; }
   public cellSize(): { x: number, y: number } { return { x: this.CELL_WIDTH, y: this.CELL_HEIGHT }; }
   public setCellSize(size: number) { this.CELL_WIDTH = size; }
 
-  
+  public get zoomLevel(): number { return this.zoomLevel_; }
+  public set zoomLevel(value: number) {
+    if (value < HexMap.ZOOM_LEVEL_MIN || value > HexMap.ZOOM_LEVEL_MAX) {
+      console.log(`Zoom level must be between ${HexMap.ZOOM_LEVEL_MIN} and ${HexMap.ZOOM_LEVEL_MAX}`);
+      return;
+    }
+    this.zoomLevel_ = value;
+    this.CELL_WIDTH = 80 * value;
+    this.CELL_HEIGHT = 92 * value;
+  }
 
   constructor(public width: number, public height: number) {
   }

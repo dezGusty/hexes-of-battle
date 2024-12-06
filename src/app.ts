@@ -11,12 +11,23 @@ export enum GameState {
   PostGameEnterHighscore
 }
 
+export interface Coords {
+  x: number, y: number
+}
+
 export class HexesApp {
 
   private currentGameState: GameState = GameState.InGame;
   private version: string = pkg.version;
   private hexMap: HexMap = new HexMap(15, 11);
   private NATIVE_RESOLUTION = { width: 1600, height: 900 };
+
+  private navZoomLevel: number = 1;
+  private navMapOffset: Coords = { x: 0, y: 0 };
+  private MAP_OFFSET_MIN: Coords = { x: -600, y: -600 };
+  private MAP_OFFSET_MAX: Coords = { x: 1200, y: 1200 };
+
+  private mouseDragCoords: Coords = { x: 0, y: 0 };
 
   private terrainTextureNames: string[] = [];
   private unitsTextureNames: string[] = [];
@@ -46,31 +57,24 @@ export class HexesApp {
 
   // Add render groups for layering
   private terrainRenderGroup: Container = new Container({ isRenderGroup: true });
-  private mainRenderGroup: Container = new Container({ isRenderGroup: true });
   private unitRenderSubgroups: Container[] = [];
   private unitRenderGroup: Container = new Container({ isRenderGroup: true });
   private uiRenderGroup: Container = new Container({ isRenderGroup: true });
   private uiPlusRenderGroup: Container = new Container({ isRenderGroup: true });
   private renderContainer: Container = new Container();
 
-  private renderContainerOffset: { x: number, y: number } = { x: 0, y: 0 };
+  private hexZoneContainer: Container = new Container({ isRenderGroup: true });
+  private hexCellsContainer: Container = new Container({ isRenderGroup: true });
+  private hexUiRenderGroup: Container = new Container({ isRenderGroup: true });
+
+
+  private renderContainerOffset: Coords = { x: 0, y: 0 };
 
   private DEFAULT_FONT_STYLE: TextStyle | TextStyleOptions = { fontFamily: 'GustysSerpents', fontSize: 18, align: 'left' };
   private CELL_SIZE = 80;
 
 
   // Store the touch zones for the directions and actions
-  private touchZoneActions: { x: number, y: number, action: string }[] = [
-    { x: 109, y: 171, action: 'up' },
-    { x: 109, y: 292, action: 'down' },
-    { x: 50, y: 232, action: 'left' },
-    { x: 169, y: 232, action: 'right' },
-
-    { x: 689, y: 171, action: 'up' },
-    { x: 689, y: 292, action: 'down' },
-    { x: 630, y: 232, action: 'left' },
-    { x: 749, y: 232, action: 'right' }
-  ];
 
   private tempMessage = "";
   private needToAddHighscore: boolean = false;
@@ -111,10 +115,13 @@ export class HexesApp {
     this.app.stage.addChild(this.renderContainer);
 
     this.renderContainer.addChild(this.terrainRenderGroup);
-    this.renderContainer.addChild(this.mainRenderGroup);
-    this.renderContainer.addChild(this.unitRenderGroup);
+    this.renderContainer.addChild(this.hexZoneContainer);
     this.renderContainer.addChild(this.uiRenderGroup);
     this.renderContainer.addChild(this.uiPlusRenderGroup);
+
+    this.hexZoneContainer.addChild(this.hexCellsContainer);
+    this.hexZoneContainer.addChild(this.unitRenderGroup);
+    this.hexZoneContainer.addChild(this.hexUiRenderGroup);
 
     await this.loadAssets();
     await this.loadSounds();
@@ -134,7 +141,7 @@ export class HexesApp {
 
   }
 
-  
+
 
   private setScalingForSize(width: number, height: number) {
     if (this.instructionsText) {
@@ -148,6 +155,8 @@ export class HexesApp {
     // const minScale = scaling.y * 2;
 
     this.renderContainer.scale.set(minScale, minScale);
+
+    this.hexZoneContainer.scale.set(this.navZoomLevel, this.navZoomLevel);
 
     // Set-up an offset for the render container.
     // It should be in the middle horizontally and about 30 pixels up from the middle vertically
@@ -180,7 +189,6 @@ export class HexesApp {
 
     this.softCursorSprite = new Sprite(this.uiSheet.textures['cur_gs_arrow.png']);
     // this.renderContainer.cursor = 'none';
-    this.renderContainer.interactive = true;
     this.uiPlusRenderGroup.addChild(this.softCursorSprite);
   }
 
@@ -222,20 +230,37 @@ export class HexesApp {
 
   }
 
+  public modifyZoomLevel(delta: number, zoomOffset: Coords = { x: 0.5, y: 0.5 }): void {
+    let oldHexContainerSize = { x: this.hexZoneContainer.width, y: this.hexZoneContainer.height };
+    this.navZoomLevel += delta;
+    this.hexZoneContainer.scale.set(this.navZoomLevel, this.navZoomLevel);
+
+    this.setNavMapOffset({
+      x: this.navMapOffset.x + (oldHexContainerSize.x - this.hexZoneContainer.width) * zoomOffset.x,
+      y: this.navMapOffset.y + (oldHexContainerSize.y - this.hexZoneContainer.height) * zoomOffset.y
+    });
+  }
+
   public initializeCommonControls(): void {
     this.commonControls.initializeButtons();
     this.uiRenderGroup.addChild(this.commonControls.fullscreenToggleButton);
     this.uiRenderGroup.addChild(this.commonControls.zoomInButton);
     this.uiRenderGroup.addChild(this.commonControls.zoomOutButton);
+    this.uiRenderGroup.addChild(this.commonControls.toggleCoordsButton);
 
     this.commonControls.zoomInButton.onPress.connect(() => {
-      console.log('Zoom in');
+      this.modifyZoomLevel(0.1);
     });
 
     this.commonControls.zoomOutButton.onPress.connect(() => {
-      console.log('Zoom out');
+      this.modifyZoomLevel(-0.1);
     });
 
+    this.commonControls.toggleCoordsButton.onPress.connect(() => {
+      this.coordsTexts.forEach((text) => {
+        text.visible = !text.visible;
+      });
+    });
   }
 
   public initializeMapAndGame(): void {
@@ -250,21 +275,20 @@ export class HexesApp {
     for (let j = 0; j < this.hexMap.height; j++) {
       for (let i = 0; i < this.hexMap.width; i++) {
         const gameSprite = new Sprite(this.hexagonSheet?.textures['hex_empty.png']);
-        // let { x, y } = this.hexMap.getCellTopCornerCoords({ x: i, y: j });
-        let { x, y } = this.hexMap.hexToPixel(i, j);
-        x -= this.hexMap.cellSize().x / 2;
-        y -= this.hexMap.cellSize().y / 2;
+        let hexCoord: Coords = this.hexMap.hexToPixel(i, j);
+        hexCoord = {
+          x: hexCoord.x - this.hexMap.cellSize().x / 2,
+          y: hexCoord.y - this.hexMap.cellSize().y / 2
+        };
 
-        gameSprite.x = x;
-        gameSprite.y = y;
-        this.mainRenderGroup.addChild(gameSprite);
+        gameSprite.position.copyFrom(hexCoord);
+        this.hexCellsContainer.addChild(gameSprite);
 
         let coordsText = new BitmapText({ text: `${i},${j}`, style: this.DEFAULT_FONT_STYLE, });
-        coordsText.x = x;
-        coordsText.y = y;
+        coordsText.position.copyFrom(hexCoord);
 
         this.coordsTexts.push(coordsText);
-        this.uiRenderGroup.addChild(coordsText);
+        this.hexUiRenderGroup.addChild(coordsText);
       }
     }
 
@@ -307,6 +331,15 @@ export class HexesApp {
     });
   }
 
+  public setNavMapOffset(offset: Coords): void {
+    this.navMapOffset.y = Math.max(this.MAP_OFFSET_MIN.y, offset.y);
+    this.navMapOffset.y = Math.min(this.MAP_OFFSET_MAX.y, offset.y);
+    this.navMapOffset.x = Math.max(this.MAP_OFFSET_MIN.x, offset.x);
+    this.navMapOffset.x = Math.min(this.MAP_OFFSET_MAX.x, offset.x);
+
+    this.hexZoneContainer.position.copyFrom(this.navMapOffset);
+  }
+
   public setupInputHandlers(): void {
 
     window.addEventListener("gamepadconnected", (e) => {
@@ -331,67 +364,101 @@ export class HexesApp {
         if (event.code === 'Escape') {
           // quit the game?
 
+        } else if (event.code === 'ArrowUp') {
+          this.setNavMapOffset({ x: this.navMapOffset.x, y: this.navMapOffset.y - 10 });
+        } else if (event.code === 'ArrowDown') {
+          this.setNavMapOffset({ x: this.navMapOffset.x, y: this.navMapOffset.y + 10 });
+        } else if (event.code === 'ArrowLeft') {
+          this.setNavMapOffset({ x: this.navMapOffset.x - 10, y: this.navMapOffset.y });
+        } else if (event.code === 'ArrowRight') {
+          this.setNavMapOffset({ x: this.navMapOffset.x + 10, y: this.navMapOffset.y });
+        } else if (event.code === 'Equal') {
+          // check the + and - keys for zooming
+          this.modifyZoomLevel(0.1);
+        } else if (event.code === 'Minus') {
+          this.modifyZoomLevel(-0.1);
         }
+
       }
     });
 
     document.addEventListener('keyup', (event) => {
+
+    });
+
+    // add a scroll event listener
+    document.addEventListener('wheel', (event) => {
       if (this.currentGameState === GameState.InGame) {
+        let directionSign: number = event.deltaY > 0 ? -1 : 1;
+        console.log(`Zoom at coords ${event.clientX}, ${event.clientY}`);
+        // Get the ratio between the client event coordinates and the render container size
+        let ratio: Coords = {
+          x: event.clientX / this.app.screen.width,
+          y: event.clientY / this.app.screen.height
+        };
+        if (event.deltaY < 0) {
+          console.log(`Ratio: ${ratio.x}, ${ratio.y}`);
+          this.modifyZoomLevel(0.1, ratio);
+        } else {
+          this.modifyZoomLevel(-0.1, ratio);
+        }
 
       }
     });
 
     document.addEventListener('mousedown', (event) => {
-      if (this.currentGameState === GameState.InGame) {
-        const offsetCorrectedX = event.clientX - this.renderContainerOffset.x;
-        const offsetCorrectedY = event.clientY - this.renderContainerOffset.y;
+      // If this is the middle button, start dragging
+      if (event.button === 1) {
+        this.mouseDragCoords = { x: event.clientX, y: event.clientY };
+      }
+    });
 
-        let scaledX = offsetCorrectedX / this.renderContainer.scale.x;
-        let scaledY = offsetCorrectedY / this.renderContainer.scale.y;
-
-        let hexCoords = this.hexMap.pixelToHex(scaledX, scaledY);
-        // if (this.messagesText) this.messagesText.text = `Mouse down: ${event.clientX}, ${event.clientY} 
-        // => offset corrected: ${offsetCorrectedX}, ${offsetCorrectedY}
-        // => clicked cell: ${hexCoords.x}, ${hexCoords.y}`;
-
-        if (hexCoords.x >= 0 && hexCoords.x < this.hexMap.width && hexCoords.y >= 0 && hexCoords.y < this.hexMap.height) {
-          if (!this.hexHoverSprite) {
-            this.hexHoverSprite = new Sprite(this.hexagonSheet?.textures['hex_usable_yellow.png']);
-            this.mainRenderGroup.addChild(this.hexHoverSprite);
-          }
-
-          if (this.hexHoverSprite) {
-            const hexHoverCoords = this.hexMap.hexToPixel(hexCoords.x, hexCoords.y);
-            this.hexHoverSprite.x = hexHoverCoords.x - this.hexMap.cellSize().x / 2;
-            this.hexHoverSprite.y = hexHoverCoords.y - this.hexMap.cellSize().y / 2;
-          }
-        }
+    document.addEventListener('mouseup', (event) => {
+      // If this is the middle button, stop dragging
+      if (event.button === 1) {
+        this.mouseDragCoords = { x: 0, y: 0 };
       }
     });
 
     document.addEventListener('mousemove', (event) => {
       if (this.currentGameState === GameState.InGame) {
-        const offsetCorrectedX = event.clientX - this.renderContainerOffset.x;
-        const offsetCorrectedY = event.clientY - this.renderContainerOffset.y;
 
-        this.softCursorSprite.x = offsetCorrectedX;
-        this.softCursorSprite.y = offsetCorrectedY;
+        if (this.mouseDragCoords.x > 0 && this.mouseDragCoords.y > 0) {
+          // Get the difference between the current and previous mouse coordinates
+          let deltaX = event.clientX - this.mouseDragCoords.x;
+          let deltaY = event.clientY - this.mouseDragCoords.y;
+          // drag the map
+          this.navMapOffset.x += deltaX;
+          this.navMapOffset.y += deltaY;
+          // clamp the values
+          this.navMapOffset.x = Math.max(this.MAP_OFFSET_MIN.x, this.navMapOffset.x);
+          this.navMapOffset.x = Math.min(this.MAP_OFFSET_MAX.x, this.navMapOffset.x);
+          this.navMapOffset.y = Math.max(this.MAP_OFFSET_MIN.y, this.navMapOffset.y);
+          this.navMapOffset.y = Math.min(this.MAP_OFFSET_MAX.y, this.navMapOffset.y);
 
-        let scaledX = offsetCorrectedX / this.renderContainer.scale.x;
-        let scaledY = offsetCorrectedY / this.renderContainer.scale.y;
+          this.hexZoneContainer.position.copyFrom(this.navMapOffset);
+          // store the current mouse coordinates
+          this.mouseDragCoords = { x: event.clientX, y: event.clientY };
+          return;
+        }
 
-        this.softCursorSprite.x = scaledX;
-        this.softCursorSprite.y = scaledY;
+        let renderContainerAdjustedCoords = this.adjustInContainerCoords(
+          { x: event.clientX, y: event.clientY },
+          this.renderContainerOffset,
+          this.renderContainer.scale);
 
-        let hexCoords = this.hexMap.pixelToHex(scaledX, scaledY);
-        // if (this.messagesText) this.messagesText.text = `Mouse move: ${event.clientX}, ${event.clientY} 
-        // => scaled: ${scaledX}, ${scaledY}
-        // => over cell: ${hexCoords.x}, ${hexCoords.y}`;
+        this.softCursorSprite.position.copyFrom(renderContainerAdjustedCoords);
+
+        let navAdjustedCoords = this.adjustInContainerCoords(
+          renderContainerAdjustedCoords,
+          this.navMapOffset,
+          { x: this.navZoomLevel, y: this.navZoomLevel });
+        let hexCoords = this.hexMap.pixelToHex(navAdjustedCoords.x, navAdjustedCoords.y);
 
         if (hexCoords.x >= 0 && hexCoords.x < this.hexMap.width && hexCoords.y >= 0 && hexCoords.y < this.hexMap.height) {
           if (!this.hexHoverSprite) {
             this.hexHoverSprite = new Sprite(this.hexagonSheet?.textures['hex_usable_yellow.png']);
-            this.mainRenderGroup.addChild(this.hexHoverSprite);
+            this.hexCellsContainer.addChild(this.hexHoverSprite);
           }
 
           if (this.hexHoverSprite) {
@@ -402,7 +469,7 @@ export class HexesApp {
         }
         else {
           if (this.hexHoverSprite) {
-            this.mainRenderGroup.removeChild(this.hexHoverSprite);
+            this.hexCellsContainer.removeChild(this.hexHoverSprite);
             this.hexHoverSprite = undefined;
           }
         }
@@ -436,6 +503,13 @@ export class HexesApp {
     console.log(`Touch input: ${touchX}, ${touchY}`);
   }
 
+
+  private adjustInContainerCoords(sourceCoords: Coords, offsetCoords: Coords, containerScaling: Coords): Coords {
+    return {
+      x: (sourceCoords.x - offsetCoords.x) / containerScaling.x,
+      y: (sourceCoords.y - offsetCoords.y) / containerScaling.y
+    };
+  }
 
 };
 

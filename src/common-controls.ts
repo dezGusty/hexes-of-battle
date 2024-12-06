@@ -1,4 +1,4 @@
-import { FancyButton } from "@pixi/ui";
+import { ButtonOptions, FancyButton } from "@pixi/ui";
 import { BitmapText, TextStyle, TextStyleOptions } from "pixi.js";
 
 /**
@@ -13,39 +13,32 @@ export class CommonControls {
   public fullscreenToggleButton: FancyButton;
   public zoomInButton: FancyButton;
   public zoomOutButton: FancyButton;
+  public toggleCoordsButton: FancyButton;
   private DEFAULT_FONT_STYLE: TextStyle | TextStyleOptions = { fontFamily: 'GustysSerpents', fontSize: 18, align: 'left' };
+  private DEFAULT_BUTTON_STYLE: ButtonOptions = {
+    defaultView: 'btn_simple.png',
+    hoverView: 'btn_simple_hover.png',
+    pressedView: 'btn_simple_click.png',
+    nineSliceSprite: [7, 7, 7, 7]
+  };
 
   public initializeButtons() {
-    this.fullscreenToggleButton = new FancyButton({
-      defaultView: 'btn_simple.png',
-      hoverView: 'btn_simple_hover.png',
-      pressedView: 'btn_simple_click.png',
-      icon: 'glyph_fullscreen.png',
-      // text: new BitmapText({
-      //   text: 'Start', style: this.DEFAULT_FONT_STYLE,
-      // }),
-      nineSliceSprite: [7, 7, 7, 7]
-    });
 
+    // Create the fullscreen toggle button reusing the DEFAULT_BUTTON_STYLE property
+    this.fullscreenToggleButton = new FancyButton({
+      ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_fullscreen.png'
+    })
     this.fullscreenToggleButton.position.set(10, 10);
 
-    this.zoomInButton = new FancyButton({
-      defaultView: 'btn_simple.png',
-      hoverView: 'btn_simple_hover.png',
-      pressedView: 'btn_simple_click.png',
-      nineSliceSprite: [7, 7, 7, 7]
-    });
-
+    this.zoomInButton = new FancyButton(this.DEFAULT_BUTTON_STYLE);
     this.zoomInButton.position.set(10, 60);
 
-    this.zoomOutButton = new FancyButton({
-      defaultView: 'btn_simple.png',
-      hoverView: 'btn_simple_hover.png',
-      pressedView: 'btn_simple_click.png',
-      nineSliceSprite: [7, 7, 7, 7]
-    });
-
+    this.zoomOutButton = new FancyButton(this.DEFAULT_BUTTON_STYLE);
     this.zoomOutButton.position.set(10, 110);
+
+    this.toggleCoordsButton = new FancyButton(this.DEFAULT_BUTTON_STYLE);
+    this.toggleCoordsButton.position.set(10, 160);
+
 
     this.connectEventHandlers();
 
