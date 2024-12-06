@@ -63,6 +63,22 @@
                 "w": 32,
                 "h": 32
             }
+        },
+        "glyph_plus.png": {
+            "frame": {
+                "x": 69,
+                "y": 35,
+                "w": 32,
+                "h": 32
+            }
+        },
+        "glyph_minus.png": {
+            "frame": {
+                "x": 103,
+                "y": 35,
+                "w": 32,
+                "h": 32
+            }
         }
     },
     "animations": {        

@@ -30,10 +30,10 @@ export class CommonControls {
     })
     this.fullscreenToggleButton.position.set(10, 10);
 
-    this.zoomInButton = new FancyButton(this.DEFAULT_BUTTON_STYLE);
+    this.zoomInButton = new FancyButton({...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_plus.png'});
     this.zoomInButton.position.set(10, 60);
 
-    this.zoomOutButton = new FancyButton(this.DEFAULT_BUTTON_STYLE);
+    this.zoomOutButton = new FancyButton({...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_minus.png'});
     this.zoomOutButton.position.set(10, 110);
 
     this.toggleCoordsButton = new FancyButton(this.DEFAULT_BUTTON_STYLE);
