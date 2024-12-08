@@ -2,6 +2,10 @@ import { Application, Sprite, Assets, Text, TextStyle, BitmapText, Spritesheet, 
 import pkg from './../package.json';
 import { HexMap } from './hex-map';
 import { CommonControls } from './common-controls';
+import { Coords } from './shared';
+import { Battle } from './battle';
+import { Army } from './army';
+import { Creature, CreatureType } from './creature';
 
 export enum GameState {
   InMenu,
@@ -11,15 +15,18 @@ export enum GameState {
   PostGameEnterHighscore
 }
 
-export interface Coords {
-  x: number, y: number
-}
+
 
 export class HexesApp {
 
   private currentGameState: GameState = GameState.InGame;
   private version: string = pkg.version;
+
   private hexMap: HexMap = new HexMap(15, 11);
+  private army1?: Army;
+  private army2?: Army;
+  private battle?: Battle;
+
   private NATIVE_RESOLUTION = { width: 1600, height: 900 };
 
   private ZOOM_LEVEL_MIN = 0.5;
@@ -75,13 +82,10 @@ export class HexesApp {
   private renderContainerOffset: Coords = { x: 0, y: 0 };
 
   private DEFAULT_FONT_STYLE: TextStyle | TextStyleOptions = { fontFamily: 'GustysSerpents', fontSize: 18, align: 'left' };
-  private CELL_SIZE = 80;
-
 
   // Store the touch zones for the directions and actions
 
   private tempMessage = "";
-  private needToAddHighscore: boolean = false;
 
   constructor(public app: Application) {
     // this.currentGameState = GameState.InMenu;
@@ -335,27 +339,69 @@ export class HexesApp {
       }
     }
 
+
     for (let i = 0; i < this.hexMap.height; i++) {
       // Add a render group
       this.unitRenderSubgroups.push(new Container({ isRenderGroup: true }));
       this.unitRenderGroup.addChild(this.unitRenderSubgroups[i]);
     }
 
-    // Add some random units
-    for (let j = this.hexMap.height - 1; j >= 0; j--) {
-      for (let i = this.hexMap.width - 1; i >= 0; i--) {
-        let { x, y } = this.hexMap.hexToPixel(i, j);
-        x -= this.hexMap.cellSize().x / 2;
-        y -= this.hexMap.cellSize().y / 2;
+    // Create the battle.
+    this.army1 = new Army();
+    this.army2 = new Army();
+    this.battle = new Battle(this.hexMap, this.army1, this.army2);
+    let creature = new Creature();
+    creature.position = { x: 0, y: 0 };
 
-        const unitSprite = new Sprite(this.unitsSheet?.textures['peasant_fork_right.png']);
-        unitSprite.x = x;
-        unitSprite.y = y;
-        this.unitSprites.push(unitSprite);
+    this.army1.creatures.push(creature);
+    creature = new Creature(CreatureType.SPEARMAN);
+    creature.position = { x: 1, y: 3 };
+    this.army1.creatures.push(creature);
 
-        this.unitRenderSubgroups[j].addChild(unitSprite);
+    creature = new Creature(CreatureType.PEASANT_ARCHER);
+    creature.position = { x: 2, y: 5 };
+    this.army1.creatures.push(creature);
+
+    this.army1.creatures.forEach((creature) => {
+      let { x, y } = this.hexMap.hexToPixel(creature.position.x, creature.position.y);
+      x -= this.hexMap.cellSize().x / 2;
+      y -= this.hexMap.cellSize().y / 2;
+
+      let unitTextureName = 'peasant_fork_right.png';
+      switch (creature.creatureType) {
+        case CreatureType.PEASANT:
+          unitTextureName = 'peasant_fork_right.png';
+          break;
+        case CreatureType.PEASANT_ARCHER:
+          unitTextureName = 'peasant_archer_right.png';
+          break;
+        case CreatureType.SPEARMAN:
+          unitTextureName = 'pikeman_right.png';
+          break;
       }
-    }
+      const unitSprite = new Sprite(this.unitsSheet?.textures[unitTextureName]);
+      unitSprite.x = x;
+      unitSprite.y = y;
+      this.unitSprites.push(unitSprite);
+
+      this.unitRenderSubgroups[creature.position.y].addChild(unitSprite);
+    });
+
+    // Add some random units
+    // for (let j = this.hexMap.height - 1; j >= 0; j--) {
+    //   for (let i = this.hexMap.width - 1; i >= 0; i--) {
+    //     let { x, y } = this.hexMap.hexToPixel(i, j);
+    //     x -= this.hexMap.cellSize().x / 2;
+    //     y -= this.hexMap.cellSize().y / 2;
+
+    //     const unitSprite = new Sprite(this.unitsSheet?.textures['peasant_fork_right.png']);
+    //     unitSprite.x = x;
+    //     unitSprite.y = y;
+    //     this.unitSprites.push(unitSprite);
+
+    //     this.unitRenderSubgroups[j].addChild(unitSprite);
+    //   }
+    // }
   }
 
 

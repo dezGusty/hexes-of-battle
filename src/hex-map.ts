@@ -1,32 +1,27 @@
+export class HexMapConfig {
+  public OFFSET_X = 0;
+  public OFFSET_Y = 0;
+  public CELL_WIDTH = 80;
+  public CELL_HEIGHT = 92;
+}
+
+
 export class HexMap {
 
-  private OFFSET_X = 0;
-  private OFFSET_Y = 0;
-  private CELL_WIDTH = 80;
-  private CELL_HEIGHT = 92;
+  static DEFAULT_HEX_MAP_CONFIG: HexMapConfig = {
+    OFFSET_X: 0,
+    OFFSET_Y: 0,
+    CELL_WIDTH: 80,
+    CELL_HEIGHT: 92
+  };
 
-  static readonly ZOOM_LEVEL_MIN = 0.5;
-  static readonly ZOOM_LEVEL_MAX = 2;
+  public offset(): { x: number, y: number } { return { x: this.config.OFFSET_X, y: this.config.OFFSET_Y }; }
+  public setOffset(x: number, y: number) { this.config.OFFSET_X = x; this.config.OFFSET_Y = y; }
+  public cellSize(): { x: number, y: number } { return { x: this.config.CELL_WIDTH, y: this.config.CELL_HEIGHT }; }
+  public setCellSize(size: number) { this.config.CELL_WIDTH = size; }
 
-  private zoomLevel_ = 1;
+  constructor(public width: number, public height: number, private config: HexMapConfig = HexMap.DEFAULT_HEX_MAP_CONFIG) {
 
-  public offset(): { x: number, y: number } { return { x: this.OFFSET_X, y: this.OFFSET_Y }; }
-  public setOffset(x: number, y: number) { this.OFFSET_X = x; this.OFFSET_Y = y; }
-  public cellSize(): { x: number, y: number } { return { x: this.CELL_WIDTH, y: this.CELL_HEIGHT }; }
-  public setCellSize(size: number) { this.CELL_WIDTH = size; }
-
-  public get zoomLevel(): number { return this.zoomLevel_; }
-  public set zoomLevel(value: number) {
-    if (value < HexMap.ZOOM_LEVEL_MIN || value > HexMap.ZOOM_LEVEL_MAX) {
-      console.log(`Zoom level must be between ${HexMap.ZOOM_LEVEL_MIN} and ${HexMap.ZOOM_LEVEL_MAX}`);
-      return;
-    }
-    this.zoomLevel_ = value;
-    this.CELL_WIDTH = 80 * value;
-    this.CELL_HEIGHT = 92 * value;
-  }
-
-  constructor(public width: number, public height: number) {
   }
 
   /**
@@ -39,9 +34,9 @@ export class HexMap {
    */
   public hexToPixel(q: number, r: number): { x: number, y: number } {
     const SQRT3 = Math.sqrt(3);
-    const cellSize = this.CELL_WIDTH / SQRT3;
-    let x = this.OFFSET_X + cellSize * (SQRT3 * q + SQRT3 / 2 * r);
-    let y = this.OFFSET_Y + cellSize * (3.0 / 2 * r);
+    const cellSize = this.config.CELL_WIDTH / SQRT3;
+    let x = this.config.OFFSET_X + cellSize * (SQRT3 * q + SQRT3 / 2 * r);
+    let y = this.config.OFFSET_Y + cellSize * (3.0 / 2 * r);
 
     // Adjust the horizontal position.
     // {0, 0} => {0, 0}
@@ -49,7 +44,7 @@ export class HexMap {
     // {0, 2} => {1, 2}
     //  {0, 3} => {1, 3}
     // {0, 4} => {2, 4}
-    x -= Math.floor(r / 2) * this.CELL_WIDTH;
+    x -= Math.floor(r / 2) * this.config.CELL_WIDTH;
 
     return { x, y };
   }
@@ -62,8 +57,8 @@ export class HexMap {
    */
   public pixelToHex(x: number, y: number): { x: number, y: number } {
     const SQRT3 = Math.sqrt(3);
-    let coordsWithoutOffset: { x: number, y: number } = { x: x - this.OFFSET_X, y: y - this.OFFSET_Y };
-    const cellSize = this.CELL_WIDTH / SQRT3;
+    let coordsWithoutOffset: { x: number, y: number } = { x: x - this.config.OFFSET_X, y: y - this.config.OFFSET_Y };
+    const cellSize = this.config.CELL_WIDTH / SQRT3;
 
     let q = (coordsWithoutOffset.x * SQRT3 / 3 - coordsWithoutOffset.y / 3) / cellSize;
     let r = coordsWithoutOffset.y * 2 / 3 / cellSize;
