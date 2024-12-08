@@ -22,6 +22,8 @@ export class HexesApp {
   private hexMap: HexMap = new HexMap(15, 11);
   private NATIVE_RESOLUTION = { width: 1600, height: 900 };
 
+  private ZOOM_LEVEL_MIN = 0.5;
+  private ZOOM_LEVEL_MAX = 2.0;
   private navZoomLevel: number = 1;
   private navMapOffset: Coords = { x: 0, y: 0 };
   private MAP_OFFSET_MIN: Coords = { x: -600, y: -600 };
@@ -64,6 +66,8 @@ export class HexesApp {
   private renderContainer: Container = new Container();
 
   private hexZoneContainer: Container = new Container({ isRenderGroup: true });
+  private hexTerrainContainer: Container = new Container({ isRenderGroup: true });
+  private hexCellsGridContainer: Container = new Container({ isRenderGroup: true });
   private hexCellsContainer: Container = new Container({ isRenderGroup: true });
   private hexUiRenderGroup: Container = new Container({ isRenderGroup: true });
 
@@ -111,6 +115,12 @@ export class HexesApp {
     // can then insert into the DOM
     containingElement.appendChild(this.app.canvas);
 
+    // As a game, we do not need the default context menu in a browser, so we disable it
+    containingElement.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+    });
+
+
     // Add the stage to the canvas
     this.app.stage.addChild(this.renderContainer);
 
@@ -119,6 +129,8 @@ export class HexesApp {
     this.renderContainer.addChild(this.uiRenderGroup);
     this.renderContainer.addChild(this.uiPlusRenderGroup);
 
+    this.hexZoneContainer.addChild(this.hexTerrainContainer);
+    this.hexZoneContainer.addChild(this.hexCellsGridContainer);
     this.hexZoneContainer.addChild(this.hexCellsContainer);
     this.hexZoneContainer.addChild(this.unitRenderGroup);
     this.hexZoneContainer.addChild(this.hexUiRenderGroup);
@@ -170,11 +182,17 @@ export class HexesApp {
 
   public async loadAssets() {
 
-    this.terrainTexture = await Assets.load('terrain1background.png');
+    // this.terrainTexture = await Assets.load('terrain1background.png');
+    this.terrainTexture = await Assets.load('stars.jpg');
 
     this.hexagonSheet = await Assets.load('hexesspritesheet2.json');
     if (!this.hexagonSheet) {
       console.error('Failed to load the hexes spritesheet');
+    }
+
+    this.terrainSheet = await Assets.load('terrainspritesheet.json');
+    if (!this.terrainSheet) {
+      console.error('Failed to load the terrain spritesheet');
     }
 
     this.unitsSheet = await Assets.load('unitsspritesheet.json');
@@ -230,9 +248,18 @@ export class HexesApp {
 
   }
 
+  /**
+   * Modify the zoom level of the map by a given delta.
+   * @param delta A positive or negative value to modify the zoom level by
+   * @param zoomOffset Where to zoom in/out from. Default is the center of the screen.
+   */
   public modifyZoomLevel(delta: number, zoomOffset: Coords = { x: 0.5, y: 0.5 }): void {
     let oldHexContainerSize = { x: this.hexZoneContainer.width, y: this.hexZoneContainer.height };
     this.navZoomLevel += delta;
+    // Clamp the zoom level
+    this.navZoomLevel = Math.max(this.ZOOM_LEVEL_MIN, this.navZoomLevel);
+    this.navZoomLevel = Math.min(this.ZOOM_LEVEL_MAX, this.navZoomLevel);
+
     this.hexZoneContainer.scale.set(this.navZoomLevel, this.navZoomLevel);
 
     this.setNavMapOffset({
@@ -247,6 +274,7 @@ export class HexesApp {
     this.uiRenderGroup.addChild(this.commonControls.zoomInButton);
     this.uiRenderGroup.addChild(this.commonControls.zoomOutButton);
     this.uiRenderGroup.addChild(this.commonControls.toggleCoordsButton);
+    this.uiRenderGroup.addChild(this.commonControls.toggleGridButton);
 
     this.commonControls.zoomInButton.onPress.connect(() => {
       this.modifyZoomLevel(0.1);
@@ -261,6 +289,10 @@ export class HexesApp {
         text.visible = !text.visible;
       });
     });
+
+    this.commonControls.toggleGridButton.onPress.connect(() => {
+      this.hexCellsGridContainer.visible = !this.hexCellsGridContainer.visible;
+    });
   }
 
   public initializeMapAndGame(): void {
@@ -274,15 +306,26 @@ export class HexesApp {
     this.hexMap.setOffset(150, 180);
     for (let j = 0; j < this.hexMap.height; j++) {
       for (let i = 0; i < this.hexMap.width; i++) {
-        const gameSprite = new Sprite(this.hexagonSheet?.textures['hex_empty.png']);
         let hexCoord: Coords = this.hexMap.hexToPixel(i, j);
         hexCoord = {
           x: hexCoord.x - this.hexMap.cellSize().x / 2,
           y: hexCoord.y - this.hexMap.cellSize().y / 2
         };
 
+        // get a random value between 1 and 5
+        let randomValue = 3; //Math.floor(Math.random() * 2) + 3;
+        let terrainSprite = new Sprite(this.terrainSheet?.textures[`grass_${randomValue}.png`]);
+        terrainSprite.position.copyFrom(hexCoord);
+        this.hexTerrainContainer.addChild(terrainSprite);
+
+        const gameSprite = new Sprite(this.hexagonSheet?.textures['hex_empty.png']);
+
         gameSprite.position.copyFrom(hexCoord);
-        this.hexCellsContainer.addChild(gameSprite);
+        this.hexCellsGridContainer.addChild(gameSprite);
+
+        // REUSE the hexCoord variable to position the text, shift it a bit towards the center.
+        hexCoord.x += this.hexMap.cellSize().x / 3;
+        hexCoord.y += this.hexMap.cellSize().y / 3;
 
         let coordsText = new BitmapText({ text: `${i},${j}`, style: this.DEFAULT_FONT_STYLE, });
         coordsText.position.copyFrom(hexCoord);
@@ -411,11 +454,19 @@ export class HexesApp {
       if (event.button === 1) {
         this.mouseDragCoords = { x: event.clientX, y: event.clientY };
       }
+      // If this is the right button, also start dragging
+      if (event.button === 2) {
+        this.mouseDragCoords = { x: event.clientX, y: event.clientY };
+      }
     });
 
     document.addEventListener('mouseup', (event) => {
       // If this is the middle button, stop dragging
       if (event.button === 1) {
+        this.mouseDragCoords = { x: 0, y: 0 };
+      }
+      // If this is the right button, also stop dragging
+      if (event.button === 2) {
         this.mouseDragCoords = { x: 0, y: 0 };
       }
     });
@@ -457,7 +508,8 @@ export class HexesApp {
 
         if (hexCoords.x >= 0 && hexCoords.x < this.hexMap.width && hexCoords.y >= 0 && hexCoords.y < this.hexMap.height) {
           if (!this.hexHoverSprite) {
-            this.hexHoverSprite = new Sprite(this.hexagonSheet?.textures['hex_usable_yellow.png']);
+            // this.hexHoverSprite = new Sprite(this.hexagonSheet?.textures['hex_usable_yellow.png']);
+            this.hexHoverSprite = new Sprite(this.hexagonSheet?.textures['hex_action_disabled_gray.png']);
             this.hexCellsContainer.addChild(this.hexHoverSprite);
           }
 

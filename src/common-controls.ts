@@ -14,6 +14,7 @@ export class CommonControls {
   public zoomInButton: FancyButton;
   public zoomOutButton: FancyButton;
   public toggleCoordsButton: FancyButton;
+  public toggleGridButton: FancyButton;
   private DEFAULT_FONT_STYLE: TextStyle | TextStyleOptions = { fontFamily: 'GustysSerpents', fontSize: 18, align: 'left' };
   private DEFAULT_BUTTON_STYLE: ButtonOptions = {
     defaultView: 'btn_simple.png',
@@ -30,15 +31,17 @@ export class CommonControls {
     })
     this.fullscreenToggleButton.position.set(10, 10);
 
-    this.zoomInButton = new FancyButton({...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_plus.png'});
+    this.zoomInButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_plus.png' });
     this.zoomInButton.position.set(10, 60);
 
-    this.zoomOutButton = new FancyButton({...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_minus.png'});
+    this.zoomOutButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_minus.png' });
     this.zoomOutButton.position.set(10, 110);
 
-    this.toggleCoordsButton = new FancyButton(this.DEFAULT_BUTTON_STYLE);
+    this.toggleCoordsButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_xy.png' });
     this.toggleCoordsButton.position.set(10, 160);
 
+    this.toggleGridButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_grid.png' });
+    this.toggleGridButton.position.set(10, 210);
 
     this.connectEventHandlers();
 

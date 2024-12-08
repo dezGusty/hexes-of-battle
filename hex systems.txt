@@ -4,3 +4,35 @@ A coparison of some turn based strategy games using hexes for battle screens:
 - heroes 3: 15x11
 - eador - masters of the broken world: 8x8
 - eador imperium: 12x12
+- songs of conquest 12.5x9, but width is 13-12-13-12-...-13
+
+
+Turn mechanics:
+- heroes 3 - speed used for movement & initiative, units can wait for inverse order
+- heroes 4 - movement controls movement, speed stat defines initiative, units can wait for inverse order
+  - obstacles on the map are simply chokepoints
+  - units attack at the same time with retaliation (unless 1st strike)
+
+- eador
+  - entire army turn (attacker first) - can choose units order individually
+  - 1 unit stacks
+  - move and atack, or attack without moving is similar in most cases
+    - special moves (double arrow shot, round atack require more movement and stamina points)
+  - obstacles on the map are just chokepoints
+  - terrain type influences army performance
+    - forest - range defence
+    - swamp - negative defence and movement speed
+    - hills - additional range and defence
+  - units atack, get retaliated against (consumes enemy stamina)
+
+- age of wonders
+  - entire army turn (attacker first) - can choose units order individually
+  - 1 unit stacks
+  - units can attack multiple times, or walk and attack less (using action points).
+  - units cannot wait, can skip
+  - units atack, get retaliated against (order can change based on skills). can consume action points of target.
+    - targets without action points can no longer retaliate -> surrounding stronger enemies is effective.
+  - obstacles on the map can influence ballistics
+  - RNG based hitting based on attack and defence ratings  
+
+

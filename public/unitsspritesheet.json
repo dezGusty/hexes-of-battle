@@ -88,7 +88,7 @@
     "animations": {        
     },
     "meta": {
-        "image": "imagunit.png",
+        "image": "units_80x160.png",
         "format": "RGBA8888",
         "size": {
             "w": 400,
