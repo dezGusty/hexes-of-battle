@@ -9,5 +9,8 @@ export class Army {
 
   public creatures: Creature[] = [];
 
+  // Further properties to take into account
+  // General of army (either creature, army non-combat hero, or global hero/god)
+  // Non creature units (e.g. siege weapons, traps, etc.)
   
 }

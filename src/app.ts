@@ -2,8 +2,8 @@ import { Application, Sprite, Assets, Text, TextStyle, BitmapText, Spritesheet, 
 import pkg from './../package.json';
 import { HexMap } from './hex-map';
 import { CommonControls } from './common-controls';
-import { Coords } from './shared';
-import { Battle } from './battle';
+import { Coords, UserOptions } from './shared';
+import { Battle, MapRenderUpdate } from './battle';
 import { Army } from './army';
 import { Creature, CreatureType } from './creature';
 
@@ -23,9 +23,9 @@ export class HexesApp {
   private version: string = pkg.version;
 
   private hexMap: HexMap = new HexMap(15, 11);
+  private battle = new Battle(this.hexMap);
   private army1?: Army;
   private army2?: Army;
-  private battle?: Battle;
 
   private NATIVE_RESOLUTION = { width: 1600, height: 900 };
 
@@ -62,6 +62,8 @@ export class HexesApp {
   private unitSprites: Sprite[] = [];
 
   private hexHoverSprite?: Sprite;
+  private hexSelectedSprite?: Sprite;
+  private hexReachableSprites: Sprite[] = [];
 
 
   // Add render groups for layering
@@ -78,6 +80,9 @@ export class HexesApp {
   private hexCellsContainer: Container = new Container({ isRenderGroup: true });
   private hexUiRenderGroup: Container = new Container({ isRenderGroup: true });
 
+  private userOptions: UserOptions = {
+    showCoords: false, showGrid: false
+  };
 
   private renderContainerOffset: Coords = { x: 0, y: 0 };
 
@@ -300,12 +305,15 @@ export class HexesApp {
   }
 
   public initializeMapAndGame(): void {
+
     // Generate the terrain map (randomly)
     let terrainSprite = new Sprite(this.terrainTexture);
     terrainSprite.scale.set(2, 2);
     terrainSprite.x = 0;
     terrainSprite.y = 0;
     this.terrainRenderGroup.addChild(terrainSprite);
+
+    this.battle.hexMap.initializeToSize(this.hexMap.width, this.hexMap.height);
 
     this.hexMap.setOffset(150, 180);
     for (let j = 0; j < this.hexMap.height; j++) {
@@ -333,12 +341,14 @@ export class HexesApp {
 
         let coordsText = new BitmapText({ text: `${i},${j}`, style: this.DEFAULT_FONT_STYLE, });
         coordsText.position.copyFrom(hexCoord);
+        coordsText.visible = this.userOptions.showCoords;
 
         this.coordsTexts.push(coordsText);
         this.hexUiRenderGroup.addChild(coordsText);
       }
     }
 
+    this.hexCellsGridContainer.visible = this.userOptions.showGrid;
 
     for (let i = 0; i < this.hexMap.height; i++) {
       // Add a render group
@@ -347,22 +357,19 @@ export class HexesApp {
     }
 
     // Create the battle.
-    this.army1 = new Army();
-    this.army2 = new Army();
-    this.battle = new Battle(this.hexMap, this.army1, this.army2);
     let creature = new Creature();
     creature.position = { x: 0, y: 0 };
+    this.battle.creatures.push(creature);
 
-    this.army1.creatures.push(creature);
     creature = new Creature(CreatureType.SPEARMAN);
     creature.position = { x: 1, y: 3 };
-    this.army1.creatures.push(creature);
+    this.battle.creatures.push(creature);
 
     creature = new Creature(CreatureType.PEASANT_ARCHER);
     creature.position = { x: 2, y: 5 };
-    this.army1.creatures.push(creature);
+    this.battle.creatures.push(creature);
 
-    this.army1.creatures.forEach((creature) => {
+    this.battle.creatures.forEach((creature) => {
       let { x, y } = this.hexMap.hexToPixel(creature.position.x, creature.position.y);
       x -= this.hexMap.cellSize().x / 2;
       y -= this.hexMap.cellSize().y / 2;
@@ -417,8 +424,66 @@ export class HexesApp {
         this.fpsText.text = `FPS: ${Math.round(ticker.FPS)}`;
       }
 
+      if (this.battle) {
+        let mapUpdate: MapRenderUpdate = this.battle.update(ticker.deltaMS);
+        if (mapUpdate.somethingChanged) {
+          this.updateMapRendering(mapUpdate);
+        }
+      }
+
     });
   }
+
+  public updateMapRendering(mapUpdate: MapRenderUpdate) {
+    if (mapUpdate.selectedCreatureIndex != -1) {
+      let hexCoords: Coords = this.battle.creatures[mapUpdate.selectedCreatureIndex].position;
+      if (hexCoords.x >= 0 && hexCoords.x < this.hexMap.width && hexCoords.y >= 0 && hexCoords.y < this.hexMap.height) {
+        if (!this.hexSelectedSprite) {
+          // this.hexHoverSprite = new Sprite(this.hexagonSheet?.textures['hex_usable_yellow.png']);
+          this.hexSelectedSprite = new Sprite(this.hexagonSheet?.textures['hex_selected_green.png']);
+          this.hexCellsContainer.addChild(this.hexSelectedSprite);
+        }
+
+        if (this.hexSelectedSprite) {
+          const hexHoverCoords = this.hexMap.hexToPixel(hexCoords.x, hexCoords.y);
+          this.hexSelectedSprite.x = hexHoverCoords.x - this.hexMap.cellSize().x / 2;
+          this.hexSelectedSprite.y = hexHoverCoords.y - this.hexMap.cellSize().y / 2;
+        }
+      }
+      else {
+        if (this.hexSelectedSprite) {
+          this.hexCellsContainer.removeChild(this.hexSelectedSprite);
+          this.hexSelectedSprite = undefined;
+        }
+      }
+    }
+
+    if (mapUpdate.reachableCells) {
+      this.hexReachableSprites.forEach((sprite) => {this.hexCellsContainer.removeChild(sprite);});
+      this.hexReachableSprites = [];
+
+      for (let j = 0; j < this.hexMap.height; j++) {
+        for (let i = 0; i < this.hexMap.width; i++) {
+          if (this.battle.hexMap.pathfinding_tiles[i][j] <= 0) {
+            continue;
+          }
+
+          let hexCoords: Coords = this.hexMap.hexToPixel(i, j);
+          hexCoords = {
+            x: hexCoords.x - this.hexMap.cellSize().x / 2,
+            y: hexCoords.y - this.hexMap.cellSize().y / 2
+          };
+
+          let tempSprite = new Sprite(this.hexagonSheet?.textures['hex_action_disabled_gray.png']);
+          tempSprite.position.copyFrom(hexCoords);
+          this.hexReachableSprites.push(tempSprite);
+          this.hexCellsContainer.addChild(tempSprite);
+        }
+      }
+
+    }
+  }
+
 
   public setNavMapOffset(offset: Coords): void {
     this.navMapOffset.y = Math.max(this.MAP_OFFSET_MIN.y, offset.y);
@@ -517,6 +582,24 @@ export class HexesApp {
       }
     });
 
+    document.addEventListener('click', (event) => {
+      let renderContainerAdjustedCoords = this.adjustInContainerCoords(
+        { x: event.clientX, y: event.clientY },
+        this.renderContainerOffset,
+        this.renderContainer.scale);
+
+      let navAdjustedCoords = this.adjustInContainerCoords(
+        renderContainerAdjustedCoords,
+        this.navMapOffset,
+        { x: this.navZoomLevel, y: this.navZoomLevel });
+
+      let hexCoords = this.hexMap.pixelToHex(navAdjustedCoords.x, navAdjustedCoords.y);
+
+      if (hexCoords.x >= 0 && hexCoords.x < this.hexMap.width && hexCoords.y >= 0 && hexCoords.y < this.hexMap.height) {
+        this.battle?.onMouseClickOnCell(event, hexCoords);
+      }
+    });
+
     document.addEventListener('mousemove', (event) => {
       if (this.currentGameState === GameState.InGame) {
 
@@ -554,8 +637,8 @@ export class HexesApp {
 
         if (hexCoords.x >= 0 && hexCoords.x < this.hexMap.width && hexCoords.y >= 0 && hexCoords.y < this.hexMap.height) {
           if (!this.hexHoverSprite) {
-            // this.hexHoverSprite = new Sprite(this.hexagonSheet?.textures['hex_usable_yellow.png']);
-            this.hexHoverSprite = new Sprite(this.hexagonSheet?.textures['hex_action_disabled_gray.png']);
+            this.hexHoverSprite = new Sprite(this.hexagonSheet?.textures['hex_usable_yellow.png']);
+            // this.hexHoverSprite = new Sprite(this.hexagonSheet?.textures['hex_action_disabled_gray.png']);
             this.hexCellsContainer.addChild(this.hexHoverSprite);
           }
 
