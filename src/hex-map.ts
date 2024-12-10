@@ -30,7 +30,6 @@ export class HexMap {
   };
 
   public tiles: number[][] = [];
-  public pathfinding_tiles: number[][] = [];
 
   public offset(): Coords { return { x: this.config.OFFSET_X, y: this.config.OFFSET_Y }; }
   public setOffset(x: number, y: number) { this.config.OFFSET_X = x; this.config.OFFSET_Y = y; }
@@ -44,12 +43,10 @@ export class HexMap {
   public initializeToSize(mapWidth: number, mapHeight: number) {
     for (let i = 0; i < mapWidth; i++) {
       this.tiles[i] = [];
-      this.pathfinding_tiles[i] = [];
       for (let j = 0; j < mapHeight; j++) {
         // get a random value between 1 and 5
         let randomValue = 3;
         this.tiles[i][j] = randomValue;
-        this.pathfinding_tiles[i][j] = 0;
       }
     }
   }

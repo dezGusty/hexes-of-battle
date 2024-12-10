@@ -313,7 +313,7 @@ export class HexesApp {
     terrainSprite.y = 0;
     this.terrainRenderGroup.addChild(terrainSprite);
 
-    this.battle.hexMap.initializeToSize(this.hexMap.width, this.hexMap.height);
+    this.battle.initializeToSize(this.hexMap.width, this.hexMap.height);
 
     this.hexMap.setOffset(150, 180);
     for (let j = 0; j < this.hexMap.height; j++) {
@@ -464,7 +464,7 @@ export class HexesApp {
 
       for (let j = 0; j < this.hexMap.height; j++) {
         for (let i = 0; i < this.hexMap.width; i++) {
-          if (this.battle.hexMap.pathfinding_tiles[i][j] <= 0) {
+          if (this.battle.pathfinding_tiles[i][j] <= 0) {
             continue;
           }
 

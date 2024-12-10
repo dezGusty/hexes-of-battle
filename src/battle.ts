@@ -32,10 +32,26 @@ export class Battle {
   public renderStateChanged: boolean = true;
   public creatures: Creature[] = [];
 
+  public pathfinding_tiles: number[][] = [];
+  // Units and objects which occupy a tile
+  public cached_occupation_tiles: number[][] = [];
+
   private nextRenderUpdate: MapRenderUpdate = new MapRenderUpdate();
 
   constructor(
     public hexMap: HexMap) {
+  }
+
+  public initializeToSize(mapWidth: number, mapHeight: number) {
+    this.hexMap.initializeToSize(mapWidth, mapHeight);
+    for (let i = 0; i < mapWidth; i++) {
+      this.pathfinding_tiles[i] = [];
+      this.cached_occupation_tiles[i] = [];
+      for (let j = 0; j < mapHeight; j++) {
+        this.pathfinding_tiles[i][j] = 0;
+        this.cached_occupation_tiles[i][j] = 0;
+      }
+    }
   }
 
   selectCreatureByArmyIndex(armyIndex: number, creatureIndex: number) {
@@ -47,19 +63,19 @@ export class Battle {
     this.nextRenderUpdate.currentArmyIndex = armyIndex;
     this.nextRenderUpdate.somethingChanged = true;
 
-    console.log(`Selected creature: ${this.currentArmyIndex}, ${this.activeCreatureIndex}`);
+    console.log(`Selected creature at: ${this.currentArmyIndex}, ${this.activeCreatureIndex}`);
   }
 
   cacheCreaturesToHexMap() {
     for (let i = 0; i < this.hexMap.width; i++) {
       for (let j = 0; j < this.hexMap.height; j++) {
-        this.hexMap.tiles[i][j] = 0;
+        this.cached_occupation_tiles[i][j] = 0;
       }
     }
 
     for (let i = 0; i < this.creatures.length; i++) {
       let creature = this.creatures[i];
-      this.hexMap.tiles[creature.position.x][creature.position.y] = i + 1;
+      this.cached_occupation_tiles[creature.position.x][creature.position.y] = i + 1;
     }
   }
 
@@ -68,7 +84,7 @@ export class Battle {
     // reset the cache
     for (let i = 0; i < this.hexMap.width; i++) {
       for (let j = 0; j < this.hexMap.height; j++) {
-        this.hexMap.pathfinding_tiles[i][j] = 0;
+        this.pathfinding_tiles[i][j] = 0;
       }
     }
 
@@ -89,11 +105,11 @@ export class Battle {
       let neighbours_and_reach_pairs: ReachData[] = neighbours.map(neighbour => { return { coords: neighbour, reach: current.reach - 1 } });
 
       for (let neighbour of neighbours_and_reach_pairs) {
-        if (this.hexMap.pathfinding_tiles[neighbour.coords.x][neighbour.coords.y] > 0) {
+        if (this.pathfinding_tiles[neighbour.coords.x][neighbour.coords.y] > 0) {
           continue;
         }
 
-        if (this.hexMap.tiles[neighbour.coords.x][neighbour.coords.y] > 0) {
+        if (this.cached_occupation_tiles[neighbour.coords.x][neighbour.coords.y] > 0) {
           // occupied by a unit
           // TODO: allow it, but mark it differently?
           continue;
@@ -101,7 +117,7 @@ export class Battle {
 
         frontier.push(neighbour);
         // came_from[`${neighbour.x},${neighbour.y}`] = current;
-        this.hexMap.pathfinding_tiles[neighbour.coords.x][neighbour.coords.y] = 1;
+        this.pathfinding_tiles[neighbour.coords.x][neighbour.coords.y] = 1;
       }
     }
   }
@@ -120,7 +136,7 @@ export class Battle {
     let msg = "";
     for (let j = 0; j < this.hexMap.height; j++) {
       for (let i = 0; i < this.hexMap.width; i++) {
-        msg += this.hexMap.pathfinding_tiles[i][j] + " ";
+        msg += this.pathfinding_tiles[i][j] + " ";
       }
       msg += "\n";
     }
