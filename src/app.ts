@@ -359,6 +359,7 @@ export class HexesApp {
     // Create the battle.
     let creature = new Creature();
     creature.position = { x: 0, y: 0 };
+    creature.stats.speed = 2;
     this.battle.creatures.push(creature);
 
     creature = new Creature(CreatureType.SPEARMAN);

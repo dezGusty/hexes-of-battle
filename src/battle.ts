@@ -1,6 +1,5 @@
-import { Army } from "./army";
 import { Creature } from "./creature";
-import { HexMap, ReachData } from "./hex-map";
+import { HexMap } from "./hex-map";
 import { Coords } from "./shared";
 
 export class CreatureInBattle {
@@ -20,6 +19,10 @@ export class MapRenderUpdate {
   public somethingChanged: boolean = false;
 }
 
+export class ReachData {
+  constructor(public coords: Coords, public reach: number, public cameFrom: Coords) { }
+}
+
 /**
  * Handles a battle on the hex battle map between two armies.
  */
@@ -37,6 +40,7 @@ export class Battle {
   public cached_occupation_tiles: number[][] = [];
 
   private nextRenderUpdate: MapRenderUpdate = new MapRenderUpdate();
+  private unitReachData: ReachData[] = [];
 
   constructor(
     public hexMap: HexMap) {
@@ -87,10 +91,9 @@ export class Battle {
         this.pathfinding_tiles[i][j] = 0;
       }
     }
+    this.unitReachData = [];
 
-    let frontier: ReachData[] = [{ coords, reach }];
-    // let came_from: { [key: string]: Coords } = {};
-    // let came_from: Record<Coords, Coords> = {};
+    let frontier: ReachData[] = [{ coords, reach, cameFrom: coords }];
 
     while (frontier.length > 0) {
       let current = frontier.shift();
@@ -101,8 +104,13 @@ export class Battle {
         continue;
       }
 
+      
       let neighbours = this.hexMap.getNeighbours(current.coords);
-      let neighbours_and_reach_pairs: ReachData[] = neighbours.map(neighbour => { return { coords: neighbour, reach: current.reach - 1 } });
+      let neighbours_and_reach_pairs: ReachData[] = neighbours.map(neighbour => { return { 
+        coords: neighbour, 
+        reach: current.reach - 1,
+        cameFrom: current.coords
+      } });
 
       for (let neighbour of neighbours_and_reach_pairs) {
         if (this.pathfinding_tiles[neighbour.coords.x][neighbour.coords.y] > 0) {
@@ -111,12 +119,13 @@ export class Battle {
 
         if (this.cached_occupation_tiles[neighbour.coords.x][neighbour.coords.y] > 0) {
           // occupied by a unit
-          // TODO: allow it, but mark it differently?
+          // TODO: handle scenario where it is an enemy differently from friend?
           continue;
         }
 
         frontier.push(neighbour);
-        // came_from[`${neighbour.x},${neighbour.y}`] = current;
+        this.unitReachData.push(neighbour);
+
         this.pathfinding_tiles[neighbour.coords.x][neighbour.coords.y] = 1;
       }
     }
@@ -142,14 +151,10 @@ export class Battle {
     }
     console.log(msg);
 
-    // for (let i = -creatureReach; i <= creatureReach; i++) {
-    //   for (let j = Math.max(-creatureReach, -i - creatureReach); j <= Math.min(creatureReach, -i + creatureReach); j++) {
-    //     let coords = { x: creaturePosition.x + i, y: creaturePosition.y + j };
-    //     if (coords.x >= 0 && coords.x < this.hexMap.width && coords.y >= 0 && coords.y < this.hexMap.height) {
-    //       reachableCells.push(coords);
-    //     }
-    //   }
-    // }
+    // show the reach data
+    for (let i = 0; i < this.unitReachData.length; i++) {
+      console.log("Reachable cell:" ,  this.unitReachData[i]);
+    }
 
     this.nextRenderUpdate.reachableCells = true;
     return reachableCells;

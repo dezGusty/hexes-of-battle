@@ -16,10 +16,6 @@ export enum HexDirection {
   SOUTHEAST = 5
 }
 
-export class ReachData {
-  constructor(public coords: Coords, public reach: number) { }
-}
-
 export class HexMap {
 
   static DEFAULT_HEX_MAP_CONFIG: HexMapConfig = {
