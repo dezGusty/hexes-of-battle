@@ -1,4 +1,4 @@
-import { Application, Sprite, Assets, Text, TextStyle, BitmapText, Spritesheet, Texture, Container, TextStyleOptions, textStyleToCSS, EventSystem } from 'pixi.js';
+import { Application, Sprite, Assets, Text, TextStyle, BitmapText, Spritesheet, Texture, Container, TextStyleOptions, textStyleToCSS, EventSystem, PointData } from 'pixi.js';
 import pkg from './../package.json';
 import { HexMap } from './hex-map';
 import { CommonControls } from './common-controls';
@@ -37,6 +37,7 @@ export class HexesApp {
   private MAP_OFFSET_MAX: Coords = { x: 1200, y: 1200 };
 
   private mouseDragCoords: Coords = { x: 0, y: 0 };
+  private mouseRightClickCoords: Coords = { x: 0, y: 0 };
 
   private terrainTextureNames: string[] = [];
   private unitsTextureNames: string[] = [];
@@ -50,11 +51,14 @@ export class HexesApp {
   private touchSpriteLeft: Sprite = new Sprite();
   private touchSpriteRight: Sprite = new Sprite();
   private softCursorSprite: Sprite = new Sprite();
+  private softCursorTextures: Record<string, Texture> = {};
   private displayOnScreenTouchControls: boolean = false;
 
   private commonControls: CommonControls = new CommonControls();
+  private softCursorName: string = 'default';
 
   private fpsText?: BitmapText;
+  private cellDebugText?: BitmapText;
   private instructionsText?: Text;
   private messagesText?: Text;
 
@@ -64,6 +68,7 @@ export class HexesApp {
   private hexHoverSprite?: Sprite;
   private hexSelectedSprite?: Sprite;
   private hexReachableSprites: Sprite[] = [];
+  private hexPathSprites: Sprite[] = [];
 
 
   // Add render groups for layering
@@ -214,9 +219,21 @@ export class HexesApp {
       console.error('Failed to load the UI spritesheet');
     }
 
-    this.softCursorSprite = new Sprite(this.uiSheet.textures['cur_gs_arrow.png']);
+
+    this.softCursorTextures['default'] = this.uiSheet.textures['cur_gs_arrow.png'];
+    this.softCursorTextures['attack_melee'] = this.uiSheet.textures['cursor_sword.png'];
+    this.softCursorTextures['attack_melee_e'] = this.uiSheet.textures['cursor_sword_e.png'];
+    this.softCursorTextures['attack_melee_w'] = this.uiSheet.textures['cursor_sword_w.png'];
+    this.softCursorTextures['attack_melee_ne'] = this.uiSheet.textures['cursor_sword_ne.png'];
+    this.softCursorTextures['attack_melee_nw'] = this.uiSheet.textures['cursor_sword_nw.png'];
+    this.softCursorTextures['attack_melee_se'] = this.uiSheet.textures['cursor_sword_se.png'];
+    this.softCursorTextures['attack_melee_sw'] = this.uiSheet.textures['cursor_sword_sw.png'];
+    this.softCursorTextures['attack_ranged'] = this.uiSheet.textures['cursor_arrow.png'];
+
+    this.softCursorSprite = new Sprite(this.softCursorTextures['default']);
     // this.renderContainer.cursor = 'none';
     this.uiPlusRenderGroup.addChild(this.softCursorSprite);
+
   }
 
   public async initializeTexts() {
@@ -228,6 +245,12 @@ export class HexesApp {
     this.fpsText.alpha = 0.7;
     this.uiRenderGroup.addChild(this.fpsText);
 
+    this.cellDebugText = new BitmapText({ text: 'Cell: 0,0', style: this.DEFAULT_FONT_STYLE, });
+    this.cellDebugText.x = 62;
+    this.cellDebugText.y = 28;
+    this.cellDebugText.alpha = 0.9;
+    this.uiRenderGroup.addChild(this.cellDebugText);
+
     const style = new TextStyle({ fontFamily: 'Arial', fontSize: 18, fill: { color: '#ffffff', alpha: 1 }, stroke: { color: '#4a1850', width: 5, join: 'round' }, });
     this.tempMessage = `Welcome to Hexes of battle v${this.version}!`
       + "\n" + this.tempMessage;
@@ -235,7 +258,7 @@ export class HexesApp {
       text: this.tempMessage,
       style,
     });
-    this.instructionsText.x = 230;
+    this.instructionsText.x = 730;
     this.instructionsText.y = 10;
     this.uiRenderGroup.addChild(this.instructionsText);
 
@@ -284,6 +307,7 @@ export class HexesApp {
     this.uiRenderGroup.addChild(this.commonControls.zoomOutButton);
     this.uiRenderGroup.addChild(this.commonControls.toggleCoordsButton);
     this.uiRenderGroup.addChild(this.commonControls.toggleGridButton);
+    this.uiRenderGroup.addChild(this.commonControls.nextTurnButton);
 
     this.commonControls.zoomInButton.onPress.connect(() => {
       this.modifyZoomLevel(0.1);
@@ -302,6 +326,10 @@ export class HexesApp {
     this.commonControls.toggleGridButton.onPress.connect(() => {
       this.hexCellsGridContainer.visible = !this.hexCellsGridContainer.visible;
     });
+
+    this.commonControls.nextTurnButton.onPress.connect(() => {
+      this.battle.nextTurn();
+    });
   }
 
   public initializeMapAndGame(): void {
@@ -315,7 +343,7 @@ export class HexesApp {
 
     this.battle.initializeToSize(this.hexMap.width, this.hexMap.height);
 
-    this.hexMap.setOffset(150, 180);
+    this.hexMap.setOffset(150, 135);
     for (let j = 0; j < this.hexMap.height; j++) {
       for (let i = 0; i < this.hexMap.width; i++) {
         let hexCoord: Coords = this.hexMap.hexToPixel(i, j);
@@ -360,15 +388,47 @@ export class HexesApp {
     let creature = new Creature();
     creature.position = { x: 0, y: 0 };
     creature.stats.speed = 2;
+    creature.stats.remaining_movement = 2;
+    creature.armyAlignment = 0;
     this.battle.creatures.push(creature);
 
     creature = new Creature(CreatureType.SPEARMAN);
     creature.position = { x: 1, y: 3 };
+    creature.stats.speed = 15;
+    creature.stats.remaining_movement = 15;
+    creature.armyAlignment = 0;
     this.battle.creatures.push(creature);
 
     creature = new Creature(CreatureType.PEASANT_ARCHER);
     creature.position = { x: 2, y: 5 };
+    creature.stats.speed = 4;
+    creature.stats.remaining_movement = 4;
+    creature.stats.is_ranged = true;
+    creature.armyAlignment = 0;
     this.battle.creatures.push(creature);
+
+    creature = new Creature(CreatureType.SPEARMAN);
+    creature.position = { x: 3, y: 7 };
+    creature.stats.speed = 3;
+    creature.stats.remaining_movement = 3;
+    creature.armyAlignment = 0;
+    this.battle.creatures.push(creature);
+
+    creature = new Creature(CreatureType.SPEARMAN);
+    creature.position = { x: 5, y: 7 };
+    creature.stats.speed = 3;
+    creature.stats.remaining_movement = 3;
+    creature.armyAlignment = 1;
+    this.battle.creatures.push(creature);
+
+    this.renderUnits();
+  }
+
+  private renderUnits() {
+    // Clear the previous unit sprites
+    this.unitRenderSubgroups.forEach((subgroup) => { subgroup.removeChildren(); });
+    // this.unitSprites.forEach((sprite) => {this.unitRenderGroup.removeChild(sprite);});
+    this.unitSprites = [];
 
     this.battle.creatures.forEach((creature) => {
       let { x, y } = this.hexMap.hexToPixel(creature.position.x, creature.position.y);
@@ -394,22 +454,6 @@ export class HexesApp {
 
       this.unitRenderSubgroups[creature.position.y].addChild(unitSprite);
     });
-
-    // Add some random units
-    // for (let j = this.hexMap.height - 1; j >= 0; j--) {
-    //   for (let i = this.hexMap.width - 1; i >= 0; i--) {
-    //     let { x, y } = this.hexMap.hexToPixel(i, j);
-    //     x -= this.hexMap.cellSize().x / 2;
-    //     y -= this.hexMap.cellSize().y / 2;
-
-    //     const unitSprite = new Sprite(this.unitsSheet?.textures['peasant_fork_right.png']);
-    //     unitSprite.x = x;
-    //     unitSprite.y = y;
-    //     this.unitSprites.push(unitSprite);
-
-    //     this.unitRenderSubgroups[j].addChild(unitSprite);
-    //   }
-    // }
   }
 
 
@@ -440,7 +484,6 @@ export class HexesApp {
       let hexCoords: Coords = this.battle.creatures[mapUpdate.selectedCreatureIndex].position;
       if (hexCoords.x >= 0 && hexCoords.x < this.hexMap.width && hexCoords.y >= 0 && hexCoords.y < this.hexMap.height) {
         if (!this.hexSelectedSprite) {
-          // this.hexHoverSprite = new Sprite(this.hexagonSheet?.textures['hex_usable_yellow.png']);
           this.hexSelectedSprite = new Sprite(this.hexagonSheet?.textures['hex_selected_green.png']);
           this.hexCellsContainer.addChild(this.hexSelectedSprite);
         }
@@ -460,7 +503,7 @@ export class HexesApp {
     }
 
     if (mapUpdate.reachableCells) {
-      this.hexReachableSprites.forEach((sprite) => {this.hexCellsContainer.removeChild(sprite);});
+      this.hexReachableSprites.forEach((sprite) => { this.hexCellsContainer.removeChild(sprite); });
       this.hexReachableSprites = [];
 
       for (let j = 0; j < this.hexMap.height; j++) {
@@ -469,19 +512,73 @@ export class HexesApp {
             continue;
           }
 
+          let spriteSrc = 'hex_action_disabled_gray.png';
+          if (this.battle.pathfinding_tiles[i][j] === 100) {
+            spriteSrc = 'hex_action_red.png';
+          }
+
           let hexCoords: Coords = this.hexMap.hexToPixel(i, j);
           hexCoords = {
             x: hexCoords.x - this.hexMap.cellSize().x / 2,
             y: hexCoords.y - this.hexMap.cellSize().y / 2
           };
 
-          let tempSprite = new Sprite(this.hexagonSheet?.textures['hex_action_disabled_gray.png']);
+          let tempSprite = new Sprite(this.hexagonSheet?.textures[spriteSrc]);
           tempSprite.position.copyFrom(hexCoords);
           this.hexReachableSprites.push(tempSprite);
           this.hexCellsContainer.addChild(tempSprite);
         }
       }
+    }
 
+    if (mapUpdate.hoverOverCell) {
+      if (!this.hexHoverSprite) {
+        this.hexHoverSprite = new Sprite(this.hexagonSheet?.textures['hex_usable_yellow.png']);
+        // this.hexHoverSprite = new Sprite(this.hexagonSheet?.textures['hex_action_disabled_gray.png']);
+        this.hexCellsContainer.addChild(this.hexHoverSprite);
+      }
+
+      if (this.hexHoverSprite) {
+        const hexHoverCoords = this.hexMap.hexToPixel(mapUpdate.hoverOverCell.x, mapUpdate.hoverOverCell.y);
+        this.hexHoverSprite.x = hexHoverCoords.x - this.hexMap.cellSize().x / 2;
+        this.hexHoverSprite.y = hexHoverCoords.y - this.hexMap.cellSize().y / 2;
+      }
+
+      this.hexPathSprites.forEach((sprite) => { this.hexCellsContainer.removeChild(sprite); });
+      this.hexPathSprites = [];
+      if (mapUpdate.hoverPath.length > 0) {
+        mapUpdate.hoverPath.forEach((cell) => {
+          let sprite = new Sprite(this.hexagonSheet?.textures['hex_usable_yellow.png']);
+          sprite.x = this.hexMap.hexToPixel(cell.x, cell.y).x - this.hexMap.cellSize().x / 2;
+          sprite.y = this.hexMap.hexToPixel(cell.x, cell.y).y - this.hexMap.cellSize().y / 2;
+          this.hexPathSprites.push(sprite);
+        });
+        this.hexPathSprites.forEach((sprite) => { this.hexCellsContainer.addChild(sprite); });
+      }
+    }
+
+
+
+    if (mapUpdate.unitRenderUpdate) {
+      this.renderUnits();
+    }
+
+    if (mapUpdate.cursorHint.length > 0) {
+      if (this.softCursorName != mapUpdate.cursorHint) {
+        this.softCursorName = mapUpdate.cursorHint;
+
+        this.uiPlusRenderGroup.removeChild(this.softCursorSprite);
+        const oldPosition = this.softCursorSprite.position;
+        this.softCursorSprite.texture = this.softCursorTextures[mapUpdate.cursorHint];
+        const srcAnchor = this.softCursorTextures[mapUpdate.cursorHint].defaultAnchor
+        if (srcAnchor) {
+          this.softCursorSprite.anchor = { x: srcAnchor.x, y: srcAnchor.y };
+        } else {
+          this.softCursorSprite.anchor = { x: 0, y: 0 };
+        }
+        this.softCursorSprite.position.copyFrom(oldPosition);
+        this.uiPlusRenderGroup.addChild(this.softCursorSprite);
+      }
     }
   }
 
@@ -566,9 +663,10 @@ export class HexesApp {
       if (event.button === 1) {
         this.mouseDragCoords = { x: event.clientX, y: event.clientY };
       }
-      // If this is the right button, also start dragging
+
+      // If this is the right button, store the coordinates
       if (event.button === 2) {
-        this.mouseDragCoords = { x: event.clientX, y: event.clientY };
+        this.mouseRightClickCoords = { x: event.clientX, y: event.clientY };
       }
     });
 
@@ -577,9 +675,36 @@ export class HexesApp {
       if (event.button === 1) {
         this.mouseDragCoords = { x: 0, y: 0 };
       }
-      // If this is the right button, also stop dragging
+      // If this is the right button, move or attack ? pass it on to the battle class.
       if (event.button === 2) {
-        this.mouseDragCoords = { x: 0, y: 0 };
+        console.log('Right click');
+        if (this.mouseRightClickCoords.x > 0 && this.mouseRightClickCoords.y > 0) {
+          let renderContainerAdjustedCoords = this.adjustInContainerCoords(
+            { x: event.clientX, y: event.clientY },
+            this.renderContainerOffset,
+            this.renderContainer.scale);
+
+          let navAdjustedCoords = this.adjustInContainerCoords(
+            renderContainerAdjustedCoords,
+            this.navMapOffset,
+            { x: this.navZoomLevel, y: this.navZoomLevel });
+
+          // let hexCoords = this.hexMap.pixelToHex(navAdjustedCoords.x, navAdjustedCoords.y);
+          let hexCoordsWithDetails = this.hexMap.pixelToHexWithDirectionalDetail(navAdjustedCoords.x, navAdjustedCoords.y);
+          let hexCoords = hexCoordsWithDetails.cell;
+          if (this.cellDebugText) {
+            this.cellDebugText.text =
+              `Mouse: ${navAdjustedCoords.x.toFixed(2)}, ${navAdjustedCoords.y.toFixed(2)}
+               Cell: ${hexCoords.x}, ${hexCoords.y}
+               Direction: ${hexCoordsWithDetails.direction}`;
+            console.log(this.cellDebugText.text);
+          }
+
+          if (hexCoords.x >= 0 && hexCoords.x < this.hexMap.width && hexCoords.y >= 0 && hexCoords.y < this.hexMap.height) {
+            this.battle?.onMouseClickOnCell(event, hexCoords, hexCoordsWithDetails.direction);
+          }
+        }
+        this.mouseRightClickCoords = { x: 0, y: 0 };
       }
     });
 
@@ -593,11 +718,11 @@ export class HexesApp {
         renderContainerAdjustedCoords,
         this.navMapOffset,
         { x: this.navZoomLevel, y: this.navZoomLevel });
-
-      let hexCoords = this.hexMap.pixelToHex(navAdjustedCoords.x, navAdjustedCoords.y);
+      let hexCoordsWithDetails = this.hexMap.pixelToHexWithDirectionalDetail(navAdjustedCoords.x, navAdjustedCoords.y);
+      let hexCoords = hexCoordsWithDetails.cell;
 
       if (hexCoords.x >= 0 && hexCoords.x < this.hexMap.width && hexCoords.y >= 0 && hexCoords.y < this.hexMap.height) {
-        this.battle?.onMouseClickOnCell(event, hexCoords);
+        this.battle?.onMouseClickOnCell(event, hexCoords, hexCoordsWithDetails.direction);
       }
     });
 
@@ -634,20 +759,17 @@ export class HexesApp {
           renderContainerAdjustedCoords,
           this.navMapOffset,
           { x: this.navZoomLevel, y: this.navZoomLevel });
-        let hexCoords = this.hexMap.pixelToHex(navAdjustedCoords.x, navAdjustedCoords.y);
+        let hexCoordsWithDetails = this.hexMap.pixelToHexWithDirectionalDetail(navAdjustedCoords.x, navAdjustedCoords.y);
+        let hexCoords = hexCoordsWithDetails.cell;
+        if (this.cellDebugText) {
+          this.cellDebugText.text =
+            `Mouse: ${navAdjustedCoords.x.toFixed(2)}, ${navAdjustedCoords.y.toFixed(2)}
+             Cell: ${hexCoords.x}, ${hexCoords.y}
+             Direction: ${hexCoordsWithDetails.direction}`;
+        }
 
         if (hexCoords.x >= 0 && hexCoords.x < this.hexMap.width && hexCoords.y >= 0 && hexCoords.y < this.hexMap.height) {
-          if (!this.hexHoverSprite) {
-            this.hexHoverSprite = new Sprite(this.hexagonSheet?.textures['hex_usable_yellow.png']);
-            // this.hexHoverSprite = new Sprite(this.hexagonSheet?.textures['hex_action_disabled_gray.png']);
-            this.hexCellsContainer.addChild(this.hexHoverSprite);
-          }
-
-          if (this.hexHoverSprite) {
-            const hexHoverCoords = this.hexMap.hexToPixel(hexCoords.x, hexCoords.y);
-            this.hexHoverSprite.x = hexHoverCoords.x - this.hexMap.cellSize().x / 2;
-            this.hexHoverSprite.y = hexHoverCoords.y - this.hexMap.cellSize().y / 2;
-          }
+          this.battle.onMouseOverCell(hexCoords, hexCoordsWithDetails.direction);
         }
         else {
           if (this.hexHoverSprite) {

@@ -1,14 +1,16 @@
 import { Coords } from "./shared";
 
 export class CreatureStats {
-  health: number;
   attack_low: number;
   attack_high: number;
   defense_melee: number;
   defense_ranged: number;
   defense_magic: number;
-  speed: number;
+  health: number;
   initiative: number;
+  is_ranged: boolean;
+  remaining_movement: number;
+  speed: number;
 }
 
 export enum CreatureType {
@@ -26,21 +28,24 @@ export enum CreatureType {
 export class Creature {
 
   static DEFAULT_CREATURE_PROPS: CreatureStats = {
-    health: 12,
     attack_low: 3,
     attack_high: 6,
     defense_melee: 0,
     defense_ranged: 0,
     defense_magic: 0,
-    speed: 4,
-    initiative: 4
+    health: 12,
+    initiative: 4,
+    is_ranged: false,
+    remaining_movement: 4,
+    speed: 4
   };
 
   public position: Coords = { x: 0, y: 0 };
+  public armyAlignment: number = 0;
 
   constructor(
     public creatureType: CreatureType = CreatureType.PEASANT,
-    public stats: CreatureStats = Creature.DEFAULT_CREATURE_PROPS) {
+    public stats: CreatureStats = {...Creature.DEFAULT_CREATURE_PROPS}) {
   }
 
   public get isAlive(): boolean {

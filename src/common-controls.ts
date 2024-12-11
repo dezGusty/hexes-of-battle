@@ -15,6 +15,7 @@ export class CommonControls {
   public zoomOutButton: FancyButton;
   public toggleCoordsButton: FancyButton;
   public toggleGridButton: FancyButton;
+  public nextTurnButton: FancyButton;
   private DEFAULT_FONT_STYLE: TextStyle | TextStyleOptions = { fontFamily: 'GustysSerpents', fontSize: 18, align: 'left' };
   private DEFAULT_BUTTON_STYLE: ButtonOptions = {
     defaultView: 'btn_simple.png',
@@ -42,6 +43,9 @@ export class CommonControls {
 
     this.toggleGridButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_grid.png' });
     this.toggleGridButton.position.set(10, 210);
+
+    this.nextTurnButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_next_turn.png' });
+    this.nextTurnButton.position.set(10, 260);
 
     this.connectEventHandlers();
 

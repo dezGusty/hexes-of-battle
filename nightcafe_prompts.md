@@ -28,3 +28,7 @@ Tabletop RPG map. Close-up. Smith cottage, barns, river, cottages on a hex grid,
 Tabletop RPG battle map. Grass, trees, hills on a hex grid. Game assets. Ink and watercolor style. Muted earth tones. Golden hour lighting, warm and cozy. Highly detailed, 4k resolution. Fantasy world-building, nostalgic feel, parchment texture, hand-drawn, strategic layout, RPG elements, miniature figurines, campaign setting, medieval village, rustic charm.
 
 Tabletop RPG map grass hex tile for a hex grid game. Game assets. Ink and watercolor style. Muted earth tones. Golden hour lighting, warm and cozy. Highly detailed, 4k resolution. Fantasy world-building, nostalgic feel, parchment texture, hand-drawn, strategic layout, RPG elements, campaign setting, medieval village, rustic charm.
+
+## Icon
+
+A red crystal sword. Cursor.  Vivid, cinematic colors. Fantasy RPG style elements, glowing runes, mystical auras, high-fantasy creatures. Best quality, highly detailed, 8k resolution, atmospheric lighting, depth of field, incredible detail, rich colors, fantasy world.

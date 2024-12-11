@@ -16,7 +16,7 @@
                 "h": 32
             }
         },
-        "cur_sword.png": {
+        "cursor_bow.png": {
             "frame": {
                 "x": 69,
                 "y": 1,
@@ -30,6 +30,86 @@
                 "y": 35,
                 "w": 64,
                 "h": 64
+            }
+        },
+        "cursor_sword.png": {
+            "frame": {
+                "x": 1,
+                "y": 283,
+                "w": 64,
+                "h": 64
+            }
+        },
+        "cursor_sword_w.png": {
+            "frame": {
+                "x": 1,
+                "y": 151,
+                "w": 64,
+                "h": 64
+            },
+            "anchor": {
+                "x": 0.05,
+                "y": 0.5
+            }
+        },
+        "cursor_sword_e.png": {
+            "frame": {
+                "x": 67,
+                "y": 151,
+                "w": 64,
+                "h": 64
+            },
+            "anchor": {
+                "x": 0.95,
+                "y": 0.5
+            }
+        },
+        "cursor_sword_nw.png": {
+            "frame": {
+                "x": 133,
+                "y": 151,
+                "w": 64,
+                "h": 64
+            },
+            "anchor": {
+                "x": 0.25,
+                "y": 0.1
+            }
+        },
+        "cursor_sword_ne.png": {
+            "frame": {
+                "x": 1,
+                "y": 217,
+                "w": 64,
+                "h": 64
+            },
+            "anchor": {
+                "x": 0.85,
+                "y": 0.1
+            }
+        },
+        "cursor_sword_sw.png": {
+            "frame": {
+                "x": 67,
+                "y": 217,
+                "w": 64,
+                "h": 64
+            },
+            "anchor": {
+                "x": 0.15,
+                "y": 0.9
+            }
+        },
+        "cursor_sword_se.png": {
+            "frame": {
+                "x": 133,
+                "y": 217,
+                "w": 64,
+                "h": 64
+            },
+            "anchor": {
+                "x": 0.85,
+                "y": 0.9
             }
         },
         "btn_simple.png": {
@@ -95,6 +175,14 @@
                 "w": 32,
                 "h": 32
             }
+        },
+        "glyph_next_turn.png": {
+            "frame": {
+                "x": 171,
+                "y": 1,
+                "w": 32,
+                "h": 32
+            }
         }
     },
     "animations": {        
@@ -103,8 +191,8 @@
         "image": "hexes-ui.png",
         "format": "RGBA8888",
         "size": {
-            "w": 150,
-            "h": 200
+            "w": 256,
+            "h": 400
         },
         "scale": "1.0"
     }
