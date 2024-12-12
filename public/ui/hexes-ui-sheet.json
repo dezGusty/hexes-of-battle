@@ -183,16 +183,134 @@
                 "w": 32,
                 "h": 32
             }
+        },
+        "sword_attack_anim_01.png": {
+            "frame": {
+                "x": 1,
+                "y": 349,
+                "w": 64,
+                "h": 64
+            }
+        },
+        "sword_attack_anim_02.png": {
+            "frame": {
+                "x": 67,
+                "y": 349,
+                "w": 64,
+                "h": 64
+            }
+        },
+        "sword_attack_anim_03.png": {
+            "frame": {
+                "x": 133,
+                "y": 349,
+                "w": 64,
+                "h": 64
+            }
+        },
+        "sword_attack_anim_04.png": {
+            "frame": {
+                "x": 1,
+                "y": 415,
+                "w": 64,
+                "h": 64
+            }
+        },
+        "sword_attack_anim_05.png": {
+            "frame": {
+                "x": 67,
+                "y": 415,
+                "w": 64,
+                "h": 64
+            }
+        },
+        "sword_attack_anim_06.png": {
+            "frame": {
+                "x": 133,
+                "y": 415,
+                "w": 64,
+                "h": 64
+            }
+        },
+        "arrow_attack_anim_01.png": {
+            "frame": {
+                "x": 201,
+                "y": 153,
+                "w": 64,
+                "h": 64
+            }
+        },
+        "arrow_attack_anim_02.png": {
+            "frame": {
+                "x": 267,
+                "y": 153,
+                "w": 64,
+                "h": 64
+            }
+        },
+        "arrow_attack_anim_03.png": {
+            "frame": {
+                "x": 333,
+                "y": 153,
+                "w": 64,
+                "h": 64
+            }
+        },
+        "arrow_attack_anim_04.png": {
+            "frame": {
+                "x": 201,
+                "y": 219,
+                "w": 64,
+                "h": 64
+            }
+        },
+        "arrow_attack_anim_05.png": {
+            "frame": {
+                "x": 267,
+                "y": 219,
+                "w": 64,
+                "h": 64
+            }
+        },
+        "arrow_attack_anim_06.png": {
+            "frame": {
+                "x": 333,
+                "y": 219,
+                "w": 64,
+                "h": 64
+            }
         }
     },
-    "animations": {        
+    "animations": {
+        "sword_attack": {
+            "frames": [
+                "sword_attack_anim_01.png",
+                "sword_attack_anim_02.png",
+                "sword_attack_anim_03.png",
+                "sword_attack_anim_04.png",
+                "sword_attack_anim_05.png",
+                "sword_attack_anim_06.png"
+            ],
+            "frameRate": 10
+        },
+        "arrow_attack": {
+            "frames": [
+                "arrow_attack_anim_01.png",
+                "arrow_attack_anim_02.png",
+                "arrow_attack_anim_03.png",
+                "arrow_attack_anim_04.png",
+                "arrow_attack_anim_05.png",
+                "arrow_attack_anim_06.png"
+            ],
+            "frameRate": 10
+        }
     },
     "meta": {
         "image": "hexes-ui.png",
         "format": "RGBA8888",
         "size": {
-            "w": 256,
-            "h": 400
+            "w": 512,
+            "h": 512
         },
         "scale": "1.0"
     }
