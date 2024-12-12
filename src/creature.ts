@@ -9,6 +9,7 @@ export class CreatureStats {
   health: number;
   initiative: number;
   is_ranged: boolean;
+  range: number;
   remaining_movement: number;
   speed: number;
 }
@@ -36,6 +37,7 @@ export class Creature {
     health: 12,
     initiative: 4,
     is_ranged: false,
+    range: 1,
     remaining_movement: 4,
     speed: 4
   };

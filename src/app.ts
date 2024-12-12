@@ -1,9 +1,9 @@
-import { Application, Sprite, Assets, Text, TextStyle, BitmapText, Spritesheet, Texture, Container, TextStyleOptions, textStyleToCSS, EventSystem, PointData } from 'pixi.js';
+import { Application, Sprite, Assets, Text, TextStyle, BitmapText, Spritesheet, Texture, Container, TextStyleOptions, textStyleToCSS, EventSystem, PointData, AnimatedSprite } from 'pixi.js';
 import pkg from './../package.json';
 import { HexMap } from './hex-map';
 import { CommonControls } from './common-controls';
 import { Coords, UserOptions } from './shared';
-import { Battle, MapRenderUpdate } from './battle';
+import { AnimationType, Battle, MapRenderUpdate } from './battle';
 import { Army } from './army';
 import { Creature, CreatureType } from './creature';
 
@@ -51,6 +51,7 @@ export class HexesApp {
   private touchSpriteLeft: Sprite = new Sprite();
   private touchSpriteRight: Sprite = new Sprite();
   private softCursorSprite: Sprite = new Sprite();
+  private uiAnimationSprites: Sprite[] = [];
   private softCursorTextures: Record<string, Texture> = {};
   private displayOnScreenTouchControls: boolean = false;
 
@@ -404,6 +405,7 @@ export class HexesApp {
     creature.stats.speed = 4;
     creature.stats.remaining_movement = 4;
     creature.stats.is_ranged = true;
+    creature.stats.range = 5;
     creature.armyAlignment = 0;
     this.battle.creatures.push(creature);
 
@@ -557,8 +559,6 @@ export class HexesApp {
       }
     }
 
-
-
     if (mapUpdate.unitRenderUpdate) {
       this.renderUnits();
     }
@@ -579,6 +579,42 @@ export class HexesApp {
         this.softCursorSprite.position.copyFrom(oldPosition);
         this.uiPlusRenderGroup.addChild(this.softCursorSprite);
       }
+    }
+
+    if (mapUpdate.animationAtCoords.type != AnimationType.NONE) {
+      console.log(`Animation at coords: ${mapUpdate.animationAtCoords.coords.x}, ${mapUpdate.animationAtCoords.coords.y}`);
+      let animationTexSrc = "";
+      switch (mapUpdate.animationAtCoords.type) {
+        case AnimationType.ATTACK_MELEE:
+          animationTexSrc = 'anim_sword_attack.png';
+          break;
+        case AnimationType.ATTACK_RANGED:
+          animationTexSrc = 'anim_arrow_attack.png';
+          break;
+        default:
+          animationTexSrc = '';
+      }
+      console.log(`Animation texture source: ${animationTexSrc}`);
+      if (animationTexSrc.length > 0) {
+        const textures = this.uiSheet?.animations[animationTexSrc];
+        console.log("anim tex", textures);
+        if (textures) {
+          let animSprite = new AnimatedSprite(textures);
+          console.log("anim sprite", animSprite);
+          const cell = mapUpdate.animationAtCoords.coords;
+          animSprite.animationSpeed = .4; // Adjust the animation speed as needed
+          animSprite.x = this.hexMap.hexToPixel(cell.x, cell.y).x - this.hexMap.cellSize().x / 2;
+          animSprite.y = this.hexMap.hexToPixel(cell.x, cell.y).y - this.hexMap.cellSize().y / 2;
+          animSprite.play();
+          animSprite.loop = false;
+          
+          this.uiAnimationSprites.push(animSprite);
+          this.uiRenderGroup.addChild(animSprite);
+        }
+      }
+    } else {
+      this.uiAnimationSprites.forEach((sprite) => { this.uiRenderGroup.removeChild(sprite); });
+      this.uiAnimationSprites = [];
     }
   }
 
