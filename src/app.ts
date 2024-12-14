@@ -1,6 +1,6 @@
 import { Application, Sprite, Assets, Text, TextStyle, BitmapText, Spritesheet, Texture, Container, TextStyleOptions, AnimatedSprite } from 'pixi.js';
 import pkg from './../package.json';
-import { HexMap } from './hex-map';
+import { hexDirectionToString, HexMap } from './hex-map';
 import { CommonControls } from './common-controls';
 import { Coords, UserOptions } from './shared';
 import { AnimationType, Battle, MapRenderUpdate } from './battle';
@@ -409,6 +409,7 @@ export class HexesApp {
 
     creature = new Creature(CreatureType.SPEARMAN);
     creature.position = { x: 5, y: 7 };
+    creature.stats.health = 30;
     creature.stats.speed = 3;
     creature.stats.remaining_movement = 3;
     creature.armyAlignment = 1;
@@ -588,10 +589,8 @@ export class HexesApp {
       console.log(`Animation texture source: ${animationTexSrc}`);
       if (animationTexSrc.length > 0) {
         const textures = this.uiSheet?.animations[animationTexSrc];
-        console.log("anim tex", textures);
         if (textures) {
           let animSprite = new AnimatedSprite(textures);
-          console.log("anim sprite", animSprite);
           const cell = mapUpdate.animationAtCoords.coords;
           animSprite.animationSpeed = .4; // Adjust the animation speed as needed
           animSprite.x = this.hexMap.hexToPixel(cell.x, cell.y).x - this.hexMap.cellSize().x / 2;
@@ -600,11 +599,11 @@ export class HexesApp {
           animSprite.loop = false;
 
           this.uiAnimationSprites.push(animSprite);
-          this.uiRenderGroup.addChild(animSprite);
+          this.hexUiRenderGroup.addChild(animSprite);
         }
       }
     } else {
-      this.uiAnimationSprites.forEach((sprite) => { this.uiRenderGroup.removeChild(sprite); });
+      this.uiAnimationSprites.forEach((sprite) => { this.hexUiRenderGroup.removeChild(sprite); });
       this.uiAnimationSprites = [];
     }
   }
@@ -719,7 +718,7 @@ export class HexesApp {
             this.cellDebugText.text =
               `Mouse: ${navAdjustedCoords.x.toFixed(2)}, ${navAdjustedCoords.y.toFixed(2)}
                Cell: ${hexCoords.x}, ${hexCoords.y}
-               Direction: ${hexCoordsWithDetails.direction}`;
+               Direction: ${hexDirectionToString(hexCoordsWithDetails.direction)}`;
             console.log(this.cellDebugText.text);
           }
 
@@ -788,7 +787,7 @@ export class HexesApp {
           this.cellDebugText.text =
             `Mouse: ${navAdjustedCoords.x.toFixed(2)}, ${navAdjustedCoords.y.toFixed(2)}
              Cell: ${hexCoords.x}, ${hexCoords.y}
-             Direction: ${hexCoordsWithDetails.direction}`;
+             Direction: ${hexDirectionToString(hexCoordsWithDetails.direction)}`;
         }
 
         if (hexCoords.x >= 0 && hexCoords.x < this.hexMap.width && hexCoords.y >= 0 && hexCoords.y < this.hexMap.height) {

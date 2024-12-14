@@ -35,6 +35,27 @@ export function reverseDirection(direction: HexDirection): HexDirection {
   return HexDirection.NONE;
 };
 
+export function hexDirectionToString(direction: HexDirection): string {
+  switch (direction) {
+    case HexDirection.NONE:
+      return "NONE";
+    case HexDirection.EAST:
+      return "EAST";
+    case HexDirection.NORTHEAST:
+      return "NORTHEAST";
+    case HexDirection.NORTHWEST:
+      return "NORTHWEST";
+    case HexDirection.WEST:
+      return "WEST";
+    case HexDirection.SOUTHWEST:
+      return "SOUTHWEST";
+    case HexDirection.SOUTHEAST:
+      return "SOUTHEAST";
+    default:
+      return "UNKNOWN";
+  }
+}
+
 export class HexMap {
 
   static DEFAULT_HEX_MAP_CONFIG: HexMapConfig = {
@@ -202,13 +223,13 @@ export class HexMap {
     startPixelsOfSmaller.x -= 2 * smallerWidth;
     startPixelsOfSmaller.y -= 1.5 * this.config.CELL_WIDTH / Math.sqrt(3);
     let smallerCell = HexMap.pixelToHexInternal(
-      x, 
-      y, 
-      startPixelsOfSmaller.x, 
-      startPixelsOfSmaller.y, 
+      x,
+      y,
+      startPixelsOfSmaller.x,
+      startPixelsOfSmaller.y,
       smallerWidth);
-    smallerCell.x --;
-    smallerCell.y --;
+    smallerCell.x--;
+    smallerCell.y--;
     let nearDirection = HexDirection.NONE;
     if (smallerCell.x != 1 || smallerCell.y != 1) {
       if (smallerCell.x == 0 && smallerCell.y == 0) {

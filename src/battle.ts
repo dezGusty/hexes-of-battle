@@ -160,7 +160,6 @@ export class Battle {
 
         frontier.push(neighbour);
         this.unitRangeData.push(neighbour);
-        // this.pathfinding_tiles[neighbour.coords.x][neighbour.coords.y] = 1;
       }
     }
   }
@@ -172,7 +171,7 @@ export class Battle {
    * @param coords 
    * @param reach 
    */
-  public cacheAllReachableCells(coords: Coords, reach: number) {
+  public cacheMeleeReachableCells(coords: Coords, reach: number) {
     // reset the cache
     for (let i = 0; i < this.hexMap.width; i++) {
       for (let j = 0; j < this.hexMap.height; j++) {
@@ -188,7 +187,10 @@ export class Battle {
       if (current === undefined) {
         continue;
       }
-      if (current.reach <= 0) {
+      // Normally we would break when reach is 0, but we want to also allow 
+      // moving the creature to the max of its ability AND also allow an attack if configured.
+      // so cache the cells if the reach is 0 and there are enemy creatures on them.
+      if (current.reach < 0) {
         continue;
       }
 
@@ -219,9 +221,11 @@ export class Battle {
           continue;
         }
 
-        frontier.push(neighbour);
-        this.unitReachData.push(neighbour);
-        this.pathfinding_tiles[neighbour.coords.x][neighbour.coords.y] = 1;
+        if (current.reach > 0) {
+          frontier.push(neighbour);
+          this.unitReachData.push(neighbour);
+          this.pathfinding_tiles[neighbour.coords.x][neighbour.coords.y] = 1;
+        }
       }
     }
   }
@@ -234,7 +238,7 @@ export class Battle {
     // TODO: this could also be done when movement occurs
     this.cacheCreaturesToHexMap();
 
-    this.cacheAllReachableCells(creaturePosition, creature.stats.remaining_movement);
+    this.cacheMeleeReachableCells(creaturePosition, creature.stats.remaining_movement);
     this.cacheRangedReachableCells(creaturePosition, creature.stats.range);
     // let msg = "";
     // for (let j = 0; j < this.hexMap.height; j++) {
@@ -463,22 +467,6 @@ export class Battle {
    */
   public findPathFromSelectedUnitToCell(coords: Coords): Coords[] {
     return Battle.findPathToCellInReachData(coords, this.unitReachData);
-    // // Locate the path to the cell
-    // let path: Coords[] = [];
-    // let finalElement = this.unitReachData.find((element) => element.coords.x === coords.x && element.coords.y === coords.y);
-    // if (!finalElement) {
-    //   return path;
-    // }
-
-    // while (finalElement) {
-    //   path.push(finalElement.coords);
-    //   finalElement = this.unitReachData.find((element) =>
-    //     element.coords.x === finalElement?.cameFrom.x
-    //     && element.coords.y === finalElement?.cameFrom.y);
-    // }
-
-    // path.reverse();
-    // return path;
   }
 
 
