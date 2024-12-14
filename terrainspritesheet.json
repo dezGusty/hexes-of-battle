@@ -1,0 +1,62 @@
+{
+    "frames": {
+        "grass_1.png": {
+            "frame": {
+                "x": 0,
+                "y": 0,
+                "w": 80,
+                "h": 105
+            }
+        },
+        "grass_2.png": {
+            "frame": {
+                "x": 0,
+                "y": 106,
+                "w": 80,
+                "h": 105
+            }
+        },"grass_3.png": {
+            "frame": {
+                "x": 80,
+                "y": 106,
+                "w": 80,
+                "h": 105
+            }
+        },
+        "grass_4.png": {
+            "frame": {
+                "x": 160,
+                "y": 106,
+                "w": 80,
+                "h": 105
+            }
+        },
+        "grass_5.png": {
+            "frame": {
+                "x": 240,
+                "y": 106,
+                "w": 80,
+                "h": 105
+            }
+        },
+        "empty.png": {
+            "frame": {
+                "x": 411,
+                "y": 1,
+                "w": 80,
+                "h": 92
+            }
+        }
+    },
+    "animations": {        
+    },
+    "meta": {
+        "image": "hex_terrain.png",
+        "format": "RGBA8888",
+        "size": {
+            "w": 320,
+            "h": 430
+        },
+        "scale": "1.0"
+    }
+}
