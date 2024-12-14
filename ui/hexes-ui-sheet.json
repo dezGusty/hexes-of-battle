@@ -188,6 +188,14 @@
                 "h": 32
             }
         },
+        "glyph_next_unit.png": {
+            "frame": {
+                "x": 171,
+                "y": 35,
+                "w": 32,
+                "h": 32
+            }
+        },
         "sword_attack_anim_01.png": {
             "frame": {
                 "x": 1,
