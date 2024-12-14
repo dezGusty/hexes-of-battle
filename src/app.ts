@@ -1,10 +1,9 @@
-import { Application, Sprite, Assets, Text, TextStyle, BitmapText, Spritesheet, Texture, Container, TextStyleOptions, textStyleToCSS, EventSystem, PointData, AnimatedSprite } from 'pixi.js';
+import { Application, Sprite, Assets, Text, TextStyle, BitmapText, Spritesheet, Texture, Container, TextStyleOptions, AnimatedSprite } from 'pixi.js';
 import pkg from './../package.json';
 import { HexMap } from './hex-map';
 import { CommonControls } from './common-controls';
 import { Coords, UserOptions } from './shared';
 import { AnimationType, Battle, MapRenderUpdate } from './battle';
-import { Army } from './army';
 import { Creature, CreatureType } from './creature';
 
 export enum GameState {
@@ -24,8 +23,6 @@ export class HexesApp {
 
   private hexMap: HexMap = new HexMap(15, 11);
   private battle = new Battle(this.hexMap);
-  private army1?: Army;
-  private army2?: Army;
 
   private NATIVE_RESOLUTION = { width: 1600, height: 900 };
 
@@ -38,9 +35,6 @@ export class HexesApp {
 
   private mouseDragCoords: Coords = { x: 0, y: 0 };
   private mouseRightClickCoords: Coords = { x: 0, y: 0 };
-
-  private terrainTextureNames: string[] = [];
-  private unitsTextureNames: string[] = [];
 
   private terrainSheet?: Spritesheet = undefined;
   private terrainTexture?: Texture = undefined;
@@ -303,32 +297,29 @@ export class HexesApp {
 
   public initializeCommonControls(): void {
     this.commonControls.initializeButtons();
-    this.uiRenderGroup.addChild(this.commonControls.fullscreenToggleButton);
-    this.uiRenderGroup.addChild(this.commonControls.zoomInButton);
-    this.uiRenderGroup.addChild(this.commonControls.zoomOutButton);
-    this.uiRenderGroup.addChild(this.commonControls.toggleCoordsButton);
-    this.uiRenderGroup.addChild(this.commonControls.toggleGridButton);
-    this.uiRenderGroup.addChild(this.commonControls.nextTurnButton);
+    this.commonControls.getControls().forEach((button) => {
+      this.uiRenderGroup.addChild(button);
+    });
 
-    this.commonControls.zoomInButton.onPress.connect(() => {
+    this.commonControls.zoomInButton?.onPress.connect(() => {
       this.modifyZoomLevel(0.1);
     });
 
-    this.commonControls.zoomOutButton.onPress.connect(() => {
+    this.commonControls.zoomOutButton?.onPress.connect(() => {
       this.modifyZoomLevel(-0.1);
     });
 
-    this.commonControls.toggleCoordsButton.onPress.connect(() => {
+    this.commonControls.toggleCoordsButton?.onPress.connect(() => {
       this.coordsTexts.forEach((text) => {
         text.visible = !text.visible;
       });
     });
 
-    this.commonControls.toggleGridButton.onPress.connect(() => {
+    this.commonControls.toggleGridButton?.onPress.connect(() => {
       this.hexCellsGridContainer.visible = !this.hexCellsGridContainer.visible;
     });
 
-    this.commonControls.nextTurnButton.onPress.connect(() => {
+    this.commonControls.nextTurnButton?.onPress.connect(() => {
       this.battle.nextTurn();
     });
   }
@@ -607,7 +598,7 @@ export class HexesApp {
           animSprite.y = this.hexMap.hexToPixel(cell.x, cell.y).y - this.hexMap.cellSize().y / 2;
           animSprite.play();
           animSprite.loop = false;
-          
+
           this.uiAnimationSprites.push(animSprite);
           this.uiRenderGroup.addChild(animSprite);
         }
@@ -670,27 +661,23 @@ export class HexesApp {
       }
     });
 
-    document.addEventListener('keyup', (event) => {
+    document.addEventListener('keyup', (_) => {
 
     });
 
     // add a scroll event listener
     document.addEventListener('wheel', (event) => {
       if (this.currentGameState === GameState.InGame) {
-        let directionSign: number = event.deltaY > 0 ? -1 : 1;
-        console.log(`Zoom at coords ${event.clientX}, ${event.clientY}`);
         // Get the ratio between the client event coordinates and the render container size
         let ratio: Coords = {
           x: event.clientX / this.app.screen.width,
           y: event.clientY / this.app.screen.height
         };
         if (event.deltaY < 0) {
-          console.log(`Ratio: ${ratio.x}, ${ratio.y}`);
           this.modifyZoomLevel(0.1, ratio);
         } else {
           this.modifyZoomLevel(-0.1, ratio);
         }
-
       }
     });
 

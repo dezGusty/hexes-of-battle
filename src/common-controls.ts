@@ -1,5 +1,5 @@
 import { ButtonOptions, FancyButton } from "@pixi/ui";
-import { BitmapText, TextStyle, TextStyleOptions } from "pixi.js";
+import { TextStyle, TextStyleOptions } from "pixi.js";
 
 /**
  * A class to contain the UI elements that are common to all pages.
@@ -10,13 +10,13 @@ export class CommonControls {
 
   private isFullScreen: boolean = false;
 
-  public fullscreenToggleButton: FancyButton;
-  public zoomInButton: FancyButton;
-  public zoomOutButton: FancyButton;
-  public toggleCoordsButton: FancyButton;
-  public toggleGridButton: FancyButton;
-  public nextTurnButton: FancyButton;
-  private DEFAULT_FONT_STYLE: TextStyle | TextStyleOptions = { fontFamily: 'GustysSerpents', fontSize: 18, align: 'left' };
+  public fullscreenToggleButton?: FancyButton;
+  public zoomInButton?: FancyButton;
+  public zoomOutButton?: FancyButton;
+  public toggleCoordsButton?: FancyButton;
+  public toggleGridButton?: FancyButton;
+  public nextTurnButton?: FancyButton;
+  static DEFAULT_FONT_STYLE: TextStyle | TextStyleOptions = { fontFamily: 'GustysSerpents', fontSize: 18, align: 'left' };
   private DEFAULT_BUTTON_STYLE: ButtonOptions = {
     defaultView: 'btn_simple.png',
     hoverView: 'btn_simple_hover.png',
@@ -25,7 +25,6 @@ export class CommonControls {
   };
 
   public initializeButtons() {
-
     // Create the fullscreen toggle button reusing the DEFAULT_BUTTON_STYLE property
     this.fullscreenToggleButton = new FancyButton({
       ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_fullscreen.png'
@@ -48,11 +47,21 @@ export class CommonControls {
     this.nextTurnButton.position.set(10, 260);
 
     this.connectEventHandlers();
+  }
 
+  public getControls(): FancyButton[] {
+    let results = [];
+    if (this.fullscreenToggleButton) results.push(this.fullscreenToggleButton);
+    if (this.zoomInButton) results.push(this.zoomInButton);
+    if (this.zoomOutButton) results.push(this.zoomOutButton);
+    if (this.toggleCoordsButton) results.push(this.toggleCoordsButton);
+    if (this.toggleGridButton) results.push(this.toggleGridButton);
+    if (this.nextTurnButton) results.push(this.nextTurnButton);
+    return results;
   }
 
   public connectEventHandlers() {
-    this.fullscreenToggleButton.onPress.connect(() => {
+    this.fullscreenToggleButton?.onPress.connect(() => {
       if (this.isFullScreen) {
         this.exitFullscreen();
       }
