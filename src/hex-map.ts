@@ -251,19 +251,13 @@ export class HexMap {
   }
 
 
-  public getDirectionForDelta(delta: Coords): HexDirection {
-    // if (Math.abs(delta.x) < 0.25 && Math.abs(delta.y) < 0.25) return HexDirection.NONE;
-
-    if (delta.x == 0) {
-      if (delta.y > 0) return HexDirection.NORTHEAST;
-      if (delta.y < 0) return HexDirection.SOUTHEAST;
-    } else {
-      if (delta.y == 0) {
-        if (delta.x > 0) return HexDirection.WEST;
-        if (delta.x < 0) return HexDirection.EAST;
+  public getDirectionForNeighbour(hexSource: Coords, neighbour: Coords): HexDirection {
+    for (let i = HexDirection.EAST; i <= HexDirection.SOUTHEAST; i++) {
+      let neighbourInDir = this.getNeighbourInDirection(hexSource, i);
+      if (neighbourInDir !== null && neighbourInDir.x == neighbour.x && neighbourInDir.y == neighbour.y) {
+        return i;
       }
     }
-
     return HexDirection.NONE;
   }
 }

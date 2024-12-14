@@ -1,3 +1,4 @@
+import { HexDirection } from "./hex-map";
 import { Coords } from "./shared";
 
 export class CreatureStats {
@@ -43,6 +44,7 @@ export class Creature {
   };
 
   public position: Coords = { x: 0, y: 0 };
+  public facingDirection: HexDirection = HexDirection.EAST;
   public armyAlignment: number = 0;
 
   constructor(

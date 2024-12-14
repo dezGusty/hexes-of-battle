@@ -1,6 +1,6 @@
 import { Application, Sprite, Assets, Text, TextStyle, BitmapText, Spritesheet, Texture, Container, TextStyleOptions, AnimatedSprite } from 'pixi.js';
 import pkg from './../package.json';
-import { hexDirectionToString, HexMap } from './hex-map';
+import { HexDirection, hexDirectionToString, HexMap } from './hex-map';
 import { CommonControls } from './common-controls';
 import { Coords, UserOptions } from './shared';
 import { AnimationType, Battle, MapRenderUpdate } from './battle';
@@ -321,6 +321,11 @@ export class HexesApp {
 
     this.commonControls.nextTurnButton?.onPress.connect(() => {
       this.battle.nextTurn();
+      this.battle.selectNextUnit();
+    });
+
+    this.commonControls.nextUnitButton?.onPress.connect(() => {
+      this.battle.selectNextUnit();
     });
   }
 
@@ -430,17 +435,38 @@ export class HexesApp {
       y -= this.hexMap.cellSize().y / 2;
 
       let unitTextureName = 'peasant_fork_right.png';
-      switch (creature.creatureType) {
-        case CreatureType.PEASANT:
-          unitTextureName = 'peasant_fork_right.png';
-          break;
-        case CreatureType.PEASANT_ARCHER:
-          unitTextureName = 'peasant_archer_right.png';
-          break;
-        case CreatureType.SPEARMAN:
-          unitTextureName = 'pikeman_right.png';
-          break;
+
+      if (creature.facingDirection === HexDirection.EAST
+        || creature.facingDirection === HexDirection.SOUTHEAST
+        || creature.facingDirection === HexDirection.NORTHEAST) {
+        switch (creature.creatureType) {
+          case CreatureType.PEASANT:
+            unitTextureName = 'peasant_fork_right.png';
+            break;
+          case CreatureType.PEASANT_ARCHER:
+            unitTextureName = 'peasant_archer_right.png';
+            break;
+          case CreatureType.SPEARMAN:
+            unitTextureName = 'pikeman_right.png';
+            break;
+        }
+
+      } else if (creature.facingDirection === HexDirection.WEST
+        || creature.facingDirection === HexDirection.SOUTHWEST
+        || creature.facingDirection === HexDirection.NORTHWEST) {
+        switch (creature.creatureType) {
+          case CreatureType.PEASANT:
+            unitTextureName = 'peasant_fork_left.png';
+            break;
+          case CreatureType.PEASANT_ARCHER:
+            unitTextureName = 'peasant_archer_left.png';
+            break;
+          case CreatureType.SPEARMAN:
+            unitTextureName = 'pikeman_left.png';
+            break;
+        }
       }
+
       const unitSprite = new Sprite(this.unitsSheet?.textures[unitTextureName]);
       unitSprite.x = x;
       unitSprite.y = y;

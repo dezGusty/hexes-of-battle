@@ -124,7 +124,7 @@ export class Battle {
 
   public cacheRangedReachableCells(coords: Coords, range: number) {
     this.unitRangeData = [];
-    let frontier: ReachData[] = [{ coords, reach: range, cameFrom: coords}];
+    let frontier: ReachData[] = [{ coords, reach: range, cameFrom: coords }];
     while (frontier.length > 0) {
       let current = frontier.shift();
       if (current === undefined) {
@@ -482,6 +482,29 @@ export class Battle {
     }
   }
 
+  public selectNextUnit(): number {
+    let result = -1;
+    let currentIndex = this.activeCreatureIndex;
+
+    // locate the next creature in the current army
+    for (let i = 0; i < this.creatures.length; i++) {
+      currentIndex = (currentIndex + 1) % this.creatures.length;
+      if (this.creatures[currentIndex].armyAlignment === this.currentArmyIndex) {
+        result = currentIndex;
+        break;
+      }
+    }
+
+    if (result >= 0) {
+      this.selectCreatureByArmyIndex(this.currentArmyIndex, result);
+      this.showReachableCells(this.creatures[result]);
+    }
+    
+    this.nextRenderUpdate.hoverPath = [];
+    this.nextRenderUpdate.unitRenderUpdate = true;
+    return result;
+  }
+
   public update(delta: number): MapRenderUpdate {
     let result = this.nextRenderUpdate;
     this.nextRenderUpdate = new MapRenderUpdate();
@@ -499,6 +522,10 @@ export class Battle {
         currentAction.remainingTime = currentAction.stepDuration;
         if (currentAction.step < currentAction.path.length) {
           let nextStep = currentAction.path[currentAction.step];
+          // also update the direction
+          const oneDirection = this.hexMap.getDirectionForNeighbour(this.creatures[this.activeCreatureIndex].position, nextStep);
+          this.creatures[this.activeCreatureIndex].facingDirection = oneDirection;
+
           this.creatures[this.activeCreatureIndex].position = nextStep;
           currentAction.step++;
           this.nextRenderUpdate.unitRenderUpdate = true;
@@ -539,6 +566,9 @@ export class Battle {
               if (!creatureInBattle.creature.isAlive) {
                 console.log("The creature has died");
                 this.creatures.splice(creatureInBattle.indexInArmy, 1);
+              } else {
+                console.log("The creature is still alive");
+                // TODO: counterattack?
               }
             }
           }
@@ -549,6 +579,7 @@ export class Battle {
           this.nextRenderUpdate.unitRenderUpdate = true;
           this.nextRenderUpdate.somethingChanged = true;
 
+          this.selectNextUnit();
         }
       }
     }

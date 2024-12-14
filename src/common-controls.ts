@@ -16,6 +16,7 @@ export class CommonControls {
   public toggleCoordsButton?: FancyButton;
   public toggleGridButton?: FancyButton;
   public nextTurnButton?: FancyButton;
+  public nextUnitButton?: FancyButton;
   static DEFAULT_FONT_STYLE: TextStyle | TextStyleOptions = { fontFamily: 'GustysSerpents', fontSize: 18, align: 'left' };
   private DEFAULT_BUTTON_STYLE: ButtonOptions = {
     defaultView: 'btn_simple.png',
@@ -46,6 +47,9 @@ export class CommonControls {
     this.nextTurnButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_next_turn.png' });
     this.nextTurnButton.position.set(10, 260);
 
+    this.nextUnitButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_next_unit.png' });
+    this.nextUnitButton.position.set(10, 310);
+
     this.connectEventHandlers();
   }
 
@@ -57,6 +61,7 @@ export class CommonControls {
     if (this.toggleCoordsButton) results.push(this.toggleCoordsButton);
     if (this.toggleGridButton) results.push(this.toggleGridButton);
     if (this.nextTurnButton) results.push(this.nextTurnButton);
+    if (this.nextUnitButton) results.push(this.nextUnitButton);
     return results;
   }
 
