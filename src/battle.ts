@@ -408,6 +408,12 @@ export class Battle {
           // check if neighbour is in cached cells, (unit reach data)
           const neighbourInUnitReachData = this.unitReachData.find((element) => element.coords.x === neighbour.x && element.coords.y === neighbour.y);
           if (neighbourInUnitReachData) {
+            // Also check if the neighbour is occupied by an enemy unit
+            const neighbourCreature = this.getCreatureAtPosition(neighbour);
+            if (neighbourCreature) {
+              return;
+            }
+
             // yes, the neighbour is reachable, so we can attack from the given direction
             this.nextRenderUpdate.hoverPath = this.findPathFromSelectedUnitToCell(neighbour);
 
@@ -482,9 +488,11 @@ export class Battle {
     this.activeCreatureIndex = -1;
 
     // set all the creatures from the current army to have full movement
+    // also full attacks
     for (let i = 0; i < this.creatures.length; i++) {
       if (this.creatures[i].armyAlignment === this.currentArmyIndex) {
         this.creatures[i].stats.remaining_movement = this.creatures[i].stats.speed;
+        this.creatures[i].stats.remaining_attacks = this.creatures[i].stats.num_attacks;
       }
     }
   }
@@ -506,7 +514,7 @@ export class Battle {
       this.selectCreatureByArmyIndex(this.currentArmyIndex, result);
       this.showReachableCells(this.creatures[result]);
     }
-    
+
     this.nextRenderUpdate.hoverPath = [];
     this.nextRenderUpdate.unitRenderUpdate = true;
     return result;
@@ -522,6 +530,11 @@ export class Battle {
     return this.activeCreatureIndex;
   }
 
+  /**
+   * Make the battle react to time changes. Handles any actions that are currently playing.
+   * @param delta Time since last update in milliseconds
+   * @returns The next render update summary. This informs the caller if the rendering needs to be updated, and what needs to be updated.
+   */
   public update(delta: number): MapRenderUpdate {
     let result = this.nextRenderUpdate;
     this.nextRenderUpdate = new MapRenderUpdate();
@@ -531,7 +544,6 @@ export class Battle {
     }
 
     let currentAction = this.currentActions[0];
-
 
     if (currentAction.type == BattleActionType.MOVE) {
       currentAction.remainingTime -= delta;
@@ -560,60 +572,65 @@ export class Battle {
     ) {
       currentAction.remainingTime -= delta;
       // Show attack animation during this time. At the end, stop the animation.
-      if (currentAction.remainingTime <= 0) {
-        if (currentAction.step == 0) {
-          const animType: AnimationType = currentAction.type == BattleActionType.ATTACK_MELEE ? AnimationType.ATTACK_MELEE : AnimationType.ATTACK_RANGED;
-          // First step, start playing animation
-          this.nextRenderUpdate.animationAtCoords = new AnimationAtCoords(animType, currentAction.path[0]);
-          this.nextRenderUpdate.somethingChanged = true;
-          currentAction.step++;
-          currentAction.remainingTime = currentAction.stepDuration;
-          console.log("Playing attack animation");
-        } else if (currentAction.step == 1) {
-          // Second step, stop playing animation, and apply the damage
-          if (currentAction.path.length > 0) {
-            const target = currentAction.path[0];
-            let creatureInBattle = this.getCreatureAtPosition(target);
-            if (creatureInBattle === null) {
-              console.error("The creature is no longer there");
-            } else {
-              let damage = this.creatures[this.activeCreatureIndex].getRandomAttackDamage();
-
-              if (currentAction.type == BattleActionType.ATTACK_MELEE) {
-                damage -= creatureInBattle.creature.stats.defense_melee;
-              } else {
-                damage -= creatureInBattle.creature.stats.defense_ranged;
-              }
-              
-
-              creatureInBattle.creature.takeDamage(damage);
-              console.log(`Dealt ${damage} damage to the creature`);
-              if (!creatureInBattle.creature.isAlive) {
-                console.log("The creature has died");
-                this.creatures.splice(creatureInBattle.indexInArmy, 1);
-              } else {
-                console.log("The creature is still alive");
-                // TODO: queue a counterattack?
-              }
-
-              this.creatures[this.activeCreatureIndex].stats.remaining_attacks--;
-              // for most units, after attacking, the turn is over, so also set their movement to 0
-              this.creatures[this.activeCreatureIndex].stats.remaining_movement = 0;
-
-            }
-          }
-
-          console.log("Applied attack");
-
-          this.currentActions.shift();
-          this.nextRenderUpdate.unitRenderUpdate = true;
-          this.nextRenderUpdate.somethingChanged = true;
-
-          this.selectNextUnit();
-        }
+      if (currentAction.remainingTime > 0) {
+        return result;
       }
+
+      if (currentAction.step == 0) {
+        const animType: AnimationType = currentAction.type == BattleActionType.ATTACK_MELEE ? AnimationType.ATTACK_MELEE : AnimationType.ATTACK_RANGED;
+        // First step, start playing animation
+        this.nextRenderUpdate.animationAtCoords = new AnimationAtCoords(animType, currentAction.path[0]);
+        this.nextRenderUpdate.somethingChanged = true;
+        currentAction.step++;
+        currentAction.remainingTime = currentAction.stepDuration;
+        console.log("Playing attack animation");
+      } else if (currentAction.step == 1) {
+        // Second step, stop playing animation, and apply the damage
+        if (currentAction.path.length > 0) {
+          const target = currentAction.path[0];
+          let creatureInBattle = this.getCreatureAtPosition(target);
+          if (creatureInBattle === null) {
+            console.error("The creature is no longer there");
+          } else {
+            let thisCreature = this.creatures[this.activeCreatureIndex];
+            let damage = thisCreature.getRandomAttackDamage();
+
+            if (currentAction.type == BattleActionType.ATTACK_MELEE) {
+              damage -= creatureInBattle.creature.stats.defense_melee;
+            } else {
+              damage -= creatureInBattle.creature.stats.defense_ranged;
+            }
+
+            creatureInBattle.creature.takeDamage(damage);
+            console.log(`Dealt ${damage} damage to the creature`);
+            if (!creatureInBattle.creature.isAlive) {
+              console.log("The creature has died");
+              this.creatures.splice(creatureInBattle.indexInArmy, 1);
+            } else {
+              console.log("The creature is still alive");
+              // TODO: queue a counterattack?
+            }
+
+            thisCreature.stats.remaining_attacks--;
+            // for most units, after attacking, the turn is over, so also set their movement to 0
+            thisCreature.stats.remaining_movement = 0;
+
+          }
+        }
+
+        console.log("Applied attack");
+
+        this.currentActions.shift();
+        this.nextRenderUpdate.unitRenderUpdate = true;
+        this.nextRenderUpdate.somethingChanged = true;
+
+        this.selectNextUnit();
+      }
+
     }
 
     return result;
   }
+
+
 }
