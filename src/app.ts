@@ -6,6 +6,7 @@ import { Coords, UserOptions } from './shared';
 import { AnimationType, Battle, MapRenderUpdate } from './battle';
 import { Creature, CreatureType } from './creature';
 import { ProgressBar } from '@pixi/ui';
+import { UnitStatsPanel } from './unit-stats-panel';
 
 export enum GameState {
   InMenu,
@@ -51,6 +52,7 @@ export class HexesApp {
   private displayOnScreenTouchControls: boolean = false;
 
   private commonControls: CommonControls = new CommonControls();
+  private unitStats?: UnitStatsPanel = undefined;
   private softCursorName: string = 'default';
 
   private fpsText?: BitmapText;
@@ -339,7 +341,24 @@ export class HexesApp {
     });
 
     this.commonControls.toggleStatsButton?.onPress.connect(() => {
-      // this.battle.showStats = !this.battle.showStats;
+      if (!this.uiSheet) {
+        return;
+      }
+
+      if (!this.unitStats) {
+        this.unitStats = new UnitStatsPanel(this.renderContainer, this.uiSheet);
+        this.unitStats.hide();
+      }
+
+      this.unitStats.toggleVisibility();
+
+      if (this.unitStats) {
+        if (this.battle.activeCreatureIndex >= 0) {
+          this.unitStats.setCreature(this.battle.creatures[this.battle.activeCreatureIndex]);
+          this.unitStats.update();
+        }
+      }
+
     });
   }
 
@@ -539,7 +558,7 @@ export class HexesApp {
         healthBar.y = y + 60;
         healthBar.progress = 100 * creature.stats.health / creature.stats.max_health;
         healthBar.rotation = -Math.PI / 2;
-  
+
         this.hexUnitBars.push(healthBar);
         this.unitRenderSubgroups[creature.position.y].addChild(healthBar);
       }
@@ -592,6 +611,8 @@ export class HexesApp {
           this.hexSelectedSprite = undefined;
         }
       }
+
+      this.onSelectedUnitChanged(this.battle.creatures[mapUpdate.selectedCreatureIndex]);
     }
 
     if (mapUpdate.reachableCells) {
@@ -706,6 +727,12 @@ export class HexesApp {
     }
   }
 
+  public onSelectedUnitChanged(creature: Creature) {
+    if (this.unitStats) {
+      this.unitStats.setCreature(creature);
+      this.unitStats.update();
+    }
+  }
 
   public setNavMapOffset(offset: Coords): void {
     this.navMapOffset.y = Math.max(this.MAP_OFFSET_MIN.y, offset.y);
