@@ -5,6 +5,7 @@ import { CommonControls } from './common-controls';
 import { Coords, UserOptions } from './shared';
 import { AnimationType, Battle, MapRenderUpdate } from './battle';
 import { Creature, CreatureType } from './creature';
+import { ProgressBar } from '@pixi/ui';
 
 export enum GameState {
   InMenu,
@@ -64,6 +65,9 @@ export class HexesApp {
   private hexSelectedSprite?: Sprite;
   private hexReachableSprites: Sprite[] = [];
   private hexPathSprites: Sprite[] = [];
+  private hexUnitBars: ProgressBar[] = [];
+
+  private showHealthbars: boolean = true;
 
 
   // Add render groups for layering
@@ -327,6 +331,16 @@ export class HexesApp {
     this.commonControls.nextUnitButton?.onPress.connect(() => {
       this.battle.selectNextUnit();
     });
+
+    this.commonControls.showHealthbarsButton?.onPress.connect(() => {
+      this.showHealthbars = !this.showHealthbars;
+      this.battle.reselectCurrentUnit();
+      // this.unitRenderGroup.visible = !this.unitRenderGroup.visible;
+    });
+
+    this.commonControls.toggleStatsButton?.onPress.connect(() => {
+      // this.battle.showStats = !this.battle.showStats;
+    });
   }
 
   public initializeMapAndGame(): void {
@@ -414,9 +428,32 @@ export class HexesApp {
 
     creature = new Creature(CreatureType.SPEARMAN);
     creature.position = { x: 5, y: 7 };
-    creature.stats.health = 30;
+    // creature.stats.health = 30;
     creature.stats.speed = 3;
     creature.stats.remaining_movement = 3;
+    creature.facingDirection = HexDirection.WEST;
+    creature.armyAlignment = 1;
+    this.battle.creatures.push(creature);
+
+    creature = new Creature(CreatureType.SWORDSMAN);
+    creature.position = { x: 7, y: 5 };
+    creature.stats.speed = 2;
+    creature.stats.remaining_movement = 2;
+    creature.stats.attack_low = 6;
+    creature.stats.attack_high = 7;
+    creature.stats.defense_melee = 2;
+    creature.stats.defense_ranged = 1;
+    creature.facingDirection = HexDirection.WEST;
+    creature.armyAlignment = 1;
+    this.battle.creatures.push(creature);
+
+    creature = new Creature(CreatureType.BARBARIAN);
+    creature.position = { x: 9, y: 6 };
+    creature.stats.speed = 4;
+    creature.stats.remaining_movement = 4;
+    creature.stats.attack_low = 6;
+    creature.stats.attack_high = 10;
+    creature.facingDirection = HexDirection.WEST;
     creature.armyAlignment = 1;
     this.battle.creatures.push(creature);
 
@@ -428,6 +465,8 @@ export class HexesApp {
     this.unitRenderSubgroups.forEach((subgroup) => { subgroup.removeChildren(); });
     // this.unitSprites.forEach((sprite) => {this.unitRenderGroup.removeChild(sprite);});
     this.unitSprites = [];
+    this.hexUnitBars.forEach((bar) => { this.unitRenderGroup.removeChild(bar); });
+    this.hexUnitBars = [];
 
     this.battle.creatures.forEach((creature) => {
       let { x, y } = this.hexMap.hexToPixel(creature.position.x, creature.position.y);
@@ -449,6 +488,12 @@ export class HexesApp {
           case CreatureType.SPEARMAN:
             unitTextureName = 'pikeman_right.png';
             break;
+          case CreatureType.SWORDSMAN:
+            unitTextureName = 'swordman_right.png';
+            break;
+          case CreatureType.BARBARIAN:
+            unitTextureName = 'barbarian_right.png';
+            break;
         }
 
       } else if (creature.facingDirection === HexDirection.WEST
@@ -464,6 +509,12 @@ export class HexesApp {
           case CreatureType.SPEARMAN:
             unitTextureName = 'pikeman_left.png';
             break;
+          case CreatureType.SWORDSMAN:
+            unitTextureName = 'swordman_left.png';
+            break;
+          case CreatureType.BARBARIAN:
+            unitTextureName = 'barbarian_left.png';
+            break;
         }
       }
 
@@ -471,6 +522,27 @@ export class HexesApp {
       unitSprite.x = x;
       unitSprite.y = y;
       this.unitSprites.push(unitSprite);
+
+      if (this.showHealthbars) {
+        let healthBar = new ProgressBar({
+          bg: 'progress_bg.png',
+          fill: 'progress_fill.png',
+          nineSliceSprite: {
+            bg: [3, 3, 3, 3],
+            fill: [2, 2, 2, 2],
+          },
+          fillPaddings: { top: 2, right: 2, bottom: 2, left: 2 },
+        });
+        healthBar.width = 80;
+        healthBar.height = 8;
+        healthBar.x = x;
+        healthBar.y = y + 60;
+        healthBar.progress = 100 * creature.stats.health / creature.stats.max_health;
+        healthBar.rotation = -Math.PI / 2;
+  
+        this.hexUnitBars.push(healthBar);
+        this.unitRenderSubgroups[creature.position.y].addChild(healthBar);
+      }
 
       this.unitRenderSubgroups[creature.position.y].addChild(unitSprite);
     });

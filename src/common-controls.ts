@@ -17,6 +17,8 @@ export class CommonControls {
   public toggleGridButton?: FancyButton;
   public nextTurnButton?: FancyButton;
   public nextUnitButton?: FancyButton;
+  public showHealthbarsButton?: FancyButton;
+  public toggleStatsButton?: FancyButton;
   static DEFAULT_FONT_STYLE: TextStyle | TextStyleOptions = { fontFamily: 'GustysSerpents', fontSize: 18, align: 'left' };
   private DEFAULT_BUTTON_STYLE: ButtonOptions = {
     defaultView: 'btn_simple.png',
@@ -50,6 +52,12 @@ export class CommonControls {
     this.nextUnitButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_next_unit.png' });
     this.nextUnitButton.position.set(10, 310);
 
+    this.showHealthbarsButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_toggle_healthbars.png' });
+    this.showHealthbarsButton.position.set(10, 360);
+
+    this.toggleStatsButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_toggle_stats.png' });
+    this.toggleStatsButton.position.set(10, 410);
+
     this.connectEventHandlers();
   }
 
@@ -62,6 +70,9 @@ export class CommonControls {
     if (this.toggleGridButton) results.push(this.toggleGridButton);
     if (this.nextTurnButton) results.push(this.nextTurnButton);
     if (this.nextUnitButton) results.push(this.nextUnitButton);
+    if (this.showHealthbarsButton) results.push(this.showHealthbarsButton);
+    if (this.toggleStatsButton) results.push(this.toggleStatsButton);
+
     return results;
   }
 

@@ -99,7 +99,6 @@ export class Battle {
 
   selectCreatureByArmyIndex(armyIndex: number, creatureIndex: number) {
     this.activeCreatureIndex = creatureIndex;
-    // this.currentArmyIndex = armyIndex;
     this.renderStateChanged = true;
 
     this.nextRenderUpdate.selectedCreatureIndex = creatureIndex;
@@ -212,10 +211,12 @@ export class Battle {
           const creatureIndex = this.cached_occupation_tiles[neighbour.coords.x][neighbour.coords.y] - 1;
           if (this.creatures[creatureIndex].armyAlignment !== this.currentArmyIndex) {
 
-            // don't add it to the frontier, (cannot pass through enemy)
-            // but add it to the reachable cells
-            this.unitReachData.push(neighbour);
-            this.pathfinding_tiles[neighbour.coords.x][neighbour.coords.y] = 100;
+            if (this.creatures[this.activeCreatureIndex].stats.remaining_attacks > 0) {
+              // don't add it to the frontier, (cannot pass through enemy)
+              // but add it to the reachable cells
+              this.unitReachData.push(neighbour);
+              this.pathfinding_tiles[neighbour.coords.x][neighbour.coords.y] = 100;
+            }
           }
           // ELSE - occupied by a unit in the same army
           continue;
@@ -223,6 +224,8 @@ export class Battle {
 
         if (current.reach > 0) {
           frontier.push(neighbour);
+          // if (this.creatures[this.activeCreatureIndex].stats.remaining_attacks > 0) {
+          // }
           this.unitReachData.push(neighbour);
           this.pathfinding_tiles[neighbour.coords.x][neighbour.coords.y] = 1;
         }
@@ -307,6 +310,10 @@ export class Battle {
 
           // if attacking an enemy creature, check if we need to get in close combat
           if (creature.armyAlignment !== creatureInBattle.indexOFArmy) {
+            if (creature.stats.remaining_attacks <= 0) {
+              console.log("No more attacks left");
+              return;
+            }
             console.log("Attacking creature: ", creatureInBattle);
             // Check to see if the attacker is melee or ranged
             // If the attacker is ranged, then don't move, just attack
@@ -505,6 +512,16 @@ export class Battle {
     return result;
   }
 
+  public reselectCurrentUnit(): number {
+    if (this.activeCreatureIndex >= 0) {
+      this.selectCreatureByArmyIndex(this.currentArmyIndex, this.activeCreatureIndex);
+      this.showReachableCells(this.creatures[this.activeCreatureIndex]);
+    }
+    this.nextRenderUpdate.hoverPath = [];
+    this.nextRenderUpdate.unitRenderUpdate = true;
+    return this.activeCreatureIndex;
+  }
+
   public update(delta: number): MapRenderUpdate {
     let result = this.nextRenderUpdate;
     this.nextRenderUpdate = new MapRenderUpdate();
@@ -561,6 +578,14 @@ export class Battle {
               console.error("The creature is no longer there");
             } else {
               let damage = this.creatures[this.activeCreatureIndex].getRandomAttackDamage();
+
+              if (currentAction.type == BattleActionType.ATTACK_MELEE) {
+                damage -= creatureInBattle.creature.stats.defense_melee;
+              } else {
+                damage -= creatureInBattle.creature.stats.defense_ranged;
+              }
+              
+
               creatureInBattle.creature.takeDamage(damage);
               console.log(`Dealt ${damage} damage to the creature`);
               if (!creatureInBattle.creature.isAlive) {
@@ -568,8 +593,13 @@ export class Battle {
                 this.creatures.splice(creatureInBattle.indexInArmy, 1);
               } else {
                 console.log("The creature is still alive");
-                // TODO: counterattack?
+                // TODO: queue a counterattack?
               }
+
+              this.creatures[this.activeCreatureIndex].stats.remaining_attacks--;
+              // for most units, after attacking, the turn is over, so also set their movement to 0
+              this.creatures[this.activeCreatureIndex].stats.remaining_movement = 0;
+
             }
           }
 

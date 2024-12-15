@@ -81,6 +81,7 @@ export class HexMap {
       this.tiles[i] = [];
       for (let j = 0; j < mapHeight; j++) {
         // get a random value between 1 and 5
+        // Note: for the time being, just use this hardcoded value until more graphics are added
         let randomValue = 3;
         this.tiles[i][j] = randomValue;
       }
@@ -103,6 +104,12 @@ export class HexMap {
     return result;
   }
 
+  /**
+   * Find a neighbour of a hexagon in a given direction (or null if the neighbour is outside the map).
+   * @param coords Starting coordinated
+   * @param direction The direction in which to find the neighbour
+   * @returns The coordinates of the neighbour in the given direction, or null if the neighbour is outside the map.
+   */
   public getNeighbourInDirection(coords: Coords, direction: HexDirection): Coords | null {
     let result = this.getCoordsInDirectionInternal(coords, direction);
     if (result === null) return null;
@@ -230,27 +237,44 @@ export class HexMap {
       smallerWidth);
     smallerCell.x--;
     smallerCell.y--;
-    let nearDirection = HexDirection.NONE;
-    if (smallerCell.x != 1 || smallerCell.y != 1) {
-      if (smallerCell.x == 0 && smallerCell.y == 0) {
-        nearDirection = HexDirection.NORTHWEST;
-      } else if (smallerCell.x == 0 && smallerCell.y == 1) {
-        nearDirection = HexDirection.WEST;
-      } else if (smallerCell.x == 1 && smallerCell.y == 0) {
-        nearDirection = HexDirection.NORTHEAST;
-      } else if (smallerCell.x == 2 && smallerCell.y == 1) {
-        nearDirection = HexDirection.EAST;
-      } else if (smallerCell.x == 0 && smallerCell.y == 2) {
-        nearDirection = HexDirection.SOUTHWEST;
-      } else if (smallerCell.x == 1 && smallerCell.y == 2) {
-        nearDirection = HexDirection.SOUTHEAST;
-      }
-    }
+    return { cell: originalCell, direction: this.getNearDirectionForInnerHexCoords(smallerCell) };
+  }
 
-    return { cell: originalCell, direction: nearDirection };
+  private getNearDirectionForInnerHexCoords(smallerCell: Coords) {
+    switch (smallerCell.x) {
+      case 0:
+        if (smallerCell.y == 0) {
+          return HexDirection.NORTHWEST;
+        } else if (smallerCell.y == 1) {
+          return HexDirection.WEST;
+        } else if (smallerCell.y == 2) {
+          return HexDirection.SOUTHWEST;
+        }
+        break;
+      case 1:
+        if (smallerCell.y == 0) {
+          return HexDirection.NORTHEAST;
+        } else if (smallerCell.y == 2) {
+          return HexDirection.SOUTHEAST;
+        }
+        break;
+
+      case 2:
+        if (smallerCell.x == 2 && smallerCell.y == 1) {
+          return HexDirection.EAST;
+        }
+        break;
+    }
+    return HexDirection.NONE;
   }
 
 
+  /**
+   * Finds the direction from one hexagon to another hexagon. Works only for neighbourd.
+   * @param hexSource The coordinates of the source hexagon to start the search from.
+   * @param neighbour The coordinates of the neighbour hexagon to find the direction to.
+   * @returns The direction from the source hexagon to the neighbour hexagon. NONE if the given neighbour is not really a neighbour.
+   */
   public getDirectionForNeighbour(hexSource: Coords, neighbour: Coords): HexDirection {
     for (let i = HexDirection.EAST; i <= HexDirection.SOUTHEAST; i++) {
       let neighbourInDir = this.getNeighbourInDirection(hexSource, i);

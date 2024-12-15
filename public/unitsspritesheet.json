@@ -24,13 +24,21 @@
             "frame": {"x": 0,"y": 160,"w": 80,"h": 160},
             "anchor": {"x": 0,"y": 0.5}
         },
+        "barbarian_right.png": {
+            "frame": {"x": 80,"y": 160,"w": 80,"h": 160},
+            "anchor": {"x": 0,"y": 0.5}
+        },
+        "barbarian_left.png": {
+            "frame": {"x": 160,"y": 160,"w": 80,"h": 160},
+            "anchor": {"x": 0,"y": 0.5}
+        },
+        "swordman_right.png": {
+            "frame": {"x": 160,"y": 320,"w": 80,"h": 160},
+            "anchor": {"x": 0,"y": 0.5}
+        },
         "swordman_left.png": {
-            "frame": {
-                "x": 80,
-                "y": 160,
-                "w": 80,
-                "h": 160
-            }
+            "frame": {"x": 240,"y": 320,"w": 80,"h": 160},
+            "anchor": {"x": 0,"y": 0.5}
         },
         "arbalest_left.png": {
             "frame": {
@@ -43,14 +51,6 @@
         "halberdier_left.png": {
             "frame": {
                 "x": 0,
-                "y": 320,
-                "w": 80,
-                "h": 160
-            }
-        },
-        "paladin_left.png": {
-            "frame": {
-                "x": 160,
                 "y": 320,
                 "w": 80,
                 "h": 160

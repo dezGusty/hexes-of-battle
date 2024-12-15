@@ -10,8 +10,11 @@ export class CreatureStats {
   health: number = 10;
   initiative: number = 3;
   is_ranged: boolean = false;
+  max_health: number = 10;
+  num_attacks: number = 1;
   range: number = 1;
   remaining_movement: number = 3;
+  remaining_attacks: number = 1;
   speed: number = 3;
 }
 
@@ -22,6 +25,7 @@ export enum CreatureType {
   SPEARMAN = 3,
   CROSSBOWMAN = 4,
   ARCHER = 5,
+  BARBARIAN = 6,
 };
 
 /**
@@ -38,8 +42,13 @@ export class Creature {
     health: 12,
     initiative: 4,
     is_ranged: false,
+    max_health: 12,
+    num_attacks: 1,
     range: 1,
+    
+    remaining_attacks: 1,
     remaining_movement: 4,
+
     speed: 4
   };
 
