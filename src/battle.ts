@@ -577,6 +577,14 @@ export class Battle {
       }
 
       if (currentAction.step == 0) {
+        // Melee units may move to attack from behind, make certain that they are facing the right direction
+        if (currentAction.type == BattleActionType.ATTACK_MELEE) {
+          const oneDirection = this.hexMap.getDirectionForNeighbour(this.creatures[this.activeCreatureIndex].position, currentAction.path[0]);
+          this.creatures[this.activeCreatureIndex].facingDirection = oneDirection;
+          this.nextRenderUpdate.unitRenderUpdate = true;
+          this.nextRenderUpdate.somethingChanged = true;
+        }
+
         const animType: AnimationType = currentAction.type == BattleActionType.ATTACK_MELEE ? AnimationType.ATTACK_MELEE : AnimationType.ATTACK_RANGED;
         // First step, start playing animation
         this.nextRenderUpdate.animationAtCoords = new AnimationAtCoords(animType, currentAction.path[0]);
