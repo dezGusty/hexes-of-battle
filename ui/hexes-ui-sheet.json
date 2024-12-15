@@ -212,6 +212,9 @@
                 "h": 32
             }
         },
+        "panel.png": {
+            "frame": {"x": 397,"y": 151,"w": 64,"h": 64}
+        },
         "sword_attack_anim_01.png": {
             "frame": {
                 "x": 1,
