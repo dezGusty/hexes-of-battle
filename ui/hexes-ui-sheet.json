@@ -196,6 +196,22 @@
                 "h": 32
             }
         },
+        "glyph_toggle_healthbars.png": {
+            "frame": {
+                "x": 205,
+                "y": 1,
+                "w": 32,
+                "h": 32
+            }
+        },
+        "glyph_toggle_stats.png": {
+            "frame": {
+                "x": 205,
+                "y": 35,
+                "w": 32,
+                "h": 32
+            }
+        },
         "sword_attack_anim_01.png": {
             "frame": {
                 "x": 1,
@@ -290,6 +306,22 @@
                 "y": 219,
                 "w": 64,
                 "h": 64
+            }
+        },
+        "progress_bg.png": {
+            "frame": {
+                "x": 151,
+                "y": 101,
+                "w": 96,
+                "h": 48
+            }
+        },
+        "progress_fill.png": {
+            "frame": {
+                "x": 249,
+                "y": 101,
+                "w": 96,
+                "h": 23
             }
         }
     },
