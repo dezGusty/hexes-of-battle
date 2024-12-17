@@ -168,6 +168,74 @@ export class HexMap {
     return { coord: result, value: data[result.x][result.y] };
   }
 
+  private static getSingleEdgeForDataCell(data: number[][], width: number, height: number, x: number, y: number): HexEdge {
+    // check all neighbours
+    let neighbours: Array<{ coord: Coords, value: number } | null> = [];
+    for (let dir = HexDirection.EAST; dir <= HexDirection.SOUTHEAST; dir++) {
+      const neighbour = HexMap.getNeighbourInDirectionInDataMatrix({ x, y }, dir, data, width, height);
+      neighbours[dir] = neighbour;
+    }
+
+    let edgeDir = HexEdge.NORTH;
+    if ((!neighbours[HexDirection.EAST] || neighbours[HexDirection.EAST].value < 1)
+      && (!neighbours[HexDirection.NORTHEAST] || neighbours[HexDirection.NORTHEAST].value < 1)
+      && (!neighbours[HexDirection.SOUTHEAST] || neighbours[HexDirection.SOUTHEAST].value < 1)
+    ) {
+      return HexEdge.EAST;
+    } else if ((!neighbours[HexDirection.EAST] || neighbours[HexDirection.EAST].value < 1)
+      && (!neighbours[HexDirection.NORTHEAST] || neighbours[HexDirection.NORTHEAST].value < 1)
+      && (!neighbours[HexDirection.NORTHWEST] || neighbours[HexDirection.NORTHWEST].value < 1)
+    ) {
+      return HexEdge.NORTH_NORTHEAST;
+    } else if ((!neighbours[HexDirection.WEST] || neighbours[HexDirection.WEST].value < 1)
+      && (!neighbours[HexDirection.NORTHEAST] || neighbours[HexDirection.NORTHEAST].value < 1)
+      && (!neighbours[HexDirection.NORTHWEST] || neighbours[HexDirection.NORTHWEST].value < 1)
+    ) {
+      return HexEdge.NORTH_NORTHWEST;
+    } else if ((!neighbours[HexDirection.EAST] || neighbours[HexDirection.EAST].value < 1)
+      && (!neighbours[HexDirection.SOUTHEAST] || neighbours[HexDirection.SOUTHEAST].value < 1)
+      && (!neighbours[HexDirection.SOUTHWEST] || neighbours[HexDirection.SOUTHWEST].value < 1)
+    ) {
+      return HexEdge.SOUTH_SOUTHEAST;
+    } else if ((!neighbours[HexDirection.WEST] || neighbours[HexDirection.WEST].value < 1)
+      && (!neighbours[HexDirection.SOUTHEAST] || neighbours[HexDirection.SOUTHEAST].value < 1)
+      && (!neighbours[HexDirection.SOUTHWEST] || neighbours[HexDirection.SOUTHWEST].value < 1)
+    ) {
+      return HexEdge.SOUTH_SOUTHWEST;
+    } else if ((!neighbours[HexDirection.EAST] || neighbours[HexDirection.EAST].value < 1)
+      && (!neighbours[HexDirection.NORTHEAST] || neighbours[HexDirection.NORTHEAST].value < 1)
+    ) {
+      return HexEdge.NORTHEAST;
+    } else if ((!neighbours[HexDirection.EAST] || neighbours[HexDirection.EAST].value < 1)
+      && (!neighbours[HexDirection.SOUTHEAST] || neighbours[HexDirection.SOUTHEAST].value < 1)
+    ) {
+      return HexEdge.SOUTHEAST;
+    } else if ((!neighbours[HexDirection.WEST] || neighbours[HexDirection.WEST].value < 1)
+      && (!neighbours[HexDirection.NORTHWEST] || neighbours[HexDirection.NORTHWEST].value < 1)
+      && (!neighbours[HexDirection.SOUTHWEST] || neighbours[HexDirection.SOUTHWEST].value < 1)
+    ) {
+      return HexEdge.WEST;
+    } else if ((!neighbours[HexDirection.WEST] || neighbours[HexDirection.WEST].value < 1)
+      && (!neighbours[HexDirection.NORTHWEST] || neighbours[HexDirection.NORTHWEST].value < 1)
+    ) {
+      return HexEdge.NORTHWEST;
+    } else if ((!neighbours[HexDirection.WEST] || neighbours[HexDirection.WEST].value < 1)
+      && (!neighbours[HexDirection.SOUTHWEST] || neighbours[HexDirection.SOUTHWEST].value < 1)
+    ) {
+      return HexEdge.SOUTHWEST;
+    } else if ((!neighbours[HexDirection.NORTHEAST] || neighbours[HexDirection.NORTHEAST].value < 1)
+      && (!neighbours[HexDirection.NORTHWEST] || neighbours[HexDirection.NORTHWEST].value < 1)
+    ) {
+      return HexEdge.NORTH;
+    } else if ((!neighbours[HexDirection.SOUTHEAST] || neighbours[HexDirection.SOUTHEAST].value < 1)
+      && (!neighbours[HexDirection.SOUTHWEST] || neighbours[HexDirection.SOUTHWEST].value < 1)
+    ) {
+      return HexEdge.SOUTH;
+    }
+
+    return edgeDir;
+  }
+
   public static getEdgesForDataMatrix(data: number[][], width: number, height: number): { coord: Coords, value: number, edge: HexEdge }[] {
 
     let result: { coord: Coords, value: number, edge: HexEdge }[] = [];
@@ -178,69 +246,7 @@ export class HexMap {
           continue;
         }
 
-        // check all neighbours
-        let neighbours: Array<{ coord: Coords, value: number } | null> = [];
-        for (let dir = HexDirection.EAST; dir <= HexDirection.SOUTHEAST; dir++) {
-          const neighbour = HexMap.getNeighbourInDirectionInDataMatrix({ x: i, y: j }, dir, data, width, height);
-          neighbours[dir] = neighbour;
-        }
-
-        let edgeDir = HexEdge.NORTH;
-        if ((!neighbours[HexDirection.EAST] || neighbours[HexDirection.EAST].value < 1)
-          && (!neighbours[HexDirection.NORTHEAST] || neighbours[HexDirection.NORTHEAST].value < 1)
-          && (!neighbours[HexDirection.SOUTHEAST] || neighbours[HexDirection.SOUTHEAST].value < 1)
-        ) {
-          edgeDir = HexEdge.EAST;
-        } else if ((!neighbours[HexDirection.EAST] || neighbours[HexDirection.EAST].value < 1)
-          && (!neighbours[HexDirection.NORTHEAST] || neighbours[HexDirection.NORTHEAST].value < 1)
-          && (!neighbours[HexDirection.NORTHWEST] || neighbours[HexDirection.NORTHWEST].value < 1)
-        ) {
-          edgeDir = HexEdge.NORTH_NORTHEAST;
-        } else if ((!neighbours[HexDirection.WEST] || neighbours[HexDirection.WEST].value < 1)
-          && (!neighbours[HexDirection.NORTHEAST] || neighbours[HexDirection.NORTHEAST].value < 1)
-          && (!neighbours[HexDirection.NORTHWEST] || neighbours[HexDirection.NORTHWEST].value < 1)
-        ) {
-          edgeDir = HexEdge.NORTH_NORTHWEST;
-        } else if ((!neighbours[HexDirection.EAST] || neighbours[HexDirection.EAST].value < 1)
-          && (!neighbours[HexDirection.SOUTHEAST] || neighbours[HexDirection.SOUTHEAST].value < 1)
-          && (!neighbours[HexDirection.SOUTHWEST] || neighbours[HexDirection.SOUTHWEST].value < 1)
-        ) {
-          edgeDir = HexEdge.SOUTH_SOUTHEAST;
-        } else if ((!neighbours[HexDirection.WEST] || neighbours[HexDirection.WEST].value < 1)
-          && (!neighbours[HexDirection.SOUTHEAST] || neighbours[HexDirection.SOUTHEAST].value < 1)
-          && (!neighbours[HexDirection.SOUTHWEST] || neighbours[HexDirection.SOUTHWEST].value < 1)
-        ) {
-          edgeDir = HexEdge.SOUTH_SOUTHWEST;
-        } else if ((!neighbours[HexDirection.EAST] || neighbours[HexDirection.EAST].value < 1)
-          && (!neighbours[HexDirection.NORTHEAST] || neighbours[HexDirection.NORTHEAST].value < 1)
-        ) {
-          edgeDir = HexEdge.NORTHEAST;
-        } else if ((!neighbours[HexDirection.EAST] || neighbours[HexDirection.EAST].value < 1)
-          && (!neighbours[HexDirection.SOUTHEAST] || neighbours[HexDirection.SOUTHEAST].value < 1)
-        ) {
-          edgeDir = HexEdge.SOUTHEAST;
-        } else if ((!neighbours[HexDirection.WEST] || neighbours[HexDirection.WEST].value < 1)
-          && (!neighbours[HexDirection.NORTHWEST] || neighbours[HexDirection.NORTHWEST].value < 1)
-          && (!neighbours[HexDirection.SOUTHWEST] || neighbours[HexDirection.SOUTHWEST].value < 1)
-        ) {
-          edgeDir = HexEdge.WEST;
-        } else if ((!neighbours[HexDirection.WEST] || neighbours[HexDirection.WEST].value < 1)
-          && (!neighbours[HexDirection.NORTHWEST] || neighbours[HexDirection.NORTHWEST].value < 1)
-        ) {
-          edgeDir = HexEdge.NORTHWEST;
-        } else if ((!neighbours[HexDirection.WEST] || neighbours[HexDirection.WEST].value < 1)
-          && (!neighbours[HexDirection.SOUTHWEST] || neighbours[HexDirection.SOUTHWEST].value < 1)
-        ) {
-          edgeDir = HexEdge.SOUTHWEST;
-        } else if ((!neighbours[HexDirection.NORTHEAST] || neighbours[HexDirection.NORTHEAST].value < 1)
-          && (!neighbours[HexDirection.NORTHWEST] || neighbours[HexDirection.NORTHWEST].value < 1)
-        ) {
-          edgeDir = HexEdge.NORTH;
-        } else if ((!neighbours[HexDirection.SOUTHEAST] || neighbours[HexDirection.SOUTHEAST].value < 1)
-          && (!neighbours[HexDirection.SOUTHWEST] || neighbours[HexDirection.SOUTHWEST].value < 1)
-        ) {
-          edgeDir = HexEdge.SOUTH;
-        }
+        const edgeDir = HexMap.getSingleEdgeForDataCell(data, width, height, i, j);
 
         result.push({ coord: { x: i, y: j }, value: data[i][j], edge: edgeDir });
       }
