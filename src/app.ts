@@ -1,6 +1,6 @@
 import { Application, Sprite, Assets, Text, TextStyle, BitmapText, Spritesheet, Texture, Container, TextStyleOptions, AnimatedSprite } from 'pixi.js';
 import pkg from './../package.json';
-import { HexDirection, hexDirectionToString, HexMap } from './hex-map';
+import { HexDirection, hexDirectionToString, HexEdge, HexMap } from './hex-map';
 import { CommonControls } from './common-controls';
 import { Coords, UserOptions } from './shared';
 import { AnimationType, Battle, MapRenderUpdate } from './battle';
@@ -362,7 +362,7 @@ export class HexesApp {
 
     });
 
-    if (this.uiSheet){
+    if (this.uiSheet) {
       this.unitStats = new UnitStatsPanel(this.renderContainer, this.uiSheet);
     }
 
@@ -440,7 +440,7 @@ export class HexesApp {
     creature.stats.speed = 3;
     creature.stats.remaining_movement = 3;
     creature.stats.is_ranged = true;
-    creature.stats.range = 6;
+    creature.stats.range = 5;
     creature.armyAlignment = 0;
     this.battle.creatures.push(creature);
 
@@ -633,6 +633,7 @@ export class HexesApp {
       this.hexReachableSprites.forEach((sprite) => { this.hexCellsContainer.removeChild(sprite); });
       this.hexReachableSprites = [];
 
+      // show pathfinding tiles
       for (let j = 0; j < this.hexMap.height; j++) {
         for (let i = 0; i < this.hexMap.width; i++) {
           if (this.battle.pathfinding_tiles[i][j] <= 0) {
@@ -655,6 +656,62 @@ export class HexesApp {
           this.hexReachableSprites.push(tempSprite);
           this.hexCellsContainer.addChild(tempSprite);
         }
+      }
+
+      // show ranged reachability
+      let edges = HexMap.getEdgesForDataMatrix(this.battle.rangereach_tiles, this.hexMap.width, this.hexMap.height);
+      for (let edge of edges) {
+        let hexCoords: Coords = this.hexMap.hexToPixel(edge.coord.x, edge.coord.y);
+        hexCoords = {
+          x: hexCoords.x - this.hexMap.cellSize().x / 2,
+          y: hexCoords.y - this.hexMap.cellSize().y / 2
+        };
+
+        let spriteSrc = 'hex_empty.png';
+
+        switch (edge.edge) {
+          case HexEdge.EAST:
+            spriteSrc = 'hex_range_E.png';
+            break;
+          case HexEdge.NORTHEAST:
+            spriteSrc = 'hex_range_NE.png';
+            break;
+          case HexEdge.NORTH_NORTHEAST:
+            spriteSrc = 'hex_range_NNE.png';
+            break;
+          case HexEdge.NORTH:
+            spriteSrc = 'hex_range_N.png';
+            break;
+          case HexEdge.NORTH_NORTHWEST:
+            spriteSrc = 'hex_range_NNW.png';
+            break;
+          case HexEdge.NORTHWEST:
+            spriteSrc = 'hex_range_NW.png';
+            break;
+          case HexEdge.WEST:
+            spriteSrc = 'hex_range_W.png';
+            break;
+          case HexEdge.SOUTHWEST:
+            spriteSrc = 'hex_range_SW.png';
+            break;
+          case HexEdge.SOUTH_SOUTHWEST:
+            spriteSrc = 'hex_range_SSW.png';
+            break;
+          case HexEdge.SOUTH:
+            spriteSrc = 'hex_range_S.png';
+            break;
+          case HexEdge.SOUTH_SOUTHEAST:
+            spriteSrc = 'hex_range_SSE.png';
+            break;
+          case HexEdge.SOUTHEAST:
+            spriteSrc = 'hex_range_SE.png';
+            break;
+        }
+
+        let tempSprite = new Sprite(this.hexagonSheet?.textures[spriteSrc]);
+        tempSprite.position.copyFrom(hexCoords);
+        this.hexReachableSprites.push(tempSprite);
+        this.hexCellsContainer.addChild(tempSprite);
       }
     }
 
@@ -684,6 +741,61 @@ export class HexesApp {
           this.hexEnemyReachableSprites.push(tempSprite);
           this.hexCellsContainer.addChild(tempSprite);
         }
+      }
+
+      let edges = HexMap.getEdgesForDataMatrix(this.battle.enemy_range_tiles, this.hexMap.width, this.hexMap.height);
+      for (let edge of edges) {
+        let hexCoords: Coords = this.hexMap.hexToPixel(edge.coord.x, edge.coord.y);
+        hexCoords = {
+          x: hexCoords.x - this.hexMap.cellSize().x / 2,
+          y: hexCoords.y - this.hexMap.cellSize().y / 2
+        };
+
+        let spriteSrc = 'hex_empty.png';
+
+        switch (edge.edge) {
+          case HexEdge.EAST:
+            spriteSrc = 'hex_range_E.png';
+            break;
+          case HexEdge.NORTHEAST:
+            spriteSrc = 'hex_range_NE.png';
+            break;
+          case HexEdge.NORTH_NORTHEAST:
+            spriteSrc = 'hex_range_NNE.png';
+            break;
+          case HexEdge.NORTH:
+            spriteSrc = 'hex_range_N.png';
+            break;
+          case HexEdge.NORTH_NORTHWEST:
+            spriteSrc = 'hex_range_NNW.png';
+            break;
+          case HexEdge.NORTHWEST:
+            spriteSrc = 'hex_range_NW.png';
+            break;
+          case HexEdge.WEST:
+            spriteSrc = 'hex_range_W.png';
+            break;
+          case HexEdge.SOUTHWEST:
+            spriteSrc = 'hex_range_SW.png';
+            break;
+          case HexEdge.SOUTH_SOUTHWEST:
+            spriteSrc = 'hex_range_SSW.png';
+            break;
+          case HexEdge.SOUTH:
+            spriteSrc = 'hex_range_S.png';
+            break;
+          case HexEdge.SOUTH_SOUTHEAST:
+            spriteSrc = 'hex_range_SSE.png';
+            break;
+          case HexEdge.SOUTHEAST:
+            spriteSrc = 'hex_range_SE.png';
+            break;
+        }
+
+        let tempSprite = new Sprite(this.hexagonSheet?.textures[spriteSrc]);
+        tempSprite.position.copyFrom(hexCoords);
+        this.hexEnemyReachableSprites.push(tempSprite);
+        this.hexCellsContainer.addChild(tempSprite);
       }
     }
 

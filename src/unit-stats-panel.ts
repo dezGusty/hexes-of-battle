@@ -14,7 +14,8 @@ export class UnitStatsPanel {
   private creatureType: string = '';
   private unitTypeText = new Text({ ...UnitStatsPanel.DEFAULT_FONT_STYLE, text: 'Unit Type: ' });
   private hpText = new Text({ ...UnitStatsPanel.DEFAULT_FONT_STYLE, text: 'HP: ' });
-  private attackText = new Text({ ...UnitStatsPanel.DEFAULT_FONT_STYLE, text: 'Attack: ' });
+  private attackMeleeText = new Text({ ...UnitStatsPanel.DEFAULT_FONT_STYLE, text: 'Attack (melee): ' });
+  private attackRangedText = new Text({ ...UnitStatsPanel.DEFAULT_FONT_STYLE, text: 'Attack (ranged): ' });
   private rangeText = new Text({ ...UnitStatsPanel.DEFAULT_FONT_STYLE, text: 'Range: ' });
   private movementText = new Text({ ...UnitStatsPanel.DEFAULT_FONT_STYLE, text: 'Movement: ' });
   private attacksText = new Text({ ...UnitStatsPanel.DEFAULT_FONT_STYLE, text: 'Attacks: ' });
@@ -38,7 +39,7 @@ export class UnitStatsPanel {
     });
 
     windowBg.width = 200;
-    windowBg.height = 340;
+    windowBg.height = 350;
 
     const title = new Text({
       text: `Stats`,
@@ -56,24 +57,25 @@ export class UnitStatsPanel {
 
     this.unitTypeText.position = { x: 10, y: 50 };
     this.hpText.position = { x: 10, y: 80 };
-    this.attackText.position = { x: 10, y: 110 };
-    this.rangeText.position = { x: 10, y: 140 };
-    this.movementText.position = { x: 10, y: 170 };
-    this.attacksText.position = { x: 10, y: 200 };
-    this.meleeDefenseText.position = { x: 10, y: 230 };
-    this.rangedDefenseText.position = { x: 10, y: 260 };
-    this.counterAttacksText.position = { x: 10, y: 290 };
+    this.attackMeleeText.position = { x: 10, y: 110 };
+    this.attackRangedText.position = { x: 10, y: 140 };
+    this.rangeText.position = { x: 10, y: 170 };
+    this.movementText.position = { x: 10, y: 200 };
+    this.attacksText.position = { x: 10, y: 230 };
+    this.meleeDefenseText.position = { x: 10, y: 260 };
+    this.rangedDefenseText.position = { x: 10, y: 290 };
+    this.counterAttacksText.position = { x: 10, y: 320 };
 
     this.window.addChild(this.unitTypeText);
     this.window.addChild(this.hpText);
-    this.window.addChild(this.attackText);
+    this.window.addChild(this.attackMeleeText);
+    this.window.addChild(this.attackRangedText);
     this.window.addChild(this.rangeText);
     this.window.addChild(this.movementText);
     this.window.addChild(this.attacksText);
     this.window.addChild(this.meleeDefenseText);
     this.window.addChild(this.rangedDefenseText);
     this.window.addChild(this.counterAttacksText);
-
 
     this.view.addChild(this.window);
   }
@@ -82,7 +84,8 @@ export class UnitStatsPanel {
     if (!this.stats) return;
     this.unitTypeText.text = `Unit: ${this.creatureType}`;
     this.hpText.text = `HP: ${this.stats?.health}/${this.stats?.max_health}`;
-    this.attackText.text = `Attack: ${this.stats?.attack_melee_low}-${this.stats?.attack_melee_high}`;
+    this.attackMeleeText.text = `Attack (melee): ${this.stats?.attack_melee_low}-${this.stats?.attack_melee_high}`;
+    this.attackRangedText.text = `Attack (ranged): ${this.stats?.attack_ranged_low}-${this.stats?.attack_ranged_high}`;
     this.rangeText.text = `Range: ${this.stats?.range}`;
     this.movementText.text = `Movement: ${this.stats?.remaining_movement} / ${this.stats?.speed}`;
     this.attacksText.text = `Attacks: ${this.stats?.remaining_attacks} / ${this.stats?.num_attacks}`;

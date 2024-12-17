@@ -17,6 +17,22 @@ export enum HexDirection {
   SOUTHEAST = 6
 }
 
+export enum HexEdge {
+  NONE = 0,
+  EAST = 1,
+  NORTHEAST = 2,
+  NORTH_NORTHEAST = 3,
+  NORTH = 4,
+  NORTH_NORTHWEST = 5,
+  NORTHWEST = 6,
+  WEST = 7,
+  SOUTHWEST = 8,
+  SOUTH_SOUTHWEST = 9,
+  SOUTH = 10,
+  SOUTH_SOUTHEAST = 11,
+  SOUTHEAST = 12
+}
+
 export function reverseDirection(direction: HexDirection): HexDirection {
   switch (direction) {
     case HexDirection.EAST:
@@ -142,6 +158,93 @@ export class HexMap {
     let result = HexMap.getCoordsInDirectionInternal(coords, direction);
     if (result === null) return null;
     if (result.x < 0 || result.x >= width || result.y < 0 || result.y >= height) return null;
+    return result;
+  }
+
+  public static getNeighbourInDirectionInDataMatrix(coords: Coords, direction: HexDirection, data: number[][], width: number, height: number): { coord: Coords, value: number } | null {
+    let result = HexMap.getCoordsInDirectionInternal(coords, direction);
+    if (result === null) return null;
+    if (result.x < 0 || result.x >= width || result.y < 0 || result.y >= height) return null;
+    return { coord: result, value: data[result.x][result.y] };
+  }
+
+  public static getEdgesForDataMatrix(data: number[][], width: number, height: number): { coord: Coords, value: number, edge: HexEdge }[] {
+
+    let result: { coord: Coords, value: number, edge: HexEdge }[] = [];
+    for (let j = 0; j < height; j++) {
+      for (let i = 0; i < width; i++) {
+        // only take the border into account
+        if (data[i][j] !== 1) {
+          continue;
+        }
+
+        // check all neighbours
+        let neighbours: Array<{ coord: Coords, value: number } | null> = [];
+        for (let dir = HexDirection.EAST; dir <= HexDirection.SOUTHEAST; dir++) {
+          const neighbour = HexMap.getNeighbourInDirectionInDataMatrix({ x: i, y: j }, dir, data, width, height);
+          neighbours[dir] = neighbour;
+        }
+
+        let edgeDir = HexEdge.NORTH;
+        if ((!neighbours[HexDirection.EAST] || neighbours[HexDirection.EAST].value < 1)
+          && (!neighbours[HexDirection.NORTHEAST] || neighbours[HexDirection.NORTHEAST].value < 1)
+          && (!neighbours[HexDirection.SOUTHEAST] || neighbours[HexDirection.SOUTHEAST].value < 1)
+        ) {
+          edgeDir = HexEdge.EAST;
+        } else if ((!neighbours[HexDirection.EAST] || neighbours[HexDirection.EAST].value < 1)
+          && (!neighbours[HexDirection.NORTHEAST] || neighbours[HexDirection.NORTHEAST].value < 1)
+          && (!neighbours[HexDirection.NORTHWEST] || neighbours[HexDirection.NORTHWEST].value < 1)
+        ) {
+          edgeDir = HexEdge.NORTH_NORTHEAST;
+        } else if ((!neighbours[HexDirection.WEST] || neighbours[HexDirection.WEST].value < 1)
+          && (!neighbours[HexDirection.NORTHEAST] || neighbours[HexDirection.NORTHEAST].value < 1)
+          && (!neighbours[HexDirection.NORTHWEST] || neighbours[HexDirection.NORTHWEST].value < 1)
+        ) {
+          edgeDir = HexEdge.NORTH_NORTHWEST;
+        } else if ((!neighbours[HexDirection.EAST] || neighbours[HexDirection.EAST].value < 1)
+          && (!neighbours[HexDirection.SOUTHEAST] || neighbours[HexDirection.SOUTHEAST].value < 1)
+          && (!neighbours[HexDirection.SOUTHWEST] || neighbours[HexDirection.SOUTHWEST].value < 1)
+        ) {
+          edgeDir = HexEdge.SOUTH_SOUTHEAST;
+        } else if ((!neighbours[HexDirection.WEST] || neighbours[HexDirection.WEST].value < 1)
+          && (!neighbours[HexDirection.SOUTHEAST] || neighbours[HexDirection.SOUTHEAST].value < 1)
+          && (!neighbours[HexDirection.SOUTHWEST] || neighbours[HexDirection.SOUTHWEST].value < 1)
+        ) {
+          edgeDir = HexEdge.SOUTH_SOUTHWEST;
+        } else if ((!neighbours[HexDirection.EAST] || neighbours[HexDirection.EAST].value < 1)
+          && (!neighbours[HexDirection.NORTHEAST] || neighbours[HexDirection.NORTHEAST].value < 1)
+        ) {
+          edgeDir = HexEdge.NORTHEAST;
+        } else if ((!neighbours[HexDirection.EAST] || neighbours[HexDirection.EAST].value < 1)
+          && (!neighbours[HexDirection.SOUTHEAST] || neighbours[HexDirection.SOUTHEAST].value < 1)
+        ) {
+          edgeDir = HexEdge.SOUTHEAST;
+        } else if ((!neighbours[HexDirection.WEST] || neighbours[HexDirection.WEST].value < 1)
+          && (!neighbours[HexDirection.NORTHWEST] || neighbours[HexDirection.NORTHWEST].value < 1)
+          && (!neighbours[HexDirection.SOUTHWEST] || neighbours[HexDirection.SOUTHWEST].value < 1)
+        ) {
+          edgeDir = HexEdge.WEST;
+        } else if ((!neighbours[HexDirection.WEST] || neighbours[HexDirection.WEST].value < 1)
+          && (!neighbours[HexDirection.NORTHWEST] || neighbours[HexDirection.NORTHWEST].value < 1)
+        ) {
+          edgeDir = HexEdge.NORTHWEST;
+        } else if ((!neighbours[HexDirection.WEST] || neighbours[HexDirection.WEST].value < 1)
+          && (!neighbours[HexDirection.SOUTHWEST] || neighbours[HexDirection.SOUTHWEST].value < 1)
+        ) {
+          edgeDir = HexEdge.SOUTHWEST;
+        } else if ((!neighbours[HexDirection.NORTHEAST] || neighbours[HexDirection.NORTHEAST].value < 1)
+          && (!neighbours[HexDirection.NORTHWEST] || neighbours[HexDirection.NORTHWEST].value < 1)
+        ) {
+          edgeDir = HexEdge.NORTH;
+        } else if ((!neighbours[HexDirection.SOUTHEAST] || neighbours[HexDirection.SOUTHEAST].value < 1)
+          && (!neighbours[HexDirection.SOUTHWEST] || neighbours[HexDirection.SOUTHWEST].value < 1)
+        ) {
+          edgeDir = HexEdge.SOUTH;
+        }
+
+        result.push({ coord: { x: i, y: j }, value: data[i][j], edge: edgeDir });
+      }
+    }
     return result;
   }
 

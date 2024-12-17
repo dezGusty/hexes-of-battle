@@ -87,6 +87,7 @@ export class Battle {
 
   public pathfinding_tiles: number[][] = [];
   public enemy_potential_tiles: number[][] = [];
+  public enemy_range_tiles: number[][] = [];
   public rangereach_tiles: number[][] = [];
   // Units and objects which occupy a tile
   public cached_occupation_tiles: number[][] = [];
@@ -108,11 +109,13 @@ export class Battle {
       this.cached_occupation_tiles[i] = [];
       this.rangereach_tiles[i] = [];
       this.enemy_potential_tiles[i] = [];
+      this.enemy_range_tiles[i] = [];
       for (let j = 0; j < mapHeight; j++) {
         this.pathfinding_tiles[i][j] = 0;
         this.cached_occupation_tiles[i][j] = 0;
         this.rangereach_tiles[i][j] = 0;
         this.enemy_potential_tiles[i][j] = 0;
+        this.enemy_range_tiles[i][j] = 0;
       }
     }
   }
@@ -151,20 +154,36 @@ export class Battle {
    * @param coords The start position
    * @param range The range to cache
    */
-  public cacheRangedReachableCells(coords: Coords, range: number) {
-    this.unitRangeData = [];
-    Battle.resetNumericalMatrixToZero(this.rangereach_tiles);
+  public cacheRangedReachableCells(
+    coords: Coords,
+    range: number,
+    pathfindingMatrix: number[][],
+    rangeData: ReachData[],
+    currentArmyIdx: number) {
+    // call from the outside
+    // Battle.resetNumericalMatrixToZero(pathfindingMatrix);
 
     // Start with the coords and the range
     let frontier: ReachData[] = [{ coords, reach: range, cameFrom: coords }];
-    this.rangereach_tiles[coords.x][coords.y] = 1;
+    // pathfindingMatrix[coords.x][coords.y] = range + 1;
 
     while (frontier.length > 0) {
       let current = frontier.shift();
       if (current === undefined) {
         continue;
       }
-      if (current.reach <= 0) {
+
+      if (pathfindingMatrix[current.coords.x][current.coords.y] !== 0) {
+        continue;
+      }
+
+      if (current.reach < 0) {
+        continue;
+      }
+
+      pathfindingMatrix[current.coords.x][current.coords.y] = current.reach + 1;
+
+      if (current.reach === 0) {
         continue;
       }
 
@@ -179,20 +198,16 @@ export class Battle {
 
       // remove entries from neighbours that are already visited
       neighbours_and_reach_pairs = neighbours_and_reach_pairs.filter(
-        neighbour => this.rangereach_tiles[neighbour.coords.x][neighbour.coords.y] === 0);
-
+        neighbour => pathfindingMatrix[neighbour.coords.x][neighbour.coords.y] === 0);
       for (const neighbour of neighbours_and_reach_pairs) {
-        const creatureIndex = this.cached_occupation_tiles[neighbour.coords.x][neighbour.coords.y] - 1;
-        if (creatureIndex > 0 && this.creatures[creatureIndex].armyAlignment !== this.currentArmyIndex) {
-          // An enemy is here, within range
-          this.unitRangeData.push(neighbour);
-          this.pathfinding_tiles[neighbour.coords.x][neighbour.coords.y] = 100;
-          this.rangereach_tiles[neighbour.coords.x][neighbour.coords.y] = 1;
-        }
         frontier.push(neighbour);
+        const creatureIndex = this.cached_occupation_tiles[neighbour.coords.x][neighbour.coords.y] - 1;
+        if (creatureIndex > 0 && this.creatures[creatureIndex].armyAlignment !== currentArmyIdx) {
+          // An enemy is here, within range
+          rangeData.push(neighbour);
+          this.pathfinding_tiles[neighbour.coords.x][neighbour.coords.y] = 100;
+        }
       }
-
-      this.rangereach_tiles[current.coords.x][current.coords.y] = 1;
     }
   }
 
@@ -273,8 +288,6 @@ export class Battle {
     // TODO: this could also be done when movement occurs
     this.cacheCreaturesToHexMap();
 
-    Battle.logMatrix(this.pathfinding_tiles, "Before caching reachable cells");
-    console.log("***", this.unitReachData);
     this.unitReachData = [];
     this.cacheMeleeReachableCells(
       creaturePosition,
@@ -284,18 +297,28 @@ export class Battle {
       this.currentArmyIndex,
       this.activeCreatureIndex
     );
-    Battle.logMatrix(this.pathfinding_tiles, "After caching reachable cells");
-    console.log("***", this.unitReachData);
-    this.cacheRangedReachableCells(creaturePosition, creature.stats.range);
+    this.unitRangeData = [];
+    Battle.resetNumericalMatrixToZero(this.rangereach_tiles);
+    if (creature.stats.is_ranged) {
+      this.cacheRangedReachableCells(
+        creaturePosition,
+        creature.stats.range,
+        this.rangereach_tiles,
+        this.unitRangeData,
+        this.currentArmyIndex
+      );
+      // Battle.logMatrix(this.rangereach_tiles, this.hexMap.width, this.hexMap.height, "After caching ranged cells");
+    }
+
     this.nextRenderUpdate.reachableCells = true;
     return reachableCells;
   }
 
-  private static logMatrix(matrix: number[][], hint: string) {
+  private static logMatrix(matrix: number[][], windth: number, height: number, hint: string) {
     console.log("Matrix: " + hint);
     let rows = "";
-    for (let i = 0; i < matrix.length; i++) {
-      for (let j = 0; j < matrix[0].length; j++) {
+    for (let j = 0; j < height; j++) {
+      for (let i = 0; i < windth; i++) {
         rows += matrix[i][j] + " ";
       }
       rows += "\n";
@@ -448,6 +471,7 @@ export class Battle {
       // just reset this, as we don't need to show the enemy reachable cells
       this.nextRenderUpdate.enemyReachableCells = true;
       Battle.resetNumericalMatrixToZero(this.enemy_potential_tiles);
+      Battle.resetNumericalMatrixToZero(this.enemy_range_tiles);
       return;
     }
 
@@ -461,6 +485,19 @@ export class Battle {
       targetCreature.indexOFArmy,
       targetCreature.indexInArmy
     );
+
+    let enemyRangeData: ReachData[] = [];
+    Battle.resetNumericalMatrixToZero(this.enemy_range_tiles);
+    if (targetCreature.creature.stats.is_ranged) {
+      this.cacheRangedReachableCells(
+        coords,
+        targetCreature.creature.stats.range,
+        this.enemy_range_tiles,
+        enemyRangeData,
+        targetCreature.indexOFArmy
+      );
+    }
+
     this.nextRenderUpdate.enemyReachableCells = true;
     this.nextRenderUpdate.hoverEnemyIndex = targetCreature.indexInArmy;
     this.nextRenderUpdate.somethingChanged = true;

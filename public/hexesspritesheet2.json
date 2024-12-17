@@ -48,6 +48,102 @@
                 "h": 92
             }
         },
+        "hex_range_E.png": {
+            "frame": {
+                "x": 1,
+                "y": 189,
+                "w": 80,
+                "h": 92
+            }
+        },
+        "hex_range_NE.png": {
+            "frame": {
+                "x": 83,
+                "y": 189,
+                "w": 80,
+                "h": 92
+            }
+        },
+        "hex_range_N.png": {
+            "frame": {
+                "x": 165,
+                "y": 189,
+                "w": 80,
+                "h": 92
+            }
+        },
+        "hex_range_NW.png": {
+            "frame": {
+                "x": 247,
+                "y": 189,
+                "w": 80,
+                "h": 92
+            }
+        },
+        "hex_range_W.png": {
+            "frame": {
+                "x": 329,
+                "y": 189,
+                "w": 80,
+                "h": 92
+            }
+        },
+        "hex_range_SW.png": {
+            "frame": {
+                "x": 1,
+                "y": 283,
+                "w": 80,
+                "h": 92
+            }
+        },
+        "hex_range_S.png": {
+            "frame": {
+                "x": 83,
+                "y": 283,
+                "w": 80,
+                "h": 92
+            }
+        },
+        "hex_range_SE.png": {
+            "frame": {
+                "x": 165,
+                "y": 283,
+                "w": 80,
+                "h": 92
+            }
+        },
+        "hex_range_NNW.png": {
+            "frame": {
+                "x": 247,
+                "y": 283,
+                "w": 80,
+                "h": 92
+            }
+        },
+        "hex_range_NNE.png": {
+            "frame": {
+                "x": 329,
+                "y": 283,
+                "w": 80,
+                "h": 92
+            }
+        },
+        "hex_range_SSE.png": {
+            "frame": {
+                "x": 329,
+                "y": 95,
+                "w": 80,
+                "h": 92
+            }
+        },
+        "hex_range_SSW.png": {
+            "frame": {
+                "x": 1,
+                "y": 95,
+                "w": 80,
+                "h": 92
+            }
+        },
         "empty.png": {
             "frame": {
                 "x": 411,
