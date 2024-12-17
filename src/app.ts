@@ -66,6 +66,7 @@ export class HexesApp {
   private hexHoverSprite?: Sprite;
   private hexSelectedSprite?: Sprite;
   private hexReachableSprites: Sprite[] = [];
+  private hexEnemyReachableSprites: Sprite[] = [];
   private hexPathSprites: Sprite[] = [];
   private hexUnitBars: ProgressBar[] = [];
 
@@ -360,6 +361,11 @@ export class HexesApp {
       }
 
     });
+
+    if (this.uiSheet){
+      this.unitStats = new UnitStatsPanel(this.renderContainer, this.uiSheet);
+    }
+
   }
 
   public initializeMapAndGame(): void {
@@ -431,10 +437,10 @@ export class HexesApp {
 
     creature = new Creature(CreatureType.PEASANT_ARCHER);
     creature.position = { x: 2, y: 5 };
-    creature.stats.speed = 4;
-    creature.stats.remaining_movement = 4;
+    creature.stats.speed = 3;
+    creature.stats.remaining_movement = 3;
     creature.stats.is_ranged = true;
-    creature.stats.range = 5;
+    creature.stats.range = 6;
     creature.armyAlignment = 0;
     this.battle.creatures.push(creature);
 
@@ -458,8 +464,8 @@ export class HexesApp {
     creature.position = { x: 7, y: 5 };
     creature.stats.speed = 2;
     creature.stats.remaining_movement = 2;
-    creature.stats.attack_low = 6;
-    creature.stats.attack_high = 7;
+    creature.stats.attack_melee_low = 6;
+    creature.stats.attack_melee_high = 7;
     creature.stats.defense_melee = 2;
     creature.stats.defense_ranged = 1;
     creature.facingDirection = HexDirection.WEST;
@@ -467,11 +473,19 @@ export class HexesApp {
     this.battle.creatures.push(creature);
 
     creature = new Creature(CreatureType.BARBARIAN);
-    creature.position = { x: 9, y: 6 };
+    creature.position = { x: 6, y: 5 };
     creature.stats.speed = 4;
     creature.stats.remaining_movement = 4;
-    creature.stats.attack_low = 6;
-    creature.stats.attack_high = 10;
+    creature.stats.attack_melee_low = 6;
+    creature.stats.attack_melee_high = 10;
+    creature.facingDirection = HexDirection.WEST;
+    creature.armyAlignment = 1;
+    this.battle.creatures.push(creature);
+
+    creature = new Creature(CreatureType.PEASANT);
+    creature.position = { x: 9, y: 5 };
+    creature.stats.speed = 3;
+    creature.stats.remaining_movement = 3;
     creature.facingDirection = HexDirection.WEST;
     creature.armyAlignment = 1;
     this.battle.creatures.push(creature);
@@ -612,7 +626,7 @@ export class HexesApp {
         }
       }
 
-      this.onSelectedUnitChanged(this.battle.creatures[mapUpdate.selectedCreatureIndex]);
+      this.showStatsForUnit(this.battle.creatures[mapUpdate.selectedCreatureIndex]);
     }
 
     if (mapUpdate.reachableCells) {
@@ -644,6 +658,35 @@ export class HexesApp {
       }
     }
 
+    if (mapUpdate.enemyReachableCells) {
+      this.hexEnemyReachableSprites.forEach((sprite) => { this.hexCellsContainer.removeChild(sprite); });
+      this.hexEnemyReachableSprites = [];
+
+      for (let j = 0; j < this.hexMap.height; j++) {
+        for (let i = 0; i < this.hexMap.width; i++) {
+          if (this.battle.enemy_potential_tiles[i][j] <= 0) {
+            continue;
+          }
+
+          let spriteSrc = 'hex_action_disabled_gray.png';
+          if (this.battle.enemy_potential_tiles[i][j] === 100) {
+            spriteSrc = 'hex_action_blue.png';
+          }
+
+          let hexCoords: Coords = this.hexMap.hexToPixel(i, j);
+          hexCoords = {
+            x: hexCoords.x - this.hexMap.cellSize().x / 2,
+            y: hexCoords.y - this.hexMap.cellSize().y / 2
+          };
+
+          let tempSprite = new Sprite(this.hexagonSheet?.textures[spriteSrc]);
+          tempSprite.position.copyFrom(hexCoords);
+          this.hexEnemyReachableSprites.push(tempSprite);
+          this.hexCellsContainer.addChild(tempSprite);
+        }
+      }
+    }
+
     if (mapUpdate.hoverOverCell) {
       if (!this.hexHoverSprite) {
         this.hexHoverSprite = new Sprite(this.hexagonSheet?.textures['hex_usable_yellow.png']);
@@ -655,6 +698,12 @@ export class HexesApp {
         const hexHoverCoords = this.hexMap.hexToPixel(mapUpdate.hoverOverCell.x, mapUpdate.hoverOverCell.y);
         this.hexHoverSprite.x = hexHoverCoords.x - this.hexMap.cellSize().x / 2;
         this.hexHoverSprite.y = hexHoverCoords.y - this.hexMap.cellSize().y / 2;
+      }
+
+      if (mapUpdate.hoverEnemyIndex != -1) {
+        this.showStatsForUnit(this.battle.creatures[mapUpdate.hoverEnemyIndex]);
+      } else if (this.battle.activeCreatureIndex != -1) {
+        this.showStatsForUnit(this.battle.creatures[this.battle.activeCreatureIndex]);
       }
 
       this.hexPathSprites.forEach((sprite) => { this.hexCellsContainer.removeChild(sprite); });
@@ -727,7 +776,7 @@ export class HexesApp {
     }
   }
 
-  public onSelectedUnitChanged(creature: Creature) {
+  public showStatsForUnit(creature: Creature) {
     if (this.unitStats) {
       this.unitStats.setCreature(creature);
       this.unitStats.update();

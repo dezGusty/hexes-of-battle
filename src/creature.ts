@@ -2,8 +2,10 @@ import { HexDirection } from "./hex-map";
 import { Coords } from "./shared";
 
 export class CreatureStats {
-  attack_low: number = 1;
-  attack_high: number = 2;
+  attack_melee_low: number = 1;
+  attack_melee_high: number = 2;
+  attack_ranged_low: number = 3;
+  attack_ranged_high: number = 5;
   defense_melee: number = 0;
   defense_ranged: number = 0;
   defense_magic: number = 0;
@@ -12,9 +14,11 @@ export class CreatureStats {
   is_ranged: boolean = false;
   max_health: number = 10;
   num_attacks: number = 1;
+  num_counterattacks: number = 1;
   range: number = 1;
-  remaining_movement: number = 3;
   remaining_attacks: number = 1;
+  remaining_counterattacks: number = 1;
+  remaining_movement: number = 3;
   speed: number = 3;
 }
 
@@ -34,8 +38,10 @@ export enum CreatureType {
 export class Creature {
 
   static DEFAULT_CREATURE_PROPS: CreatureStats = {
-    attack_low: 3,
-    attack_high: 6,
+    attack_melee_low: 3,
+    attack_melee_high: 6,
+    attack_ranged_low: 3,
+    attack_ranged_high: 5,
     defense_melee: 0,
     defense_ranged: 0,
     defense_magic: 0,
@@ -44,9 +50,11 @@ export class Creature {
     is_ranged: false,
     max_health: 12,
     num_attacks: 1,
+    num_counterattacks: 1,
     range: 1,
-    
+
     remaining_attacks: 1,
+    remaining_counterattacks: 1,
     remaining_movement: 4,
 
     speed: 4
@@ -55,6 +63,15 @@ export class Creature {
   public position: Coords = { x: 0, y: 0 };
   public facingDirection: HexDirection = HexDirection.EAST;
   public armyAlignment: number = 0;
+  static CREATURE_NAMES: string[] = [
+    "Peasant",
+    "Peasant Archer",
+    "Swordsman",
+    "Spearman",
+    "Crossbowman",
+    "Archer",
+    "Barbarian"
+  ];
 
   constructor(
     public creatureType: CreatureType = CreatureType.PEASANT,
@@ -69,8 +86,12 @@ export class Creature {
     this.stats.health -= damage;
   }
 
-  public getRandomAttackDamage(): number {
-    return this.stats.attack_low + Math.floor(Math.random() * (this.stats.attack_high - this.stats.attack_low + 1));
+  public getRandomAttackDamageMelee(): number {
+    return this.stats.attack_melee_low + Math.floor(Math.random() * (this.stats.attack_melee_high - this.stats.attack_melee_low + 1));
+  }
+
+  public getRandomAttackDamageRanged(): number {
+    return this.stats.attack_ranged_low + Math.floor(Math.random() * (this.stats.attack_ranged_high - this.stats.attack_ranged_low + 1));
   }
 
 }

@@ -29,6 +29,7 @@ export class MapRenderUpdate {
   public selectedCreatureIndex: number = -1;
   public currentArmyIndex: number = 0;
   public reachableCells: boolean = false;
+  public enemyReachableCells: boolean = false;
   public unitRenderUpdate: boolean = false;
   public hoverOverCell: Coords | null = null;
   public hoverPath: Coords[] = [];
@@ -36,6 +37,7 @@ export class MapRenderUpdate {
   public animationAtCoords: AnimationAtCoords = { ...AnimationAtCoords.DEFAULT };
 
   public somethingChanged: boolean = false;
+  public hoverEnemyIndex: number = -1;
 
 }
 
@@ -48,6 +50,8 @@ export enum BattleActionType {
   MOVE = 1,
   ATTACK_MELEE = 2,
   ATTACK_RANGED = 3,
+  COUNTER_ATTACK_MELEE = 4,
+  SELECT_NEXT = 5
 }
 
 export class BattleAction {
@@ -56,7 +60,17 @@ export class BattleAction {
     public path: Coords[],
     public step: number = 0,
     public stepDuration: number = 0,
-    public remainingTime: number = 0) {
+    public remainingTime: number = 0,
+    public sourceUnit?: Creature,
+    public targetUnit?: Creature
+  ) {
+  }
+
+  static AttackMelee(source: Creature, target: Creature): BattleAction {
+    return new BattleAction(BattleActionType.ATTACK_MELEE, [target.position], 0, 500, 50, source, target);
+  }
+  static CounterAttack(source: Creature, target: Creature): BattleAction {
+    return new BattleAction(BattleActionType.COUNTER_ATTACK_MELEE, [], 0, 500, 50, source, target);
   }
 }
 
@@ -72,6 +86,8 @@ export class Battle {
   public creatures: Creature[] = [];
 
   public pathfinding_tiles: number[][] = [];
+  public enemy_potential_tiles: number[][] = [];
+  public rangereach_tiles: number[][] = [];
   // Units and objects which occupy a tile
   public cached_occupation_tiles: number[][] = [];
 
@@ -90,9 +106,13 @@ export class Battle {
     for (let i = 0; i < mapWidth; i++) {
       this.pathfinding_tiles[i] = [];
       this.cached_occupation_tiles[i] = [];
+      this.rangereach_tiles[i] = [];
+      this.enemy_potential_tiles[i] = [];
       for (let j = 0; j < mapHeight; j++) {
         this.pathfinding_tiles[i][j] = 0;
         this.cached_occupation_tiles[i][j] = 0;
+        this.rangereach_tiles[i][j] = 0;
+        this.enemy_potential_tiles[i][j] = 0;
       }
     }
   }
@@ -108,12 +128,17 @@ export class Battle {
     console.log(`Selected creature in army: ${this.currentArmyIndex}, at index ${this.activeCreatureIndex}`);
   }
 
-  cacheCreaturesToHexMap() {
-    for (let i = 0; i < this.hexMap.width; i++) {
-      for (let j = 0; j < this.hexMap.height; j++) {
-        this.cached_occupation_tiles[i][j] = 0;
+  static resetNumericalMatrixToZero(matrix: number[][]) {
+    // Note: consider to matrix.length, matrix[0].length
+    for (let i = 0; i < matrix.length; i++) {
+      for (let j = 0; j < matrix[0].length; j++) {
+        matrix[i][j] = 0;
       }
     }
+  }
+
+  cacheCreaturesToHexMap() {
+    Battle.resetNumericalMatrixToZero(this.cached_occupation_tiles);
 
     for (let i = 0; i < this.creatures.length; i++) {
       let creature = this.creatures[i];
@@ -121,9 +146,19 @@ export class Battle {
     }
   }
 
+  /**
+   * Cache all reachable cells for the current creature for a ranged attack.
+   * @param coords The start position
+   * @param range The range to cache
+   */
   public cacheRangedReachableCells(coords: Coords, range: number) {
     this.unitRangeData = [];
+    Battle.resetNumericalMatrixToZero(this.rangereach_tiles);
+
+    // Start with the coords and the range
     let frontier: ReachData[] = [{ coords, reach: range, cameFrom: coords }];
+    this.rangereach_tiles[coords.x][coords.y] = 1;
+
     while (frontier.length > 0) {
       let current = frontier.shift();
       if (current === undefined) {
@@ -142,24 +177,22 @@ export class Battle {
         }
       });
 
-      for (let neighbour of neighbours_and_reach_pairs) {
+      // remove entries from neighbours that are already visited
+      neighbours_and_reach_pairs = neighbours_and_reach_pairs.filter(
+        neighbour => this.rangereach_tiles[neighbour.coords.x][neighbour.coords.y] === 0);
 
-        if (this.cached_occupation_tiles[neighbour.coords.x][neighbour.coords.y] > 0) {
-          const creatureIndex = this.cached_occupation_tiles[neighbour.coords.x][neighbour.coords.y] - 1;
-          if (this.creatures[creatureIndex].armyAlignment !== this.currentArmyIndex) {
-
-            // don't add it to the frontier, (cannot pass through enemy)
-            // but add it to the reachable cells
-            this.unitRangeData.push(neighbour);
-            this.pathfinding_tiles[neighbour.coords.x][neighbour.coords.y] = 100;
-          }
-          // ELSE - occupied by a unit in the same army
-          continue;
+      for (const neighbour of neighbours_and_reach_pairs) {
+        const creatureIndex = this.cached_occupation_tiles[neighbour.coords.x][neighbour.coords.y] - 1;
+        if (creatureIndex > 0 && this.creatures[creatureIndex].armyAlignment !== this.currentArmyIndex) {
+          // An enemy is here, within range
+          this.unitRangeData.push(neighbour);
+          this.pathfinding_tiles[neighbour.coords.x][neighbour.coords.y] = 100;
+          this.rangereach_tiles[neighbour.coords.x][neighbour.coords.y] = 1;
         }
-
         frontier.push(neighbour);
-        this.unitRangeData.push(neighbour);
       }
+
+      this.rangereach_tiles[current.coords.x][current.coords.y] = 1;
     }
   }
 
@@ -170,14 +203,17 @@ export class Battle {
    * @param coords 
    * @param reach 
    */
-  public cacheMeleeReachableCells(coords: Coords, reach: number) {
+  public cacheMeleeReachableCells(
+    coords: Coords,
+    reach: number,
+    pathfindingMatrix: number[][],
+    reachData: ReachData[],
+    currentArmyIdx: number,
+    activeCreatureIdx: number,
+  ) {
     // reset the cache
-    for (let i = 0; i < this.hexMap.width; i++) {
-      for (let j = 0; j < this.hexMap.height; j++) {
-        this.pathfinding_tiles[i][j] = 0;
-      }
-    }
-    this.unitReachData = [];
+    // reachData = [];
+    Battle.resetNumericalMatrixToZero(pathfindingMatrix);
 
     let frontier: ReachData[] = [{ coords, reach, cameFrom: coords }];
 
@@ -202,32 +238,28 @@ export class Battle {
         }
       });
 
+      // remove entries from neighbours that are already visited
+      neighbours_and_reach_pairs = neighbours_and_reach_pairs.filter(neighbour => pathfindingMatrix[neighbour.coords.x][neighbour.coords.y] === 0);
+
       for (let neighbour of neighbours_and_reach_pairs) {
-        if (this.pathfinding_tiles[neighbour.coords.x][neighbour.coords.y] > 0) {
-          continue;
-        }
-
+        // Check presence of enemies.
         if (this.cached_occupation_tiles[neighbour.coords.x][neighbour.coords.y] > 0) {
-          const creatureIndex = this.cached_occupation_tiles[neighbour.coords.x][neighbour.coords.y] - 1;
-          if (this.creatures[creatureIndex].armyAlignment !== this.currentArmyIndex) {
-
-            if (this.creatures[this.activeCreatureIndex].stats.remaining_attacks > 0) {
+          const neighborCreatureIndex = this.cached_occupation_tiles[neighbour.coords.x][neighbour.coords.y] - 1;
+          if (this.creatures[neighborCreatureIndex].armyAlignment !== currentArmyIdx) {
+            if (this.creatures[activeCreatureIdx].stats.remaining_attacks > 0) {
               // don't add it to the frontier, (cannot pass through enemy)
               // but add it to the reachable cells
-              this.unitReachData.push(neighbour);
-              this.pathfinding_tiles[neighbour.coords.x][neighbour.coords.y] = 100;
+              reachData.push(neighbour);
+              pathfindingMatrix[neighbour.coords.x][neighbour.coords.y] = 100;
             }
           }
-          // ELSE - occupied by a unit in the same army
           continue;
         }
 
         if (current.reach > 0) {
           frontier.push(neighbour);
-          // if (this.creatures[this.activeCreatureIndex].stats.remaining_attacks > 0) {
-          // }
-          this.unitReachData.push(neighbour);
-          this.pathfinding_tiles[neighbour.coords.x][neighbour.coords.y] = 1;
+          reachData.push(neighbour);
+          pathfindingMatrix[neighbour.coords.x][neighbour.coords.y] = 1;
         }
       }
     }
@@ -241,24 +273,34 @@ export class Battle {
     // TODO: this could also be done when movement occurs
     this.cacheCreaturesToHexMap();
 
-    this.cacheMeleeReachableCells(creaturePosition, creature.stats.remaining_movement);
+    Battle.logMatrix(this.pathfinding_tiles, "Before caching reachable cells");
+    console.log("***", this.unitReachData);
+    this.unitReachData = [];
+    this.cacheMeleeReachableCells(
+      creaturePosition,
+      creature.stats.remaining_movement,
+      this.pathfinding_tiles,
+      this.unitReachData,
+      this.currentArmyIndex,
+      this.activeCreatureIndex
+    );
+    Battle.logMatrix(this.pathfinding_tiles, "After caching reachable cells");
+    console.log("***", this.unitReachData);
     this.cacheRangedReachableCells(creaturePosition, creature.stats.range);
-    // let msg = "";
-    // for (let j = 0; j < this.hexMap.height; j++) {
-    //   for (let i = 0; i < this.hexMap.width; i++) {
-    //     msg += this.pathfinding_tiles[i][j] + " ";
-    //   }
-    //   msg += "\n";
-    // }
-    // console.log(msg);
-
-    // show the reach data
-    // for (let i = 0; i < this.unitReachData.length; i++) {
-    //   console.log("Reachable cell:", this.unitReachData[i]);
-    // }
-
     this.nextRenderUpdate.reachableCells = true;
     return reachableCells;
+  }
+
+  private static logMatrix(matrix: number[][], hint: string) {
+    console.log("Matrix: " + hint);
+    let rows = "";
+    for (let i = 0; i < matrix.length; i++) {
+      for (let j = 0; j < matrix[0].length; j++) {
+        rows += matrix[i][j] + " ";
+      }
+      rows += "\n";
+    }
+    console.log(rows);
   }
 
 
@@ -272,6 +314,93 @@ export class Battle {
     return null;
   }
 
+  private tryToSelectUnitAtLocation(coords: Coords) {
+    let creatureInBattle: CreatureInBattle | null = this.getCreatureAtPosition(coords);
+    if (creatureInBattle === null) {
+      return;
+    }
+
+    console.log("Clicked on creature: ", creatureInBattle);
+    if (this.currentArmyIndex === creatureInBattle.indexOFArmy) {
+      // select the creature for further orders
+      this.selectCreatureByArmyIndex(creatureInBattle.indexOFArmy, creatureInBattle.indexInArmy);
+      this.showReachableCells(creatureInBattle.creature);
+    }
+  }
+
+  private moveOrAttackWithActiveCreatureAtLocation(coords: Coords, optionalDirection: HexDirection) {
+    if (this.activeCreatureIndex < 0) {
+      return;
+    }
+
+    if (this.pathfinding_tiles[coords.x][coords.y] === 0) {
+      console.log("Clicked on a non-reachable cell");
+      return;
+    }
+
+    let creature = this.creatures[this.activeCreatureIndex];
+    let creatureAtTarget = this.getCreatureAtPosition(coords);
+    if (creatureAtTarget === null) {
+      // move creature.
+      console.log("Moving creature to cell: ", coords);
+      const path = this.findPathFromSelectedUnitToCell(coords);
+      creature.stats.remaining_movement -= path.length;
+      this.currentActions.push(new BattleAction(BattleActionType.MOVE, path, 0, 50, 50));
+      this.nextRenderUpdate.hoverOverCell = null;
+      this.nextRenderUpdate.hoverPath = [];
+      return;
+    }
+
+    // If it's the same creature, ignore
+    // Note: this should not happen, as the creature should not be selectable
+    if (creatureAtTarget.indexInArmy === this.activeCreatureIndex) {
+      console.log("Clicked on the same creature");
+      return;
+    }
+
+    if (creature.armyAlignment === creatureAtTarget.indexOFArmy) {
+      console.log("Tried to attack a friendly creature");
+      return;
+    }
+
+    // if attacking an enemy creature, check if we need to get in close combat
+    if (creature.stats.remaining_attacks <= 0) {
+      console.log("No more attacks left");
+      return;
+    }
+
+    console.log("Attacking creature: ", creatureAtTarget);
+    // Check to see if the attacker is melee or ranged
+    // If the attacker is ranged, then don't move, just attack
+    // If the attacker is melee, then move to the cell and attack
+
+    if (creature.stats.is_ranged) {
+      this.currentActions.push(new BattleAction(BattleActionType.ATTACK_RANGED, [coords], 0, 500, 50));
+
+      this.nextRenderUpdate.unitRenderUpdate = true;
+      this.nextRenderUpdate.somethingChanged = true;
+    } else {
+      // move creature on the hover path.
+      let path: Coords[] = [];
+      if (optionalDirection !== HexDirection.NONE) {
+        let neighbour = this.hexMap.getNeighbourInDirection(coords, optionalDirection);
+        if (neighbour) {
+          path = this.findPathFromSelectedUnitToCell(neighbour);
+        }
+      }
+      if (path.length === 0) {
+        path = this.findPathFromSelectedUnitToCell(coords);
+        path.pop();
+      }
+      creature.stats.remaining_movement -= path.length;
+      console.log("Adding action to move with path: ", path);
+      this.currentActions.push(new BattleAction(BattleActionType.MOVE, path, 0, 50, 50, creature, creatureAtTarget.creature));
+      console.log("Adding action to attack at: ", coords);
+      this.currentActions.push(new BattleAction(BattleActionType.ATTACK_MELEE, [coords], 0, 500, 50, creature, creatureAtTarget.creature));
+    }
+
+  }
+
   onMouseClickOnCell(event: MouseEvent, coords: Coords, optionalDirection: HexDirection = HexDirection.NONE) {
     if (this.currentActions.length > 0) {
       // if this is busy with an animation (movement, attack), ignore the click
@@ -280,80 +409,10 @@ export class Battle {
 
     // Left mouse button
     if (event.button === 0) {
-      let creatureInBattle: CreatureInBattle | null = this.getCreatureAtPosition(coords);
-      if (creatureInBattle !== null) {
-        console.log("Clicked on creature: ", creatureInBattle);
-        if (this.currentArmyIndex === creatureInBattle.indexOFArmy) {
-          // select the creature for further orders
-          this.selectCreatureByArmyIndex(creatureInBattle.indexOFArmy, creatureInBattle.indexInArmy);
-          this.showReachableCells(creatureInBattle.creature);
-        }
-      }
-
+      this.tryToSelectUnitAtLocation(coords);
     } else if (event.button === 2) {
       console.log("Right mouse button clicked");
-      if (this.activeCreatureIndex >= 0) {
-        if (this.pathfinding_tiles[coords.x][coords.y] === 0) {
-          console.log("Clicked on a non-reachable cell");
-          return;
-        }
-
-        let creature = this.creatures[this.activeCreatureIndex];
-        let creatureInBattle = this.getCreatureAtPosition(coords);
-        if (creatureInBattle !== null) {
-          // If it's the same creature, ignore
-          // Note: this should not happen, as the creature should not be selectable
-          if (creatureInBattle.indexInArmy === this.activeCreatureIndex) {
-            console.log("Clicked on the same creature");
-            return;
-          }
-
-          // if attacking an enemy creature, check if we need to get in close combat
-          if (creature.armyAlignment !== creatureInBattle.indexOFArmy) {
-            if (creature.stats.remaining_attacks <= 0) {
-              console.log("No more attacks left");
-              return;
-            }
-            console.log("Attacking creature: ", creatureInBattle);
-            // Check to see if the attacker is melee or ranged
-            // If the attacker is ranged, then don't move, just attack
-            // If the attacker is melee, then move to the cell and attack
-
-            if (creature.stats.is_ranged) {
-              this.currentActions.push(new BattleAction(BattleActionType.ATTACK_RANGED, [coords], 0, 500, 50));
-
-              this.nextRenderUpdate.unitRenderUpdate = true;
-              this.nextRenderUpdate.somethingChanged = true;
-            } else {
-              // move creature on the hover path.
-              let path: Coords[] = [];
-              if (optionalDirection !== HexDirection.NONE) {
-                let neighbour = this.hexMap.getNeighbourInDirection(coords, optionalDirection);
-                if (neighbour) {
-                  path = this.findPathFromSelectedUnitToCell(neighbour);
-                }
-              }
-              if (path.length === 0) {
-                path = this.findPathFromSelectedUnitToCell(coords);
-                path.pop();
-              }
-              creature.stats.remaining_movement -= path.length;
-              console.log("Adding action to move with path: ", path);
-              this.currentActions.push(new BattleAction(BattleActionType.MOVE, path, 0, 50, 50));
-              console.log("Adding action to attack at: ", coords);
-              this.currentActions.push(new BattleAction(BattleActionType.ATTACK_MELEE, [coords], 0, 500, 50));
-            }
-          }
-        } else {
-          // move creature.
-          console.log("Moving creature to cell: ", coords);
-          const path = this.findPathFromSelectedUnitToCell(coords);
-          creature.stats.remaining_movement -= path.length;
-          this.currentActions.push(new BattleAction(BattleActionType.MOVE, path, 0, 50, 50));
-          this.nextRenderUpdate.hoverOverCell = null;
-          this.nextRenderUpdate.hoverPath = [];
-        }
-      }
+      this.moveOrAttackWithActiveCreatureAtLocation(coords, optionalDirection);
     }
   }
 
@@ -381,78 +440,109 @@ export class Battle {
     if (targetCreature === null
       || targetCreature.indexOFArmy === this.currentArmyIndex
     ) {
+      console.log("Hover over on an empty cell or on a friendly unit");
       // Hover over on an empty cell or on a friendly unit
       this.nextRenderUpdate.hoverPath = this.findPathFromSelectedUnitToCell(coords);
       this.nextRenderUpdate.cursorHint = "default";
       this.nextRenderUpdate.somethingChanged = true;
+      // just reset this, as we don't need to show the enemy reachable cells
+      this.nextRenderUpdate.enemyReachableCells = true;
+      Battle.resetNumericalMatrixToZero(this.enemy_potential_tiles);
       return;
     }
+
+    // also show the potential movement of the enemy unit?
+    let enemyReachData: ReachData[] = [];
+    this.cacheMeleeReachableCells(
+      coords,
+      targetCreature.creature.stats.remaining_movement,
+      this.enemy_potential_tiles,
+      enemyReachData,
+      targetCreature.indexOFArmy,
+      targetCreature.indexInArmy
+    );
+    this.nextRenderUpdate.enemyReachableCells = true;
+    this.nextRenderUpdate.hoverEnemyIndex = targetCreature.indexInArmy;
+    this.nextRenderUpdate.somethingChanged = true;
 
     // TODO: ranged creatures should be able to also force melee mode (E.g. if an enemy has high ranged defense)
 
     // Hover over on an enemy unit
     if (activeCreature.stats.is_ranged) {
+      // ---- RANGED ATTACK ----
       // Attacker is ranged, check if the target is in range
       const target = this.unitRangeData.find((element) => element.coords.x === coords.x && element.coords.y === coords.y);
-      if (target) {
-        this.nextRenderUpdate.hoverPath = [];
-        this.nextRenderUpdate.hoverOverCell = coords;
-        this.nextRenderUpdate.cursorHint = "attack_ranged";
+      if (!target) {
+        return;
       }
-    } else {
-      // This is a melee creature, it can only attack from adjacent cells.
-      // if the optional direction is not NONE, then we need to check if the attacker can attack from the given direction.
-      if (optionalDirection !== HexDirection.NONE) {
-        let neighbour = this.hexMap.getNeighbourInDirection(coords, optionalDirection);
-        if (neighbour) {
-          // check if neighbour is in cached cells, (unit reach data)
-          const neighbourInUnitReachData = this.unitReachData.find((element) => element.coords.x === neighbour.x && element.coords.y === neighbour.y);
-          if (neighbourInUnitReachData) {
-            // Also check if the neighbour is occupied by an enemy unit
-            const neighbourCreature = this.getCreatureAtPosition(neighbour);
-            if (neighbourCreature) {
-              return;
-            }
 
-            // yes, the neighbour is reachable, so we can attack from the given direction
-            this.nextRenderUpdate.hoverPath = this.findPathFromSelectedUnitToCell(neighbour);
-
-            switch (reverseDirection(optionalDirection)) {
-              case HexDirection.EAST:
-                this.nextRenderUpdate.cursorHint = "attack_melee_e";
-                break;
-              case HexDirection.NORTHEAST:
-                this.nextRenderUpdate.cursorHint = "attack_melee_ne";
-                break;
-              case HexDirection.NORTHWEST:
-                this.nextRenderUpdate.cursorHint = "attack_melee_nw";
-                break;
-              case HexDirection.WEST:
-                this.nextRenderUpdate.cursorHint = "attack_melee_w";
-                break;
-              case HexDirection.SOUTHWEST:
-                this.nextRenderUpdate.cursorHint = "attack_melee_sw";
-                break;
-              case HexDirection.SOUTHEAST:
-                this.nextRenderUpdate.cursorHint = "attack_melee_se";
-                break;
-              default:
-                this.nextRenderUpdate.cursorHint = "attack_melee_nw";
-                break;
-            }
-          }
-        }
-      } else {
-        // check if the target is in the unit reach data
-        const target = this.unitReachData.find((element) => element.coords.x === coords.x && element.coords.y === coords.y);
-        if (target) {
-          this.nextRenderUpdate.cursorHint = "attack_melee";
-          this.nextRenderUpdate.hoverPath = this.findPathFromSelectedUnitToCell(coords);
-        }
-      }
+      this.nextRenderUpdate.hoverPath = [];
+      this.nextRenderUpdate.hoverOverCell = coords;
+      this.nextRenderUpdate.cursorHint = "attack_ranged";
+      this.nextRenderUpdate.somethingChanged = true;
+      return;
     }
 
+    // ---- MELEE ATTACK ----
+    // This is a melee creature, it can only attack from adjacent cells.
+    if (optionalDirection === HexDirection.NONE) {
+      // direction is none; TODO: check if long term this should never happen (by having much smaller sub-hex divisions)
+      // check if the target is in the unit reach data
+      const target = this.unitReachData.find((element) => element.coords.x === coords.x && element.coords.y === coords.y);
+      if (target) {
+        this.nextRenderUpdate.cursorHint = "attack_melee";
+        this.nextRenderUpdate.hoverPath = this.findPathFromSelectedUnitToCell(coords);
+      }
+      this.nextRenderUpdate.somethingChanged = true;
+
+      return;
+    }
+    // if the optional direction is not NONE, then we need to check if the attacker can attack from the given direction.
+
+    let neighbour = this.hexMap.getNeighbourInDirection(coords, optionalDirection);
+    if (!neighbour) {
+      this.nextRenderUpdate.somethingChanged = true;
+      return;
+    }
+
+    // check if neighbour is in cached cells, (unit reach data)
+    const neighbourInUnitReachData = this.unitReachData.find((element) => element.coords.x === neighbour.x && element.coords.y === neighbour.y);
+    if (!neighbourInUnitReachData) {
+      // Cannot reach this neighbour
+      return;
+    }
+
+    // Also check if the neighbour is occupied by an enemy unit
+    const neighbourCreature = this.getCreatureAtPosition(neighbour);
+    if (neighbourCreature) {
+      // Occupied by someone else. Can't attack from this direction.
+      return;
+    }
+
+    // yes, the neighbour is reachable, so we can attack from the given direction
+    this.nextRenderUpdate.hoverPath = this.findPathFromSelectedUnitToCell(neighbour);
+    this.nextRenderUpdate.cursorHint = this.getAttackCursorForDirection(reverseDirection(optionalDirection));
     this.nextRenderUpdate.somethingChanged = true;
+  }
+
+  public getAttackCursorForDirection(direction: HexDirection): string {
+    switch (direction) {
+      case HexDirection.EAST:
+        return "attack_melee_e";
+      case HexDirection.NORTHEAST:
+        return "attack_melee_ne";
+      case HexDirection.NORTHWEST:
+        return "attack_melee_nw";
+      case HexDirection.WEST:
+        return "attack_melee_w";
+      case HexDirection.SOUTHWEST:
+        return "attack_melee_sw";
+      case HexDirection.SOUTHEAST:
+        return "attack_melee_se";
+      default:
+        return "";
+    }
+    return "";
   }
 
   static findPathToCellInReachData(coords: Coords, reachData: ReachData[]): Coords[] {
@@ -493,6 +583,7 @@ export class Battle {
       if (this.creatures[i].armyAlignment === this.currentArmyIndex) {
         this.creatures[i].stats.remaining_movement = this.creatures[i].stats.speed;
         this.creatures[i].stats.remaining_attacks = this.creatures[i].stats.num_attacks;
+        this.creatures[i].stats.remaining_counterattacks = this.creatures[i].stats.num_counterattacks;
       }
     }
   }
@@ -544,101 +635,207 @@ export class Battle {
     }
 
     let currentAction = this.currentActions[0];
-
-    if (currentAction.type == BattleActionType.MOVE) {
-      currentAction.remainingTime -= delta;
-      if (currentAction.remainingTime <= 0) {
-        currentAction.remainingTime = currentAction.stepDuration;
-        if (currentAction.step < currentAction.path.length) {
-          let nextStep = currentAction.path[currentAction.step];
-          // also update the direction
-          const oneDirection = this.hexMap.getDirectionForNeighbour(this.creatures[this.activeCreatureIndex].position, nextStep);
-          this.creatures[this.activeCreatureIndex].facingDirection = oneDirection;
-
-          this.creatures[this.activeCreatureIndex].position = nextStep;
-          currentAction.step++;
-          this.nextRenderUpdate.unitRenderUpdate = true;
-          this.nextRenderUpdate.somethingChanged = true;
-        } else {
-          this.currentActions.shift();
-          this.selectCreatureByArmyIndex(this.currentArmyIndex, this.activeCreatureIndex);
-          this.showReachableCells(this.creatures[this.activeCreatureIndex]);
-          this.nextRenderUpdate.unitRenderUpdate = true;
-          this.nextRenderUpdate.somethingChanged = true;
-        }
-      }
-    } else if (currentAction.type == BattleActionType.ATTACK_MELEE
-      || currentAction.type == BattleActionType.ATTACK_RANGED
-    ) {
-      currentAction.remainingTime -= delta;
-      // Show attack animation during this time. At the end, stop the animation.
-      if (currentAction.remainingTime > 0) {
-        return result;
-      }
-
-      if (currentAction.step == 0) {
-        // Melee units may move to attack from behind, make certain that they are facing the right direction
-        if (currentAction.type == BattleActionType.ATTACK_MELEE) {
-          const oneDirection = this.hexMap.getDirectionForNeighbour(this.creatures[this.activeCreatureIndex].position, currentAction.path[0]);
-          this.creatures[this.activeCreatureIndex].facingDirection = oneDirection;
-          this.nextRenderUpdate.unitRenderUpdate = true;
-          this.nextRenderUpdate.somethingChanged = true;
+    switch (currentAction.type) {
+      case BattleActionType.MOVE:
+        currentAction.remainingTime -= delta;
+        this.updateDoMove(currentAction);
+        break;
+      case BattleActionType.ATTACK_MELEE:
+      case BattleActionType.ATTACK_RANGED:
+        currentAction.remainingTime -= delta;
+        // Show attack animation during this time. At the end, stop the animation.
+        if (currentAction.remainingTime > 0) {
+          return result;
         }
 
-        const animType: AnimationType = currentAction.type == BattleActionType.ATTACK_MELEE ? AnimationType.ATTACK_MELEE : AnimationType.ATTACK_RANGED;
-        // First step, start playing animation
-        this.nextRenderUpdate.animationAtCoords = new AnimationAtCoords(animType, currentAction.path[0]);
-        this.nextRenderUpdate.somethingChanged = true;
-        currentAction.step++;
-        currentAction.remainingTime = currentAction.stepDuration;
-        console.log("Playing attack animation");
-      } else if (currentAction.step == 1) {
-        // Second step, stop playing animation, and apply the damage
-        if (currentAction.path.length > 0) {
-          const target = currentAction.path[0];
-          let creatureInBattle = this.getCreatureAtPosition(target);
-          if (creatureInBattle === null) {
-            console.error("The creature is no longer there");
-          } else {
-            let thisCreature = this.creatures[this.activeCreatureIndex];
-            let damage = thisCreature.getRandomAttackDamage();
-
-            if (currentAction.type == BattleActionType.ATTACK_MELEE) {
-              damage -= creatureInBattle.creature.stats.defense_melee;
-            } else {
-              damage -= creatureInBattle.creature.stats.defense_ranged;
-            }
-
-            creatureInBattle.creature.takeDamage(damage);
-            console.log(`Dealt ${damage} damage to the creature`);
-            if (!creatureInBattle.creature.isAlive) {
-              console.log("The creature has died");
-              this.creatures.splice(creatureInBattle.indexInArmy, 1);
-            } else {
-              console.log("The creature is still alive");
-              // TODO: queue a counterattack?
-            }
-
-            thisCreature.stats.remaining_attacks--;
-            // for most units, after attacking, the turn is over, so also set their movement to 0
-            thisCreature.stats.remaining_movement = 0;
-
-          }
+        this.updateDoAttack(currentAction);
+        break;
+      case BattleActionType.COUNTER_ATTACK_MELEE:
+        currentAction.remainingTime -= delta;
+        // Show attack animation during this time. At the end, stop the animation.
+        if (currentAction.remainingTime > 0) {
+          return result;
         }
 
-        console.log("Applied attack");
-
+        this.updateDoCounterAttack(currentAction);
+        break;
+      case BattleActionType.SELECT_NEXT:
         this.currentActions.shift();
-        this.nextRenderUpdate.unitRenderUpdate = true;
-        this.nextRenderUpdate.somethingChanged = true;
-
         this.selectNextUnit();
-      }
-
+        break;
     }
 
     return result;
   }
 
+  private updateDoMove(currentAction: BattleAction) {
+    if (currentAction.remainingTime > 0) {
+      // not yet the time to apply it
+      return;
+    }
 
+    currentAction.remainingTime = currentAction.stepDuration;
+    if (currentAction.step < currentAction.path.length) {
+      let nextStep = currentAction.path[currentAction.step];
+      // also update the direction
+      const oneDirection = this.hexMap.getDirectionForNeighbour(this.creatures[this.activeCreatureIndex].position, nextStep);
+      this.creatures[this.activeCreatureIndex].facingDirection = oneDirection;
+
+      this.creatures[this.activeCreatureIndex].position = nextStep;
+      currentAction.step++;
+      this.nextRenderUpdate.unitRenderUpdate = true;
+      this.nextRenderUpdate.somethingChanged = true;
+    } else {
+      // finish with the current action
+      this.currentActions.shift();
+      //xxx
+      if (this.creatures[this.activeCreatureIndex].stats.remaining_movement > 0) {
+        this.reselectCurrentUnit();
+      } else {
+        this.currentActions.push(
+          new BattleAction(BattleActionType.SELECT_NEXT, [], 0, 500, 50));
+      }
+    }
+  }
+
+  private updateDoAttack(currentAction: BattleAction) {
+    if (currentAction.step == 0) {
+      // Melee units may move to attack from behind, make certain that they are facing the right direction
+      if (currentAction.type == BattleActionType.ATTACK_MELEE) {
+        const oneDirection = this.hexMap.getDirectionForNeighbour(this.creatures[this.activeCreatureIndex].position, currentAction.path[0]);
+        this.creatures[this.activeCreatureIndex].facingDirection = oneDirection;
+        this.nextRenderUpdate.unitRenderUpdate = true;
+        this.nextRenderUpdate.somethingChanged = true;
+      }
+
+      const animType: AnimationType = currentAction.type == BattleActionType.ATTACK_MELEE ? AnimationType.ATTACK_MELEE : AnimationType.ATTACK_RANGED;
+      // First step, start playing animation
+      this.nextRenderUpdate.animationAtCoords = new AnimationAtCoords(animType, currentAction.path[0]);
+      this.nextRenderUpdate.somethingChanged = true;
+      currentAction.step++;
+      currentAction.remainingTime = currentAction.stepDuration;
+      console.log("Playing attack animation");
+      return;
+    } else if (currentAction.step == 1) {
+      // Second step, stop playing animation, and apply the damage
+      const counterattacking = this.updateDoAttackApplyDamageAndCounter(currentAction);
+
+      console.log("Applied attack");
+
+      this.currentActions.shift();
+      this.nextRenderUpdate.unitRenderUpdate = true;
+      this.nextRenderUpdate.somethingChanged = true;
+      currentAction.step++;
+
+      if (!counterattacking) {
+        this.currentActions.push(
+          new BattleAction(BattleActionType.SELECT_NEXT, [], 0, 500, 50));
+      }
+    }
+
+  }
+
+  private updateDoAttackApplyDamageAndCounter(currentAction: BattleAction): boolean {
+    let counterattacking = false;
+    if (currentAction.path.length <= 0) {
+      return counterattacking;
+    }
+
+    const target = currentAction.path[0];
+    let creatureInBattle = this.getCreatureAtPosition(target);
+    if (creatureInBattle === null) {
+      console.error("The creature is no longer there");
+      return counterattacking;
+    }
+
+    let thisCreature = this.creatures[this.activeCreatureIndex];
+    let damage = currentAction.type == BattleActionType.ATTACK_MELEE ? thisCreature.getRandomAttackDamageMelee() : thisCreature.getRandomAttackDamageRanged();
+    let armor = currentAction.type == BattleActionType.ATTACK_MELEE ? creatureInBattle.creature.stats.defense_melee : creatureInBattle.creature.stats.defense_ranged;
+    damage -= armor;
+
+    creatureInBattle.creature.takeDamage(damage);
+    console.log(`Dealt ${damage} damage to the creature`);
+    if (!creatureInBattle.creature.isAlive) {
+      console.log("The creature has died");
+      this.creatures.splice(creatureInBattle.indexInArmy, 1);
+    } else {
+      console.log("The creature is still alive");
+      counterattacking = (currentAction.type == BattleActionType.ATTACK_MELEE) && this.queueCounterattack(creatureInBattle.creature, thisCreature);
+    }
+
+    thisCreature.stats.remaining_attacks--;
+    // for most units, after attacking, the turn is over, so also set their movement to 0
+    // take into account later to allow features such as moving after attacking.
+    thisCreature.stats.remaining_movement = 0;
+    return counterattacking;
+  }
+
+  private queueCounterattack(creatureCounterAttackFrom: Creature, creatureCounterAttackTo: Creature) {
+    if (creatureCounterAttackFrom.stats.remaining_counterattacks <= 0) {
+      return false;
+    }
+
+    console.log("Queueing counterattack");
+    this.currentActions.push(
+      BattleAction.CounterAttack(creatureCounterAttackFrom, creatureCounterAttackTo));
+
+    return true;
+  }
+
+  private updateDoCounterAttack(currentAction: BattleAction) {
+
+    if (currentAction.sourceUnit === undefined || currentAction.targetUnit === undefined) {
+      return;
+    }
+
+    if (currentAction.step == 0) {
+      // Melee units may have to turn around to counterattack, make certain that they are facing the right direction
+      if (currentAction.type == BattleActionType.ATTACK_MELEE) {
+        const oneDirection = this.hexMap.getDirectionForNeighbour(currentAction.sourceUnit.position, currentAction.targetUnit.position);
+        currentAction.sourceUnit.facingDirection = oneDirection;
+        this.nextRenderUpdate.unitRenderUpdate = true;
+        this.nextRenderUpdate.somethingChanged = true;
+      }
+
+      const animType: AnimationType = AnimationType.ATTACK_MELEE;
+      // First step, start playing animation
+      this.nextRenderUpdate.animationAtCoords = new AnimationAtCoords(animType, currentAction.targetUnit.position);
+      this.nextRenderUpdate.somethingChanged = true;
+      currentAction.step++;
+      currentAction.remainingTime = currentAction.stepDuration;
+      console.log("Playing counterattack animation");
+      return;
+    } else if (currentAction.step == 1) {
+      // Second step, stop playing animation, and apply the damage
+      this.updateDoCounterAttackApply(currentAction);
+
+      console.log("Applied counterattack");
+
+      this.currentActions.shift();
+      this.nextRenderUpdate.unitRenderUpdate = true;
+      this.nextRenderUpdate.somethingChanged = true;
+      currentAction.step++;
+
+      this.currentActions.push(
+        new BattleAction(BattleActionType.SELECT_NEXT, [], 0, 500, 50));
+    }
+  }
+
+  private updateDoCounterAttackApply(currentAction: BattleAction) {
+    if (currentAction.sourceUnit === undefined || currentAction.targetUnit === undefined) {
+      return;
+    }
+
+    let damage = currentAction.sourceUnit.getRandomAttackDamageMelee();
+    let armor = currentAction.targetUnit.stats.defense_melee;
+    damage -= armor;
+
+    currentAction.targetUnit.takeDamage(damage);
+    console.log(`Dealt ${damage} damage to the creature`);
+    if (!currentAction.targetUnit.isAlive) {
+      console.log("TODO: The creature has died, remove it ?");
+    }
+
+    currentAction.sourceUnit.stats.remaining_counterattacks--;
+  }
 }

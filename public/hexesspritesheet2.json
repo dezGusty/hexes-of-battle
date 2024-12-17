@@ -32,6 +32,14 @@
                 "h": 92
             }
         },
+        "hex_action_blue.png": {
+            "frame": {
+                "x": 83,
+                "y": 95,
+                "w": 80,
+                "h": 92
+            }
+        },
         "hex_action_disabled_gray.png": {
             "frame": {
                 "x": 329,

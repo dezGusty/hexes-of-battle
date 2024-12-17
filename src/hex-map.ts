@@ -105,19 +105,53 @@ export class HexMap {
   }
 
   /**
+   * Get all the neighbours of a hexagon.
+   * @param coords Starting hexagon coordinates.
+   * @returns An array of coordinates of the neighbours.
+   */
+  public static getNeighboursInBounds(coords: Coords, width: number, height: number): Coords[] {
+    let result: Coords[] = [];
+    for (let i = HexDirection.EAST; i <= HexDirection.SOUTHEAST; i++) {
+      let neighbour = HexMap.getNeighbourInDirectionInBounds(coords, i, width, height);
+      if (neighbour !== null) {
+        result.push(neighbour);
+      }
+    }
+    return result;
+  }
+
+  /**
    * Find a neighbour of a hexagon in a given direction (or null if the neighbour is outside the map).
-   * @param coords Starting coordinated
+   * @param coords Starting coordinates
    * @param direction The direction in which to find the neighbour
    * @returns The coordinates of the neighbour in the given direction, or null if the neighbour is outside the map.
    */
   public getNeighbourInDirection(coords: Coords, direction: HexDirection): Coords | null {
-    let result = this.getCoordsInDirectionInternal(coords, direction);
+    return HexMap.getNeighbourInDirectionInBounds(coords, direction, this.width, this.height);
+  }
+
+  /**
+   * Find a neighbour of a hexagon in a given direction (or null if the neighbour is outside the bounds).
+   * @param coords Starting coordinates
+   * @param direction The direction in which to find the neighbour
+   * @param width Width of the map
+   * @param height Height of the map
+   * @returns The coordinates of the neighbour in the given direction, or null if the neighbour is outside the map.
+   */
+  public static getNeighbourInDirectionInBounds(coords: Coords, direction: HexDirection, width: number, height: number): Coords | null {
+    let result = HexMap.getCoordsInDirectionInternal(coords, direction);
     if (result === null) return null;
-    if (result.x < 0 || result.x >= this.width || result.y < 0 || result.y >= this.height) return null;
+    if (result.x < 0 || result.x >= width || result.y < 0 || result.y >= height) return null;
     return result;
   }
 
-  private getCoordsInDirectionInternal(coords: Coords, direction: HexDirection): Coords | null {
+  /**
+   * Find a neighbour of a hexagon in a given direction.
+   * @param coords Starting coordinates.
+   * @param direction Direction in which to find the neighbour.
+   * @returns New coordinates in the given direction, or null if the direction is unrecognized.
+   */
+  private static getCoordsInDirectionInternal(coords: Coords, direction: HexDirection): Coords | null {
     switch (direction) {
       case HexDirection.EAST:
         return { x: coords.x + 1, y: coords.y };
@@ -277,7 +311,7 @@ export class HexMap {
    */
   public getDirectionForNeighbour(hexSource: Coords, neighbour: Coords): HexDirection {
     for (let i = HexDirection.EAST; i <= HexDirection.SOUTHEAST; i++) {
-      let neighbourInDir = this.getNeighbourInDirection(hexSource, i);
+      const neighbourInDir = this.getNeighbourInDirection(hexSource, i);
       if (neighbourInDir !== null && neighbourInDir.x == neighbour.x && neighbourInDir.y == neighbour.y) {
         return i;
       }
