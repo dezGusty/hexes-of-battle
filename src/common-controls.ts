@@ -1,5 +1,5 @@
 import { ButtonOptions, FancyButton } from "@pixi/ui";
-import { TextStyle, TextStyleOptions } from "pixi.js";
+import { TextStyle, TextStyleOptions, Text } from "pixi.js";
 
 /**
  * A class to contain the UI elements that are common to all pages.
@@ -19,7 +19,7 @@ export class CommonControls {
   public nextUnitButton?: FancyButton;
   public showHealthbarsButton?: FancyButton;
   public toggleStatsButton?: FancyButton;
-  static DEFAULT_FONT_STYLE: TextStyle | TextStyleOptions = { fontFamily: 'GustysSerpents', fontSize: 18, align: 'left' };
+  static DEFAULT_FONT_STYLE: TextStyle | TextStyleOptions = { fontFamily: 'GustysSerpents', fontSize: 16, align: 'left' };
   private DEFAULT_BUTTON_STYLE: ButtonOptions = {
     defaultView: 'btn_simple.png',
     hoverView: 'btn_simple_hover.png',
@@ -46,17 +46,24 @@ export class CommonControls {
     this.toggleGridButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_grid.png' });
     this.toggleGridButton.position.set(10, 210);
 
-    this.nextTurnButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_next_turn.png' });
-    this.nextTurnButton.position.set(10, 260);
-
-    this.nextUnitButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_next_unit.png' });
-    this.nextUnitButton.position.set(10, 310);
-
     this.showHealthbarsButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_toggle_healthbars.png' });
-    this.showHealthbarsButton.position.set(10, 360);
+    this.showHealthbarsButton.position.set(10, 260);
 
     this.toggleStatsButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_toggle_stats.png' });
-    this.toggleStatsButton.position.set(10, 410);
+    this.toggleStatsButton.position.set(10, 310);
+
+    this.nextUnitButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_next_unit.png' });
+    this.nextUnitButton.position.set(10, 695);
+    this.nextUnitButton.width = 130;
+    this.nextUnitButton.height = 75;
+    this.nextUnitButton.text = new Text({ ...CommonControls.DEFAULT_FONT_STYLE, text: '\nNext Unit' });
+
+    this.nextTurnButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_next_turn.png' });
+    this.nextTurnButton.position.set(10, 790);
+    this.nextTurnButton.width = 130;
+    this.nextTurnButton.height = 75;
+    this.nextTurnButton.text = new Text({ ...CommonControls.DEFAULT_FONT_STYLE, text: '\nNext Turn' });
+
 
     this.connectEventHandlers();
   }

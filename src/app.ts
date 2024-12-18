@@ -436,7 +436,7 @@ export class HexesApp {
     this.battle.creatures.push(creature);
 
     creature = new Creature(CreatureType.PEASANT_ARCHER);
-    creature.position = { x: 2, y: 5 };
+    creature.position = { x: 1, y: 5 };
     creature.stats.speed = 3;
     creature.stats.remaining_movement = 3;
     creature.stats.is_ranged = true;
@@ -488,6 +488,16 @@ export class HexesApp {
     creature.stats.remaining_movement = 3;
     creature.facingDirection = HexDirection.WEST;
     creature.armyAlignment = 1;
+    this.battle.creatures.push(creature);
+
+    creature = new Creature(CreatureType.PEASANT_ARCHER);
+    creature.position = { x: 9, y: 4 };
+    creature.stats.speed = 3;
+    creature.stats.remaining_movement = 1;
+    creature.stats.is_ranged = true;
+    creature.stats.range = 5;
+    creature.armyAlignment = 1;
+    creature.facingDirection = HexDirection.WEST;
     this.battle.creatures.push(creature);
 
     this.renderUnits();
@@ -794,6 +804,7 @@ export class HexesApp {
 
         let tempSprite = new Sprite(this.hexagonSheet?.textures[spriteSrc]);
         tempSprite.position.copyFrom(hexCoords);
+        tempSprite.tint = 0xff0000;
         this.hexEnemyReachableSprites.push(tempSprite);
         this.hexCellsContainer.addChild(tempSprite);
       }
