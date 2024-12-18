@@ -314,17 +314,7 @@ export class Battle {
     return reachableCells;
   }
 
-  // private static logMatrix(matrix: number[][], windth: number, height: number, hint: string) {
-  //   console.log("Matrix: " + hint);
-  //   let rows = "";
-  //   for (let j = 0; j < height; j++) {
-  //     for (let i = 0; i < windth; i++) {
-  //       rows += matrix[i][j] + " ";
-  //     }
-  //     rows += "\n";
-  //   }
-  //   console.log(rows);
-  // }
+  
 
 
   getCreatureAtPosition(coords: Coords): CreatureInBattle | null {
@@ -790,6 +780,8 @@ export class Battle {
     let armor = currentAction.type == BattleActionType.ATTACK_MELEE ? creatureInBattle.creature.stats.defense_melee : creatureInBattle.creature.stats.defense_ranged;
     damage -= armor;
 
+    this.hookDoingAttack(thisCreature, creatureInBattle.creature, damage);
+
     creatureInBattle.creature.takeDamage(damage);
     console.log(`Dealt ${damage} damage to the creature`);
     if (!creatureInBattle.creature.isAlive) {
@@ -805,6 +797,10 @@ export class Battle {
     // take into account later to allow features such as moving after attacking.
     thisCreature.stats.remaining_movement = 0;
     return counterattacking;
+  }
+
+  hookDoingAttack(_thisCreature: Creature, _creature: Creature, _damage: number) {
+    console.log("hookDoingAttack not implemented.");
   }
 
   private queueCounterattack(creatureCounterAttackFrom: Creature, creatureCounterAttackTo: Creature) {
@@ -866,6 +862,8 @@ export class Battle {
     let damage = currentAction.sourceUnit.getRandomAttackDamageMelee();
     let armor = currentAction.targetUnit.stats.defense_melee;
     damage -= armor;
+
+    this.hookDoingAttack(currentAction.sourceUnit, currentAction.targetUnit, damage);
 
     currentAction.targetUnit.takeDamage(damage);
     console.log(`Dealt ${damage} damage to the creature`);

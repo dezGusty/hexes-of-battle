@@ -85,7 +85,12 @@ export class UnitStatsPanel {
     this.unitTypeText.text = `Unit: ${this.creatureType}`;
     this.hpText.text = `HP: ${this.stats?.health}/${this.stats?.max_health}`;
     this.attackMeleeText.text = `Attack (melee): ${this.stats?.attack_melee_low}-${this.stats?.attack_melee_high}`;
-    this.attackRangedText.text = `Attack (ranged): ${this.stats?.attack_ranged_low}-${this.stats?.attack_ranged_high}`;
+    if (this.stats.is_ranged) {
+      this.attackRangedText.text = `Attack (ranged): ${this.stats?.attack_ranged_low}-${this.stats?.attack_ranged_high}`;
+    } else {
+      this.attackRangedText.text = `Attack (ranged): -`;
+    }
+
     this.rangeText.text = `Range: ${this.stats?.range}`;
     this.movementText.text = `Movement: ${this.stats?.remaining_movement} / ${this.stats?.speed}`;
     this.attacksText.text = `Attacks: ${this.stats?.remaining_attacks} / ${this.stats?.num_attacks}`;

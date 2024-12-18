@@ -7,6 +7,7 @@ import { AnimationType, Battle, MapRenderUpdate } from './battle';
 import { Creature, CreatureType } from './creature';
 import { ProgressBar } from '@pixi/ui';
 import { UnitStatsPanel } from './unit-stats-panel';
+import { DamageValueCollection } from './damage-value-display';
 
 export enum GameState {
   InMenu,
@@ -71,6 +72,7 @@ export class HexesApp {
   private hexUnitBars: ProgressBar[] = [];
 
   private showHealthbars: boolean = true;
+  private damageValueDisplay: DamageValueCollection = new DamageValueCollection();
 
 
   // Add render groups for layering
@@ -500,7 +502,16 @@ export class HexesApp {
     creature.facingDirection = HexDirection.WEST;
     this.battle.creatures.push(creature);
 
+    this.battle.hookDoingAttack = (attacker, defender, damage) => {
+      this.hookDoingAttack(attacker, defender, damage);
+    };
+
     this.renderUnits();
+  }
+
+  hookDoingAttack(_attacker: Creature, defender: Creature, damage: number) {
+    const defenderPixelCoords = this.hexMap.hexToPixel(defender.position.x, defender.position.y);
+    this.damageValueDisplay.addDamageValue(damage, this.uiPlusRenderGroup, defenderPixelCoords);
   }
 
   private renderUnits() {
@@ -611,6 +622,7 @@ export class HexesApp {
         }
       }
 
+      this.damageValueDisplay.update(ticker.deltaMS);
     });
   }
 
