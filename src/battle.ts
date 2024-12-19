@@ -32,6 +32,7 @@ export class MapRenderUpdate {
   public enemyReachableCells: boolean = false;
   public unitRenderUpdate: boolean = false;
   public hoverOverCell: Coords | null = null;
+  public hoverDirection: HexDirection = HexDirection.NONE;
   public hoverPath: Coords[] = [];
   public cursorHint: string = "";
   public animationAtCoords: AnimationAtCoords = { ...AnimationAtCoords.DEFAULT };
@@ -93,6 +94,7 @@ export class Battle {
   public cached_occupation_tiles: number[][] = [];
 
   private nextRenderUpdate: MapRenderUpdate = new MapRenderUpdate();
+  private prevRenderUpdate: MapRenderUpdate = new MapRenderUpdate();
   private unitReachData: ReachData[] = [];
   private unitRangeData: ReachData[] = [];
 
@@ -434,13 +436,26 @@ export class Battle {
       return;
     }
 
+    // Did we get a chance to render the hover over this cell, or do we still have it queued?
+    // If so, don't process it again.
     if (this.nextRenderUpdate.hoverOverCell
       && this.nextRenderUpdate.hoverOverCell.x === coords.x
       && this.nextRenderUpdate.hoverOverCell.y === coords.y) {
       return;
     }
 
+    // Is this the same as the previous hover cell call? (done at the previous rendering)
+    // If so, don't process it again.
+    if (this.prevRenderUpdate.hoverOverCell
+      && this.prevRenderUpdate.hoverOverCell.x === coords.x
+      && this.prevRenderUpdate.hoverOverCell.y === coords.y
+      && this.prevRenderUpdate.hoverDirection === optionalDirection
+    ) {
+      return;
+    }
+
     this.nextRenderUpdate.hoverOverCell = coords;
+    this.nextRenderUpdate.hoverDirection = optionalDirection;
     if (this.activeCreatureIndex <= -1) {
       this.nextRenderUpdate.hoverPath = [];
       this.nextRenderUpdate.somethingChanged = true;
@@ -453,7 +468,6 @@ export class Battle {
     if (targetCreature === null
       || targetCreature.indexOFArmy === this.currentArmyIndex
     ) {
-      console.log("Hover over on an empty cell or on a friendly unit");
       // Hover over on an empty cell or on a friendly unit
       this.nextRenderUpdate.hoverPath = this.findPathFromSelectedUnitToCell(coords);
       this.nextRenderUpdate.cursorHint = "default";
@@ -654,11 +668,11 @@ export class Battle {
    * @returns The next render update summary. This informs the caller if the rendering needs to be updated, and what needs to be updated.
    */
   public update(delta: number): MapRenderUpdate {
-    let result = this.nextRenderUpdate;
+    this.prevRenderUpdate = this.nextRenderUpdate;
     this.nextRenderUpdate = new MapRenderUpdate();
 
     if (this.currentActions.length == 0) {
-      return result;
+      return this.prevRenderUpdate;
     }
 
     let currentAction = this.currentActions[0];
@@ -672,7 +686,7 @@ export class Battle {
         currentAction.remainingTime -= delta;
         // Show attack animation during this time. At the end, stop the animation.
         if (currentAction.remainingTime > 0) {
-          return result;
+          return this.prevRenderUpdate;
         }
 
         this.updateDoAttack(currentAction);
@@ -681,7 +695,7 @@ export class Battle {
         currentAction.remainingTime -= delta;
         // Show attack animation during this time. At the end, stop the animation.
         if (currentAction.remainingTime > 0) {
-          return result;
+          return this.prevRenderUpdate;
         }
 
         this.updateDoCounterAttack(currentAction);
@@ -692,7 +706,7 @@ export class Battle {
         break;
     }
 
-    return result;
+    return this.prevRenderUpdate;
   }
 
   private updateDoMove(currentAction: BattleAction) {
@@ -823,7 +837,7 @@ export class Battle {
 
     if (currentAction.step == 0) {
       // Melee units may have to turn around to counterattack, make certain that they are facing the right direction
-      if (currentAction.type == BattleActionType.ATTACK_MELEE) {
+      if (currentAction.type == BattleActionType.COUNTER_ATTACK_MELEE) {
         const oneDirection = this.hexMap.getDirectionForNeighbour(currentAction.sourceUnit.position, currentAction.targetUnit.position);
         currentAction.sourceUnit.facingDirection = oneDirection;
         this.nextRenderUpdate.unitRenderUpdate = true;

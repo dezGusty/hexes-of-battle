@@ -8,6 +8,7 @@ import { Creature, CreatureType } from './creature';
 import { ProgressBar } from '@pixi/ui';
 import { UnitStatsPanel } from './unit-stats-panel';
 import { DamageValueCollection } from './damage-value-display';
+import { PerfDisplayPanel } from './perf-display-panel';
 
 export enum GameState {
   InMenu,
@@ -73,6 +74,7 @@ export class HexesApp {
 
   private showHealthbars: boolean = true;
   private damageValueDisplay: DamageValueCollection = new DamageValueCollection();
+  private perfDisplayPanel: PerfDisplayPanel = new PerfDisplayPanel();
 
 
   // Add render groups for layering
@@ -366,6 +368,7 @@ export class HexesApp {
 
     if (this.uiSheet) {
       this.unitStats = new UnitStatsPanel(this.renderContainer, this.uiSheet);
+      this.perfDisplayPanel.show(this.uiRenderGroup, this.uiSheet);
     }
 
   }
@@ -514,6 +517,18 @@ export class HexesApp {
     this.damageValueDisplay.addDamageValue(damage, this.uiPlusRenderGroup, defenderPixelCoords);
   }
 
+  private directionToSpriteName(direction: HexDirection): string {
+    switch (direction) {
+      case HexDirection.EAST: return 'hex_dir_E.png';
+      case HexDirection.NORTHEAST: return 'hex_dir_NE.png';
+      case HexDirection.NORTHWEST: return 'hex_dir_NW.png';
+      case HexDirection.WEST: return 'hex_dir_W.png';
+      case HexDirection.SOUTHWEST: return 'hex_dir_SW.png';
+      case HexDirection.SOUTHEAST: return 'hex_dir_SE.png';
+    }
+    return 'hex_empty.png';
+  }
+
   private renderUnits() {
     // Clear the previous unit sprites
     this.unitRenderSubgroups.forEach((subgroup) => { subgroup.removeChildren(); });
@@ -577,6 +592,16 @@ export class HexesApp {
       unitSprite.y = y;
       this.unitSprites.push(unitSprite);
 
+      // if showing the direction
+      if (true) {
+        let dirTex = this.directionToSpriteName(creature.facingDirection);
+        const dirSprite = new Sprite(this.hexagonSheet?.textures[dirTex]);
+        dirSprite.position = { x, y };
+        dirSprite.alpha = 0.5;
+        this.unitSprites.push(dirSprite);
+        this.unitRenderSubgroups[creature.position.y].addChild(dirSprite);
+      }
+      
       if (this.showHealthbars) {
         let healthBar = new ProgressBar({
           bg: 'progress_bg.png',
@@ -598,31 +623,38 @@ export class HexesApp {
         this.unitRenderSubgroups[creature.position.y].addChild(healthBar);
       }
 
+
+
       this.unitRenderSubgroups[creature.position.y].addChild(unitSprite);
     });
   }
-
-
-
 
   public setupMainLoop(): void {
     this.app.ticker.maxFPS = 60;
 
     // Listen for frame updates
     this.app.ticker.add((ticker) => {
-
+      this.perfDisplayPanel.startMeasure('frame');
       if (this.fpsText) {
         this.fpsText.text = `FPS: ${Math.round(ticker.FPS)}`;
       }
 
       if (this.battle) {
+        //TODO: add measurement of update time & map rendering time
+        this.perfDisplayPanel.startMeasure('battle.update');
         let mapUpdate: MapRenderUpdate = this.battle.update(ticker.deltaMS);
+        this.perfDisplayPanel.stopMeasure('battle.update');
         if (mapUpdate.somethingChanged) {
+          this.perfDisplayPanel.startMeasure('map.render');
           this.updateMapRendering(mapUpdate);
+          this.perfDisplayPanel.stopMeasure('map.render');
         }
       }
 
       this.damageValueDisplay.update(ticker.deltaMS);
+      this.perfDisplayPanel.stopMeasure('frame');
+
+      this.perfDisplayPanel.update();
     });
   }
 
@@ -691,6 +723,7 @@ export class HexesApp {
 
         let spriteSrc = 'hex_empty.png';
 
+
         switch (edge.edge) {
           case HexEdge.EAST:
             spriteSrc = 'hex_range_E.png';
@@ -731,6 +764,7 @@ export class HexesApp {
         }
 
         let tempSprite = new Sprite(this.hexagonSheet?.textures[spriteSrc]);
+        tempSprite.tint = 0x5555d0;
         tempSprite.position.copyFrom(hexCoords);
         this.hexReachableSprites.push(tempSprite);
         this.hexCellsContainer.addChild(tempSprite);
@@ -738,6 +772,7 @@ export class HexesApp {
     }
 
     if (mapUpdate.enemyReachableCells) {
+      const perfstart = window.performance.now();
       this.hexEnemyReachableSprites.forEach((sprite) => { this.hexCellsContainer.removeChild(sprite); });
       this.hexEnemyReachableSprites = [];
 
@@ -819,7 +854,10 @@ export class HexesApp {
         tempSprite.tint = 0xff0000;
         this.hexEnemyReachableSprites.push(tempSprite);
         this.hexCellsContainer.addChild(tempSprite);
+
       }
+      const perfstop = window.performance.now();
+      console.log("Rendering enemy reachable cells took " + (perfstop - perfstart) + " milliseconds.");
     }
 
     if (mapUpdate.hoverOverCell) {
