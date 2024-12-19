@@ -47,7 +47,6 @@ export class PerfDisplayPanel {
     // update with the difference
     this.records[category].data.push(
       window.performance.now() - this.records[category].last_start);
-      this.records[category].min
   }
 
   public update() {
@@ -68,12 +67,6 @@ export class PerfDisplayPanel {
       this.detailsText.text += `       (recent min: ${recent_min} ms, max: ${recent_max} ms)\n`;
 
     }
-
-    //   keys(this.records).forEach((key) => { });
-    //   this.records.keys((value, key) => {
-    //     this.detailsText.text += `${key}: ${value.data.reduce((a, b) => a + b, 0) / value.data.length}\n`;
-    //   });
-    // }
   }
 
   public show(view: Container, uiSheet?: Spritesheet) {
@@ -120,5 +113,13 @@ export class PerfDisplayPanel {
 
   public hide() {
     this.view?.removeChild(this.window);
+  }
+
+  public toggleVisibility(view: Container, uiSheet?: Spritesheet) {
+    if (this.window.parent) {
+      this.hide();
+    } else {
+      this.show(view, uiSheet);
+    }
   }
 }

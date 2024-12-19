@@ -73,6 +73,7 @@ export class HexesApp {
   private hexUnitBars: ProgressBar[] = [];
 
   private showHealthbars: boolean = true;
+  private showFacingDirections: boolean = true;
   private damageValueDisplay: DamageValueCollection = new DamageValueCollection();
   private perfDisplayPanel: PerfDisplayPanel = new PerfDisplayPanel();
 
@@ -363,12 +364,18 @@ export class HexesApp {
           this.unitStats.update();
         }
       }
+    });
 
+    this.commonControls.togglePerfStatsButton?.onPress.connect(() => {
+      if (!this.uiSheet) {
+        return;
+      }
+
+      this.perfDisplayPanel.toggleVisibility(this.uiRenderGroup, this.uiSheet);
     });
 
     if (this.uiSheet) {
       this.unitStats = new UnitStatsPanel(this.renderContainer, this.uiSheet);
-      this.perfDisplayPanel.show(this.uiRenderGroup, this.uiSheet);
     }
 
   }
@@ -593,7 +600,7 @@ export class HexesApp {
       this.unitSprites.push(unitSprite);
 
       // if showing the direction
-      if (true) {
+      if (this.showFacingDirections) {
         let dirTex = this.directionToSpriteName(creature.facingDirection);
         const dirSprite = new Sprite(this.hexagonSheet?.textures[dirTex]);
         dirSprite.position = { x, y };
@@ -601,7 +608,7 @@ export class HexesApp {
         this.unitSprites.push(dirSprite);
         this.unitRenderSubgroups[creature.position.y].addChild(dirSprite);
       }
-      
+
       if (this.showHealthbars) {
         let healthBar = new ProgressBar({
           bg: 'progress_bg.png',
@@ -772,7 +779,6 @@ export class HexesApp {
     }
 
     if (mapUpdate.enemyReachableCells) {
-      const perfstart = window.performance.now();
       this.hexEnemyReachableSprites.forEach((sprite) => { this.hexCellsContainer.removeChild(sprite); });
       this.hexEnemyReachableSprites = [];
 
@@ -854,10 +860,7 @@ export class HexesApp {
         tempSprite.tint = 0xff0000;
         this.hexEnemyReachableSprites.push(tempSprite);
         this.hexCellsContainer.addChild(tempSprite);
-
       }
-      const perfstop = window.performance.now();
-      console.log("Rendering enemy reachable cells took " + (perfstop - perfstart) + " milliseconds.");
     }
 
     if (mapUpdate.hoverOverCell) {
