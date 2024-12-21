@@ -80,6 +80,7 @@ export class BattleAction {
  */
 export class Battle {
 
+  private turnNumber = 0;
   private currentArmyIndex: number = 0;
   public activeCreatureIndex: number = -1;
 
@@ -616,13 +617,16 @@ export class Battle {
 
   public nextTurn() {
     this.currentArmyIndex = (this.currentArmyIndex + 1) % 2;
+    if (this.currentArmyIndex === 0) {
+      this.turnNumber++;
+    }
     this.activeCreatureIndex = -1;
 
     // set all the creatures from the current army to have full movement
     // also full attacks
     for (let i = 0; i < this.creatures.length; i++) {
       if (this.creatures[i].armyAlignment === this.currentArmyIndex) {
-        this.creatures[i].stats.remaining_movement = this.creatures[i].stats.speed;
+        this.creatures[i].stats.remaining_movement = this.creatures[i].stats.num_moves;
         this.creatures[i].stats.remaining_attacks = this.creatures[i].stats.num_attacks;
         this.creatures[i].stats.remaining_counterattacks = this.creatures[i].stats.num_counterattacks;
       }

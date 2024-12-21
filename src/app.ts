@@ -1,14 +1,15 @@
 import { Application, Sprite, Assets, Text, TextStyle, BitmapText, Spritesheet, Texture, Container, TextStyleOptions, AnimatedSprite } from 'pixi.js';
 import pkg from './../package.json';
 import { HexDirection, hexDirectionToString, HexEdge, HexMap } from './hex-map';
-import { CommonControls } from './common-controls';
+import { CommonControls } from './ui/common-controls';
 import { Coords, UserOptions } from './shared';
 import { AnimationType, Battle, MapRenderUpdate } from './battle';
-import { Creature, CreatureType } from './creature';
+import { Creature, CreatureRepository, CreatureTemplate, CreatureType } from './creature';
 import { ProgressBar } from '@pixi/ui';
-import { UnitStatsPanel } from './unit-stats-panel';
-import { DamageValueCollection } from './damage-value-display';
-import { PerfDisplayPanel } from './perf-display-panel';
+import { UnitStatsPanel } from './ui/unit-stats-panel';
+import { DamageValueCollection } from './ui/damage-value-display';
+import { PerfDisplayPanel } from './ui/perf-display-panel';
+import { JsonLoader } from './shared/jsonloader';
 
 export enum GameState {
   InMenu,
@@ -100,7 +101,8 @@ export class HexesApp {
 
   private DEFAULT_FONT_STYLE: TextStyle | TextStyleOptions = { fontFamily: 'GustysSerpents', fontSize: 18, align: 'left' };
 
-  // Store the touch zones for the directions and actions
+  private creatureTemplates: CreatureTemplate[] = [];
+  private creatureRepository: CreatureRepository = new CreatureRepository();
 
   private tempMessage = "";
 
@@ -156,6 +158,7 @@ export class HexesApp {
     this.hexZoneContainer.addChild(this.unitRenderGroup);
     this.hexZoneContainer.addChild(this.hexUiRenderGroup);
 
+    await this.loadTemplates();
     await this.loadAssets();
     await this.loadSounds();
 
@@ -200,6 +203,7 @@ export class HexesApp {
 
     this.renderContainer.position.set(this.renderContainerOffset.x, this.renderContainerOffset.y);
   }
+
 
   public async loadAssets() {
 
@@ -285,6 +289,14 @@ export class HexesApp {
 
     console.log('Loaded sounds...');
 
+  }
+
+  public async loadTemplates() {
+    // Load the "creaturetypes.json" file and read jsonData
+    this.creatureTemplates = await JsonLoader.loadJson<CreatureTemplate[]>('./creaturetypes.json');
+    console.log("*** creature templates ***", this.creatureTemplates);
+
+    this.creatureRepository.setCreatureTemplates(this.creatureTemplates);
   }
 
   /**
@@ -432,82 +444,60 @@ export class HexesApp {
       this.unitRenderGroup.addChild(this.unitRenderSubgroups[i]);
     }
 
-    // Create the battle.
-    let creature = new Creature();
+    // Create the battle units.
+    let creature = this.creatureRepository.createCreature(CreatureType.PEASANT);
     creature.position = { x: 0, y: 0 };
-    creature.stats.speed = 2;
-    creature.stats.remaining_movement = 2;
     creature.armyAlignment = 0;
     this.battle.creatures.push(creature);
 
-    creature = new Creature(CreatureType.SPEARMAN);
+    creature = this.creatureRepository.createCreature(CreatureType.SPEARMAN);
     creature.position = { x: 1, y: 3 };
-    creature.stats.speed = 15;
+    creature.stats.num_moves = 15;
     creature.stats.remaining_movement = 15;
     creature.armyAlignment = 0;
     this.battle.creatures.push(creature);
 
-    creature = new Creature(CreatureType.PEASANT_ARCHER);
+    creature = this.creatureRepository.createCreature(CreatureType.PEASANT_ARCHER);
     creature.position = { x: 1, y: 5 };
-    creature.stats.speed = 3;
-    creature.stats.remaining_movement = 3;
-    creature.stats.is_ranged = true;
-    creature.stats.range = 5;
     creature.armyAlignment = 0;
     this.battle.creatures.push(creature);
 
-    creature = new Creature(CreatureType.SPEARMAN);
+    creature = this.creatureRepository.createCreature(CreatureType.CROSSBOWMAN);
+    creature.position = { x: 0, y: 4 };
+    creature.armyAlignment = 0;
+    this.battle.creatures.push(creature);
+
+    creature = this.creatureRepository.createCreature(CreatureType.SPEARMAN);
     creature.position = { x: 3, y: 7 };
-    creature.stats.speed = 3;
-    creature.stats.remaining_movement = 3;
     creature.armyAlignment = 0;
     this.battle.creatures.push(creature);
 
-    creature = new Creature(CreatureType.SPEARMAN);
+    creature = this.creatureRepository.createCreature(CreatureType.SPEARMAN);
     creature.position = { x: 5, y: 7 };
-    // creature.stats.health = 30;
-    creature.stats.speed = 3;
-    creature.stats.remaining_movement = 3;
     creature.facingDirection = HexDirection.WEST;
     creature.armyAlignment = 1;
     this.battle.creatures.push(creature);
 
-    creature = new Creature(CreatureType.SWORDSMAN);
+    creature = this.creatureRepository.createCreature(CreatureType.SWORDSMAN);
     creature.position = { x: 7, y: 5 };
-    creature.stats.speed = 2;
-    creature.stats.remaining_movement = 2;
-    creature.stats.attack_melee_low = 6;
-    creature.stats.attack_melee_high = 7;
-    creature.stats.defense_melee = 2;
-    creature.stats.defense_ranged = 1;
     creature.facingDirection = HexDirection.WEST;
     creature.armyAlignment = 1;
     this.battle.creatures.push(creature);
 
-    creature = new Creature(CreatureType.BARBARIAN);
+    creature = this.creatureRepository.createCreature(CreatureType.BARBARIAN);
     creature.position = { x: 6, y: 5 };
-    creature.stats.speed = 4;
-    creature.stats.remaining_movement = 4;
-    creature.stats.attack_melee_low = 6;
-    creature.stats.attack_melee_high = 10;
     creature.facingDirection = HexDirection.WEST;
     creature.armyAlignment = 1;
     this.battle.creatures.push(creature);
 
-    creature = new Creature(CreatureType.PEASANT);
+    creature = this.creatureRepository.createCreature(CreatureType.PEASANT);
     creature.position = { x: 9, y: 5 };
-    creature.stats.speed = 3;
-    creature.stats.remaining_movement = 3;
     creature.facingDirection = HexDirection.WEST;
     creature.armyAlignment = 1;
     this.battle.creatures.push(creature);
 
-    creature = new Creature(CreatureType.PEASANT_ARCHER);
+    creature = this.creatureRepository.createCreature(CreatureType.PEASANT_ARCHER);
     creature.position = { x: 9, y: 4 };
-    creature.stats.speed = 3;
-    creature.stats.remaining_movement = 1;
-    creature.stats.is_ranged = true;
-    creature.stats.range = 5;
     creature.armyAlignment = 1;
     creature.facingDirection = HexDirection.WEST;
     this.battle.creatures.push(creature);
@@ -570,6 +560,8 @@ export class HexesApp {
           case CreatureType.BARBARIAN:
             unitTextureName = 'barbarian_right.png';
             break;
+          case CreatureType.CROSSBOWMAN:
+            unitTextureName = 'crossbowman_right.png';
         }
 
       } else if (creature.facingDirection === HexDirection.WEST
@@ -623,7 +615,7 @@ export class HexesApp {
         healthBar.height = 8;
         healthBar.x = x;
         healthBar.y = y + 60;
-        healthBar.progress = 100 * creature.stats.health / creature.stats.max_health;
+        healthBar.progress = 100 * creature.stats.remaining_health / creature.stats.health;
         healthBar.rotation = -Math.PI / 2;
 
         this.hexUnitBars.push(healthBar);
