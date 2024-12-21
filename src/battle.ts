@@ -317,7 +317,7 @@ export class Battle {
     return reachableCells;
   }
 
-  
+
 
 
   getCreatureAtPosition(coords: Coords): CreatureInBattle | null {
@@ -616,11 +616,9 @@ export class Battle {
 
 
   public nextTurn() {
-    this.currentArmyIndex = (this.currentArmyIndex + 1) % 2;
-    if (this.currentArmyIndex === 0) {
-      this.turnNumber++;
-    }
-    this.activeCreatureIndex = -1;
+
+    // Reset the available actions for the current player. When the other player views the unit info, it should have the preview for the next turn, 
+    // so all units should appear as "fresh" for the next turn.
 
     // set all the creatures from the current army to have full movement
     // also full attacks
@@ -631,6 +629,14 @@ export class Battle {
         this.creatures[i].stats.remaining_counterattacks = this.creatures[i].stats.num_counterattacks;
       }
     }
+
+    // switch to the other army
+    this.currentArmyIndex = (this.currentArmyIndex + 1) % 2;
+    if (this.currentArmyIndex === 0) {
+      this.turnNumber++;
+    }
+    this.activeCreatureIndex = -1;
+
   }
 
   public selectNextUnit(): number {
