@@ -512,6 +512,7 @@ export class Battle {
 
     // Hover over on an enemy unit
     if (activeCreature.stats.is_ranged && !meleePreference) {
+      // The unit is ranged, the user WANTS to attack, but should also check if the ranged unit is engaged in melee.
       // ---- RANGED ATTACK ----
       // Attacker is ranged, check if the target is in range
       const target = this.unitRangeData.find((element) => element.coords.x === coords.x && element.coords.y === coords.y);
@@ -638,6 +639,7 @@ export class Battle {
     }
     this.activeCreatureIndex = -1;
 
+    this.hookNextTurn(this.turnNumber, this.currentArmyIndex);
   }
 
   public selectNextUnit(): number {
@@ -834,6 +836,10 @@ export class Battle {
 
   hookDoingAttack(_thisCreature: Creature, _creature: Creature, _damage: number) {
     console.log("hookDoingAttack not implemented.");
+  }
+
+  hookNextTurn(_turnNumber: number, _armyIndex: number) {
+    console.log("hookNextTurn not implemented.");
   }
 
   private queueCounterattack(creatureCounterAttackFrom: Creature, creatureCounterAttackTo: Creature) {

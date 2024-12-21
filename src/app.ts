@@ -10,6 +10,7 @@ import { UnitStatsPanel } from './ui/unit-stats-panel';
 import { DamageValueCollection } from './ui/damage-value-display';
 import { PerfDisplayPanel } from './ui/perf-display-panel';
 import { JsonLoader } from './shared/jsonloader';
+import { TurnChangeCollection } from './ui/turn-change-display';
 
 export enum GameState {
   InMenu,
@@ -46,6 +47,7 @@ export class HexesApp {
   private hexagonSheet?: Spritesheet = undefined;
   private uiSheet?: Spritesheet = undefined;
   private unitsSheet?: Spritesheet = undefined;
+  private bannersSheet? : Spritesheet = undefined;
 
   private touchSpriteLeft: Sprite = new Sprite();
   private touchSpriteRight: Sprite = new Sprite();
@@ -76,6 +78,7 @@ export class HexesApp {
   private showHealthbars: boolean = true;
   private showFacingDirections: boolean = true;
   private damageValueDisplay: DamageValueCollection = new DamageValueCollection();
+  private turnChangeDisplay: TurnChangeCollection = new TurnChangeCollection();
   private perfDisplayPanel: PerfDisplayPanel = new PerfDisplayPanel();
 
 
@@ -230,6 +233,13 @@ export class HexesApp {
     if (!this.uiSheet) {
       console.error('Failed to load the UI spritesheet');
     }
+
+    this.bannersSheet = await Assets.load('bannersspritesheet.json');
+    if (!this.bannersSheet) {
+      console.error('Failed to load the banners spritesheet');
+    }
+
+    this.turnChangeDisplay.setUISheet(this.uiSheet);
 
 
     this.softCursorTextures['default'] = this.uiSheet.textures['cur_gs_arrow.png'];
@@ -507,12 +517,27 @@ export class HexesApp {
       this.hookDoingAttack(attacker, defender, damage);
     };
 
+    this.battle.hookNextTurn = (turnNum, armyIdx) => {
+      this.hookNextTurn(turnNum, armyIdx);
+    };
+
     this.renderUnits();
   }
 
   hookDoingAttack(_attacker: Creature, defender: Creature, damage: number) {
     const defenderPixelCoords = this.hexMap.hexToPixel(defender.position.x, defender.position.y);
     this.damageValueDisplay.addDamageValue(damage, this.uiPlusRenderGroup, defenderPixelCoords);
+  }
+
+  hookNextTurn(turnNumber: number, armyIndex: number) {
+    const message: string = `Turn ${turnNumber} - Army ${armyIndex}`;
+    // get the banner to use for the army Index
+    let bannerName = "banner1.png";
+    if (armyIndex === 1) {
+      bannerName = "banner2.png";
+    }
+    const texture = this.bannersSheet?.textures[bannerName];
+    this.turnChangeDisplay.addTurnChange(message, this.uiPlusRenderGroup, { x: 500, y: 350 }, texture);
   }
 
   private directionToSpriteName(direction: HexDirection): string {
@@ -652,6 +677,7 @@ export class HexesApp {
       }
 
       this.damageValueDisplay.update(ticker.deltaMS);
+      this.turnChangeDisplay.update(ticker.deltaMS);
       this.perfDisplayPanel.stopMeasure('frame');
 
       this.perfDisplayPanel.update();
