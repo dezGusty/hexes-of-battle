@@ -81,6 +81,10 @@ export class HexMap {
     CELL_HEIGHT: 92
   };
 
+  static INV_SQRT3: number = 1 / Math.sqrt(3);
+  static SQRT3: number = Math.sqrt(3);
+
+
   public tiles: number[][] = [];
 
   public offset(): Coords { return { x: this.config.OFFSET_X, y: this.config.OFFSET_Y }; }
@@ -288,9 +292,8 @@ export class HexMap {
    * @returns The center of the hexagon in pixel coordinates
    */
   public hexToPixel(q: number, r: number): Coords {
-    const SQRT3 = Math.sqrt(3);
-    const cellSize = this.config.CELL_WIDTH / SQRT3;
-    let x = this.config.OFFSET_X + cellSize * (SQRT3 * q + SQRT3 / 2 * r);
+    const cellSize = this.config.CELL_WIDTH * HexMap.INV_SQRT3;
+    let x = this.config.OFFSET_X + cellSize * (HexMap.SQRT3 * q + HexMap.SQRT3 / 2 * r);
     let y = this.config.OFFSET_Y + cellSize * (3.0 / 2 * r);
 
     // Adjust the horizontal position.
@@ -322,11 +325,10 @@ export class HexMap {
    * @returns The hexagon coordinates in matrix representation.
    */
   static pixelToHexInternal(x: number, y: number, offset_x: number, offset_y: number, cell_width: number): Coords {
-    const SQRT3 = Math.sqrt(3);
     let coordsWithoutOffset: Coords = { x: x - offset_x, y: y - offset_y };
-    const cellSize = cell_width / SQRT3;
+    const cellSize = cell_width * HexMap.INV_SQRT3;
 
-    let q = (coordsWithoutOffset.x * SQRT3 / 3 - coordsWithoutOffset.y / 3) / cellSize;
+    let q = (coordsWithoutOffset.x * HexMap.SQRT3 / 3 - coordsWithoutOffset.y / 3) / cellSize;
     let r = coordsWithoutOffset.y * 2 / 3 / cellSize;
 
     let result = HexMap.axial_round(q, r);
@@ -365,52 +367,42 @@ export class HexMap {
 
     let originalCell = this.pixelToHex(x, y);
     let newPixels = this.hexToPixel(originalCell.x, originalCell.y);
-    // Create a smaller set of hexes, with the one at coords 1x1 at the same center as the original hex (newPixels)
-    let smallerWidth = this.config.CELL_WIDTH * 0.5;
 
+    // For the new hexagon, located at newPixels, we can also check the direction by checking the original x & y coordinates against 3 lines:
+    // - the line that goes through the center of the hexagon and is parallel to the y-axis
+    // - the line that goes through the center of the hexagon and is: y = x * 1/sqrt(3)
+    // - the line that goes through the center of the hexagon and is: y = x * -1/sqrt(3)
+    // For the equations, if x0, y0 are the original coordinates, check if the point is above the line: "y = x * 1/sqrt(3)" if "y > x / sqrt(3)"
+    const line1factor = (x - newPixels.x) > 0 ? 1 : 0;
+    const line2factor = (y - newPixels.y) > (x - newPixels.x) * HexMap.INV_SQRT3 ? 2 : 0;
+    const line3factor = (y - newPixels.y) > -1 * (x - newPixels.x) * HexMap.INV_SQRT3 ? 4 : 0;
 
-    let startPixelsOfSmaller = newPixels;
-    startPixelsOfSmaller.x -= 2 * smallerWidth;
-    startPixelsOfSmaller.y -= 1.5 * this.config.CELL_WIDTH / Math.sqrt(3);
-    let smallerCell = HexMap.pixelToHexInternal(
-      x,
-      y,
-      startPixelsOfSmaller.x,
-      startPixelsOfSmaller.y,
-      smallerWidth);
-    smallerCell.x--;
-    smallerCell.y--;
-    return { cell: originalCell, direction: this.getNearDirectionForInnerHexCoords(smallerCell) };
-  }
+    //   \ 0 | 1 /
+    //    \ | /
+    //  2  |   5
+    //   / | \
+    //  /6 | 7\
 
-  private getNearDirectionForInnerHexCoords(smallerCell: Coords) {
-    switch (smallerCell.x) {
+    let alternateDirection = line1factor + line2factor + line3factor;
+    console.log("Alternate direction: " + alternateDirection);
+
+    switch (alternateDirection) {
       case 0:
-        if (smallerCell.y == 0) {
-          return HexDirection.NORTHWEST;
-        } else if (smallerCell.y == 1) {
-          return HexDirection.WEST;
-        } else if (smallerCell.y == 2) {
-          return HexDirection.SOUTHWEST;
-        }
-        break;
+        return { cell: originalCell, direction: HexDirection.NORTHWEST };
       case 1:
-        if (smallerCell.y == 0) {
-          return HexDirection.NORTHEAST;
-        } else if (smallerCell.y == 2) {
-          return HexDirection.SOUTHEAST;
-        }
-        break;
-
+        return { cell: originalCell, direction: HexDirection.NORTHEAST };
       case 2:
-        if (smallerCell.x == 2 && smallerCell.y == 1) {
-          return HexDirection.EAST;
-        }
-        break;
+        return { cell: originalCell, direction: HexDirection.WEST };
+      case 5:
+        return { cell: originalCell, direction: HexDirection.EAST };
+      case 6:
+        return { cell: originalCell, direction: HexDirection.SOUTHWEST };
+      case 7:
+        return { cell: originalCell, direction: HexDirection.SOUTHEAST };
+      default:
+        return { cell: originalCell, direction: HexDirection.NONE };
     }
-    return HexDirection.NONE;
   }
-
 
   /**
    * Finds the direction from one hexagon to another hexagon. Works only for neighbourd.
