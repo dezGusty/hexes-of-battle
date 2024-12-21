@@ -47,7 +47,7 @@ export class HexesApp {
   private hexagonSheet?: Spritesheet = undefined;
   private uiSheet?: Spritesheet = undefined;
   private unitsSheet?: Spritesheet = undefined;
-  private bannersSheet? : Spritesheet = undefined;
+  private bannersSheet?: Spritesheet = undefined;
 
   private touchSpriteLeft: Sprite = new Sprite();
   private touchSpriteRight: Sprite = new Sprite();
@@ -530,7 +530,7 @@ export class HexesApp {
   }
 
   hookNextTurn(turnNumber: number, armyIndex: number) {
-    const message: string = `Turn ${turnNumber} - Army ${armyIndex}`;
+    const message: string = `Turn ${turnNumber + 1} - Army ${armyIndex + 1}`;
     // get the banner to use for the army Index
     let bannerName = "banner1.png";
     if (armyIndex === 1) {
