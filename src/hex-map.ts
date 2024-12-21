@@ -384,7 +384,6 @@ export class HexMap {
     //  /6 | 7\
 
     let alternateDirection = line1factor + line2factor + line3factor;
-    console.log("Alternate direction: " + alternateDirection);
 
     switch (alternateDirection) {
       case 0:
@@ -404,6 +403,7 @@ export class HexMap {
     }
   }
 
+
   /**
    * Finds the direction from one hexagon to another hexagon. Works only for neighbourd.
    * @param hexSource The coordinates of the source hexagon to start the search from.
@@ -417,6 +417,38 @@ export class HexMap {
         return i;
       }
     }
+    return HexDirection.NONE;
+  }
+
+  public getGeneralDirectionForTarget(source: Coords, target: Coords): HexDirection {
+    const neighbour = this.getDirectionForNeighbour(source, target);
+    if (neighbour !== HexDirection.NONE) {
+      return neighbour;
+    }
+
+    let deltaX = target.x - source.x;
+    let deltaY = target.y - source.y;
+
+    if (deltaY === 0) {
+      return deltaX > 0 ? HexDirection.EAST : HexDirection.WEST;
+    }
+
+    const report = Math.abs(deltaX) / Math.abs(deltaY);
+    // sin(60deg) ~= 0.866
+    // sin(30deg) == 0.5
+    if (report > 0.5) {
+      return deltaX > 0 ? HexDirection.EAST : HexDirection.WEST;
+    } else {
+      // norteast, northwest, southeast, southwest
+      if (deltaY > 0) {
+        return deltaX > 0 ? HexDirection.SOUTHEAST : HexDirection.SOUTHWEST;
+      } else {
+        return deltaX > 0 ? HexDirection.NORTHEAST : HexDirection.NORTHWEST;
+      }
+
+    }
+
+
     return HexDirection.NONE;
   }
 }

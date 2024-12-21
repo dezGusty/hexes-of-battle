@@ -105,6 +105,7 @@ export class HexesApp {
   private creatureRepository: CreatureRepository = new CreatureRepository();
 
   private tempMessage = "";
+  private controlPressed: boolean = false;
 
   constructor(public app: Application) {
     // this.currentGameState = GameState.InMenu;
@@ -983,7 +984,6 @@ export class HexesApp {
         // handled inside the Game class
         if (event.code === 'Escape') {
           // quit the game?
-
         } else if (event.code === 'ArrowUp') {
           this.setNavMapOffset({ x: this.navMapOffset.x, y: this.navMapOffset.y - 10 });
         } else if (event.code === 'ArrowDown') {
@@ -997,13 +997,17 @@ export class HexesApp {
           this.modifyZoomLevel(0.1);
         } else if (event.code === 'Minus') {
           this.modifyZoomLevel(-0.1);
+        } else if (event.code === 'ControlLeft' || event.code === 'ControlRight') {
+          this.controlPressed = true;
         }
 
       }
     });
 
-    document.addEventListener('keyup', (_) => {
-
+    document.addEventListener('keyup', (event) => {
+      if (event.code === 'ControlLeft' || event.code === 'ControlRight') {
+        this.controlPressed = false;
+      }
     });
 
     // add a scroll event listener
@@ -1065,7 +1069,7 @@ export class HexesApp {
           }
 
           if (hexCoords.x >= 0 && hexCoords.x < this.hexMap.width && hexCoords.y >= 0 && hexCoords.y < this.hexMap.height) {
-            this.battle?.onMouseClickOnCell(event, hexCoords, hexCoordsWithDetails.direction);
+            this.battle?.onMouseClickOnCell(event, hexCoords, hexCoordsWithDetails.direction, this.controlPressed);
           }
         }
         this.mouseRightClickCoords = { x: 0, y: 0 };
@@ -1086,7 +1090,7 @@ export class HexesApp {
       let hexCoords = hexCoordsWithDetails.cell;
 
       if (hexCoords.x >= 0 && hexCoords.x < this.hexMap.width && hexCoords.y >= 0 && hexCoords.y < this.hexMap.height) {
-        this.battle?.onMouseClickOnCell(event, hexCoords, hexCoordsWithDetails.direction);
+        this.battle?.onMouseClickOnCell(event, hexCoords, hexCoordsWithDetails.direction, this.controlPressed);
       }
     });
 
@@ -1133,7 +1137,7 @@ export class HexesApp {
         }
 
         if (hexCoords.x >= 0 && hexCoords.x < this.hexMap.width && hexCoords.y >= 0 && hexCoords.y < this.hexMap.height) {
-          this.battle.onMouseOverCell(hexCoords, hexCoordsWithDetails.direction);
+          this.battle.onMouseOverCell(hexCoords, hexCoordsWithDetails.direction, this.controlPressed);
         }
         else {
           if (this.hexHoverSprite) {

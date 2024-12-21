@@ -344,7 +344,7 @@ export class Battle {
     }
   }
 
-  private moveOrAttackWithActiveCreatureAtLocation(coords: Coords, optionalDirection: HexDirection) {
+  private moveOrAttackWithActiveCreatureAtLocation(coords: Coords, optionalDirection: HexDirection, meleePreference: boolean = false) {
     if (this.activeCreatureIndex < 0) {
       return;
     }
@@ -390,7 +390,8 @@ export class Battle {
     // If the attacker is ranged, then don't move, just attack
     // If the attacker is melee, then move to the cell and attack
 
-    if (creature.stats.is_ranged) {
+    if (creature.stats.is_ranged && !meleePreference) {
+      console.log("Range attack at: ", coords);
       this.currentActions.push(new BattleAction(BattleActionType.ATTACK_RANGED, [coords], 0, 500, 50));
 
       this.nextRenderUpdate.unitRenderUpdate = true;
@@ -417,7 +418,7 @@ export class Battle {
 
   }
 
-  onMouseClickOnCell(event: MouseEvent, coords: Coords, optionalDirection: HexDirection = HexDirection.NONE) {
+  onMouseClickOnCell(event: MouseEvent, coords: Coords, optionalDirection: HexDirection = HexDirection.NONE, meleePreference: boolean) {
     if (this.currentActions.length > 0) {
       // if this is busy with an animation (movement, attack), ignore the click
       return;
@@ -427,12 +428,12 @@ export class Battle {
     if (event.button === 0) {
       this.tryToSelectUnitAtLocation(coords);
     } else if (event.button === 2) {
-      console.log("Right mouse button clicked");
-      this.moveOrAttackWithActiveCreatureAtLocation(coords, optionalDirection);
+      console.log("Right mouse button clicked, coords: ", coords, "dir:", optionalDirection, ", meleePref:", meleePreference);
+      this.moveOrAttackWithActiveCreatureAtLocation(coords, optionalDirection, meleePreference);
     }
   }
 
-  public onMouseOverCell(coords: Coords, optionalDirection: HexDirection = HexDirection.NONE) {
+  public onMouseOverCell(coords: Coords, optionalDirection: HexDirection = HexDirection.NONE, meleePreference: boolean = false) {
     if (this.currentActions.length > 0) {
       return;
     }
@@ -510,7 +511,7 @@ export class Battle {
     // TODO: ranged creatures should be able to also force melee mode (E.g. if an enemy has high ranged defense)
 
     // Hover over on an enemy unit
-    if (activeCreature.stats.is_ranged) {
+    if (activeCreature.stats.is_ranged && !meleePreference) {
       // ---- RANGED ATTACK ----
       // Attacker is ranged, check if the target is in range
       const target = this.unitRangeData.find((element) => element.coords.x === coords.x && element.coords.y === coords.y);
@@ -757,6 +758,14 @@ export class Battle {
         this.creatures[this.activeCreatureIndex].facingDirection = oneDirection;
         this.nextRenderUpdate.unitRenderUpdate = true;
         this.nextRenderUpdate.somethingChanged = true;
+      } else {
+        // Ranged units need a "general direction" to face.
+        const oneDirection = this.hexMap.getGeneralDirectionForTarget(this.creatures[this.activeCreatureIndex].position, currentAction.path[0]);
+        if (this.creatures[this.activeCreatureIndex].facingDirection !== oneDirection) {
+          this.creatures[this.activeCreatureIndex].facingDirection = oneDirection;
+          this.nextRenderUpdate.unitRenderUpdate = true;
+          this.nextRenderUpdate.somethingChanged = true;
+        }
       }
 
       const animType: AnimationType = currentAction.type == BattleActionType.ATTACK_MELEE ? AnimationType.ATTACK_MELEE : AnimationType.ATTACK_RANGED;
