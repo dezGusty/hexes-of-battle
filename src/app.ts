@@ -61,7 +61,7 @@ export class HexesApp {
   private softCursorName: string = 'default';
 
   private fpsText?: BitmapText;
-  private cellDebugText?: BitmapText;
+  // private cellDebugText?: BitmapText;
   private instructionsText?: Text;
   private messagesText?: Text;
 
@@ -267,11 +267,11 @@ export class HexesApp {
     this.fpsText.alpha = 0.7;
     this.uiRenderGroup.addChild(this.fpsText);
 
-    this.cellDebugText = new BitmapText({ text: 'Cell: 0,0', style: this.DEFAULT_FONT_STYLE, });
-    this.cellDebugText.x = 62;
-    this.cellDebugText.y = 28;
-    this.cellDebugText.alpha = 0.9;
-    this.uiRenderGroup.addChild(this.cellDebugText);
+    // this.cellDebugText = new BitmapText({ text: 'Cell: 0,0', style: this.DEFAULT_FONT_STYLE, });
+    // this.cellDebugText.x = 62;
+    // this.cellDebugText.y = 28;
+    // this.cellDebugText.alpha = 0.9;
+    // this.uiRenderGroup.addChild(this.cellDebugText);
 
     const style = new TextStyle({ fontFamily: 'Arial', fontSize: 18, fill: { color: '#ffffff', alpha: 1 }, stroke: { color: '#4a1850', width: 5, join: 'round' }, });
     this.tempMessage = `Welcome to Hexes of battle v${this.version}!`
@@ -578,7 +578,7 @@ export class HexesApp {
             unitTextureName = 'peasant_archer_right.png';
             break;
           case CreatureType.SPEARMAN:
-            unitTextureName = 'pikeman_right.png';
+            unitTextureName = 'spearman_right.png';
             break;
           case CreatureType.SWORDSMAN:
             unitTextureName = 'swordman_right.png';
@@ -601,7 +601,7 @@ export class HexesApp {
             unitTextureName = 'peasant_archer_left.png';
             break;
           case CreatureType.SPEARMAN:
-            unitTextureName = 'pikeman_left.png';
+            unitTextureName = 'spearman_left.png';
             break;
           case CreatureType.SWORDSMAN:
             unitTextureName = 'swordman_left.png';
@@ -993,7 +993,7 @@ export class HexesApp {
           faceName = "peasant_archer_face.png";
           break;
         case CreatureType.SPEARMAN:
-          faceName = "pikeman_face.png";
+          faceName = "spearman_face.png";
           break;
         case CreatureType.SWORDSMAN:
           faceName = "swordman_face.png";
@@ -1005,7 +1005,7 @@ export class HexesApp {
           faceName = "crossbowman_face.png";
           break;
       }
-      
+
       const faceTexture = this.unitsSheet?.textures[faceName];
       this.unitStats.setFaceTexture(faceTexture);
 
@@ -1122,13 +1122,13 @@ export class HexesApp {
           // let hexCoords = this.hexMap.pixelToHex(navAdjustedCoords.x, navAdjustedCoords.y);
           let hexCoordsWithDetails = this.hexMap.pixelToHexWithDirectionalDetail(navAdjustedCoords.x, navAdjustedCoords.y);
           let hexCoords = hexCoordsWithDetails.cell;
-          if (this.cellDebugText) {
-            this.cellDebugText.text =
-              `Mouse: ${navAdjustedCoords.x.toFixed(2)}, ${navAdjustedCoords.y.toFixed(2)}
-               Cell: ${hexCoords.x}, ${hexCoords.y}
-               Direction: ${hexDirectionToString(hexCoordsWithDetails.direction)}`;
-            console.log(this.cellDebugText.text);
-          }
+          // if (this.cellDebugText) {
+          //   this.cellDebugText.text =
+          //     `Mouse: ${navAdjustedCoords.x.toFixed(2)}, ${navAdjustedCoords.y.toFixed(2)}
+          //      Cell: ${hexCoords.x}, ${hexCoords.y}
+          //      Direction: ${hexDirectionToString(hexCoordsWithDetails.direction)}`;
+          //   console.log(this.cellDebugText.text);
+          // }
 
           if (hexCoords.x >= 0 && hexCoords.x < this.hexMap.width && hexCoords.y >= 0 && hexCoords.y < this.hexMap.height) {
             this.battle?.onMouseClickOnCell(event, hexCoords, hexCoordsWithDetails.direction, this.controlPressed);
@@ -1191,12 +1191,12 @@ export class HexesApp {
           { x: this.navZoomLevel, y: this.navZoomLevel });
         let hexCoordsWithDetails = this.hexMap.pixelToHexWithDirectionalDetail(navAdjustedCoords.x, navAdjustedCoords.y);
         let hexCoords = hexCoordsWithDetails.cell;
-        if (this.cellDebugText) {
-          this.cellDebugText.text =
-            `Mouse: ${navAdjustedCoords.x.toFixed(2)}, ${navAdjustedCoords.y.toFixed(2)}
-             Cell: ${hexCoords.x}, ${hexCoords.y}
-             Direction: ${hexDirectionToString(hexCoordsWithDetails.direction)}`;
-        }
+        // if (this.cellDebugText) {
+        //   this.cellDebugText.text =
+        //     `Mouse: ${navAdjustedCoords.x.toFixed(2)}, ${navAdjustedCoords.y.toFixed(2)}
+        //      Cell: ${hexCoords.x}, ${hexCoords.y}
+        //      Direction: ${hexDirectionToString(hexCoordsWithDetails.direction)}`;
+        // }
 
         if (hexCoords.x >= 0 && hexCoords.x < this.hexMap.width && hexCoords.y >= 0 && hexCoords.y < this.hexMap.height) {
           this.battle.onMouseOverCell(hexCoords, hexCoordsWithDetails.direction, this.controlPressed);

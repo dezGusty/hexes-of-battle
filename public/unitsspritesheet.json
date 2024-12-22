@@ -16,11 +16,11 @@
             "frame": {"x": 240,"y": 0,"w": 80,"h": 160},
             "anchor": {"x": 0,"y": 0.5}
         },
-        "pikeman_right.png": {
+        "spearman_right.png": {
             "frame": {"x": 320,"y": 0,"w": 80,"h": 160},
             "anchor": {"x": 0,"y": 0.5}
         },
-        "pikeman_left.png": {
+        "spearman_left.png": {
             "frame": {"x": 0,"y": 160,"w": 80,"h": 160},
             "anchor": {"x": 0,"y": 0.5}
         },
@@ -84,19 +84,19 @@
             "frame": { "x": 16, "y": 30, "w": 32, "h": 32 }
         },
         "peasant_archer_face.png": {
-            "frame": { "x": 16, "y": 30, "w": 32, "h": 32 }
+            "frame": { "x": 273, "y": 28, "w": 32, "h": 32 }
         },
-        "pikeman_face.png": {
+        "spearman_face.png": {
             "frame": { "x": 37, "y": 183, "w": 32, "h": 32 }
         },
         "swordman_face.png": {
-            "frame": { "x": 16, "y": 30, "w": 32, "h": 32 }
+            "frame": { "x": 266, "y": 340, "w": 32, "h": 32 }
         },
         "barbarian_face.png": {
-            "frame": { "x": 16, "y": 30, "w": 32, "h": 32 }
+            "frame": { "x": 184, "y": 187, "w": 32, "h": 32 }
         },
         "crossbowman_face.png": {
-            "frame": { "x": 16, "y": 30, "w": 32, "h": 32 }
+            "frame": { "x": 356, "y": 182, "w": 32, "h": 32 }
         }
     },
     "animations": {        

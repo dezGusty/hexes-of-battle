@@ -1,5 +1,5 @@
 import { Creature } from "./creature";
-import { HexDirection, HexMap, reverseDirection } from "./hex-map";
+import { HexDirection, hexDirectionToString, HexMap, reverseDirection } from "./hex-map";
 import { Coords } from "./shared";
 
 export class CreatureInBattle {
@@ -529,22 +529,24 @@ export class Battle {
 
     // ---- MELEE ATTACK ----
     // This is a melee creature, it can only attack from adjacent cells.
-    if (optionalDirection === HexDirection.NONE) {
-      // direction is none; TODO: check if long term this should never happen (by having much smaller sub-hex divisions)
-      // check if the target is in the unit reach data
-      const target = this.unitReachData.find((element) => element.coords.x === coords.x && element.coords.y === coords.y);
-      if (target) {
-        this.nextRenderUpdate.cursorHint = "attack_melee";
-        this.nextRenderUpdate.hoverPath = this.findPathFromSelectedUnitToCell(coords);
-      }
-      this.nextRenderUpdate.somethingChanged = true;
+    // if (optionalDirection === HexDirection.NONE) {
+    //   console.log("XXXXX: ", coords);
+    //   // direction is none; find the shortest path to the unit, and also update the cursor hint.
+    //   // check if the target is in the unit reach data
+    //   const target = this.unitReachData.find((element) => element.coords.x === coords.x && element.coords.y === coords.y);
+    //   if (target) {
+    //     this.nextRenderUpdate.cursorHint = "attack_melee";
+    //     this.nextRenderUpdate.hoverPath = this.findPathFromSelectedUnitToCell(coords);
+    //   }
+    //   this.nextRenderUpdate.somethingChanged = true;
 
-      return;
-    }
+    //   return;
+    // }
     // if the optional direction is not NONE, then we need to check if the attacker can attack from the given direction.
 
     let neighbour = this.hexMap.getNeighbourInDirection(coords, optionalDirection);
     if (!neighbour) {
+      console.log("Neighbour not found in direction: ", optionalDirection);
       this.nextRenderUpdate.somethingChanged = true;
       return;
     }
@@ -553,7 +555,28 @@ export class Battle {
     const neighbourInUnitReachData = this.unitReachData.find((element) => element.coords.x === neighbour.x && element.coords.y === neighbour.y);
     if (!neighbourInUnitReachData) {
       // Cannot reach this neighbour
-      return;
+      const target = this.unitReachData.find((element) => element.coords.x === coords.x && element.coords.y === coords.y);
+      if (target) {
+        this.nextRenderUpdate.cursorHint = "attack_melee";
+        this.nextRenderUpdate.hoverPath = this.findPathFromSelectedUnitToCell(coords);
+        // new direction
+        if (this.nextRenderUpdate.hoverPath.length >= 2) {
+          // get the direction between the last and the second last cell
+          optionalDirection = this.hexMap.getDirectionForNeighbour(coords, this.nextRenderUpdate.hoverPath[this.nextRenderUpdate.hoverPath.length - 2]);
+          this.nextRenderUpdate.cursorHint = this.getAttackCursorForDirection(reverseDirection(optionalDirection));
+          this.nextRenderUpdate.somethingChanged = true;
+          return;
+        } else {
+          return;
+        }
+
+        this.nextRenderUpdate.somethingChanged = true;
+      } else {
+        // Cannot reach the target
+        this.nextRenderUpdate.cursorHint = "";
+        this.nextRenderUpdate.somethingChanged = true;
+        return;
+      }
     }
 
     // Also check if the neighbour is occupied by an enemy unit
@@ -814,6 +837,7 @@ export class Battle {
     let damage = currentAction.type == BattleActionType.ATTACK_MELEE ? thisCreature.getRandomAttackDamageMelee() : thisCreature.getRandomAttackDamageRanged();
     let armor = currentAction.type == BattleActionType.ATTACK_MELEE ? creatureInBattle.creature.stats.defense_melee : creatureInBattle.creature.stats.defense_ranged;
     damage -= armor;
+
 
     this.hookDoingAttack(thisCreature, creatureInBattle.creature, damage);
 
