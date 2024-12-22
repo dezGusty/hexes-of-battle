@@ -1,5 +1,5 @@
 import { Creature } from "./creature";
-import { HexDirection, hexDirectionToString, HexMap, reverseDirection } from "./hex-map";
+import { HexDirection, HexMap, reverseDirection } from "./hex-map";
 import { Coords } from "./shared";
 
 export class CreatureInBattle {

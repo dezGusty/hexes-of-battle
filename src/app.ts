@@ -1,6 +1,6 @@
 import { Application, Sprite, Assets, Text, TextStyle, BitmapText, Spritesheet, Texture, Container, TextStyleOptions, AnimatedSprite } from 'pixi.js';
 import pkg from './../package.json';
-import { HexDirection, hexDirectionToString, HexEdge, HexMap } from './hex-map';
+import { HexDirection, HexEdge, HexMap } from './hex-map';
 import { CommonControls } from './ui/common-controls';
 import { Coords, UserOptions } from './shared';
 import { AnimationType, Battle, MapRenderUpdate } from './battle';
@@ -61,7 +61,6 @@ export class HexesApp {
   private softCursorName: string = 'default';
 
   private fpsText?: BitmapText;
-  // private cellDebugText?: BitmapText;
   private instructionsText?: Text;
   private messagesText?: Text;
 
@@ -266,12 +265,6 @@ export class HexesApp {
     this.fpsText.y = 2;
     this.fpsText.alpha = 0.7;
     this.uiRenderGroup.addChild(this.fpsText);
-
-    // this.cellDebugText = new BitmapText({ text: 'Cell: 0,0', style: this.DEFAULT_FONT_STYLE, });
-    // this.cellDebugText.x = 62;
-    // this.cellDebugText.y = 28;
-    // this.cellDebugText.alpha = 0.9;
-    // this.uiRenderGroup.addChild(this.cellDebugText);
 
     const style = new TextStyle({ fontFamily: 'Arial', fontSize: 18, fill: { color: '#ffffff', alpha: 1 }, stroke: { color: '#4a1850', width: 5, join: 'round' }, });
     this.tempMessage = `Welcome to Hexes of battle v${this.version}!`
@@ -1122,13 +1115,6 @@ export class HexesApp {
           // let hexCoords = this.hexMap.pixelToHex(navAdjustedCoords.x, navAdjustedCoords.y);
           let hexCoordsWithDetails = this.hexMap.pixelToHexWithDirectionalDetail(navAdjustedCoords.x, navAdjustedCoords.y);
           let hexCoords = hexCoordsWithDetails.cell;
-          // if (this.cellDebugText) {
-          //   this.cellDebugText.text =
-          //     `Mouse: ${navAdjustedCoords.x.toFixed(2)}, ${navAdjustedCoords.y.toFixed(2)}
-          //      Cell: ${hexCoords.x}, ${hexCoords.y}
-          //      Direction: ${hexDirectionToString(hexCoordsWithDetails.direction)}`;
-          //   console.log(this.cellDebugText.text);
-          // }
 
           if (hexCoords.x >= 0 && hexCoords.x < this.hexMap.width && hexCoords.y >= 0 && hexCoords.y < this.hexMap.height) {
             this.battle?.onMouseClickOnCell(event, hexCoords, hexCoordsWithDetails.direction, this.controlPressed);
@@ -1191,12 +1177,6 @@ export class HexesApp {
           { x: this.navZoomLevel, y: this.navZoomLevel });
         let hexCoordsWithDetails = this.hexMap.pixelToHexWithDirectionalDetail(navAdjustedCoords.x, navAdjustedCoords.y);
         let hexCoords = hexCoordsWithDetails.cell;
-        // if (this.cellDebugText) {
-        //   this.cellDebugText.text =
-        //     `Mouse: ${navAdjustedCoords.x.toFixed(2)}, ${navAdjustedCoords.y.toFixed(2)}
-        //      Cell: ${hexCoords.x}, ${hexCoords.y}
-        //      Direction: ${hexDirectionToString(hexCoordsWithDetails.direction)}`;
-        // }
 
         if (hexCoords.x >= 0 && hexCoords.x < this.hexMap.width && hexCoords.y >= 0 && hexCoords.y < this.hexMap.height) {
           this.battle.onMouseOverCell(hexCoords, hexCoordsWithDetails.direction, this.controlPressed);
