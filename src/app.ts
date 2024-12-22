@@ -973,7 +973,43 @@ export class HexesApp {
 
   public showStatsForUnit(creature: Creature) {
     if (this.unitStats) {
+      let bannerName = "banner1.png";
+      if (creature.armyAlignment === 1) {
+        bannerName = "banner2.png";
+      }
+      const texture = this.bannersSheet?.textures[bannerName];
+      this.unitStats.setBannerTexture(texture);
+  
       this.unitStats.setCreature(creature);
+
+      // get the face texture
+
+      let faceName = "";
+      switch (creature.creatureType) {
+        case CreatureType.PEASANT:
+          faceName = "peasant_face.png";
+          break;
+        case CreatureType.PEASANT_ARCHER:
+          faceName = "peasant_archer_face.png";
+          break;
+        case CreatureType.SPEARMAN:
+          faceName = "pikeman_face.png";
+          break;
+        case CreatureType.SWORDSMAN:
+          faceName = "swordman_face.png";
+          break;
+        case CreatureType.BARBARIAN:
+          faceName = "barbarian_face.png";
+          break;
+        case CreatureType.CROSSBOWMAN:
+          faceName = "crossbowman_face.png";
+          break;
+      }
+      
+      const faceTexture = this.unitsSheet?.textures[faceName];
+      this.unitStats.setFaceTexture(faceTexture);
+
+      
       this.unitStats.update();
     }
   }

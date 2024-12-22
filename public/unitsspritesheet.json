@@ -79,6 +79,24 @@
                 "w": 80,
                 "h": 160
             }
+        },
+        "peasant_face.png": {
+            "frame": { "x": 16, "y": 30, "w": 32, "h": 32 }
+        },
+        "peasant_archer_face.png": {
+            "frame": { "x": 16, "y": 30, "w": 32, "h": 32 }
+        },
+        "pikeman_face.png": {
+            "frame": { "x": 37, "y": 183, "w": 32, "h": 32 }
+        },
+        "swordman_face.png": {
+            "frame": { "x": 16, "y": 30, "w": 32, "h": 32 }
+        },
+        "barbarian_face.png": {
+            "frame": { "x": 16, "y": 30, "w": 32, "h": 32 }
+        },
+        "crossbowman_face.png": {
+            "frame": { "x": 16, "y": 30, "w": 32, "h": 32 }
         }
     },
     "animations": {        

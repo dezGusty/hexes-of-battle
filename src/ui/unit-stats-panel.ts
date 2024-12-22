@@ -1,4 +1,4 @@
-import { Container, NineSliceSprite, Spritesheet, Text, TextOptions } from "pixi.js";
+import { Container, NineSliceSprite, Sprite, Spritesheet, Text, TextOptions, Texture } from "pixi.js";
 import { Creature, CreatureStats } from "../creature";
 
 /**
@@ -6,7 +6,7 @@ import { Creature, CreatureStats } from "../creature";
  */
 export class UnitStatsPanel {
 
-  static DEFAULT_FONT_STYLE: TextOptions = { style: {fill: { color: '#ffffff', alpha: 1 }, fontSize: 16, align: 'left' }};
+  static DEFAULT_FONT_STYLE: TextOptions = { style: { fill: { color: '#ffffff', alpha: 1 }, fontSize: 16, align: 'left' } };
 
   private window = new Container();
 
@@ -23,10 +23,52 @@ export class UnitStatsPanel {
   private rangedDefenseText = new Text({ ...UnitStatsPanel.DEFAULT_FONT_STYLE, text: 'Ranged Defense: ' });
   private counterAttacksText = new Text({ ...UnitStatsPanel.DEFAULT_FONT_STYLE, text: 'CounterAttacks: ' });
 
+  private bannerSprite?: Sprite = undefined;
+  private bannerBg?: NineSliceSprite = undefined;
+  private faceSprite?: Sprite = undefined;
+  private faceBg?: NineSliceSprite = undefined;
+
   public setCreature(creature: Creature) {
     this.stats = creature.stats;
     this.creatureType = Creature.CREATURE_NAMES[creature.creatureType];
   }
+
+  setBannerTexture(texture: Texture | undefined) {
+    if (this.bannerSprite) {
+      if (this.bannerBg) {
+        this.bannerBg.removeChild(this.bannerSprite);
+        this.bannerSprite.destroy();
+        this.bannerSprite = undefined;
+      }
+    }
+
+    if (texture) {
+      this.bannerSprite = new Sprite(texture);
+      this.bannerSprite.position = { x: 5, y: 5 };
+      this.bannerSprite.width = 64;
+      this.bannerSprite.height = 64;
+      this.bannerBg?.addChild(this.bannerSprite);
+    }
+  }
+
+  setFaceTexture(texture: Texture | undefined) {
+    if (this.faceSprite) {
+      if (this.faceBg) {
+        this.faceBg.removeChild(this.faceSprite);
+        this.faceSprite.destroy();
+        this.faceSprite = undefined;
+      }
+    }
+
+    if (texture) {
+      this.faceSprite = new Sprite(texture);
+      this.faceSprite.position = { x: 5, y: 5 };
+      this.faceSprite.width = 64;
+      this.faceSprite.height = 64;
+      this.faceBg?.addChild(this.faceSprite);
+    }
+  }
+
 
   public constructor(private view: Container, private uiSheet: Spritesheet) {
 
@@ -51,9 +93,35 @@ export class UnitStatsPanel {
     title.y = 25;
 
     this.window.addChild(windowBg);
+
+    this.bannerBg = new NineSliceSprite({
+      texture: this.uiSheet.textures['progress_bg.png'],
+      leftWidth: 5,
+      topHeight: 5,
+      rightWidth: 5,
+      bottomHeight: 5
+    });
+    this.bannerBg.width = 64 + 10;
+    this.bannerBg.height = 64 + 10;
+    this.bannerBg.position = { x: (400 - 64) / 2 - 5, y: -30 - 5 };
+    this.window.addChild(this.bannerBg);
+
+    this.faceBg = new NineSliceSprite({
+      texture: this.uiSheet.textures['progress_bg.png'],
+      leftWidth: 5,
+      topHeight: 5,
+      rightWidth: 5,
+      bottomHeight: 5
+    });
+    this.faceBg.width = 64 + 10;
+    this.faceBg.height = 64 + 10;
+    this.faceBg.position = { x: (0 - 64) / 2 - 5, y: -30 - 5 };
+    this.window.addChild(this.faceBg);
+
+
     this.window.addChild(title);
-    this.window.x = 1350;
-    this.window.y = 110;
+    this.window.position = { x: 1350, y: 110 };
+
 
     this.unitTypeText.position = { x: 10, y: 50 };
     this.hpText.position = { x: 10, y: 80 };
