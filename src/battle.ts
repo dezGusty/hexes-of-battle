@@ -32,6 +32,7 @@ export class MapRenderUpdate {
   public enemyReachableCells: boolean = false;
   public unitRenderUpdate: boolean = false;
   public hoverOverCell: Coords | null = null;
+  public hoverOverUnitIndex: number = -1;
   public hoverDirection: HexDirection = HexDirection.NONE;
   public hoverPath: Coords[] = [];
   public cursorHint: string = "";
@@ -205,7 +206,7 @@ export class Battle {
       for (const neighbour of neighbours_and_reach_pairs) {
         frontier.push(neighbour);
         const creatureIndex = this.cached_occupation_tiles[neighbour.coords.x][neighbour.coords.y] - 1;
-        if (creatureIndex > 0 && this.creatures[creatureIndex].armyAlignment !== currentArmyIdx) {
+        if (creatureIndex >= 0 && this.creatures[creatureIndex].armyAlignment !== currentArmyIdx) {
           // An enemy is here, within range
           rangeData.push(neighbour);
           this.pathfinding_tiles[neighbour.coords.x][neighbour.coords.y] = 100;
@@ -310,7 +311,6 @@ export class Battle {
         this.unitRangeData,
         this.currentArmyIndex
       );
-      // Battle.logMatrix(this.rangereach_tiles, this.hexMap.width, this.hexMap.height, "After caching ranged cells");
     }
 
     this.nextRenderUpdate.reachableCells = true;
@@ -438,6 +438,8 @@ export class Battle {
       return;
     }
 
+    // TODO: also check if the status of input is changed (E.g. press key to force melee attack)
+
     // Did we get a chance to render the hover over this cell, or do we still have it queued?
     // If so, don't process it again.
     if (this.nextRenderUpdate.hoverOverCell
@@ -448,13 +450,13 @@ export class Battle {
 
     // Is this the same as the previous hover cell call? (done at the previous rendering)
     // If so, don't process it again.
-    if (this.prevRenderUpdate.hoverOverCell
-      && this.prevRenderUpdate.hoverOverCell.x === coords.x
-      && this.prevRenderUpdate.hoverOverCell.y === coords.y
-      && this.prevRenderUpdate.hoverDirection === optionalDirection
-    ) {
-      return;
-    }
+    // if (this.prevRenderUpdate.hoverOverCell
+    //   && this.prevRenderUpdate.hoverOverCell.x === coords.x
+    //   && this.prevRenderUpdate.hoverOverCell.y === coords.y
+    //   && this.prevRenderUpdate.hoverDirection === optionalDirection
+    // ) {
+    //   return;
+    // }
 
     this.nextRenderUpdate.hoverOverCell = coords;
     this.nextRenderUpdate.hoverDirection = optionalDirection;
@@ -476,6 +478,7 @@ export class Battle {
       this.nextRenderUpdate.somethingChanged = true;
       // just reset this, as we don't need to show the enemy reachable cells
       this.nextRenderUpdate.enemyReachableCells = true;
+      this.nextRenderUpdate.hoverOverUnitIndex = targetCreature?.indexInArmy ?? -1;
       Battle.resetNumericalMatrixToZero(this.enemy_potential_tiles);
       Battle.resetNumericalMatrixToZero(this.enemy_range_tiles);
       return;
@@ -508,8 +511,6 @@ export class Battle {
     this.nextRenderUpdate.hoverEnemyIndex = targetCreature.indexInArmy;
     this.nextRenderUpdate.somethingChanged = true;
 
-    // TODO: ranged creatures should be able to also force melee mode (E.g. if an enemy has high ranged defense)
-
     // Hover over on an enemy unit
     if (activeCreature.stats.is_ranged && !meleePreference) {
       // The unit is ranged, the user WANTS to attack, but should also check if the ranged unit is engaged in melee.
@@ -529,20 +530,6 @@ export class Battle {
 
     // ---- MELEE ATTACK ----
     // This is a melee creature, it can only attack from adjacent cells.
-    // if (optionalDirection === HexDirection.NONE) {
-    //   console.log("XXXXX: ", coords);
-    //   // direction is none; find the shortest path to the unit, and also update the cursor hint.
-    //   // check if the target is in the unit reach data
-    //   const target = this.unitReachData.find((element) => element.coords.x === coords.x && element.coords.y === coords.y);
-    //   if (target) {
-    //     this.nextRenderUpdate.cursorHint = "attack_melee";
-    //     this.nextRenderUpdate.hoverPath = this.findPathFromSelectedUnitToCell(coords);
-    //   }
-    //   this.nextRenderUpdate.somethingChanged = true;
-
-    //   return;
-    // }
-    // if the optional direction is not NONE, then we need to check if the attacker can attack from the given direction.
 
     let neighbour = this.hexMap.getNeighbourInDirection(coords, optionalDirection);
     if (!neighbour) {
@@ -555,6 +542,13 @@ export class Battle {
     const neighbourInUnitReachData = this.unitReachData.find((element) => element.coords.x === neighbour.x && element.coords.y === neighbour.y);
     if (!neighbourInUnitReachData) {
       // Cannot reach this neighbour
+      if (neighbour.x === activeCreature.position.x && neighbour.y === activeCreature.position.y) {
+        console.log("We are already where we need to be!");
+        this.nextRenderUpdate.cursorHint = this.getAttackCursorForDirection(reverseDirection(optionalDirection));
+        this.nextRenderUpdate.somethingChanged = true;
+        return;
+      }
+
       const target = this.unitReachData.find((element) => element.coords.x === coords.x && element.coords.y === coords.y);
       if (target) {
         this.nextRenderUpdate.cursorHint = "attack_melee";
@@ -581,7 +575,10 @@ export class Battle {
 
     // Also check if the neighbour is occupied by an enemy unit
     const neighbourCreature = this.getCreatureAtPosition(neighbour);
-    if (neighbourCreature) {
+    if (neighbourCreature
+      // && neighbourCreature.indexInArmy !== this.activeCreatureIndex
+    ) {
+      console.log("Occupied by enemy unit");
       // Occupied by someone else. Can't attack from this direction.
       return;
     }
@@ -704,6 +701,15 @@ export class Battle {
    * @returns The next render update summary. This informs the caller if the rendering needs to be updated, and what needs to be updated.
    */
   public update(delta: number): MapRenderUpdate {
+
+    // Fix-up common actions for prev render update
+    // TODO: change approach, this is hacky!
+    if (this.prevRenderUpdate.hoverEnemyIndex != this.nextRenderUpdate.hoverEnemyIndex
+      || this.prevRenderUpdate.hoverOverUnitIndex != this.nextRenderUpdate.hoverOverUnitIndex) {
+      this.nextRenderUpdate.unitRenderUpdate = true;
+    }
+
+
     this.prevRenderUpdate = this.nextRenderUpdate;
     this.nextRenderUpdate = new MapRenderUpdate();
 
@@ -931,7 +937,10 @@ export class Battle {
     currentAction.targetUnit.takeDamage(damage);
     console.log(`Dealt ${damage} damage to the creature`);
     if (!currentAction.targetUnit.isAlive) {
-      console.log("TODO: The creature has died, remove it ?");
+      const targetUnitIndex = this.creatures.findIndex((element) => element === currentAction.targetUnit);
+      if (targetUnitIndex >= 0) {
+        this.creatures.splice(targetUnitIndex, 1);
+      }
     }
 
     currentAction.sourceUnit.stats.remaining_counterattacks--;

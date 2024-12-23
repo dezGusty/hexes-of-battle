@@ -35,37 +35,43 @@ export class UnitStatsPanel {
 
   setBannerTexture(texture: Texture | undefined) {
     if (this.bannerSprite) {
-      if (this.bannerBg) {
-        this.bannerBg.removeChild(this.bannerSprite);
-        this.bannerSprite.destroy();
-        this.bannerSprite = undefined;
-      }
+      this.window.removeChild(this.bannerSprite);
+      this.bannerSprite.destroy();
+      this.bannerSprite = undefined;
     }
 
     if (texture) {
       this.bannerSprite = new Sprite(texture);
+
       this.bannerSprite.position = { x: 5, y: 5 };
+      if (this.bannerBg) {
+        this.bannerSprite.x += this.bannerBg.x;
+        this.bannerSprite.y += this.bannerBg.y;
+      }
+
       this.bannerSprite.width = 64;
       this.bannerSprite.height = 64;
-      this.bannerBg?.addChild(this.bannerSprite);
+      this.window.addChild(this.bannerSprite);
     }
   }
 
   setFaceTexture(texture: Texture | undefined) {
     if (this.faceSprite) {
-      if (this.faceBg) {
-        this.faceBg.removeChild(this.faceSprite);
-        this.faceSprite.destroy();
-        this.faceSprite = undefined;
-      }
+      this.window.removeChild(this.faceSprite);
+      this.faceSprite.destroy();
+      this.faceSprite = undefined;
     }
 
     if (texture) {
       this.faceSprite = new Sprite(texture);
       this.faceSprite.position = { x: 5, y: 5 };
+      if (this.faceBg) {
+        this.faceSprite.x += this.faceBg.x;
+        this.faceSprite.y += this.faceBg.y;
+      }
       this.faceSprite.width = 64;
       this.faceSprite.height = 64;
-      this.faceBg?.addChild(this.faceSprite);
+      this.window.addChild(this.faceSprite);
     }
   }
 

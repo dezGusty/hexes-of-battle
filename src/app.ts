@@ -11,6 +11,8 @@ import { DamageValueCollection } from './ui/damage-value-display';
 import { PerfDisplayPanel } from './ui/perf-display-panel';
 import { JsonLoader } from './shared/jsonloader';
 import { TurnChangeCollection } from './ui/turn-change-display';
+import { TopSidePanel } from './ui/top-side-panel';
+import { OutlineFilter } from 'pixi-filters';
 
 export enum GameState {
   InMenu,
@@ -58,6 +60,7 @@ export class HexesApp {
 
   private commonControls: CommonControls = new CommonControls();
   private unitStats?: UnitStatsPanel = undefined;
+  private topSidePanel?: TopSidePanel = undefined;
   private softCursorName: string = 'default';
 
   private fpsText?: BitmapText;
@@ -166,12 +169,19 @@ export class HexesApp {
     await this.loadSounds();
 
     this.initializeCommonControls();
+    this.initializeTopPanel();
 
     this.initializeMapAndGame();
     await this.initializeTexts();
 
     this.setupMainLoop();
     this.setupInputHandlers();
+
+    //xxx
+    // this.hexZoneContainer.filters = [new TiltShiftFilter({ blur: 10, gradientBlur: 900 })];
+    // this.hexZoneContainer.filters = [new GodrayFilter({ angle: 30, gain: 0.5, lacunarity: 2.0, parallel: true, time: 0 })];
+    // this.hexZoneContainer.filters = [new CRTFilter({ curvature: 1, lineWidth: 1, noise: 0.1, noiseSize: 1, vignetting: 0.3 })];
+
 
     // set-up a resize event listener
     this.app.renderer.on('resize', (width, height) => {
@@ -396,6 +406,25 @@ export class HexesApp {
 
   }
 
+  initializeTopPanel() {
+    if (!this.uiSheet) {
+      return;
+    }
+
+    this.topSidePanel = new TopSidePanel(this.renderContainer, this.uiSheet);
+    this.topSidePanel.setLeftBannerTexture(this.bannersSheet?.textures[
+      this.getBannerTextureNameForArmyIndex(0)]);
+    this.topSidePanel.setRightBannerTexture(this.bannersSheet?.textures[
+      this.getBannerTextureNameForArmyIndex(1)]);
+
+    this.topSidePanel.setLeftArmyName("The Count of Ekkina's 1st Army");
+    this.topSidePanel.setRightArmyName("Knights of The Grand Duke");
+  }
+
+  getBannerTextureNameForArmyIndex(armyIndex: number): string {
+    return armyIndex === 0 ? 'banner1.png' : 'banner2.png';
+  }
+
   public initializeMapAndGame(): void {
 
     // Generate the terrain map (randomly)
@@ -450,14 +479,14 @@ export class HexesApp {
 
     // Create the battle units.
     let creature = this.creatureRepository.createCreature(CreatureType.PEASANT);
-    creature.position = { x: 0, y: 0 };
+    creature.position = { x: 3, y: 4 };
     creature.armyAlignment = 0;
     this.battle.creatures.push(creature);
 
     creature = this.creatureRepository.createCreature(CreatureType.SPEARMAN);
-    creature.position = { x: 1, y: 3 };
-    creature.stats.num_moves = 15;
-    creature.stats.remaining_movement = 15;
+    creature.position = { x: 0, y: 0 };
+    creature.stats.num_moves = 10;
+    creature.stats.remaining_movement = 10;
     creature.armyAlignment = 0;
     this.battle.creatures.push(creature);
 
@@ -483,25 +512,25 @@ export class HexesApp {
     this.battle.creatures.push(creature);
 
     creature = this.creatureRepository.createCreature(CreatureType.SWORDSMAN);
-    creature.position = { x: 7, y: 5 };
+    creature.position = { x: 4, y: 4 };
     creature.facingDirection = HexDirection.WEST;
     creature.armyAlignment = 1;
     this.battle.creatures.push(creature);
 
     creature = this.creatureRepository.createCreature(CreatureType.BARBARIAN);
-    creature.position = { x: 6, y: 5 };
+    creature.position = { x: 4, y: 6 };
     creature.facingDirection = HexDirection.WEST;
     creature.armyAlignment = 1;
     this.battle.creatures.push(creature);
 
     creature = this.creatureRepository.createCreature(CreatureType.PEASANT);
-    creature.position = { x: 9, y: 5 };
+    creature.position = { x: 4, y: 3 };
     creature.facingDirection = HexDirection.WEST;
     creature.armyAlignment = 1;
     this.battle.creatures.push(creature);
 
     creature = this.creatureRepository.createCreature(CreatureType.PEASANT_ARCHER);
-    creature.position = { x: 9, y: 4 };
+    creature.position = { x: 7, y: 4 };
     creature.armyAlignment = 1;
     creature.facingDirection = HexDirection.WEST;
     this.battle.creatures.push(creature);
@@ -514,7 +543,7 @@ export class HexesApp {
       this.hookNextTurn(turnNum, armyIdx);
     };
 
-    this.renderUnits();
+    this.renderUnits(new MapRenderUpdate());
   }
 
   hookDoingAttack(_attacker: Creature, defender: Creature, damage: number) {
@@ -525,10 +554,7 @@ export class HexesApp {
   hookNextTurn(turnNumber: number, armyIndex: number) {
     const message: string = `Turn ${turnNumber + 1} - Army ${armyIndex + 1}`;
     // get the banner to use for the army Index
-    let bannerName = "banner1.png";
-    if (armyIndex === 1) {
-      bannerName = "banner2.png";
-    }
+    const bannerName = this.getBannerTextureNameForArmyIndex(armyIndex);
     const texture = this.bannersSheet?.textures[bannerName];
     this.turnChangeDisplay.addTurnChange(message, this.uiPlusRenderGroup, { x: 500, y: 350 }, texture);
   }
@@ -545,7 +571,7 @@ export class HexesApp {
     return 'hex_empty.png';
   }
 
-  private renderUnits() {
+  private renderUnits(mapUpdate: MapRenderUpdate) {
     // Clear the previous unit sprites
     this.unitRenderSubgroups.forEach((subgroup) => { subgroup.removeChildren(); });
     // this.unitSprites.forEach((sprite) => {this.unitRenderGroup.removeChild(sprite);});
@@ -553,7 +579,7 @@ export class HexesApp {
     this.hexUnitBars.forEach((bar) => { this.unitRenderGroup.removeChild(bar); });
     this.hexUnitBars = [];
 
-    this.battle.creatures.forEach((creature) => {
+    this.battle.creatures.forEach((creature, index) => {
       let { x, y } = this.hexMap.hexToPixel(creature.position.x, creature.position.y);
       x -= this.hexMap.cellSize().x / 2;
       y -= this.hexMap.cellSize().y / 2;
@@ -581,6 +607,7 @@ export class HexesApp {
             break;
           case CreatureType.CROSSBOWMAN:
             unitTextureName = 'crossbowman_right.png';
+            break;
         }
 
       } else if (creature.facingDirection === HexDirection.WEST
@@ -602,6 +629,9 @@ export class HexesApp {
           case CreatureType.BARBARIAN:
             unitTextureName = 'barbarian_left.png';
             break;
+          case CreatureType.CROSSBOWMAN:
+            unitTextureName = 'crossbowman_left.png';
+            break;
         }
       }
 
@@ -609,6 +639,7 @@ export class HexesApp {
       unitSprite.x = x;
       unitSprite.y = y;
       this.unitSprites.push(unitSprite);
+
 
       // if showing the direction
       if (this.showFacingDirections) {
@@ -642,6 +673,24 @@ export class HexesApp {
       }
 
 
+      unitSprite.filters = [];
+      if (index === this.battle.activeCreatureIndex) {
+        // const filter = new GlowFilter({ color: 0xd4bf72, distance: 8, outerStrength: 2 });
+        const filter = new OutlineFilter({ color: 0xd4bf72, thickness: 2 });
+        unitSprite.filters = [filter];
+      }
+
+      if (index === mapUpdate.hoverEnemyIndex) {
+        // const filter = new GlowFilter({ color: 0xd43442, distance: 8, outerStrength: 2 });
+        const filter = new OutlineFilter({ color: 0xd43442, thickness: 2 });
+        unitSprite.filters = [filter];
+      }
+      if (index === mapUpdate.hoverOverUnitIndex) {
+        // const filter = new GlowFilter({color: 0x55cf55, distance: 8, outerStrength: 2}); 
+        const filter = new OutlineFilter({ color: 0x55cf55, thickness: 2 });
+        unitSprite.filters = [filter];
+
+      }
 
       this.unitRenderSubgroups[creature.position.y].addChild(unitSprite);
     });
@@ -890,6 +939,8 @@ export class HexesApp {
 
       if (mapUpdate.hoverEnemyIndex != -1) {
         this.showStatsForUnit(this.battle.creatures[mapUpdate.hoverEnemyIndex]);
+      } else if (mapUpdate.hoverOverUnitIndex != -1) {
+        this.showStatsForUnit(this.battle.creatures[mapUpdate.hoverOverUnitIndex]);
       } else if (this.battle.activeCreatureIndex != -1) {
         this.showStatsForUnit(this.battle.creatures[this.battle.activeCreatureIndex]);
       }
@@ -907,8 +958,8 @@ export class HexesApp {
       }
     }
 
-    if (mapUpdate.unitRenderUpdate) {
-      this.renderUnits();
+    if (mapUpdate.unitRenderUpdate || mapUpdate.hoverOverUnitIndex != -1 || mapUpdate.hoverEnemyIndex != -1) {
+      this.renderUnits(mapUpdate);
     }
 
     if (mapUpdate.cursorHint.length > 0) {
@@ -966,13 +1017,10 @@ export class HexesApp {
 
   public showStatsForUnit(creature: Creature) {
     if (this.unitStats) {
-      let bannerName = "banner1.png";
-      if (creature.armyAlignment === 1) {
-        bannerName = "banner2.png";
-      }
+      const bannerName = this.getBannerTextureNameForArmyIndex(creature.armyAlignment);
       const texture = this.bannersSheet?.textures[bannerName];
       this.unitStats.setBannerTexture(texture);
-  
+
       this.unitStats.setCreature(creature);
 
       // get the face texture
@@ -1002,7 +1050,7 @@ export class HexesApp {
       const faceTexture = this.unitsSheet?.textures[faceName];
       this.unitStats.setFaceTexture(faceTexture);
 
-      
+
       this.unitStats.update();
     }
   }
@@ -1062,6 +1110,15 @@ export class HexesApp {
     document.addEventListener('keyup', (event) => {
       if (event.code === 'ControlLeft' || event.code === 'ControlRight') {
         this.controlPressed = false;
+      } else if (event.code === 'KeyE') {
+        // End turn
+        this.battle?.nextTurn();
+        this.battle?.selectNextUnit();
+      } else if (event.code === 'KeyN') {
+        // Next unit
+        this.battle?.selectNextUnit();
+      } else {
+        console.log(`Key pressed: ${event.code}`);
       }
     });
 

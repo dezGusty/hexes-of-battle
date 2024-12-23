@@ -61,13 +61,13 @@ export class CommonControls {
     this.nextUnitButton.position.set(10, 695);
     this.nextUnitButton.width = 130;
     this.nextUnitButton.height = 75;
-    this.nextUnitButton.text = new Text({ ...CommonControls.DEFAULT_FONT_STYLE, text: '\nNext Unit' });
+    this.nextUnitButton.text = new Text({ ...CommonControls.DEFAULT_FONT_STYLE, text: '\n[N]ext Unit' });
 
     this.nextTurnButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_next_turn.png' });
     this.nextTurnButton.position.set(10, 790);
     this.nextTurnButton.width = 130;
     this.nextTurnButton.height = 75;
-    this.nextTurnButton.text = new Text({ ...CommonControls.DEFAULT_FONT_STYLE, text: '\nNext Turn' });
+    this.nextTurnButton.text = new Text({ ...CommonControls.DEFAULT_FONT_STYLE, text: '\n[E]nd Turn' });
 
 
     this.connectEventHandlers();

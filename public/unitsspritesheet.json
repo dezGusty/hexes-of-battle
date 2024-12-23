@@ -18,11 +18,11 @@
         },
         "spearman_right.png": {
             "frame": {"x": 320,"y": 0,"w": 80,"h": 160},
-            "anchor": {"x": 0,"y": 0.5}
+            "anchor": {"x": -0.1,"y": 0.5}
         },
         "spearman_left.png": {
             "frame": {"x": 0,"y": 160,"w": 80,"h": 160},
-            "anchor": {"x": 0,"y": 0.5}
+            "anchor": {"x": 0.1,"y": 0.5}
         },
         "barbarian_right.png": {
             "frame": {"x": 80,"y": 160,"w": 80,"h": 160},
