@@ -204,7 +204,7 @@
     "animations": {        
     },
     "meta": {
-        "image": "new_hex.png",
+        "image": "hexagon_selections.png",
         "format": "RGBA8888",
         "size": {
             "w": 492,

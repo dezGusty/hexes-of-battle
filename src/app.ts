@@ -223,12 +223,12 @@ export class HexesApp {
     // this.terrainTexture = await Assets.load('terrain1background.png');
     this.terrainTexture = await Assets.load('stars.jpg');
 
-    this.hexagonSheet = await Assets.load('hexesspritesheet2.json');
+    this.hexagonSheet = await Assets.load('hexagon_selections.json');
     if (!this.hexagonSheet) {
       console.error('Failed to load the hexes spritesheet');
     }
 
-    this.terrainSheet = await Assets.load('terrainspritesheet.json');
+    this.terrainSheet = await Assets.load('hex_terrain.json');
     if (!this.terrainSheet) {
       console.error('Failed to load the terrain spritesheet');
     }
@@ -446,7 +446,7 @@ export class HexesApp {
         };
 
         // get a random value between 1 and 5
-        let randomValue = 3; //Math.floor(Math.random() * 2) + 3;
+        let randomValue = 2; //Math.floor(Math.random() * 2) + 3;
         let terrainSprite = new Sprite(this.terrainSheet?.textures[`grass_${randomValue}.png`]);
         terrainSprite.position.copyFrom(hexCoord);
         this.hexTerrainContainer.addChild(terrainSprite);

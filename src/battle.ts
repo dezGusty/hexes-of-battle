@@ -448,16 +448,6 @@ export class Battle {
       return;
     }
 
-    // Is this the same as the previous hover cell call? (done at the previous rendering)
-    // If so, don't process it again.
-    // if (this.prevRenderUpdate.hoverOverCell
-    //   && this.prevRenderUpdate.hoverOverCell.x === coords.x
-    //   && this.prevRenderUpdate.hoverOverCell.y === coords.y
-    //   && this.prevRenderUpdate.hoverDirection === optionalDirection
-    // ) {
-    //   return;
-    // }
-
     this.nextRenderUpdate.hoverOverCell = coords;
     this.nextRenderUpdate.hoverDirection = optionalDirection;
     if (this.activeCreatureIndex <= -1) {
@@ -510,22 +500,32 @@ export class Battle {
     this.nextRenderUpdate.enemyReachableCells = true;
     this.nextRenderUpdate.hoverEnemyIndex = targetCreature.indexInArmy;
     this.nextRenderUpdate.somethingChanged = true;
+    if (activeCreature.stats.remaining_attacks <= 0) {
+      return;
+    }
 
     // Hover over on an enemy unit
     if (activeCreature.stats.is_ranged && !meleePreference) {
-      // The unit is ranged, the user WANTS to attack, but should also check if the ranged unit is engaged in melee.
+
       // ---- RANGED ATTACK ----
       // Attacker is ranged, check if the target is in range
       const target = this.unitRangeData.find((element) => element.coords.x === coords.x && element.coords.y === coords.y);
       if (!target) {
         return;
       }
-
-      this.nextRenderUpdate.hoverPath = [];
-      this.nextRenderUpdate.hoverOverCell = coords;
-      this.nextRenderUpdate.cursorHint = "attack_ranged";
-      this.nextRenderUpdate.somethingChanged = true;
-      return;
+      // The unit is ranged, the user WANTS to attack in a ranged mode, but should also check if the ranged unit is engaged in melee.
+      // activeCreature.position
+      if (-1 == this.hexMap.getNeighbours(activeCreature.position).findIndex(neighbour => neighbour.x === coords.x && neighbour.y === coords.y)) {
+        // The target is not in melee range, so the ranged unit can attack it.
+        this.nextRenderUpdate.hoverPath = [];
+        this.nextRenderUpdate.hoverOverCell = coords;
+        this.nextRenderUpdate.cursorHint = "attack_ranged";
+        this.nextRenderUpdate.somethingChanged = true;
+        return;
+      }
+      // (else)
+      console.log("The target is in melee range, so the ranged unit cannot attack it with a ranged attack.");
+      // Continue with melee attack handling
     }
 
     // ---- MELEE ATTACK ----
