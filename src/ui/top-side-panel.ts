@@ -13,6 +13,35 @@ export class TopSidePanel {
   private bannerLeftBg?: NineSliceSprite = undefined;
   private bannerRightBg?: NineSliceSprite = undefined;
 
+  setActiveArmyIndex(index: number) {
+    if (index === 0) {
+      if (this.bannerLeftBg) {
+        this.bannerLeftBg.tint = 0x00ff00;
+      }
+      if (this.bannerRightBg) {
+        this.bannerRightBg.tint = 0xffffff;
+      }
+      if (this.bannerRight) {
+        this.bannerRight.alpha = 0.5;
+      } 
+      if (this.bannerLeft) {
+        this.bannerLeft.alpha = 1;
+      }
+    } else {
+      if (this.bannerLeftBg) {
+        this.bannerLeftBg.tint = 0xffffff;
+      }
+      if (this.bannerRightBg) {
+        this.bannerRightBg.tint = 0x00ff00;
+      }
+      if (this.bannerRight) {
+        this.bannerRight.alpha = 1;
+      }
+      if (this.bannerLeft) {
+        this.bannerLeft.alpha = 0.5;
+      }
+    }
+  }
 
   setLeftBannerTexture(texture: Texture | undefined) {
     if (this.bannerLeft) {
@@ -43,7 +72,7 @@ export class TopSidePanel {
   setRightArmyName(name: string) {
     const armyNameText = new Text({ ...TopSidePanel.RIGHT_ALIGN_FONT_STYLE, text: name });
 
-    armyNameText.position = { x: 1200 - 2 * 32 - 20 - armyNameText.width , y: 8 };
+    armyNameText.position = { x: 1200 - 2 * 32 - 20 - armyNameText.width, y: 8 };
     this.window.addChild(armyNameText);
   }
 

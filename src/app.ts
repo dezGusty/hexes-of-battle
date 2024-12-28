@@ -135,11 +135,12 @@ export class HexesApp {
       resizeTo: containingElement
     });
 
-    console.log('App started, size: ' + this.app.screen.width + 'x' + this.app.screen.height);
-    this.tempMessage = 'App started, size: ' + this.app.screen.width + 'x' + this.app.screen.height;
+    // this.tempMessage = 'App started, size: ' + this.app.screen.width + 'x' + this.app.screen.height;
     this.setScalingForSize(this.app.screen.width, this.app.screen.height);
-    this.tempMessage += "\nScaling factor: " + this.renderContainer.scale.x.toFixed(2) + 'x' + this.renderContainer.scale.y.toFixed(2);
-
+    // this.tempMessage += "\nScaling factor: " + this.renderContainer.scale.x.toFixed(2) + 'x' + this.renderContainer.scale.y.toFixed(2);
+    console.log('App started, size: ' + this.app.screen.width + 'x' + this.app.screen.height);
+    console.log('Scaling factor: ' + this.renderContainer.scale.x.toFixed(2) + 'x' + this.renderContainer.scale.y.toFixed(2));
+    
     // The application will create a canvas element for you that you
     // can then insert into the DOM
     containingElement.appendChild(this.app.canvas);
@@ -195,13 +196,12 @@ export class HexesApp {
   private setScalingForSize(width: number, height: number) {
     if (this.instructionsText) {
       this.instructionsText.text = this.tempMessage + "\nResized to: " + width + 'x' + height;
-      console.log('Resized to: ' + width + 'x' + height);
     }
     const originalWindowSize = this.NATIVE_RESOLUTION;
+    console.log('Resized to: ' + width + ' x ' + height + '. With original size of: ' + originalWindowSize.width + ' x ' + originalWindowSize.height);
     // keep the aspect ratio
     const scaling = { x: width / originalWindowSize.width, y: height / originalWindowSize.height };
     const minScale = Math.min(scaling.x, scaling.y);
-    // const minScale = scaling.y * 2;
 
     this.renderContainer.scale.set(minScale, minScale);
 
@@ -276,15 +276,14 @@ export class HexesApp {
     this.fpsText.alpha = 0.7;
     this.uiRenderGroup.addChild(this.fpsText);
 
-    const style = new TextStyle({ fontFamily: 'Arial', fontSize: 18, fill: { color: '#ffffff', alpha: 1 }, stroke: { color: '#4a1850', width: 5, join: 'round' }, });
-    this.tempMessage = `Welcome to Hexes of battle v${this.version}!`
+    const style = new TextStyle({ fontFamily: 'Arial', fontSize: 18, fill: { color: '#ffffff', alpha: 1 }});
+    this.tempMessage = `HoB v.${this.version}`
       + "\n" + this.tempMessage;
     this.instructionsText = new Text({
       text: this.tempMessage,
       style,
     });
-    this.instructionsText.x = 730;
-    this.instructionsText.y = 10;
+    this.instructionsText.position = { x: 1480, y: 5 };
     this.uiRenderGroup.addChild(this.instructionsText);
 
     this.messagesText = new Text({
@@ -557,6 +556,9 @@ export class HexesApp {
     const bannerName = this.getBannerTextureNameForArmyIndex(armyIndex);
     const texture = this.bannersSheet?.textures[bannerName];
     this.turnChangeDisplay.addTurnChange(message, this.uiPlusRenderGroup, { x: 500, y: 350 }, texture);
+    if (this.topSidePanel) {
+      this.topSidePanel.setActiveArmyIndex(armyIndex);
+    }
   }
 
   private directionToSpriteName(direction: HexDirection): string {
