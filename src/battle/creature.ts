@@ -1,5 +1,6 @@
-import { HexDirection } from "./hex-map";
-import { Coords } from "./shared";
+import { HexDirection } from "../hex-map";
+import { Coords } from "../shared";
+import { GuidMaker, HobGUID } from "./guid";
 
 export class CreatureStats {
   attack_melee_low: number = 3;
@@ -79,9 +80,16 @@ export class Creature {
     "Barbarian"
   ];
 
+  private guid: HobGUID;
+
   constructor(
     public creatureType: CreatureType = CreatureType.PEASANT,
     public stats: CreatureStats = { ...Creature.DEFAULT_CREATURE_PROPS }) {
+    this.guid = GuidMaker.generateGuid();
+  }
+
+  public get GUID(): HobGUID {
+    return this.guid;
   }
 
   public get isAlive(): boolean {
@@ -135,6 +143,8 @@ export class CreatureRepository {
     result.stats.remaining_counterattacks = result.stats.num_counterattacks;
     result.stats.remaining_health = result.stats.health;
     result.stats.remaining_movement = result.stats.num_moves;
+
+    console.log("Created creature: ", result);
 
     return result;
   }

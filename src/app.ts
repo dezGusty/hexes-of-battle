@@ -3,8 +3,8 @@ import pkg from './../package.json';
 import { HexDirection, HexEdge, HexMap } from './hex-map';
 import { CommonControls } from './ui/common-controls';
 import { Coords, UserOptions } from './shared';
-import { AnimationType, Battle, MapRenderUpdate } from './battle';
-import { Creature, CreatureRepository, CreatureTemplate, CreatureType } from './creature';
+import { AnimationType, Battle, BattleActionType, MapRenderUpdate } from './battle';
+import { Creature, CreatureRepository, CreatureTemplate, CreatureType } from './battle/creature';
 import { ProgressBar } from '@pixi/ui';
 import { UnitStatsPanel } from './ui/unit-stats-panel';
 import { DamageValueCollection } from './ui/damage-value-display';
@@ -12,7 +12,8 @@ import { PerfDisplayPanel } from './ui/perf-display-panel';
 import { JsonLoader } from './shared/jsonloader';
 import { TurnChangeCollection } from './ui/turn-change-display';
 import { TopSidePanel } from './ui/top-side-panel';
-import { OutlineFilter } from 'pixi-filters';
+import { AdvancedBloomFilter, OutlineFilter } from 'pixi-filters';
+import { sound } from '@pixi/sound';
 
 export enum GameState {
   InMenu,
@@ -22,14 +23,12 @@ export enum GameState {
   PostGameEnterHighscore
 }
 
-
-
 export class HexesApp {
 
   private currentGameState: GameState = GameState.InGame;
   private version: string = pkg.version;
 
-  private hexMap: HexMap = new HexMap(15, 11);
+  private hexMap: HexMap = new HexMap(13, 9);
   private battle = new Battle(this.hexMap);
 
   private NATIVE_RESOLUTION = { width: 1600, height: 900 };
@@ -140,7 +139,7 @@ export class HexesApp {
     // this.tempMessage += "\nScaling factor: " + this.renderContainer.scale.x.toFixed(2) + 'x' + this.renderContainer.scale.y.toFixed(2);
     console.log('App started, size: ' + this.app.screen.width + 'x' + this.app.screen.height);
     console.log('Scaling factor: ' + this.renderContainer.scale.x.toFixed(2) + 'x' + this.renderContainer.scale.y.toFixed(2));
-    
+
     // The application will create a canvas element for you that you
     // can then insert into the DOM
     containingElement.appendChild(this.app.canvas);
@@ -178,17 +177,20 @@ export class HexesApp {
     this.setupMainLoop();
     this.setupInputHandlers();
 
-    //xxx
-    // this.hexZoneContainer.filters = [new TiltShiftFilter({ blur: 10, gradientBlur: 900 })];
-    // this.hexZoneContainer.filters = [new GodrayFilter({ angle: 30, gain: 0.5, lacunarity: 2.0, parallel: true, time: 0 })];
-    // this.hexZoneContainer.filters = [new CRTFilter({ curvature: 1, lineWidth: 1, noise: 0.1, noiseSize: 1, vignetting: 0.3 })];
-
+    this.startBattle();
 
     // set-up a resize event listener
     this.app.renderer.on('resize', (width, height) => {
       this.setScalingForSize(width, height);
     });
 
+  }
+
+
+  startBattle() {
+    this.hookNextTurn(0, 0);
+    this.battle.selectNextUnit();
+    sound.play('track_dark_whispers', { loop: true, volume: 0.15 });
   }
 
 
@@ -276,7 +278,7 @@ export class HexesApp {
     this.fpsText.alpha = 0.7;
     this.uiRenderGroup.addChild(this.fpsText);
 
-    const style = new TextStyle({ fontFamily: 'Arial', fontSize: 18, fill: { color: '#ffffff', alpha: 1 }});
+    const style = new TextStyle({ fontFamily: 'Arial', fontSize: 18, fill: { color: '#ffffff', alpha: 1 } });
     this.tempMessage = `HoB v.${this.version}`
       + "\n" + this.tempMessage;
     this.instructionsText = new Text({
@@ -299,6 +301,12 @@ export class HexesApp {
     // Add sounds
     console.log('Loading sounds...');
 
+    await sound.add('arrow', 'audio/arrow.ogg');
+    await sound.add('die', 'audio/die.ogg');
+    await sound.add('move', 'audio/move.ogg');
+    await sound.add('sword', 'audio/sword.ogg');
+
+    await sound.add('track_dark_whispers', 'audio/dark_whispers.ogg');
 
     console.log('Loaded sounds...');
 
@@ -307,8 +315,6 @@ export class HexesApp {
   public async loadTemplates() {
     // Load the "creaturetypes.json" file and read jsonData
     this.creatureTemplates = await JsonLoader.loadJson<CreatureTemplate[]>('./creaturetypes.json');
-    console.log("*** creature templates ***", this.creatureTemplates);
-
     this.creatureRepository.setCreatureTemplates(this.creatureTemplates);
   }
 
@@ -500,7 +506,7 @@ export class HexesApp {
     this.battle.creatures.push(creature);
 
     creature = this.creatureRepository.createCreature(CreatureType.SPEARMAN);
-    creature.position = { x: 3, y: 7 };
+    creature.position = { x: 3, y: 5 };
     creature.armyAlignment = 0;
     this.battle.creatures.push(creature);
 
@@ -534,20 +540,47 @@ export class HexesApp {
     creature.facingDirection = HexDirection.WEST;
     this.battle.creatures.push(creature);
 
-    this.battle.hookDoingAttack = (attacker, defender, damage) => {
-      this.hookDoingAttack(attacker, defender, damage);
+    this.battle.hookDoingAttack = (attacker, defender, damage, attackType) => {
+      this.hookDoingAttack(attacker, defender, damage, attackType);
     };
 
     this.battle.hookNextTurn = (turnNum, armyIdx) => {
       this.hookNextTurn(turnNum, armyIdx);
     };
 
+    this.battle.hookMovingUnit = (creature: Creature, nextStep: Coords) => {
+      this.hookMovingUnit(creature, nextStep);
+    }
+
+    this.battle.hookUnitDied = (creature: Creature) => {
+      this.hookUnitDied(creature);
+    }
+
+    this.battle.hookBattleFinished = (victor: number) => {
+      this.hookBattleFinished(victor);
+    }
+
+    this.battle.hookRecommendEndTurn = (armyIndex: number) => {
+      this.hookRecommendEndTurn(armyIndex);
+    }
+
     this.renderUnits(new MapRenderUpdate());
   }
 
-  hookDoingAttack(_attacker: Creature, defender: Creature, damage: number) {
+  hookDoingAttack(_attacker: Creature, defender: Creature, damage: number, attackType: BattleActionType) {
     const defenderPixelCoords = this.hexMap.hexToPixel(defender.position.x, defender.position.y);
     this.damageValueDisplay.addDamageValue(damage, this.uiPlusRenderGroup, defenderPixelCoords);
+    if (attackType === BattleActionType.ATTACK_MELEE
+      || attackType === BattleActionType.COUNTER_ATTACK_MELEE) {
+      // Get a random value between 0.9 and 1.1
+      const speedFactor = 0.9 + Math.random() * 0.2;
+      sound.play('sword', { speed: speedFactor });
+    }
+
+    if (attackType === BattleActionType.ATTACK_RANGED) {
+      const speedFactor = 0.9 + Math.random() * 0.2;
+      sound.play('arrow', { speed: speedFactor });
+    }
   }
 
   hookNextTurn(turnNumber: number, armyIndex: number) {
@@ -558,6 +591,38 @@ export class HexesApp {
     this.turnChangeDisplay.addTurnChange(message, this.uiPlusRenderGroup, { x: 500, y: 350 }, texture);
     if (this.topSidePanel) {
       this.topSidePanel.setActiveArmyIndex(armyIndex);
+    }
+
+    if (this.commonControls.nextTurnButton) {
+      this.commonControls.nextTurnButton.filters = [];
+    }
+  }
+
+  hookMovingUnit(_creature: Creature, _nextStep: Coords) {
+    const speedFactor = 0.9 + Math.random() * 0.2;
+    sound.play('move', { speed: speedFactor });
+  }
+
+  hookUnitDied(_creature: Creature) {
+    sound.play('die');
+  }
+
+  hookBattleFinished(victorArmyIndex: number) {
+    console.log("*** VICTORY for army #" + victorArmyIndex);
+
+    const message: string = `Victory for Army ${victorArmyIndex + 1}`;
+    // get the banner to use for the army Index
+    const bannerName = this.getBannerTextureNameForArmyIndex(victorArmyIndex);
+    const texture = this.bannersSheet?.textures[bannerName];
+    this.turnChangeDisplay.addEndOfBattle(message, this.uiPlusRenderGroup, { x: 500, y: 350 }, texture);
+    if (this.topSidePanel) {
+      this.topSidePanel.setActiveArmyIndex(victorArmyIndex);
+    }
+  }
+
+  hookRecommendEndTurn(_armyIndex: number) {
+    if (this.commonControls.nextTurnButton) {
+      this.commonControls.nextTurnButton.filters = [new AdvancedBloomFilter({ threshold: 0.25, bloomScale: 1, brightness: 1, blur: 5, quality: 3 })];
     }
   }
 

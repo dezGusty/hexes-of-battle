@@ -1,5 +1,5 @@
 import { Container, NineSliceSprite, Sprite, Spritesheet, Text, TextOptions, Texture } from "pixi.js";
-import { Creature, CreatureStats } from "../creature";
+import { Creature, CreatureStats } from "../battle/creature";
 
 /**
  * Contains UI controls to show the unit stats during a battle.

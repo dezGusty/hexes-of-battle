@@ -1,4 +1,4 @@
-import { Creature } from "./creature";
+import { Creature } from "./battle/creature";
 import { HexDirection, HexMap, reverseDirection } from "./hex-map";
 import { Coords } from "./shared";
 
@@ -101,6 +101,7 @@ export class Battle {
   private unitRangeData: ReachData[] = [];
 
   private currentActions: BattleAction[] = [];
+  private finished: boolean = false;
 
   constructor(
     public hexMap: HexMap) {
@@ -164,12 +165,8 @@ export class Battle {
     pathfindingMatrix: number[][],
     rangeData: ReachData[],
     currentArmyIdx: number) {
-    // call from the outside
-    // Battle.resetNumericalMatrixToZero(pathfindingMatrix);
-
     // Start with the coords and the range
     let frontier: ReachData[] = [{ coords, reach: range, cameFrom: coords }];
-    // pathfindingMatrix[coords.x][coords.y] = range + 1;
 
     while (frontier.length > 0) {
       let current = frontier.shift();
@@ -264,7 +261,7 @@ export class Battle {
         // Check presence of enemies.
         if (this.cached_occupation_tiles[neighbour.coords.x][neighbour.coords.y] > 0) {
           const neighborCreatureIndex = this.cached_occupation_tiles[neighbour.coords.x][neighbour.coords.y] - 1;
-          if (this.creatures[neighborCreatureIndex].armyAlignment !== currentArmyIdx) {
+          if (neighborCreatureIndex >= 0 && this.creatures[neighborCreatureIndex].armyAlignment !== currentArmyIdx) {
             if (this.creatures[activeCreatureIdx].stats.remaining_attacks > 0) {
               // don't add it to the frontier, (cannot pass through enemy)
               // but add it to the reachable cells
@@ -391,31 +388,43 @@ export class Battle {
     // If the attacker is melee, then move to the cell and attack
 
     if (creature.stats.is_ranged && !meleePreference) {
-      console.log("Range attack at: ", coords);
-      this.currentActions.push(new BattleAction(BattleActionType.ATTACK_RANGED, [coords], 0, 500, 50));
 
-      this.nextRenderUpdate.unitRenderUpdate = true;
-      this.nextRenderUpdate.somethingChanged = true;
-    } else {
-      // move creature on the hover path.
-      let path: Coords[] = [];
-      if (optionalDirection !== HexDirection.NONE) {
-        let neighbour = this.hexMap.getNeighbourInDirection(coords, optionalDirection);
-        if (neighbour) {
+      // The unit is ranged, the user WANTS to attack in a ranged mode, but should also check if the ranged unit is engaged in melee.
+      if (-1 == this.hexMap.getNeighbours(creature.position).findIndex(neighbour => neighbour.x === coords.x && neighbour.y === coords.y)) {
+        // The target is not in melee range, so the ranged unit can attack it.
+        console.log("Range attack at: ", coords);
+        this.currentActions.push(new BattleAction(BattleActionType.ATTACK_RANGED, [coords], 0, 500, 50));
+        this.nextRenderUpdate.unitRenderUpdate = true;
+        this.nextRenderUpdate.somethingChanged = true;
+        return;
+      }
+      // (else)
+      // The target is in melee range, so the ranged unit cannot attack it with a ranged attack.
+      // Continue with melee attack handling
+    }
+
+    // move creature on the hover path.
+    let path: Coords[] = [];
+    if (optionalDirection !== HexDirection.NONE) {
+      let neighbour = this.hexMap.getNeighbourInDirection(coords, optionalDirection);
+      if (neighbour) {
+        // find if any unit is there
+        let creatureAtNeighbour = this.getCreatureAtPosition(neighbour);
+        if (creatureAtNeighbour === null) {
           path = this.findPathFromSelectedUnitToCell(neighbour);
         }
       }
-      if (path.length === 0) {
-        path = this.findPathFromSelectedUnitToCell(coords);
-        path.pop();
-      }
-      creature.stats.remaining_movement -= path.length;
-      console.log("Adding action to move with path: ", path);
-      this.currentActions.push(new BattleAction(BattleActionType.MOVE, path, 0, 50, 50, creature, creatureAtTarget.creature));
-      console.log("Adding action to attack at: ", coords);
-      this.currentActions.push(new BattleAction(BattleActionType.ATTACK_MELEE, [coords], 0, 500, 50, creature, creatureAtTarget.creature));
     }
 
+    if (path.length === 0) {
+      path = this.findPathFromSelectedUnitToCell(coords);
+      path.pop();
+    }
+    creature.stats.remaining_movement -= path.length;
+    console.log("Adding action to move with path: ", path);
+    this.currentActions.push(new BattleAction(BattleActionType.MOVE, path, 0, 50, 50, creature, creatureAtTarget.creature));
+    console.log("Adding action to attack at: ", coords);
+    this.currentActions.push(new BattleAction(BattleActionType.ATTACK_MELEE, [coords], 0, 500, 50, creature, creatureAtTarget.creature));
   }
 
   onMouseClickOnCell(event: MouseEvent, coords: Coords, optionalDirection: HexDirection = HexDirection.NONE, meleePreference: boolean) {
@@ -524,7 +533,7 @@ export class Battle {
         return;
       }
       // (else)
-      console.log("The target is in melee range, so the ranged unit cannot attack it with a ranged attack.");
+      // The target is in melee range, so the ranged unit cannot attack it with a ranged attack.
       // Continue with melee attack handling
     }
 
@@ -543,7 +552,7 @@ export class Battle {
     if (!neighbourInUnitReachData) {
       // Cannot reach this neighbour
       if (neighbour.x === activeCreature.position.x && neighbour.y === activeCreature.position.y) {
-        console.log("We are already where we need to be!");
+        // "We are already where we need to be!"
         this.nextRenderUpdate.cursorHint = this.getAttackCursorForDirection(reverseDirection(optionalDirection));
         this.nextRenderUpdate.somethingChanged = true;
         return;
@@ -551,6 +560,7 @@ export class Battle {
 
       const target = this.unitReachData.find((element) => element.coords.x === coords.x && element.coords.y === coords.y);
       if (target) {
+        //TODO: should this be a DENIED cursor?
         this.nextRenderUpdate.cursorHint = "attack_melee";
         this.nextRenderUpdate.hoverPath = this.findPathFromSelectedUnitToCell(coords);
         // new direction
@@ -638,6 +648,9 @@ export class Battle {
 
 
   public nextTurn() {
+    if (this.finished) {
+      return;
+    }
 
     // Reset the available actions for the current player. When the other player views the unit info, it should have the preview for the next turn, 
     // so all units should appear as "fresh" for the next turn.
@@ -662,6 +675,39 @@ export class Battle {
     this.hookNextTurn(this.turnNumber, this.currentArmyIndex);
   }
 
+  public checkVictoryConditions(): number {
+    let army0Alive = false;
+    let army1Alive = false;
+    for (let i = 0; i < this.creatures.length; i++) {
+      if (this.creatures[i].stats.remaining_health > 0) {
+        if (this.creatures[i].armyAlignment === 0) {
+          army0Alive = true;
+        } else {
+          army1Alive = true;
+        }
+      }
+    }
+
+    if (!army0Alive) {
+      console.log("Army 1 wins!");
+      return 1;
+    }
+    if (!army1Alive) {
+      console.log("Army 0 wins!");
+      return 0;
+    }
+
+    return -1;
+  }
+
+  public checkVictoryConditionsAndState() {
+    let result = this.checkVictoryConditions();
+    if (result >= 0) {
+      this.finished = true;
+      this.hookBattleFinished(result);
+    }
+  }
+
   public selectNextUnit(): number {
     let result = -1;
     let currentIndex = this.activeCreatureIndex;
@@ -669,10 +715,19 @@ export class Battle {
     // locate the next creature in the current army
     for (let i = 0; i < this.creatures.length; i++) {
       currentIndex = (currentIndex + 1) % this.creatures.length;
-      if (this.creatures[currentIndex].armyAlignment === this.currentArmyIndex) {
+      if (this.creatures[currentIndex].armyAlignment === this.currentArmyIndex
+        && (this.creatures[currentIndex].stats.remaining_movement > 0
+          || this.creatures[currentIndex].stats.remaining_attacks > 0)
+      ) {
         result = currentIndex;
         break;
       }
+    }
+
+    if (result == -1) {
+      // nothing was found, select the first creature in the current army
+      // and notify that the turn can be over (TODO: also check if auto-turn over should be done.)
+      this.hookRecommendEndTurn(this.currentArmyIndex);
     }
 
     if (result >= 0) {
@@ -708,7 +763,6 @@ export class Battle {
       || this.prevRenderUpdate.hoverOverUnitIndex != this.nextRenderUpdate.hoverOverUnitIndex) {
       this.nextRenderUpdate.unitRenderUpdate = true;
     }
-
 
     this.prevRenderUpdate = this.nextRenderUpdate;
     this.nextRenderUpdate = new MapRenderUpdate();
@@ -765,6 +819,7 @@ export class Battle {
       this.creatures[this.activeCreatureIndex].facingDirection = oneDirection;
 
       this.creatures[this.activeCreatureIndex].position = nextStep;
+      this.hookMovingUnit(this.creatures[this.activeCreatureIndex], nextStep);
       currentAction.step++;
       this.nextRenderUpdate.unitRenderUpdate = true;
       this.nextRenderUpdate.somethingChanged = true;
@@ -845,13 +900,16 @@ export class Battle {
     damage -= armor;
 
 
-    this.hookDoingAttack(thisCreature, creatureInBattle.creature, damage);
+    this.hookDoingAttack(thisCreature, creatureInBattle.creature, damage, currentAction.type);
 
     creatureInBattle.creature.takeDamage(damage);
     console.log(`Dealt ${damage} damage to the creature`);
     if (!creatureInBattle.creature.isAlive) {
       console.log("The creature has died");
+      this.hookUnitDied(creatureInBattle.creature);
       this.creatures.splice(creatureInBattle.indexInArmy, 1);
+      this.checkVictoryConditionsAndState();
+      this.tryToSelectUnitAtLocation(thisCreature.position);
     } else {
       console.log("The creature is still alive");
       counterattacking = (currentAction.type == BattleActionType.ATTACK_MELEE) && this.queueCounterattack(creatureInBattle.creature, thisCreature);
@@ -864,12 +922,28 @@ export class Battle {
     return counterattacking;
   }
 
-  hookDoingAttack(_thisCreature: Creature, _creature: Creature, _damage: number) {
+  hookDoingAttack(_thisCreature: Creature, _creature: Creature, _damage: number, _attackType: BattleActionType) {
     console.log("hookDoingAttack not implemented.");
   }
 
   hookNextTurn(_turnNumber: number, _armyIndex: number) {
     console.log("hookNextTurn not implemented.");
+  }
+
+  hookMovingUnit(_creature: Creature, _nextStep: Coords) {
+    console.log("hookMovingUnit not implemented.");
+  }
+
+  hookUnitDied(_creature: Creature) {
+    console.log("hookUnitDied not implemented.");
+  }
+
+  hookBattleFinished(_victor: number) {
+    console.log("hookBattleFinished not implemented.");
+  }
+
+  hookRecommendEndTurn(_armyIndex: number) {
+    console.log("hookRecommendEndTurn not implemented.");
   }
 
   private queueCounterattack(creatureCounterAttackFrom: Creature, creatureCounterAttackTo: Creature) {
@@ -932,14 +1006,19 @@ export class Battle {
     let armor = currentAction.targetUnit.stats.defense_melee;
     damage -= armor;
 
-    this.hookDoingAttack(currentAction.sourceUnit, currentAction.targetUnit, damage);
+    this.hookDoingAttack(currentAction.sourceUnit, currentAction.targetUnit, damage, BattleActionType.COUNTER_ATTACK_MELEE);
 
     currentAction.targetUnit.takeDamage(damage);
     console.log(`Dealt ${damage} damage to the creature`);
     if (!currentAction.targetUnit.isAlive) {
+      console.log("The creature has died");
       const targetUnitIndex = this.creatures.findIndex((element) => element === currentAction.targetUnit);
       if (targetUnitIndex >= 0) {
+        this.hookUnitDied(this.creatures[targetUnitIndex]);
         this.creatures.splice(targetUnitIndex, 1);
+        this.checkVictoryConditionsAndState();
+
+        // normally would need to select the next unit, as the active one is dead, but there will be a select_next action queued.
       }
     }
 

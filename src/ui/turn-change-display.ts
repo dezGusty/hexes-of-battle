@@ -5,6 +5,7 @@ export class TurnChangeDisplay {
 
   static DEFAULT_FONT_STYLE: TextOptions = { style: { fill: { color: '#dddd77', alpha: 1 }, fontSize: 42, align: 'left' } };
   static DEFAULT_DURATION_IN_MILLIS: number = 750;
+  static END_OF_BATTLE_DURATION_IN_MILLIS: number = 5000;
 
   private turnChangeText = new Text({ ...TurnChangeDisplay.DEFAULT_FONT_STYLE, text: this.message });
   private alpha: number = 1;
@@ -37,7 +38,7 @@ export class TurnChangeDisplay {
     windowBg.width = 400;
     windowBg.height = 120;
     this.window.addChild(windowBg);
-    
+
     const bannerBg = new NineSliceSprite({
       texture: this.uiSheet.textures['progress_bg.png'],
       leftWidth: 5,
@@ -49,7 +50,7 @@ export class TurnChangeDisplay {
     bannerBg.height = 128 + 10;
     bannerBg.position = { x: (400 - 128) / 2 - 5, y: 80 - 5 };
     this.window.addChild(bannerBg);
-    
+
     this.window.position = coords;
 
     if (this.texture) {
@@ -81,12 +82,6 @@ export class TurnChangeDisplay {
     if (this.remainingDurationInMillis <= 0) {
       this.view.removeChild(this.window);
       this.window.destroy({ children: true });
-
-      // this.turnChangeText.destroy();
-      // if (this.bannerSprite) {
-      //   this.view.removeChild(this.bannerSprite);
-      //   this.bannerSprite.destroy();
-      // }
     }
   }
 }
@@ -105,6 +100,11 @@ export class TurnChangeCollection {
 
   public addTurnChange(message: string, view: Container, coords: Coords, texture?: Texture) {
     const damageValueDisplay = new TurnChangeDisplay(message, view, TurnChangeDisplay.DEFAULT_DURATION_IN_MILLIS, coords, this.uiSheet, texture);
+    this.damageValues.push(damageValueDisplay);
+  }
+
+  public addEndOfBattle(message: string, view: Container, coords: Coords, texture?: Texture) {
+    const damageValueDisplay = new TurnChangeDisplay(message, view, TurnChangeDisplay.END_OF_BATTLE_DURATION_IN_MILLIS, coords, this.uiSheet, texture);
     this.damageValues.push(damageValueDisplay);
   }
 
