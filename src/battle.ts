@@ -25,6 +25,18 @@ export class AnimationAtCoords {
   }
 }
 
+export interface BattleHooks {
+  hookMovingUnit: (creature: Creature, position: Coords) => void;
+  hookNextTurn: (turnNumber: number, currentArmyIndex: number) => void;
+  hookRecommendEndTurn: (currentArmyIndex: number) => void;
+  hookBattleFinished: (winningArmyIndex: number) => void;
+}
+
+export enum ArmyControlType {
+  PLAYER = 0,
+  AI = 1
+}
+
 export class MapRenderUpdate {
   public selectedCreatureIndex: number = -1;
   public currentArmyIndex: number = 0;
@@ -40,7 +52,6 @@ export class MapRenderUpdate {
 
   public somethingChanged: boolean = false;
   public hoverEnemyIndex: number = -1;
-
 }
 
 export class ReachData {
@@ -82,8 +93,11 @@ export class BattleAction {
 export class Battle {
 
   private turnNumber = 0;
-  private currentArmyIndex: number = 0;
+  public currentArmyIndex: number = 0;
   public activeCreatureIndex: number = -1;
+
+  public army_control: ArmyControlType[] = [ArmyControlType.PLAYER, ArmyControlType.AI];
+  // public army_1_control: ArmyControlType = ArmyControlType.AI;
 
   public renderStateChanged: boolean = true;
   public creatures: Creature[] = [];
@@ -102,6 +116,7 @@ export class Battle {
 
   private currentActions: BattleAction[] = [];
   private finished: boolean = false;
+  private onMouseOverCellPrevPrefMelee: boolean = false;
 
   constructor(
     public hexMap: HexMap) {
@@ -109,20 +124,41 @@ export class Battle {
 
   public initializeToSize(mapWidth: number, mapHeight: number) {
     this.hexMap.initializeToSize(mapWidth, mapHeight);
+    Battle.initializeMapToSize(this.pathfinding_tiles, mapWidth, mapHeight);
+    Battle.initializeMapToSize(this.cached_occupation_tiles, mapWidth, mapHeight);
+    Battle.initializeMapToSize(this.rangereach_tiles, mapWidth, mapHeight);
+    Battle.initializeMapToSize(this.enemy_potential_tiles, mapWidth, mapHeight);
+    Battle.initializeMapToSize(this.enemy_range_tiles, mapWidth, mapHeight);
+
+    // for (let i = 0; i < mapWidth; i++) {
+    //   this.pathfinding_tiles[i] = [];
+    //   this.cached_occupation_tiles[i] = [];
+    //   this.rangereach_tiles[i] = [];
+    //   this.enemy_potential_tiles[i] = [];
+    //   this.enemy_range_tiles[i] = [];
+    //   for (let j = 0; j < mapHeight; j++) {
+    //     this.pathfinding_tiles[i][j] = 0;
+    //     this.cached_occupation_tiles[i][j] = 0;
+    //     this.rangereach_tiles[i][j] = 0;
+    //     this.enemy_potential_tiles[i][j] = 0;
+    //     this.enemy_range_tiles[i][j] = 0;
+    //   }
+    // }
+  }
+
+  static initializeMapToSize(matrix: number[][], mapWidth: number, mapHeight: number): void {
     for (let i = 0; i < mapWidth; i++) {
-      this.pathfinding_tiles[i] = [];
-      this.cached_occupation_tiles[i] = [];
-      this.rangereach_tiles[i] = [];
-      this.enemy_potential_tiles[i] = [];
-      this.enemy_range_tiles[i] = [];
+      matrix[i] = [];
+
       for (let j = 0; j < mapHeight; j++) {
-        this.pathfinding_tiles[i][j] = 0;
-        this.cached_occupation_tiles[i][j] = 0;
-        this.rangereach_tiles[i][j] = 0;
-        this.enemy_potential_tiles[i][j] = 0;
-        this.enemy_range_tiles[i][j] = 0;
+        matrix[i][j] = 0;
+
       }
     }
+  }
+
+  public hasRunningActions(): boolean {
+    return this.currentActions.length > 0;
   }
 
   selectCreatureByArmyIndex(armyIndex: number, creatureIndex: number) {
@@ -145,7 +181,7 @@ export class Battle {
     }
   }
 
-  cacheCreaturesToHexMap() {
+  public cacheCreaturesToHexMap() {
     Battle.resetNumericalMatrixToZero(this.cached_occupation_tiles);
 
     for (let i = 0; i < this.creatures.length; i++) {
@@ -314,8 +350,39 @@ export class Battle {
     return reachableCells;
   }
 
+  public getSelectedCreature(): Creature | null {
+    if (this.activeCreatureIndex < 0) {
+      return null;
+    }
 
+    return this.creatures[this.activeCreatureIndex];
+  }
 
+  public getReachDataForSelectedCreature(): ReachData[] {
+    return this.unitReachData;
+  }
+
+  public getRangeDataForSelectedCreature(): ReachData[] {
+    return this.unitRangeData;
+  }
+
+  public getReachableMeleeEnemies(): ReachData[] {
+    let pathfindingData: ReachData[] = [];
+    for (let i = 0; i < this.pathfinding_tiles.length; i++) {
+      for (let j = 0; j < this.pathfinding_tiles[i].length; j++) {
+        if (this.pathfinding_tiles[i][j] >= 100) { // TODO: magic number!
+          pathfindingData.push(new ReachData({ x: i, y: j }, this.pathfinding_tiles[i][j], { x: 0, y: 0 }));
+        }
+      }
+    }
+    return pathfindingData;
+  }
+
+  //TODO:XXX: function to get reach data with enemies only
+
+  public isCurrentTurnAI(): boolean {
+    return this.army_control[this.currentArmyIndex] === ArmyControlType.AI;
+  }
 
   getCreatureAtPosition(coords: Coords): CreatureInBattle | null {
     for (let index = 0; index < this.creatures.length; index++) {
@@ -341,7 +408,7 @@ export class Battle {
     }
   }
 
-  private moveOrAttackWithActiveCreatureAtLocation(coords: Coords, optionalDirection: HexDirection, meleePreference: boolean = false) {
+  public moveOrAttackWithActiveCreatureAtLocation(coords: Coords, optionalDirection: HexDirection, meleePreference: boolean = false) {
     if (this.activeCreatureIndex < 0) {
       return;
     }
@@ -433,6 +500,10 @@ export class Battle {
       return;
     }
 
+    if (this.army_control[this.currentArmyIndex] === ArmyControlType.AI) {
+      return;
+    }
+
     // Left mouse button
     if (event.button === 0) {
       this.tryToSelectUnitAtLocation(coords);
@@ -447,13 +518,16 @@ export class Battle {
       return;
     }
 
-    // TODO: also check if the status of input is changed (E.g. press key to force melee attack)
+    if (this.army_control[this.currentArmyIndex] === ArmyControlType.AI) {
+      return;
+    }
 
     // Did we get a chance to render the hover over this cell, or do we still have it queued?
     // If so, don't process it again.
     if (this.nextRenderUpdate.hoverOverCell
       && this.nextRenderUpdate.hoverOverCell.x === coords.x
-      && this.nextRenderUpdate.hoverOverCell.y === coords.y) {
+      && this.nextRenderUpdate.hoverOverCell.y === coords.y
+      && this.onMouseOverCellPrevPrefMelee === meleePreference) {
       return;
     }
 
@@ -646,6 +720,10 @@ export class Battle {
     return Battle.findPathToCellInReachData(coords, this.unitReachData);
   }
 
+
+  public isFinished(): boolean {
+    return this.finished;
+  }
 
   public nextTurn() {
     if (this.finished) {

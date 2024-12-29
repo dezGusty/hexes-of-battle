@@ -14,6 +14,7 @@ import { TurnChangeCollection } from './ui/turn-change-display';
 import { TopSidePanel } from './ui/top-side-panel';
 import { AdvancedBloomFilter, OutlineFilter } from 'pixi-filters';
 import { sound } from '@pixi/sound';
+import { DumbAI } from './battle/dumb-ai';
 
 export enum GameState {
   InMenu,
@@ -30,6 +31,7 @@ export class HexesApp {
 
   private hexMap: HexMap = new HexMap(13, 9);
   private battle = new Battle(this.hexMap);
+  private dumbAI: DumbAI = new DumbAI(this.battle);
 
   private NATIVE_RESOLUTION = { width: 1600, height: 900 };
 
@@ -100,6 +102,7 @@ export class HexesApp {
   private userOptions: UserOptions = {
     showCoords: false, showGrid: false
   };
+
 
   private renderContainerOffset: Coords = { x: 0, y: 0 };
 
@@ -189,7 +192,7 @@ export class HexesApp {
 
   startBattle() {
     this.hookNextTurn(0, 0);
-    this.battle.selectNextUnit();
+    // this.battle.selectNextUnit();
     sound.play('track_dark_whispers', { loop: true, volume: 0.15 });
   }
 
@@ -364,7 +367,7 @@ export class HexesApp {
 
     this.commonControls.nextTurnButton?.onPress.connect(() => {
       this.battle.nextTurn();
-      this.battle.selectNextUnit();
+      // this.battle.selectNextUnit();
     });
 
     this.commonControls.nextUnitButton?.onPress.connect(() => {
@@ -596,6 +599,11 @@ export class HexesApp {
     if (this.commonControls.nextTurnButton) {
       this.commonControls.nextTurnButton.filters = [];
     }
+
+    if (!this.battle.isCurrentTurnAI()) {
+      this.battle.selectNextUnit();
+    }
+
   }
 
   hookMovingUnit(_creature: Creature, _nextStep: Coords) {
@@ -774,7 +782,6 @@ export class HexesApp {
       }
 
       if (this.battle) {
-        //TODO: add measurement of update time & map rendering time
         this.perfDisplayPanel.startMeasure('battle.update');
         let mapUpdate: MapRenderUpdate = this.battle.update(ticker.deltaMS);
         this.perfDisplayPanel.stopMeasure('battle.update');
@@ -790,6 +797,7 @@ export class HexesApp {
       this.perfDisplayPanel.stopMeasure('frame');
 
       this.perfDisplayPanel.update();
+      this.dumbAI.update(ticker.deltaMS);
     });
   }
 

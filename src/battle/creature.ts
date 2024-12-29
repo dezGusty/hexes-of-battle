@@ -148,6 +148,4 @@ export class CreatureRepository {
 
     return result;
   }
-
-
 }

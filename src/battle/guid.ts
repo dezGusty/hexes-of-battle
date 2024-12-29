@@ -4,6 +4,11 @@ export class HobGUID {
   static equals(guid1: HobGUID, guid2: HobGUID): boolean {
     return guid1.data === guid2.data;
   }
+
+  public equals(other: HobGUID): boolean {
+    return HobGUID.equals(this, other);
+  }
+
 }
 
 export class GuidMaker {

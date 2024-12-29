@@ -39,24 +39,20 @@ All other resources should be marked accordingly either here, or with a text doc
 ### 🔉Sounds
 
 Note: sounds re-encoded via Audacium
-
-#### arrow
-
 This software uses these sounds from freesound:
-"40 Soltar Flecha.wav" by checholio ( <https://beta.freesound.org/people/checholio/sounds/443819/> ) licensed under CC0 1.0
 
-#### die
+- `arrow.ogg`
+  - "40 Soltar Flecha.wav" by checholio ( <https://beta.freesound.org/people/checholio/sounds/443819/> ) licensed under CC0 1.0
+- `die.ogg`
+  - "Grunt2 - Death Pain.wav" by tonsil5 ( <https://beta.freesound.org/people/tonsil5/sounds/416838/> ) licensed under CC0 1.0
+- missed
+  - "whoosh.wav" by petenice ( <https://beta.freesound.org/people/petenice/sounds/9509/> ) licensed under CC0 1.0
+- `move.ogg`
+  - "Schritte_BootsTeppich.wav" by hannagreen ( <https://beta.freesound.org/people/hannagreen/sounds/332006/> ) licensed under CC BY 3.0
+- `sword.ogg`
+  - "Swords Clash - High Quality #3" by Christopherderp (<https://freesound.org/people/Christopherderp/sounds/364531/>) licensed under CC0 1.0
 
-"Grunt2 - Death Pain.wav" by tonsil5 ( <https://beta.freesound.org/people/tonsil5/sounds/416838/> ) licensed under CC0 1.0
+Music
 
-#### missed
-
-"whoosh.wav" by petenice ( <https://beta.freesound.org/people/petenice/sounds/9509/> ) licensed under CC0 1.0
-
-#### move
-
-"Schritte_BootsTeppich.wav" by hannagreen ( <https://beta.freesound.org/people/hannagreen/sounds/332006/> ) licensed under CC BY 3.0
-
-#### sword
-
-"Swords Clash - High Quality #3" by Christopherderp (<https://freesound.org/people/Christopherderp/sounds/364531/>) licensed under CC0 1.0
+- `dark_whispers.ogg`
+  - Generated via [Suno](https://suno.com/)
