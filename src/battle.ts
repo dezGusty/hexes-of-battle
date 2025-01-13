@@ -1,6 +1,7 @@
 import { Creature } from "./battle/creature";
+import { TERRAIN_COST } from "./battle/terrain-types";
 import { checkFlankingStatus, HexDirection, HexFlankStatus, HexMap, reverseDirection } from "./hex-map";
-import { Coords } from "./shared";
+import { Coords, logMatrix } from "./shared";
 
 export class CreatureInBattle {
   constructor(
@@ -108,6 +109,7 @@ export class Battle {
   public rangereach_tiles: number[][] = [];
   // Units and objects which occupy a tile
   public cached_occupation_tiles: number[][] = [];
+  public terrain_tiles: number[][] = [];
 
   private nextRenderUpdate: MapRenderUpdate = new MapRenderUpdate();
   private prevRenderUpdate: MapRenderUpdate = new MapRenderUpdate();
@@ -129,32 +131,33 @@ export class Battle {
     Battle.initializeMapToSize(this.rangereach_tiles, mapWidth, mapHeight);
     Battle.initializeMapToSize(this.enemy_potential_tiles, mapWidth, mapHeight);
     Battle.initializeMapToSize(this.enemy_range_tiles, mapWidth, mapHeight);
+    Battle.initializeMapToSize(this.terrain_tiles, mapWidth, mapHeight);
 
-    // for (let i = 0; i < mapWidth; i++) {
-    //   this.pathfinding_tiles[i] = [];
-    //   this.cached_occupation_tiles[i] = [];
-    //   this.rangereach_tiles[i] = [];
-    //   this.enemy_potential_tiles[i] = [];
-    //   this.enemy_range_tiles[i] = [];
-    //   for (let j = 0; j < mapHeight; j++) {
-    //     this.pathfinding_tiles[i][j] = 0;
-    //     this.cached_occupation_tiles[i][j] = 0;
-    //     this.rangereach_tiles[i][j] = 0;
-    //     this.enemy_potential_tiles[i][j] = 0;
-    //     this.enemy_range_tiles[i][j] = 0;
-    //   }
-    // }
+    Battle.initializeTerrain(this.terrain_tiles, mapWidth, mapHeight);
+
+    logMatrix(this.terrain_tiles, mapWidth, mapHeight, "Terrain");
   }
 
   static initializeMapToSize(matrix: number[][], mapWidth: number, mapHeight: number): void {
     for (let i = 0; i < mapWidth; i++) {
       matrix[i] = [];
-
       for (let j = 0; j < mapHeight; j++) {
         matrix[i][j] = 0;
-
       }
     }
+  }
+
+  static initializeTerrain(matrix: number[][], mapWidth: number, mapHeight: number): void {
+    for (let i = 0; i < mapWidth; i++) {
+      for (let j = 0; j < mapHeight; j++) {
+        matrix[i][j] = Math.floor(Math.random() * 3);
+      }
+    }
+  }
+
+  // Getter for the terrain_tiles
+  public getTerrainAt(coords: Coords): number {
+    return this.terrain_tiles[coords.x][coords.y];
   }
 
   public hasRunningActions(): boolean {
@@ -282,16 +285,19 @@ export class Battle {
       }
 
       let neighbours = this.hexMap.getNeighbours(current.coords);
-      let neighbours_and_reach_pairs: ReachData[] = neighbours.map(neighbour => {
+      let neighbours_and_reach_pairs: ReachData[] = neighbours.map(neighbour_coords => {
+        // TODO: also add the cost for the unit, because different unit buffs will be better
+        const cost = this.getDefaultCostForCellAt(neighbour_coords);
         return {
-          coords: neighbour,
-          reach: current.reach - 1,
+          coords: neighbour_coords,
+          reach: current.reach - cost,
           cameFrom: current.coords
         }
       });
 
       // remove entries from neighbours that are already visited
-      neighbours_and_reach_pairs = neighbours_and_reach_pairs.filter(neighbour => pathfindingMatrix[neighbour.coords.x][neighbour.coords.y] === 0);
+      neighbours_and_reach_pairs = neighbours_and_reach_pairs.filter(
+        neighbour => pathfindingMatrix[neighbour.coords.x][neighbour.coords.y] === 0);
 
       for (let neighbour of neighbours_and_reach_pairs) {
         // Check presence of enemies.
@@ -318,12 +324,30 @@ export class Battle {
   }
 
 
+  public getDefaultCostForCellAt(coords: Coords): number {
+    const terrain_type = this.getTerrainAt(coords);
+    // const terrain_type = this.terrain_tiles[coords.x][coords.y];
+    if (terrain_type < 0 || terrain_type >= 6) {
+      return 10;
+    }
+    const result = TERRAIN_COST[terrain_type];
+    console.log("Cost for terrain: ", terrain_type, " at ", coords.x, coords.y, " is: ", result);
+    return result;
+  }
+
+  public setMovementCostMatrixForUnit(matrix: number[][], creature: Creature) {
+
+  }
+
   showReachableCells(creature: Creature): Coords[] {
     let reachableCells: Coords[] = [];
     let creaturePosition = creature.position;
 
     // TODO: this could also be done when movement occurs
     this.cacheCreaturesToHexMap();
+
+    // Battle.resetNumericalMatrixToZero(this.terrain_tiles);
+    // this.setMovementCostMatrixForUnit(this.terrain_tiles, creature);
 
     this.unitReachData = [];
     this.cacheMeleeReachableCells(

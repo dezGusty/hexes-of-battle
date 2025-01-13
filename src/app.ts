@@ -470,9 +470,8 @@ export class HexesApp {
           y: hexCoord.y - this.hexMap.cellSize().y / 2
         };
 
-        // get a random value between 1 and 5
-        let randomValue = 2; //Math.floor(Math.random() * 2) + 3;
-        let terrainSprite = new Sprite(this.terrainSheet?.textures[`grass_${randomValue}.png`]);
+        const terrain_type = this.battle.getTerrainAt({ x: i, y: j }) + 1;
+        let terrainSprite = new Sprite(this.terrainSheet?.textures[`terrain_${terrain_type}.png`]);
         terrainSprite.position.copyFrom(hexCoord);
         this.hexTerrainContainer.addChild(terrainSprite);
 
