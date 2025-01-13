@@ -2,7 +2,7 @@ import { Application, Sprite, Assets, Text, TextStyle, BitmapText, Spritesheet, 
 import pkg from './../package.json';
 import { HexDirection, HexEdge, HexFlankStatus, HexMap } from './hex-map';
 import { CommonControls } from './ui/common-controls';
-import { Coords, UserOptions } from './shared';
+import { Coords } from './shared';
 import { AnimationType, Battle, BattleActionType, MapRenderUpdate } from './battle';
 import { Creature, CreatureRepository, CreatureTemplate, CreatureType } from './battle/creature';
 import { ProgressBar } from '@pixi/ui';
@@ -15,6 +15,7 @@ import { TopSidePanel } from './ui/top-side-panel';
 import { AdvancedBloomFilter, OutlineFilter } from 'pixi-filters';
 import { sound } from '@pixi/sound';
 import { DumbAI } from './battle/dumb-ai';
+import { BattleSettings } from './battle/settings';
 
 export enum GameState {
   InMenu,
@@ -44,6 +45,8 @@ export class HexesApp {
 
   private mouseDragCoords: Coords = { x: 0, y: 0 };
   private mouseRightClickCoords: Coords = { x: 0, y: 0 };
+
+  private settings: BattleSettings = new BattleSettings();
 
   private terrainSheet?: Spritesheet = undefined;
   private terrainTexture?: Texture = undefined;
@@ -99,11 +102,6 @@ export class HexesApp {
   private hexCellsContainer: Container = new Container({ isRenderGroup: true });
   private hexUiRenderGroup: Container = new Container({ isRenderGroup: true });
 
-  private userOptions: UserOptions = {
-    showCoords: false, showGrid: false
-  };
-
-
   private renderContainerOffset: Coords = { x: 0, y: 0 };
 
   private DEFAULT_FONT_STYLE: TextStyle | TextStyleOptions = { fontFamily: 'GustysSerpents', fontSize: 18, align: 'left' };
@@ -116,6 +114,7 @@ export class HexesApp {
 
   constructor(public app: Application) {
     // this.currentGameState = GameState.InMenu;
+    this.settings.load();
   }
 
   /**
@@ -193,7 +192,9 @@ export class HexesApp {
   startBattle() {
     this.hookNextTurn(0, 0);
     // this.battle.selectNextUnit();
-    sound.play('track_dark_whispers', { loop: true, volume: 0.15 });
+    if (this.settings.sound.musicOn) {
+      sound.play('track_dark_whispers', { loop: true, volume: this.settings.sound.musicVolume });
+    }
   }
 
 
@@ -356,13 +357,19 @@ export class HexesApp {
     });
 
     this.commonControls.toggleCoordsButton?.onPress.connect(() => {
+      this.settings.debug.showCoords = !this.settings.debug.showCoords;
+      this.settings.save();
+
       this.coordsTexts.forEach((text) => {
-        text.visible = !text.visible;
+        text.visible = this.settings.debug.showCoords;
       });
     });
 
     this.commonControls.toggleGridButton?.onPress.connect(() => {
-      this.hexCellsGridContainer.visible = !this.hexCellsGridContainer.visible;
+      this.settings.hex.showGrid = !this.settings.hex.showGrid;
+      this.settings.save();
+
+      this.hexCellsGridContainer.visible = this.settings.hex.showGrid;
     });
 
     this.commonControls.nextTurnButton?.onPress.connect(() => {
@@ -406,6 +413,16 @@ export class HexesApp {
       }
 
       this.perfDisplayPanel.toggleVisibility(this.uiRenderGroup, this.uiSheet);
+    });
+
+    this.commonControls.toggleMusicButton?.onPress.connect(() => {
+      this.settings.sound.musicOn = !this.settings.sound.musicOn;
+      this.settings.save();
+      if (this.settings.sound.musicOn) {
+        sound.play('track_dark_whispers', { loop: true, volume: this.settings.sound.musicVolume });
+      } else {
+        sound.stop('track_dark_whispers');
+      }
     });
 
     if (this.uiSheet) {
@@ -470,14 +487,14 @@ export class HexesApp {
 
         let coordsText = new BitmapText({ text: `${i},${j}`, style: this.DEFAULT_FONT_STYLE, });
         coordsText.position.copyFrom(hexCoord);
-        coordsText.visible = this.userOptions.showCoords;
+        coordsText.visible = this.settings.debug.showCoords;
 
         this.coordsTexts.push(coordsText);
         this.hexUiRenderGroup.addChild(coordsText);
       }
     }
 
-    this.hexCellsGridContainer.visible = this.userOptions.showGrid;
+    this.hexCellsGridContainer.visible = this.settings.hex.showGrid;
 
     for (let i = 0; i < this.hexMap.height; i++) {
       // Add a render group
@@ -583,12 +600,12 @@ export class HexesApp {
       || attackType === BattleActionType.COUNTER_ATTACK_MELEE) {
       // Get a random value between 0.9 and 1.1
       const speedFactor = 0.9 + Math.random() * 0.2;
-      sound.play('sword', { speed: speedFactor });
+      sound.play('sword', { speed: speedFactor, volume: this.settings.sound.soundVolume });
     }
 
     if (attackType === BattleActionType.ATTACK_RANGED) {
       const speedFactor = 0.9 + Math.random() * 0.2;
-      sound.play('arrow', { speed: speedFactor });
+      sound.play('arrow', { speed: speedFactor, volume: this.settings.sound.soundVolume });
     }
   }
 
@@ -614,11 +631,12 @@ export class HexesApp {
 
   hookMovingUnit(_creature: Creature, _nextStep: Coords) {
     const speedFactor = 0.9 + Math.random() * 0.2;
-    sound.play('move', { speed: speedFactor });
+    sound.play('move', { speed: speedFactor, volume: this.settings.sound.soundVolume });
   }
 
   hookUnitDied(_creature: Creature) {
-    sound.play('die');
+    const speedFactor = 0.9 + Math.random() * 0.2;
+    sound.play('die', { speed: speedFactor, volume: this.settings.sound.soundVolume });
   }
 
   hookBattleFinished(victorArmyIndex: number) {
