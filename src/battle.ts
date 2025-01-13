@@ -335,7 +335,7 @@ export class Battle {
     return result;
   }
 
-  public setMovementCostMatrixForUnit(matrix: number[][], creature: Creature) {
+  public setMovementCostMatrixForUnit(_matrix: number[][], _creature: Creature) {
 
   }
 
