@@ -14,10 +14,10 @@ export class DamageValueDisplay {
   private travelDistance: Coords = { x: 10, y: -105 };
   private startingDurationInMillis: number = DamageValueDisplay.DEFAULT_DURATION_IN_MILLIS;
 
-  public constructor(private damageValue: number, private view: Container, public remainingDurationInMillis: number, coords: Coords) {
+  public constructor(private damageValue: string, private view: Container, public remainingDurationInMillis: number, coords: Coords) {
     this.startingDurationInMillis = remainingDurationInMillis;
     this.attackNumberText.position = coords;
-    this.attackNumberText.text = "" + damageValue.toString();
+    this.attackNumberText.text = "" + damageValue;
     this.view.addChild(this.attackNumberText);
   }
 
@@ -42,7 +42,7 @@ export class DamageValueDisplay {
 export class DamageValueCollection {
   private damageValues: DamageValueDisplay[] = [];
 
-  public addDamageValue(damageValue: number, view: Container, coords: Coords) {
+  public addDamageValue(damageValue: string, view: Container, coords: Coords) {
     const damageValueDisplay = new DamageValueDisplay(damageValue, view, DamageValueDisplay.DEFAULT_DURATION_IN_MILLIS, coords);
     this.damageValues.push(damageValueDisplay);
   }

@@ -33,6 +33,12 @@ export enum HexEdge {
   SOUTHEAST = 12
 }
 
+export enum HexFlankStatus {
+  NONE = 0,
+  FLANK = 1,
+  BACKSTAB = 2
+}
+
 export function reverseDirection(direction: HexDirection): HexDirection {
   switch (direction) {
     case HexDirection.EAST:
@@ -71,6 +77,39 @@ export function hexDirectionToString(direction: HexDirection): string {
       return "UNKNOWN";
   }
 }
+
+/**
+* Checks whether the attacker attacks from a flanking direction.
+* @param facingDir The direction that the unit is facing in.
+* @param attackFromDir The direction from which the attack is coming from.
+* @returns The flank status.
+*/
+export function checkFlankingStatus(facingDir: HexDirection, attackFromDir: HexDirection): HexFlankStatus {
+  if (facingDir === HexDirection.NONE || attackFromDir === HexDirection.NONE) {
+    return HexFlankStatus.NONE;
+  }
+
+  // Directions
+  //     \ 3 |  2 /
+  //      \/  \ /
+  //    4 |   |  1
+  //     /\  / \
+  //   / 5 |  6 \
+  // If the unit is facing direction 4 and
+  // - the attack is coming from direction 2 or 6, it is a flanking attack.
+  // - the attack is coming from direction 1, it is a backstab.
+  // - the attack is coming from other directions, it is a normal attack.
+
+  const relativeDir = (6 + attackFromDir - facingDir) % 6 + 1;
+  if (relativeDir === 3 || relativeDir === 5) {
+    return HexFlankStatus.FLANK;
+  } else if (relativeDir === 4) {
+    return HexFlankStatus.BACKSTAB;
+  }
+
+  return HexFlankStatus.NONE;
+}
+
 
 export class HexMap {
 

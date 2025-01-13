@@ -1,5 +1,5 @@
 import { Creature } from "./battle/creature";
-import { HexDirection, HexMap, reverseDirection } from "./hex-map";
+import { checkFlankingStatus, HexDirection, HexFlankStatus, HexMap, reverseDirection } from "./hex-map";
 import { Coords } from "./shared";
 
 export class CreatureInBattle {
@@ -973,15 +973,9 @@ export class Battle {
     }
 
     let thisCreature = this.creatures[this.activeCreatureIndex];
-    let damage = currentAction.type == BattleActionType.ATTACK_MELEE ? thisCreature.getRandomAttackDamageMelee() : thisCreature.getRandomAttackDamageRanged();
-    let armor = currentAction.type == BattleActionType.ATTACK_MELEE ? creatureInBattle.creature.stats.defense_melee : creatureInBattle.creature.stats.defense_ranged;
-    damage -= armor;
 
+    this.applyAttackDamage(thisCreature, creatureInBattle.creature, currentAction.type);
 
-    this.hookDoingAttack(thisCreature, creatureInBattle.creature, damage, currentAction.type);
-
-    creatureInBattle.creature.takeDamage(damage);
-    console.log(`Dealt ${damage} damage to the creature`);
     if (!creatureInBattle.creature.isAlive) {
       console.log("The creature has died");
       this.hookUnitDied(creatureInBattle.creature);
@@ -1000,7 +994,11 @@ export class Battle {
     return counterattacking;
   }
 
-  hookDoingAttack(_thisCreature: Creature, _creature: Creature, _damage: number, _attackType: BattleActionType) {
+  hookDoingAttack(_thisCreature: Creature,
+    _creature: Creature,
+    _damage: number,
+    _attackType: BattleActionType,
+    _flankStatus: HexFlankStatus) {
     console.log("hookDoingAttack not implemented.");
   }
 
@@ -1080,14 +1078,8 @@ export class Battle {
       return;
     }
 
-    let damage = currentAction.sourceUnit.getRandomAttackDamageMelee();
-    let armor = currentAction.targetUnit.stats.defense_melee;
-    damage -= armor;
+    this.applyAttackDamage(currentAction.sourceUnit, currentAction.targetUnit, BattleActionType.COUNTER_ATTACK_MELEE);
 
-    this.hookDoingAttack(currentAction.sourceUnit, currentAction.targetUnit, damage, BattleActionType.COUNTER_ATTACK_MELEE);
-
-    currentAction.targetUnit.takeDamage(damage);
-    console.log(`Dealt ${damage} damage to the creature`);
     if (!currentAction.targetUnit.isAlive) {
       console.log("The creature has died");
       const targetUnitIndex = this.creatures.findIndex((element) => element === currentAction.targetUnit);
@@ -1102,4 +1094,51 @@ export class Battle {
 
     currentAction.sourceUnit.stats.remaining_counterattacks--;
   }
+
+  /**
+   * 
+   * @param source The creature that is attacking (or counterattacking)
+   * @param target The creature being hit
+   * @param attackType The type of attack
+   */
+  private applyAttackDamage(source: Creature, target: Creature, attackType: BattleActionType) {
+    let sourceDamage = 0;
+    let targetArmor = 0;
+    if (attackType == BattleActionType.ATTACK_MELEE || attackType == BattleActionType.COUNTER_ATTACK_MELEE) {
+      sourceDamage = source.getRandomAttackDamageMelee();
+      targetArmor = target.stats.defense_melee;
+    } else {
+      sourceDamage = source.getRandomAttackDamageRanged();
+      targetArmor = target.stats.defense_ranged;
+    }
+
+    const attackFromDir = reverseDirection(source.facingDirection);
+    let flankStatus = checkFlankingStatus(target.facingDirection, attackFromDir);
+    if (flankStatus == HexFlankStatus.BACKSTAB) {
+      // backstab bonus
+      sourceDamage += 2;
+      console.log('+2 backstab damage!! attack from dir: ' + attackFromDir + ', target facing: ' + target.facingDirection);
+    } else if (flankStatus == HexFlankStatus.FLANK) {
+      // flank bonus
+      sourceDamage += 1;
+      console.log('+1 flanking damage! attack from dir: ' + attackFromDir + ', target facing: ' + target.facingDirection);
+    }
+
+    // TODO: also filter the buffs/debuffs/passive skills that affect damage and armor
+    //target.abilities.filter(ability => ability.type == AbilityType.PASSIVE && ability.affects == AbilityAffects.DAMAGE_CALC)
+    // sort abilities by priority
+    // apply the abilities
+
+    let damage = sourceDamage - targetArmor;
+    if (damage < 0) {
+      // make certain that we don't heal the target
+      damage = 0;
+    }
+
+    this.hookDoingAttack(source, target, damage, attackType, flankStatus);
+    target.takeDamage(damage);
+    console.log(`Dealt ${damage} damage to the creature`);
+  }
+
+
 }

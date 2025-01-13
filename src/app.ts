@@ -1,6 +1,6 @@
 import { Application, Sprite, Assets, Text, TextStyle, BitmapText, Spritesheet, Texture, Container, TextStyleOptions, AnimatedSprite } from 'pixi.js';
 import pkg from './../package.json';
-import { HexDirection, HexEdge, HexMap } from './hex-map';
+import { HexDirection, HexEdge, HexFlankStatus, HexMap } from './hex-map';
 import { CommonControls } from './ui/common-controls';
 import { Coords, UserOptions } from './shared';
 import { AnimationType, Battle, BattleActionType, MapRenderUpdate } from './battle';
@@ -543,8 +543,8 @@ export class HexesApp {
     creature.facingDirection = HexDirection.WEST;
     this.battle.creatures.push(creature);
 
-    this.battle.hookDoingAttack = (attacker, defender, damage, attackType) => {
-      this.hookDoingAttack(attacker, defender, damage, attackType);
+    this.battle.hookDoingAttack = (attacker, defender, damage, attackType, flankStatus) => {
+      this.hookDoingAttack(attacker, defender, damage, attackType, flankStatus);
     };
 
     this.battle.hookNextTurn = (turnNum, armyIdx) => {
@@ -570,9 +570,15 @@ export class HexesApp {
     this.renderUnits(new MapRenderUpdate());
   }
 
-  hookDoingAttack(_attacker: Creature, defender: Creature, damage: number, attackType: BattleActionType) {
+  hookDoingAttack(_attacker: Creature, defender: Creature, damage: number, attackType: BattleActionType, flankStatus: HexFlankStatus) {
     const defenderPixelCoords = this.hexMap.hexToPixel(defender.position.x, defender.position.y);
-    this.damageValueDisplay.addDamageValue(damage, this.uiPlusRenderGroup, defenderPixelCoords);
+    let damageText = "" + damage;
+    if (flankStatus === HexFlankStatus.BACKSTAB) {
+      damageText += "\n(backstab)";
+    } else if (flankStatus === HexFlankStatus.FLANK) {
+      damageText += "\n(flanking)";
+    }
+    this.damageValueDisplay.addDamageValue(damageText, this.uiPlusRenderGroup, defenderPixelCoords);
     if (attackType === BattleActionType.ATTACK_MELEE
       || attackType === BattleActionType.COUNTER_ATTACK_MELEE) {
       // Get a random value between 0.9 and 1.1
