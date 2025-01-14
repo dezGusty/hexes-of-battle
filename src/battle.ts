@@ -432,6 +432,14 @@ export class Battle {
     }
   }
 
+  private getMovementCostForPath(path: Coords[], _creature: Creature): number {
+    let cost = 0;
+    for (let i = 0; i < path.length; i++) {
+      cost += this.getDefaultCostForCellAt(path[i]);
+    }
+    return cost;
+  }
+
   public moveOrAttackWithActiveCreatureAtLocation(coords: Coords, optionalDirection: HexDirection, meleePreference: boolean = false) {
     if (this.activeCreatureIndex < 0) {
       return;
@@ -448,7 +456,8 @@ export class Battle {
       // move creature.
       console.log("Moving creature to cell: ", coords);
       const path = this.findPathFromSelectedUnitToCell(coords);
-      creature.stats.remaining_movement -= path.length;
+      // creature.stats.remaining_movement -= path.length;
+      creature.stats.remaining_movement -= this.getMovementCostForPath(path, creature);
       this.currentActions.push(new BattleAction(BattleActionType.MOVE, path, 0, 50, 50));
       this.nextRenderUpdate.hoverOverCell = null;
       this.nextRenderUpdate.hoverPath = [];
@@ -511,7 +520,9 @@ export class Battle {
       path = this.findPathFromSelectedUnitToCell(coords);
       path.pop();
     }
-    creature.stats.remaining_movement -= path.length;
+    // creature.stats.remaining_movement -= path.length;
+    creature.stats.remaining_movement -= this.getMovementCostForPath(path, creature);
+    
     console.log("Adding action to move with path: ", path);
     this.currentActions.push(new BattleAction(BattleActionType.MOVE, path, 0, 50, 50, creature, creatureAtTarget.creature));
     console.log("Adding action to attack at: ", coords);
