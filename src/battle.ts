@@ -133,7 +133,7 @@ export class Battle {
     Battle.initializeMapToSize(this.enemy_range_tiles, mapWidth, mapHeight);
     Battle.initializeMapToSize(this.terrain_tiles, mapWidth, mapHeight);
 
-    Battle.initializeTerrain(this.terrain_tiles, mapWidth, mapHeight);
+    Battle.generateRandomTerrain(this.terrain_tiles, mapWidth, mapHeight);
 
     logMatrix(this.terrain_tiles, mapWidth, mapHeight, "Terrain");
   }
@@ -147,10 +147,25 @@ export class Battle {
     }
   }
 
-  static initializeTerrain(matrix: number[][], mapWidth: number, mapHeight: number): void {
+  static generateRandomTerrain(matrix: number[][], mapWidth: number, mapHeight: number): void {
+    // Set-up the weights for the terrain types
+    const weights: number[] = [5, 1, 1, 0, 0];
+    const terrain_type_limits: number[] = weights.map(
+      (value, index) => {
+        return value + weights.reduce((x, y, i) => i < index ? x + y : x, 0);
+      });
+
+    console.log("Weights: ", weights);
+    console.log("Terrain type limits: ", terrain_type_limits);
+
+    const sum = weights.reduce((a, b) => a + b, 0);
     for (let i = 0; i < mapWidth; i++) {
       for (let j = 0; j < mapHeight; j++) {
-        matrix[i][j] = Math.floor(Math.random() * 3);
+        const random_value = Math.floor(Math.random() * sum);
+        // assign the terrain type based on the random value and the weights
+        // find the entry in the terrain_type_limits that is greater than the random value
+        let terrain_type = terrain_type_limits.findIndex((value) => value > random_value);
+        matrix[i][j] = terrain_type;
       }
     }
   }
@@ -331,7 +346,6 @@ export class Battle {
       return 10;
     }
     const result = TERRAIN_COST[terrain_type];
-    console.log("Cost for terrain: ", terrain_type, " at ", coords.x, coords.y, " is: ", result);
     return result;
   }
 
@@ -522,7 +536,7 @@ export class Battle {
     }
     // creature.stats.remaining_movement -= path.length;
     creature.stats.remaining_movement -= this.getMovementCostForPath(path, creature);
-    
+
     console.log("Adding action to move with path: ", path);
     this.currentActions.push(new BattleAction(BattleActionType.MOVE, path, 0, 50, 50, creature, creatureAtTarget.creature));
     console.log("Adding action to attack at: ", coords);
