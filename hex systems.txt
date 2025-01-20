@@ -36,3 +36,7 @@ Turn mechanics:
   - RNG based hitting based on attack and defence ratings  
 
 
+- fatigue system:
+  - eador: running out of stamina makes the unit unable to move; takes increased damage, inflicts decreased damage, reduces speed.
+    - reduced stamina when entering hill/forest/swaps, -2 when moving and attacking in same turn, -1 when attacking without moving, -3 forced march
+  - total war series: exhausted units have 65% armor, 85% speed, 80% charge bonus, 70% melee def, 65% reload speed.
