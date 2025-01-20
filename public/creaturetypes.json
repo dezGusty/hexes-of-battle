@@ -2,109 +2,115 @@
   {
     "name": "peasant",
     "stats": {
-      "attack_melee_low": 3,
-      "attack_melee_high": 6,
-      "attack_ranged_low": 0,
-      "attack_ranged_high": 0,
-      "defense_melee": 0,
-      "defense_ranged": 0,
-      "health": 12,
-      "initiative": 3,
-      "is_ranged": false,
-      "num_attacks": 1,
-      "num_counterattacks": 1,
-      "num_moves": 3,
-      "range": 1
-    }
-  },
-  {
-    "name": "swordsman",
-    "stats": {
-      "attack_melee_low": 6,
-      "attack_melee_high": 7,
-      "attack_ranged_low": 0,
-      "attack_ranged_high": 0,
-      "defense_melee": 2,
-      "defense_ranged": 1,
-      "health": 14,
-      "initiative": 2,
-      "is_ranged": false,
-      "num_attacks": 1,
-      "num_counterattacks": 1,
-      "num_moves": 2,
-      "range": 1
-    }
-  },
-  {
-    "name": "spearman",
-    "stats": {
-      "attack_melee_low": 4,
-      "attack_melee_high": 7,
-      "attack_ranged_low": 0,
-      "attack_ranged_high": 0,
-      "defense_melee": 1,
-      "defense_ranged": 0,
-      "health": 13,
-      "initiative": 5,
-      "is_ranged": false,
-      "num_attacks": 1,
-      "num_counterattacks": 1,
-      "num_moves": 3,
-      "range": 1
-    }
-  },
-  {
-    "name": "barbarian",
-    "stats": {
       "attack_melee_low": 6,
       "attack_melee_high": 9,
       "attack_ranged_low": 0,
       "attack_ranged_high": 0,
       "defense_melee": 0,
       "defense_ranged": 0,
-      "health": 14,
+      "health": 24,
+      "initiative": 3,
+      "is_ranged": false,
+      "num_attacks": 1,
+      "num_counterattacks": 1,
+      "num_moves": 3,
+      "range": 1,
+      "stamina": 9
+    }
+  },
+  {
+    "name": "swordsman",
+    "stats": {
+      "attack_melee_low": 9,
+      "attack_melee_high": 10,
+      "attack_ranged_low": 0,
+      "attack_ranged_high": 0,
+      "defense_melee": 3,
+      "defense_ranged": 2,
+      "health": 28,
+      "initiative": 2,
+      "is_ranged": false,
+      "num_attacks": 1,
+      "num_counterattacks": 1,
+      "num_moves": 2,
+      "range": 1,
+      "stamina": 9
+    }
+  },
+  {
+    "name": "spearman",
+    "stats": {
+      "attack_melee_low": 7,
+      "attack_melee_high": 10,
+      "attack_ranged_low": 0,
+      "attack_ranged_high": 0,
+      "defense_melee": 1,
+      "defense_ranged": 0,
+      "health": 26,
+      "initiative": 5,
+      "is_ranged": false,
+      "num_attacks": 1,
+      "num_counterattacks": 1,
+      "num_moves": 3,
+      "range": 1,
+      "stamina": 10
+    }
+  },
+  {
+    "name": "barbarian",
+    "stats": {
+      "attack_melee_low": 9,
+      "attack_melee_high": 12,
+      "attack_ranged_low": 0,
+      "attack_ranged_high": 0,
+      "defense_melee": 0,
+      "defense_ranged": 0,
+      "health": 28,
       "initiative": 4,
       "is_ranged": false,
       "num_attacks": 1,
       "num_counterattacks": 1,
       "num_moves": 3,
-      "range": 1
+      "range": 1,
+      "stamina": 12
     }
   },
   {
     "name": "peasant-archer",
     "stats": {
-      "attack_melee_low": 2,
-      "attack_melee_high": 3,
-      "attack_ranged_low": 4,
-      "attack_ranged_high": 6,
+      "attack_melee_low": 5,
+      "attack_melee_high": 6,
+      "attack_ranged_low": 7,
+      "attack_ranged_high": 8,
       "defense_melee": 0,
       "defense_ranged": 0,
-      "health": 13,
+      "health": 22,
       "initiative": 3,
       "is_ranged": true,
       "num_attacks": 1,
       "num_counterattacks": 1,
       "num_moves": 3,
-      "range": 6
+      "range": 6,
+      "stamina": 10
     }
   },
   {
     "name": "crossbowman",
     "stats": {
-      "attack_melee_low": 2,
-      "attack_melee_high": 3,
-      "attack_ranged_low": 5,
-      "attack_ranged_high": 7,
-      "defense_melee": 1,
+      "attack_melee_low": 5,
+      "attack_melee_high": 6,
+      "attack_ranged_low": 8,
+      "attack_ranged_high": 10,
+      "defense_melee": 2,
       "defense_ranged": 1,
-      "health": 11,
+      "health": 22,
       "initiative": 2,
       "is_ranged": true,
       "num_attacks": 1,
       "num_counterattacks": 1,
       "num_moves": 2,
-      "range": 4
+      "range": 4,
+      "stamina": 10
     }
   }
 ]

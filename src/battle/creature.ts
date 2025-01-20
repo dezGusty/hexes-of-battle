@@ -20,6 +20,7 @@ export class CreatureStats {
   remaining_counterattacks: number = 1;
   remaining_movement: number = 3;
   num_moves: number = 3;
+  stamina: number = 10;
 }
 
 export enum CreatureType {
@@ -64,7 +65,8 @@ export class Creature {
     remaining_health: 12,
     remaining_movement: 4,
 
-    num_moves: 4
+    num_moves: 4,
+    stamina: 10
   };
 
   public position: Coords = { x: 0, y: 0 };
