@@ -211,6 +211,43 @@ export class HexMap {
     return { coord: result, value: data[result.x][result.y] };
   }
 
+  /**
+   * Used in edge detection. Checks if the directions are free or null.
+   * @param coords Starting coordinates.
+   * @param dir1 Direction in which to find the neighbour.
+   * @returns New coordinates in the given direction, or null if the direction is unrecognized.
+   */
+  private static are3DirectionsFreeOrNull(
+    neighbours: Array<{ coord: Coords, value: number } | null>,
+    dir1: HexDirection, dir2: HexDirection, dir3: HexDirection): boolean {
+    if ((!neighbours[dir1] || neighbours[dir1].value < 1)
+      && (!neighbours[dir2] || neighbours[dir2].value < 1)
+      && (!neighbours[dir3] || neighbours[dir3].value < 1)
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Used in edge detection. Checks if the directions are free or null.
+   * @param coords Starting coordinates.
+   * @param dir1 Direction in which to find the neighbour.
+   * @returns New coordinates in the given direction, or null if the direction is unrecognized.
+   */
+  private static are2DirectionsFreeOrNull(
+    neighbours: Array<{ coord: Coords, value: number } | null>,
+    dir1: HexDirection, dir2: HexDirection): boolean {
+    if ((!neighbours[dir1] || neighbours[dir1].value < 1)
+      && (!neighbours[dir2] || neighbours[dir2].value < 1)
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
   private static getSingleEdgeForDataCell(data: number[][], width: number, height: number, x: number, y: number): HexEdge {
     // check all neighbours
     let neighbours: Array<{ coord: Coords, value: number } | null> = [];
@@ -220,59 +257,44 @@ export class HexMap {
     }
 
     let edgeDir = HexEdge.NORTH;
-    if ((!neighbours[HexDirection.EAST] || neighbours[HexDirection.EAST].value < 1)
-      && (!neighbours[HexDirection.NORTHEAST] || neighbours[HexDirection.NORTHEAST].value < 1)
-      && (!neighbours[HexDirection.SOUTHEAST] || neighbours[HexDirection.SOUTHEAST].value < 1)
-    ) {
+    if (HexMap.are3DirectionsFreeOrNull(neighbours, HexDirection.EAST, HexDirection.NORTHEAST, HexDirection.SOUTHEAST)) {
       return HexEdge.EAST;
-    } else if ((!neighbours[HexDirection.EAST] || neighbours[HexDirection.EAST].value < 1)
-      && (!neighbours[HexDirection.NORTHEAST] || neighbours[HexDirection.NORTHEAST].value < 1)
-      && (!neighbours[HexDirection.NORTHWEST] || neighbours[HexDirection.NORTHWEST].value < 1)
-    ) {
+    }
+    if (HexMap.are3DirectionsFreeOrNull(neighbours, HexDirection.EAST, HexDirection.NORTHEAST, HexDirection.NORTHWEST)) {
       return HexEdge.NORTH_NORTHEAST;
-    } else if ((!neighbours[HexDirection.WEST] || neighbours[HexDirection.WEST].value < 1)
-      && (!neighbours[HexDirection.NORTHEAST] || neighbours[HexDirection.NORTHEAST].value < 1)
-      && (!neighbours[HexDirection.NORTHWEST] || neighbours[HexDirection.NORTHWEST].value < 1)
-    ) {
+    }
+    if (HexMap.are3DirectionsFreeOrNull(neighbours, HexDirection.WEST, HexDirection.NORTHEAST, HexDirection.NORTHWEST)) {
       return HexEdge.NORTH_NORTHWEST;
-    } else if ((!neighbours[HexDirection.EAST] || neighbours[HexDirection.EAST].value < 1)
-      && (!neighbours[HexDirection.SOUTHEAST] || neighbours[HexDirection.SOUTHEAST].value < 1)
-      && (!neighbours[HexDirection.SOUTHWEST] || neighbours[HexDirection.SOUTHWEST].value < 1)
-    ) {
+    }
+    if (HexMap.are3DirectionsFreeOrNull(neighbours, HexDirection.EAST, HexDirection.SOUTHEAST, HexDirection.SOUTHWEST)) {
       return HexEdge.SOUTH_SOUTHEAST;
-    } else if ((!neighbours[HexDirection.WEST] || neighbours[HexDirection.WEST].value < 1)
-      && (!neighbours[HexDirection.SOUTHEAST] || neighbours[HexDirection.SOUTHEAST].value < 1)
-      && (!neighbours[HexDirection.SOUTHWEST] || neighbours[HexDirection.SOUTHWEST].value < 1)
-    ) {
+    }
+    if (HexMap.are3DirectionsFreeOrNull(neighbours, HexDirection.WEST, HexDirection.SOUTHEAST, HexDirection.SOUTHWEST)) {
       return HexEdge.SOUTH_SOUTHWEST;
-    } else if ((!neighbours[HexDirection.EAST] || neighbours[HexDirection.EAST].value < 1)
-      && (!neighbours[HexDirection.NORTHEAST] || neighbours[HexDirection.NORTHEAST].value < 1)
-    ) {
-      return HexEdge.NORTHEAST;
-    } else if ((!neighbours[HexDirection.EAST] || neighbours[HexDirection.EAST].value < 1)
-      && (!neighbours[HexDirection.SOUTHEAST] || neighbours[HexDirection.SOUTHEAST].value < 1)
-    ) {
-      return HexEdge.SOUTHEAST;
-    } else if ((!neighbours[HexDirection.WEST] || neighbours[HexDirection.WEST].value < 1)
-      && (!neighbours[HexDirection.NORTHWEST] || neighbours[HexDirection.NORTHWEST].value < 1)
-      && (!neighbours[HexDirection.SOUTHWEST] || neighbours[HexDirection.SOUTHWEST].value < 1)
-    ) {
+    }
+    if (HexMap.are3DirectionsFreeOrNull(neighbours, HexDirection.WEST, HexDirection.SOUTHEAST, HexDirection.SOUTHWEST)) {
+      return HexEdge.SOUTH_SOUTHWEST;
+    }
+    if (HexMap.are3DirectionsFreeOrNull(neighbours, HexDirection.WEST, HexDirection.NORTHWEST, HexDirection.SOUTHWEST)) {
       return HexEdge.WEST;
-    } else if ((!neighbours[HexDirection.WEST] || neighbours[HexDirection.WEST].value < 1)
-      && (!neighbours[HexDirection.NORTHWEST] || neighbours[HexDirection.NORTHWEST].value < 1)
-    ) {
+    }
+
+    if (HexMap.are2DirectionsFreeOrNull(neighbours, HexDirection.EAST, HexDirection.NORTHEAST)) {
+      return HexEdge.NORTHEAST;
+    }
+    if (HexMap.are2DirectionsFreeOrNull(neighbours, HexDirection.EAST, HexDirection.SOUTHEAST)) {
+      return HexEdge.SOUTHEAST;
+    }
+    if (HexMap.are2DirectionsFreeOrNull(neighbours, HexDirection.WEST, HexDirection.NORTHWEST)) {
       return HexEdge.NORTHWEST;
-    } else if ((!neighbours[HexDirection.WEST] || neighbours[HexDirection.WEST].value < 1)
-      && (!neighbours[HexDirection.SOUTHWEST] || neighbours[HexDirection.SOUTHWEST].value < 1)
-    ) {
+    }
+    if (HexMap.are2DirectionsFreeOrNull(neighbours, HexDirection.WEST, HexDirection.SOUTHWEST)) {
       return HexEdge.SOUTHWEST;
-    } else if ((!neighbours[HexDirection.NORTHEAST] || neighbours[HexDirection.NORTHEAST].value < 1)
-      && (!neighbours[HexDirection.NORTHWEST] || neighbours[HexDirection.NORTHWEST].value < 1)
-    ) {
+    }
+    if (HexMap.are2DirectionsFreeOrNull(neighbours, HexDirection.NORTHEAST, HexDirection.NORTHWEST)) {
       return HexEdge.NORTH;
-    } else if ((!neighbours[HexDirection.SOUTHEAST] || neighbours[HexDirection.SOUTHEAST].value < 1)
-      && (!neighbours[HexDirection.SOUTHWEST] || neighbours[HexDirection.SOUTHWEST].value < 1)
-    ) {
+    }
+    if (HexMap.are2DirectionsFreeOrNull(neighbours, HexDirection.SOUTHEAST, HexDirection.SOUTHWEST)) {
       return HexEdge.SOUTH;
     }
 
@@ -476,19 +498,14 @@ export class HexMap {
     // sin(60deg) ~= 0.866
     // sin(30deg) == 0.5
     if (report > 0.5) {
+      // east, west
       return deltaX > 0 ? HexDirection.EAST : HexDirection.WEST;
-    } else {
-      // norteast, northwest, southeast, southwest
-      if (deltaY > 0) {
-        return deltaX > 0 ? HexDirection.SOUTHEAST : HexDirection.SOUTHWEST;
-      } else {
-        return deltaX > 0 ? HexDirection.NORTHEAST : HexDirection.NORTHWEST;
-      }
-
     }
-
-
-    return HexDirection.NONE;
+    // norteast, northwest, southeast, southwest
+    if (deltaY > 0) {
+      return deltaX > 0 ? HexDirection.SOUTHEAST : HexDirection.SOUTHWEST;
+    }
+    return deltaX > 0 ? HexDirection.NORTHEAST : HexDirection.NORTHWEST;
   }
 }
 

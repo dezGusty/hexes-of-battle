@@ -23,7 +23,7 @@ export class TopSidePanel {
       }
       if (this.bannerRight) {
         this.bannerRight.alpha = 0.5;
-      } 
+      }
       if (this.bannerLeft) {
         this.bannerLeft.alpha = 1;
       }
@@ -50,17 +50,20 @@ export class TopSidePanel {
       this.bannerLeft = undefined;
     }
 
-    if (texture) {
-      this.bannerLeft = new Sprite(texture);
-      this.bannerLeft.position = { x: TopSidePanel.DEFAULT_BORDER_SIZE, y: TopSidePanel.DEFAULT_BORDER_SIZE };
-      if (this.bannerLeftBg) {
-        this.bannerLeft.x += this.bannerLeftBg.x;
-        this.bannerLeft.y += this.bannerLeftBg.y;
-      }
-      this.bannerLeft.width = TopSidePanel.DEFAULT_BANNER_SIZE;
-      this.bannerLeft.height = TopSidePanel.DEFAULT_BANNER_SIZE;
-      this.window.addChild(this.bannerLeft);
+    if (!texture) {
+      return;
     }
+
+    this.bannerLeft = new Sprite(texture);
+    this.bannerLeft.position = { x: TopSidePanel.DEFAULT_BORDER_SIZE, y: TopSidePanel.DEFAULT_BORDER_SIZE };
+    if (this.bannerLeftBg) {
+      this.bannerLeft.x += this.bannerLeftBg.x;
+      this.bannerLeft.y += this.bannerLeftBg.y;
+    }
+    this.bannerLeft.width = TopSidePanel.DEFAULT_BANNER_SIZE;
+    this.bannerLeft.height = TopSidePanel.DEFAULT_BANNER_SIZE;
+    this.window.addChild(this.bannerLeft);
+
   }
 
   setLeftArmyName(name: string) {
@@ -83,17 +86,19 @@ export class TopSidePanel {
       this.bannerRight = undefined;
     }
 
-    if (texture) {
-      this.bannerRight = new Sprite(texture);
-      this.bannerRight.position = { x: TopSidePanel.DEFAULT_BORDER_SIZE, y: TopSidePanel.DEFAULT_BORDER_SIZE };
-      if (this.bannerRightBg) {
-        this.bannerRight.x += this.bannerRightBg.x;
-        this.bannerRight.y += this.bannerRightBg.y;
-      }
-      this.bannerRight.width = TopSidePanel.DEFAULT_BANNER_SIZE;
-      this.bannerRight.height = TopSidePanel.DEFAULT_BANNER_SIZE;
-      this.window.addChild(this.bannerRight);
+    if (!texture) {
+      return;
     }
+    
+    this.bannerRight = new Sprite(texture);
+    this.bannerRight.position = { x: TopSidePanel.DEFAULT_BORDER_SIZE, y: TopSidePanel.DEFAULT_BORDER_SIZE };
+    if (this.bannerRightBg) {
+      this.bannerRight.x += this.bannerRightBg.x;
+      this.bannerRight.y += this.bannerRightBg.y;
+    }
+    this.bannerRight.width = TopSidePanel.DEFAULT_BANNER_SIZE;
+    this.bannerRight.height = TopSidePanel.DEFAULT_BANNER_SIZE;
+    this.window.addChild(this.bannerRight);
   }
 
   public constructor(private view: Container, private uiSheet: Spritesheet) {

@@ -9,6 +9,9 @@ export class HobGUID {
     return HobGUID.equals(this, other);
   }
 
+  public getData(): string {
+    return this.data;
+  }
 }
 
 export class GuidMaker {
