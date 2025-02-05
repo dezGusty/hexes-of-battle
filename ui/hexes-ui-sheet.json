@@ -212,6 +212,22 @@
                 "h": 32
             }
         },
+        "glyph_toggle_music.png": {
+            "frame": {
+                "x": 239,
+                "y": 1,
+                "w": 32,
+                "h": 32
+            }
+        },
+        "glyph_toggle_perf_stats.png": {
+            "frame": {
+                "x": 239,
+                "y": 35,
+                "w": 32,
+                "h": 32
+            }
+        },
         "panel.png": {
             "frame": {"x": 397,"y": 151,"w": 64,"h": 64}
         },
