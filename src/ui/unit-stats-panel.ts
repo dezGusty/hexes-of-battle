@@ -30,7 +30,7 @@ export class UnitStatsPanel {
   private faceBg?: NineSliceSprite = undefined;
 
   public setCreature(creature: Creature) {
-    this.stats = creature.stats;
+    this.stats = creature.live_stats;
     this.creatureType = Creature.CREATURE_NAMES[creature.creatureType];
   }
 

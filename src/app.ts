@@ -378,7 +378,7 @@ export class HexesApp {
     });
 
     this.commonControls.nextUnitButton?.onPress.connect(() => {
-      this.battle.selectNextUnit();
+      this.battle.selectNextUnitAndGetIndex();
     });
 
     this.commonControls.showHealthbarsButton?.onPress.connect(() => {
@@ -623,7 +623,7 @@ export class HexesApp {
     }
 
     if (!this.battle.isCurrentTurnAI()) {
-      this.battle.selectNextUnit();
+      this.battle.selectNextUnitAndGetIndex();
     }
 
   }
@@ -1211,10 +1211,10 @@ export class HexesApp {
       } else if (event.code === 'KeyE') {
         // End turn
         this.battle?.nextTurn();
-        this.battle?.selectNextUnit();
+        this.battle?.selectNextUnitAndGetIndex();
       } else if (event.code === 'KeyN') {
         // Next unit
-        this.battle?.selectNextUnit();
+        this.battle?.selectNextUnitAndGetIndex();
       } else {
         console.log(`Key pressed: ${event.code}`);
       }

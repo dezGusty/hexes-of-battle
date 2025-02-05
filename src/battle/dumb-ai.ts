@@ -87,7 +87,7 @@ export class DumbAI {
       if (this.battle.isFinished()) {
         return;
       }
-      this.battle.selectNextUnit();
+      this.battle.selectNextUnitAndGetIndex();
       const selectedCreature = this.battle.getSelectedCreature();
       if (!selectedCreature) {
         console.log("No creature selected. Do I have any more units?");
