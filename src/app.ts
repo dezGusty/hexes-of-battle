@@ -71,7 +71,8 @@ export class HexesApp {
   private instructionsText?: Text;
   private messagesText?: Text;
 
-  private coordsTexts: BitmapText[] = [];
+  // private coordsTexts: BitmapText[] = [];
+  private coordsTexts: Map<string, BitmapText> = new Map();
   private unitSprites: Sprite[] = [];
 
   private hexHoverSprite?: Sprite;
@@ -117,11 +118,7 @@ export class HexesApp {
     this.settings.load();
   }
 
-  /**
-   * Initializes the application. 
-   * This method should be called ONCE after the application is created.
-   */
-  public async initialize() {
+  public async pixiAppInit() {
     const containingElement: HTMLElement | null = document.getElementById('game');
     if (!containingElement) {
       console.error('Failed to find the game container element');
@@ -138,7 +135,6 @@ export class HexesApp {
 
     // this.tempMessage = 'App started, size: ' + this.app.screen.width + 'x' + this.app.screen.height;
     this.setScalingForSize(this.app.screen.width, this.app.screen.height);
-    // this.tempMessage += "\nScaling factor: " + this.renderContainer.scale.x.toFixed(2) + 'x' + this.renderContainer.scale.y.toFixed(2);
     console.log('App started, size: ' + this.app.screen.width + 'x' + this.app.screen.height);
     console.log('Scaling factor: ' + this.renderContainer.scale.x.toFixed(2) + 'x' + this.renderContainer.scale.y.toFixed(2));
 
@@ -151,6 +147,14 @@ export class HexesApp {
       event.preventDefault();
     });
 
+  }
+
+  /**
+   * Initializes the application. 
+   * This method should be called ONCE after the application is created.
+   */
+  public async initialize() {
+    await this.pixiAppInit();
 
     // Add the stage to the canvas
     this.app.stage.addChild(this.renderContainer);
@@ -191,12 +195,36 @@ export class HexesApp {
 
   startBattle() {
     this.hookNextTurn(0, 0);
+
+    this.battle.recomputeAllPositionBuffs();
+
     // this.battle.selectNextUnit();
     if (this.settings.sound.musicOn) {
       sound.play('track_dark_whispers', { loop: true, volume: this.settings.sound.musicVolume });
     }
   }
 
+  resetBattleData() {
+    // clear the battle data (graphics, map, etc)
+    this.terrainRenderGroup.destroy({ children: true });
+    this.hexTerrainContainer.destroy({ children: true });
+    this.hexCellsGridContainer.destroy({ children: true });
+    this.hexUiRenderGroup.destroy({ children: true });
+    this.unitRenderSubgroups.forEach((subgroup) => { subgroup.destroy({ children: true }); });
+    this.unitRenderSubgroups = [];
+    this.unitRenderGroup.destroy({ children: true });
+
+    this.terrainRenderGroup = new Container({ isRenderGroup: true });
+    this.hexTerrainContainer = new Container({ isRenderGroup: true });
+    this.hexCellsGridContainer = new Container({ isRenderGroup: true });
+    this.hexUiRenderGroup = new Container({ isRenderGroup: true });
+    this.unitRenderGroup = new Container({ isRenderGroup: true });
+
+
+
+
+    this.initializeMapAndGame();
+  }
 
 
   private setScalingForSize(width: number, height: number) {
@@ -360,6 +388,8 @@ export class HexesApp {
       this.settings.debug.showCoords = !this.settings.debug.showCoords;
       this.settings.save();
 
+      this.updateCoordsTexts();
+
       this.coordsTexts.forEach((text) => {
         text.visible = this.settings.debug.showCoords;
       });
@@ -425,10 +455,29 @@ export class HexesApp {
       }
     });
 
+    this.commonControls.resetButton?.onPress.connect(() => {
+      this.resetBattleData();
+      this.startBattle();
+    });
+
     if (this.uiSheet) {
       this.unitStats = new UnitStatsPanel(this.renderContainer, this.uiSheet);
     }
+  }
 
+  updateCoordsTexts() {
+    this.coordsTexts.forEach((text, key) => {
+      let coords = key.split(',');
+      if (coords.length !== 2) {
+        return;
+      }
+
+      const i = parseInt(coords[0]);
+      const j = parseInt(coords[1]);
+      const pathCost = this.battle.pathfinding_tiles[i][j] ?? 'X';
+
+      text.text = `${i},${j}\n${pathCost}`;
+    });
   }
 
   initializeTopPanel() {
@@ -488,7 +537,8 @@ export class HexesApp {
         coordsText.position.copyFrom(hexCoord);
         coordsText.visible = this.settings.debug.showCoords;
 
-        this.coordsTexts.push(coordsText);
+        // this.coordsTexts.push(coordsText);
+        this.coordsTexts.set(`${i},${j}`, coordsText);
         this.hexUiRenderGroup.addChild(coordsText);
       }
     }
@@ -861,7 +911,7 @@ export class HexesApp {
           }
 
           let spriteSrc = 'hex_action_disabled_gray.png';
-          if (this.battle.pathfinding_tiles[i][j] === 100) {
+          if (this.battle.pathfinding_tiles[i][j] === 500) {
             spriteSrc = 'hex_action_red.png';
           }
 
@@ -948,7 +998,7 @@ export class HexesApp {
           }
 
           let spriteSrc = 'hex_action_disabled_gray.png';
-          if (this.battle.enemy_potential_tiles[i][j] === 100) {
+          if (this.battle.enemy_potential_tiles[i][j] === 500) {
             spriteSrc = 'hex_action_blue.png';
           }
 

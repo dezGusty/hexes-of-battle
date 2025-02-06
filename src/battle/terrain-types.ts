@@ -8,4 +8,4 @@ export enum TerrainType {
 }
 
 // Also export the terrain default movement costs
-export const TERRAIN_COST: number[] = [1, 2, 2, 3, 10, 10];
+export const TERRAIN_COST: number[] = [1, 2, 3, 4, 10, 10];

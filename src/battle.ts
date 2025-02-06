@@ -260,7 +260,7 @@ export class Battle {
         if (creatureIndex >= 0 && this.creatures[creatureIndex].armyAlignment !== currentArmyIdx) {
           // An enemy is here, within range
           rangeData.push(neighbour);
-          this.pathfinding_tiles[neighbour.coords.x][neighbour.coords.y] = 100;
+          this.pathfinding_tiles[neighbour.coords.x][neighbour.coords.y] = 500;
         }
       }
     }
@@ -310,11 +310,21 @@ export class Battle {
         }
       });
 
+      // An optimisation could be applied by removing entries which are already visited, but if we're dealing with various path costs,
+      // We would also need to consider the cost of the path to the cell.
       // remove entries from neighbours that are already visited
-      neighbours_and_reach_pairs = neighbours_and_reach_pairs.filter(
-        neighbour => pathfindingMatrix[neighbour.coords.x][neighbour.coords.y] === 0);
+      // neighbours_and_reach_pairs = neighbours_and_reach_pairs.filter(
+      //   neighbour => pathfindingMatrix[neighbour.coords.x][neighbour.coords.y] === 0);
+
 
       for (let neighbour of neighbours_and_reach_pairs) {
+
+        // visited already and cost better than this neighbour ? skip.
+        if (pathfindingMatrix[neighbour.coords.x][neighbour.coords.y] > 0 &&
+          pathfindingMatrix[neighbour.coords.x][neighbour.coords.y] >= neighbour.reach + 10) {
+          continue;
+        }
+
         // Check presence of enemies.
         if (this.cached_occupation_tiles[neighbour.coords.x][neighbour.coords.y] > 0) {
           const neighborCreatureIndex = this.cached_occupation_tiles[neighbour.coords.x][neighbour.coords.y] - 1;
@@ -323,7 +333,7 @@ export class Battle {
               // don't add it to the frontier, (cannot pass through enemy)
               // but add it to the reachable cells
               reachData.push(neighbour);
-              pathfindingMatrix[neighbour.coords.x][neighbour.coords.y] = 100;
+              pathfindingMatrix[neighbour.coords.x][neighbour.coords.y] = 500;
             }
           }
           continue;
@@ -332,7 +342,7 @@ export class Battle {
         if (current.reach > 0) {
           frontier.push(neighbour);
           reachData.push(neighbour);
-          pathfindingMatrix[neighbour.coords.x][neighbour.coords.y] = 1;
+          pathfindingMatrix[neighbour.coords.x][neighbour.coords.y] = neighbour.reach + 10;
         }
       }
     }
@@ -408,7 +418,7 @@ export class Battle {
     let pathfindingData: ReachData[] = [];
     for (let i = 0; i < this.pathfinding_tiles.length; i++) {
       for (let j = 0; j < this.pathfinding_tiles[i].length; j++) {
-        if (this.pathfinding_tiles[i][j] >= 100) { // TODO: magic number!
+        if (this.pathfinding_tiles[i][j] >= 500) { // TODO: magic number!
           pathfindingData.push(new ReachData({ x: i, y: j }, this.pathfinding_tiles[i][j], { x: 0, y: 0 }));
         }
       }
@@ -459,7 +469,7 @@ export class Battle {
       return;
     }
 
-    if (this.pathfinding_tiles[coords.x][coords.y] === 0) {
+    if (this.pathfinding_tiles[coords.x][coords.y] <= 0) { // TODO: magic number!
       console.log("Clicked on a non-reachable cell");
       return;
     }
@@ -742,16 +752,35 @@ export class Battle {
 
   static findPathToCellInReachData(coords: Coords, reachData: ReachData[]): Coords[] {
     let path: Coords[] = [];
-    let finalElement = reachData.find((element) => element.coords.x === coords.x && element.coords.y === coords.y);
-    if (!finalElement) {
+    // Get all reach data entries that have the same final coordinates.
+    let finalElements = reachData.filter((element) => element.coords.x === coords.x && element.coords.y === coords.y);
+    // If there are no such elements, return an empty path.
+    if (finalElements.length === 0) {
       return path;
     }
 
-    while (finalElement) {
+    // If there are multiple elements, choose the one with the smallest cost / largest reach
+    let finalElement = finalElements.reduce((prev, current) => prev.reach > current.reach ? prev : current);
+
+    // let finalElement = reachData.find((element) => element.coords.x === coords.x && element.coords.y === coords.y);
+    // if (!finalElement) {
+    //   return path;
+    // }
+
+    while (finalElements.length > 0 && finalElement) {
       path.push(finalElement.coords);
-      finalElement = reachData.find((element) =>
+      // finalElement = reachData.find((element) =>
+      //   element.coords.x === finalElement?.cameFrom.x
+      //   && element.coords.y === finalElement?.cameFrom.y);
+
+      finalElements = reachData.filter((element) =>
         element.coords.x === finalElement?.cameFrom.x
         && element.coords.y === finalElement?.cameFrom.y);
+
+      if (finalElements.length === 0) {
+        break;
+      }
+      finalElement = finalElements.reduce((prev, current) => prev.reach > current.reach ? prev : current);
     }
 
     path.reverse();
@@ -1046,6 +1075,12 @@ export class Battle {
     return counterattacking;
   }
 
+  public recomputeAllPositionBuffs() {
+    this.creatures.forEach(creature => {
+      this.clearPositionBuffs(creature);
+      this.setPositionBuffs(creature, creature.pos);
+    });
+  }
 
   private clearPositionBuffs(creature: Creature) {
     // filter out the buffs that are location specific
