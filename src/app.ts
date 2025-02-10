@@ -59,6 +59,7 @@ export class HexesApp {
   private touchSpriteRight: Sprite = new Sprite();
   private softCursorSprite: Sprite = new Sprite();
   private uiAnimationSprites: Sprite[] = [];
+  private terrainSprites: Sprite[] = [];
   private softCursorTextures: Record<string, Texture> = {};
   private displayOnScreenTouchControls: boolean = false;
 
@@ -71,7 +72,6 @@ export class HexesApp {
   private instructionsText?: Text;
   private messagesText?: Text;
 
-  // private coordsTexts: BitmapText[] = [];
   private coordsTexts: Map<string, BitmapText> = new Map();
   private unitSprites: Sprite[] = [];
 
@@ -205,24 +205,56 @@ export class HexesApp {
   }
 
   resetBattleData() {
-    // clear the battle data (graphics, map, etc)
-    this.terrainRenderGroup.destroy({ children: true });
-    this.hexTerrainContainer.destroy({ children: true });
-    this.hexCellsGridContainer.destroy({ children: true });
-    this.hexUiRenderGroup.destroy({ children: true });
-    this.unitRenderSubgroups.forEach((subgroup) => { subgroup.destroy({ children: true }); });
-    this.unitRenderSubgroups = [];
-    this.unitRenderGroup.destroy({ children: true });
+    // // clear the battle data (graphics, map, etc)
+    // this.terrainRenderGroup.destroy({ children: true });
+    // this.hexTerrainContainer.destroy({ children: true });
+    // this.terrainSprites.forEach((sprite) => { sprite.destroy(); });
+    // this.terrainSprites = [];
+    // this.hexCellsGridContainer.destroy({ children: true });
+    // // this.hexUiRenderGroup.destroy({ children: true });
+    // this.unitRenderSubgroups.forEach((subgroup) => { subgroup.destroy({ children: true }); });
+    // this.unitRenderSubgroups = [];
+    // this.unitRenderGroup.destroy({ children: true });
 
-    this.terrainRenderGroup = new Container({ isRenderGroup: true });
-    this.hexTerrainContainer = new Container({ isRenderGroup: true });
-    this.hexCellsGridContainer = new Container({ isRenderGroup: true });
-    this.hexUiRenderGroup = new Container({ isRenderGroup: true });
-    this.unitRenderGroup = new Container({ isRenderGroup: true });
+    // this.terrainRenderGroup = new Container({ isRenderGroup: true });
+    // this.hexTerrainContainer = new Container({ isRenderGroup: true });
+    // this.hexCellsGridContainer = new Container({ isRenderGroup: true });
+    // this.unitRenderGroup = new Container({ isRenderGroup: true });
+
+    this.coordsTexts.forEach((text) => { text.destroy(); });
+    this.coordsTexts.clear();
+
+    this.hexUiRenderGroup.removeChildren();
+    this.hexCellsGridContainer.removeChildren();
+    this.hexTerrainContainer.removeChildren();
+
+    // Note: if the render groups are destroyed, they also need to be re-added to the parent container
+    // this.hexUiRenderGroup.destroy({ children: true });
+    // this.hexUiRenderGroup = new Container({ isRenderGroup: true });
+
+    // this.hexCellsGridContainer.destroy({ children: true });
+    // this.hexCellsGridContainer = new Container({ isRenderGroup: true });
+
+    // this.hexTerrainContainer.destroy({ children: true });
+    // this.hexTerrainContainer = new Container({ isRenderGroup: true });
+    
+    this.terrainSprites.forEach((sprite) => { sprite.destroy(); });
+    this.terrainSprites = [];
+
+    this.battle.creatures = [];
+
+    // clear all subgroups
+    // this.unitRenderSubgroups.forEach((subgroup) => { subgroup.destroy({ children: true }); });
+    // this.unitRenderGroup.destroy({ children: true });
+    this.unitRenderGroup.removeChildren();
 
 
+    this.terrainRenderGroup.removeChildren();
+    this.terrainSprites.forEach((sprite) => { sprite.destroy(); });
+    this.terrainSprites = [];
 
-
+    // this.internal_createBackgroundSprite();
+    // this.internal_createHexTerrainBordersAndCoords();
     this.initializeMapAndGame();
   }
 
@@ -414,7 +446,6 @@ export class HexesApp {
     this.commonControls.showHealthbarsButton?.onPress.connect(() => {
       this.showHealthbars = !this.showHealthbars;
       this.battle.reselectCurrentUnit();
-      // this.unitRenderGroup.visible = !this.unitRenderGroup.visible;
     });
 
     this.commonControls.toggleStatsButton?.onPress.connect(() => {
@@ -499,18 +530,16 @@ export class HexesApp {
     return armyIndex === 0 ? 'banner1.png' : 'banner2.png';
   }
 
-  public initializeMapAndGame(): void {
-
-    // Generate the terrain map (randomly)
+  private internal_createBackgroundSprite() {
     let terrainSprite = new Sprite(this.terrainTexture);
     terrainSprite.scale.set(2, 2);
     terrainSprite.x = 0;
     terrainSprite.y = 0;
     this.terrainRenderGroup.addChild(terrainSprite);
+    this.terrainSprites.push(terrainSprite);
+  }
 
-    this.battle.initializeToSize(this.hexMap.width, this.hexMap.height);
-
-    this.hexMap.setOffset(150, 135);
+  private internal_createHexTerrainBordersAndCoords() {
     for (let j = 0; j < this.hexMap.height; j++) {
       for (let i = 0; i < this.hexMap.width; i++) {
         let hexCoord: Coords = this.hexMap.hexToPixel(i, j);
@@ -523,11 +552,12 @@ export class HexesApp {
         let terrainSprite = new Sprite(this.terrainSheet?.textures[`terrain_${terrain_type}.png`]);
         terrainSprite.position.copyFrom(hexCoord);
         this.hexTerrainContainer.addChild(terrainSprite);
+        this.terrainSprites.push(terrainSprite);
 
         const gameSprite = new Sprite(this.hexagonSheet?.textures['hex_empty.png']);
-
         gameSprite.position.copyFrom(hexCoord);
         this.hexCellsGridContainer.addChild(gameSprite);
+        // this.terrainSprites.push(gameSprite);
 
         // REUSE the hexCoord variable to position the text, shift it a bit towards the center.
         hexCoord.x += this.hexMap.cellSize().x / 3;
@@ -537,11 +567,19 @@ export class HexesApp {
         coordsText.position.copyFrom(hexCoord);
         coordsText.visible = this.settings.debug.showCoords;
 
-        // this.coordsTexts.push(coordsText);
         this.coordsTexts.set(`${i},${j}`, coordsText);
         this.hexUiRenderGroup.addChild(coordsText);
       }
     }
+  }
+
+  public initializeMapAndGame(): void {
+
+    this.battle.initializeToSize(this.hexMap.width, this.hexMap.height);
+    this.hexMap.setOffset(150, 135);
+
+    this.internal_createBackgroundSprite();
+    this.internal_createHexTerrainBordersAndCoords();
 
     this.hexCellsGridContainer.visible = this.settings.hex.showGrid;
 
