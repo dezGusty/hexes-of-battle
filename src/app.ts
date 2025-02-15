@@ -515,7 +515,9 @@ export class HexesApp {
 
       const i = parseInt(coords[0]);
       const j = parseInt(coords[1]);
-      const pathCost = this.battle.pathfinding_tiles[i][j] ?? 'X';
+      // const pathCost = this.battle.pathfinding_tiles[i][j] ?? 'X';
+      // const pathCost = this.battle.ability_reach_tiles[i][j] ?? 'X';
+      const pathCost = this.battle.rangereach_tiles[i][j] ?? 'X';
 
       text.text = `${i},${j}\n${pathCost}`;
     });
@@ -984,44 +986,7 @@ export class HexesApp {
         let spriteSrc = 'hex_empty.png';
 
 
-        switch (edge.edge) {
-          case HexEdge.EAST:
-            spriteSrc = 'hex_range_E.png';
-            break;
-          case HexEdge.NORTHEAST:
-            spriteSrc = 'hex_range_NE.png';
-            break;
-          case HexEdge.NORTH_NORTHEAST:
-            spriteSrc = 'hex_range_NNE.png';
-            break;
-          case HexEdge.NORTH:
-            spriteSrc = 'hex_range_N.png';
-            break;
-          case HexEdge.NORTH_NORTHWEST:
-            spriteSrc = 'hex_range_NNW.png';
-            break;
-          case HexEdge.NORTHWEST:
-            spriteSrc = 'hex_range_NW.png';
-            break;
-          case HexEdge.WEST:
-            spriteSrc = 'hex_range_W.png';
-            break;
-          case HexEdge.SOUTHWEST:
-            spriteSrc = 'hex_range_SW.png';
-            break;
-          case HexEdge.SOUTH_SOUTHWEST:
-            spriteSrc = 'hex_range_SSW.png';
-            break;
-          case HexEdge.SOUTH:
-            spriteSrc = 'hex_range_S.png';
-            break;
-          case HexEdge.SOUTH_SOUTHEAST:
-            spriteSrc = 'hex_range_SSE.png';
-            break;
-          case HexEdge.SOUTHEAST:
-            spriteSrc = 'hex_range_SE.png';
-            break;
-        }
+        spriteSrc = getSpriteSourceForEdge(edge, spriteSrc);
 
         let tempSprite = new Sprite(this.hexagonSheet?.textures[spriteSrc]);
         tempSprite.tint = 0x5555d0;
@@ -1032,6 +997,32 @@ export class HexesApp {
     }
 
     if (mapUpdate.abilityReachableCells) {
+
+      // show pathfinding tiles
+      for (let j = 0; j < this.hexMap.height; j++) {
+        for (let i = 0; i < this.hexMap.width; i++) {
+          if (this.battle.ability_reach_tiles[i][j] <= 0) {
+            continue;
+          }
+
+          let spriteSrc = 'hex_action_disabled_gray.png';
+          if (this.battle.ability_reach_tiles[i][j] === 500) {
+            spriteSrc = 'hex_action_red.png';
+          }
+
+          let hexCoords: Coords = this.hexMap.hexToPixel(i, j);
+          hexCoords = {
+            x: hexCoords.x - this.hexMap.cellSize().x / 2,
+            y: hexCoords.y - this.hexMap.cellSize().y / 2
+          };
+
+          let tempSprite = new Sprite(this.hexagonSheet?.textures[spriteSrc]);
+          tempSprite.position.copyFrom(hexCoords);
+          this.hexReachableSprites.push(tempSprite);
+          this.hexCellsContainer.addChild(tempSprite);
+        }
+      }
+
       // show ability reachability
       let edges = HexMap.getEdgesForDataMatrix(this.battle.ability_reach_tiles, this.hexMap.width, this.hexMap.height);
       for (let edge of edges) {
@@ -1044,44 +1035,7 @@ export class HexesApp {
         let spriteSrc = 'hex_empty.png';
 
 
-        switch (edge.edge) {
-          case HexEdge.EAST:
-            spriteSrc = 'hex_range_E.png';
-            break;
-          case HexEdge.NORTHEAST:
-            spriteSrc = 'hex_range_NE.png';
-            break;
-          case HexEdge.NORTH_NORTHEAST:
-            spriteSrc = 'hex_range_NNE.png';
-            break;
-          case HexEdge.NORTH:
-            spriteSrc = 'hex_range_N.png';
-            break;
-          case HexEdge.NORTH_NORTHWEST:
-            spriteSrc = 'hex_range_NNW.png';
-            break;
-          case HexEdge.NORTHWEST:
-            spriteSrc = 'hex_range_NW.png';
-            break;
-          case HexEdge.WEST:
-            spriteSrc = 'hex_range_W.png';
-            break;
-          case HexEdge.SOUTHWEST:
-            spriteSrc = 'hex_range_SW.png';
-            break;
-          case HexEdge.SOUTH_SOUTHWEST:
-            spriteSrc = 'hex_range_SSW.png';
-            break;
-          case HexEdge.SOUTH:
-            spriteSrc = 'hex_range_S.png';
-            break;
-          case HexEdge.SOUTH_SOUTHEAST:
-            spriteSrc = 'hex_range_SSE.png';
-            break;
-          case HexEdge.SOUTHEAST:
-            spriteSrc = 'hex_range_SE.png';
-            break;
-        }
+        spriteSrc = getSpriteSourceForEdge(edge, spriteSrc);
 
         let tempSprite = new Sprite(this.hexagonSheet?.textures[spriteSrc]);
         tempSprite.tint = 0x5555d0;
@@ -1129,44 +1083,7 @@ export class HexesApp {
 
         let spriteSrc = 'hex_empty.png';
 
-        switch (edge.edge) {
-          case HexEdge.EAST:
-            spriteSrc = 'hex_range_E.png';
-            break;
-          case HexEdge.NORTHEAST:
-            spriteSrc = 'hex_range_NE.png';
-            break;
-          case HexEdge.NORTH_NORTHEAST:
-            spriteSrc = 'hex_range_NNE.png';
-            break;
-          case HexEdge.NORTH:
-            spriteSrc = 'hex_range_N.png';
-            break;
-          case HexEdge.NORTH_NORTHWEST:
-            spriteSrc = 'hex_range_NNW.png';
-            break;
-          case HexEdge.NORTHWEST:
-            spriteSrc = 'hex_range_NW.png';
-            break;
-          case HexEdge.WEST:
-            spriteSrc = 'hex_range_W.png';
-            break;
-          case HexEdge.SOUTHWEST:
-            spriteSrc = 'hex_range_SW.png';
-            break;
-          case HexEdge.SOUTH_SOUTHWEST:
-            spriteSrc = 'hex_range_SSW.png';
-            break;
-          case HexEdge.SOUTH:
-            spriteSrc = 'hex_range_S.png';
-            break;
-          case HexEdge.SOUTH_SOUTHEAST:
-            spriteSrc = 'hex_range_SSE.png';
-            break;
-          case HexEdge.SOUTHEAST:
-            spriteSrc = 'hex_range_SE.png';
-            break;
-        }
+        spriteSrc = getSpriteSourceForEdge(edge, spriteSrc);
 
         let tempSprite = new Sprite(this.hexagonSheet?.textures[spriteSrc]);
         tempSprite.position.copyFrom(hexCoords);
@@ -1203,7 +1120,7 @@ export class HexesApp {
         mapUpdate.hoverPath.forEach((cell) => {
           let sprite = new Sprite(this.hexagonSheet?.textures['hex_usable_yellow.png']);
           sprite.x = this.hexMap.hexToPixel(cell.x, cell.y).x - this.hexMap.cellSize().x / 2;
-          sprite.y = this.hexMap.hexToPixel(cell.x, cell.y).y - this.hexMap.cellSize().y / 2;
+          sprite.y = this.hexMap.hexToPixel(cell.y, cell.y).y - this.hexMap.cellSize().y / 2;
           this.hexPathSprites.push(sprite);
         });
         this.hexPathSprites.forEach((sprite) => { this.hexCellsContainer.addChild(sprite); });
@@ -1264,6 +1181,26 @@ export class HexesApp {
     } else {
       this.uiAnimationSprites.forEach((sprite) => { this.hexUiRenderGroup.removeChild(sprite); });
       this.uiAnimationSprites = [];
+    }
+
+    function getSpriteSourceForEdge(edge: { coord: Coords; value: number; edge: HexEdge; }, spriteSrc: string) {
+      const edgeToSpriteMap: Record<HexEdge, string> = {
+        [HexEdge.EAST]: 'hex_range_E.png',
+        [HexEdge.NORTHEAST]: 'hex_range_NE.png',
+        [HexEdge.NORTH_NORTHEAST]: 'hex_range_NNE.png',
+        [HexEdge.NORTH]: 'hex_range_N.png',
+        [HexEdge.NORTH_NORTHWEST]: 'hex_range_NNW.png',
+        [HexEdge.NORTHWEST]: 'hex_range_NW.png',
+        [HexEdge.WEST]: 'hex_range_W.png',
+        [HexEdge.SOUTHWEST]: 'hex_range_SW.png',
+        [HexEdge.SOUTH_SOUTHWEST]: 'hex_range_SSW.png',
+        [HexEdge.SOUTH]: 'hex_range_S.png',
+        [HexEdge.SOUTH_SOUTHEAST]: 'hex_range_SSE.png',
+        [HexEdge.SOUTHEAST]: 'hex_range_SE.png',
+        [HexEdge.NONE]: 'hex_empty.png',
+      };
+
+      return edgeToSpriteMap[edge.edge] || spriteSrc;
     }
   }
 

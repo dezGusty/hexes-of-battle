@@ -226,6 +226,7 @@ export class Battle {
     pathfindingMatrix: number[][],
     rangeData: ReachData[],
     currentArmyIdx: number) {
+
     // Start with the coords and the range
     let frontier: ReachData[] = [{ coords, reach: range, cameFrom: coords }];
 
@@ -243,7 +244,7 @@ export class Battle {
         continue;
       }
 
-      pathfindingMatrix[current.coords.x][current.coords.y] = current.reach + 1;
+      pathfindingMatrix[current.coords.x][current.coords.y] = current.reach + 10;
 
       if (current.reach === 0) {
         continue;
@@ -261,10 +262,12 @@ export class Battle {
       // remove entries from neighbours that are already visited
       neighbours_and_reach_pairs = neighbours_and_reach_pairs.filter(
         neighbour => pathfindingMatrix[neighbour.coords.x][neighbour.coords.y] === 0);
+
       for (const neighbour of neighbours_and_reach_pairs) {
         frontier.push(neighbour);
         const creatureIndex = this.cached_occupation_tiles[neighbour.coords.x][neighbour.coords.y] - 1;
-        if (creatureIndex >= 0 && this.creatures[creatureIndex].armyAlignment !== currentArmyIdx) {
+        if (creatureIndex >= 0
+          && this.creatures[creatureIndex].armyAlignment !== currentArmyIdx) {
           // An enemy is here, within range
           rangeData.push(neighbour);
           this.pathfinding_tiles[neighbour.coords.x][neighbour.coords.y] = 500;
@@ -1286,7 +1289,6 @@ export class Battle {
 
 
   public selectActiveAbilityForCurrentUnit(abilityIndex: number) {
-    console.log("*** Using ability: ", abilityIndex);
     // Get current unit
     let creature = this.creatures[this.activeCreatureIndex];
     if (!creature) {
@@ -1299,8 +1301,7 @@ export class Battle {
     }
 
     let ability = creature.abilities[abilityIndex];
-    console.log("*** Using ability: ", ability);
-    //TODO:xxx:check ability type
+    console.log("*** Requesting ability for current unit: ", ability);
 
     if (ability.abilityType === AbilityType.Active) {
       if (ability.requiresTarget) {
@@ -1312,11 +1313,11 @@ export class Battle {
     // this.reselectCurrentUnit();
   }
 
-  showAbilityReachableCells(ability: Ability, owningCreature: Creature): Coords[] {
+  public showAbilityReachableCells(ability: Ability, owningCreature: Creature): Coords[] {
     let reachableCells: Coords[] = [];
 
     Battle.resetNumericalMatrixToZero(this.ability_reach_tiles);
-    
+
     this.abilityRangeData = [];
     console.log("Showing ability reachable cells for: ", ability, owningCreature);
     Battle.cacheRangedReachableCellsInternal(
@@ -1334,7 +1335,10 @@ export class Battle {
 
     this.nextRenderUpdate.hoverPath = [];
     this.nextRenderUpdate.abilityReachableCells = true;
+    this.nextRenderUpdate.reachableCells = true;
     this.nextRenderUpdate.somethingChanged = true;
+    Battle.resetNumericalMatrixToZero(this.pathfinding_tiles);
+
 
     return reachableCells;
   }
@@ -1353,6 +1357,7 @@ export class Battle {
     rangeData: ReachData[],
     creatures: Creature[],
     armyIndices: number[]) {
+
     // Start with the coords and the range
     let frontier: ReachData[] = [{ coords, reach: range, cameFrom: coords }];
 
@@ -1361,13 +1366,6 @@ export class Battle {
       if (current === undefined) {
         continue;
       }
-      if (current.coords.x < 0 || current.coords.y < 0) {
-        continue;
-      }
-      if (current.coords.x >= hexMap.width || current.coords.y >= hexMap.height) {
-        continue;
-      }
-
 
       if (pathfindingMatrix[current.coords.x][current.coords.y] !== 0) {
         continue;
@@ -1377,7 +1375,7 @@ export class Battle {
         continue;
       }
 
-      pathfindingMatrix[current.coords.x][current.coords.y] = current.reach + 1;
+      pathfindingMatrix[current.coords.x][current.coords.y] = current.reach + 10;
 
       if (current.reach === 0) {
         continue;
@@ -1395,12 +1393,13 @@ export class Battle {
       // remove entries from neighbours that are already visited
       neighbours_and_reach_pairs = neighbours_and_reach_pairs.filter(
         neighbour => pathfindingMatrix[neighbour.coords.x][neighbour.coords.y] === 0);
+
       for (const neighbour of neighbours_and_reach_pairs) {
         frontier.push(neighbour);
         const creatureIndex = cached_occupation_tiles[neighbour.coords.x][neighbour.coords.y] - 1;
-        if (creatureIndex >= 0 && 
-          armyIndices.some(idx => creatures[creatureIndex].armyAlignment === idx)) {
-          // An enemy is here, within range
+        if (creatureIndex >= 0
+          && armyIndices.some(idx => creatures[creatureIndex].armyAlignment === idx)) {
+          // A target unit is here, within range
           rangeData.push(neighbour);
           pathfindingMatrix[neighbour.coords.x][neighbour.coords.y] = 500;
         }

@@ -40,22 +40,18 @@ export enum HexFlankStatus {
 }
 
 export function reverseDirection(direction: HexDirection): HexDirection {
-  switch (direction) {
-    case HexDirection.EAST:
-      return HexDirection.WEST;
-    case HexDirection.NORTHEAST:
-      return HexDirection.SOUTHWEST;
-    case HexDirection.NORTHWEST:
-      return HexDirection.SOUTHEAST;
-    case HexDirection.WEST:
-      return HexDirection.EAST;
-    case HexDirection.SOUTHWEST:
-      return HexDirection.NORTHEAST;
-    case HexDirection.SOUTHEAST:
-      return HexDirection.NORTHWEST;
-  }
-  return HexDirection.NONE;
-};
+  const directionMap: Record<HexDirection, HexDirection> = {
+    [HexDirection.EAST]: HexDirection.WEST,
+    [HexDirection.NORTHEAST]: HexDirection.SOUTHWEST,
+    [HexDirection.NORTHWEST]: HexDirection.SOUTHEAST,
+    [HexDirection.WEST]: HexDirection.EAST,
+    [HexDirection.SOUTHWEST]: HexDirection.NORTHEAST,
+    [HexDirection.SOUTHEAST]: HexDirection.NORTHWEST,
+    [HexDirection.NONE]: HexDirection.NONE,
+  };
+
+  return directionMap[direction] || HexDirection.NONE;
+}
 
 export function hexDirectionToString(direction: HexDirection): string {
   switch (direction) {
@@ -248,11 +244,12 @@ export class HexMap {
     return false;
   }
 
-  private static getSingleEdgeForDataCell(data: number[][], width: number, height: number, x: number, y: number): HexEdge {
+  private static getSingleEdgeForDataCell(data: number[][], width: number, height: number, x: number, y: number, delta: number = 0): HexEdge {
     // check all neighbours
     let neighbours: Array<{ coord: Coords, value: number } | null> = [];
     for (let dir = HexDirection.EAST; dir <= HexDirection.SOUTHEAST; dir++) {
-      const neighbour = HexMap.getNeighbourInDirectionInDataMatrix({ x, y }, dir, data, width, height);
+      let neighbour = HexMap.getNeighbourInDirectionInDataMatrix({ x, y }, dir, data, width, height);
+      if (neighbour) { neighbour.value -= delta; }
       neighbours[dir] = neighbour;
     }
 
@@ -307,15 +304,16 @@ export class HexMap {
     for (let j = 0; j < height; j++) {
       for (let i = 0; i < width; i++) {
         // only take the border into account
-        if (data[i][j] !== 1) {
+        const delta = 10;
+        if (data[i][j] !== delta) { // TODO: magic value
           continue;
         }
 
-        const edgeDir = HexMap.getSingleEdgeForDataCell(data, width, height, i, j);
-
+        const edgeDir = HexMap.getSingleEdgeForDataCell(data, width, height, i, j, delta - 1);
         result.push({ coord: { x: i, y: j }, value: data[i][j], edge: edgeDir });
       }
     }
+    
     return result;
   }
 
