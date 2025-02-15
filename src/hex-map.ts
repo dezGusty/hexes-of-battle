@@ -59,6 +59,16 @@ export class HexMapHelpers {
     [HexDirection.SOUTHWEST]: "SOUTHWEST",
     [HexDirection.SOUTHEAST]: "SOUTHEAST",
   };
+
+  static directionCoordsMap: Record<HexDirection, (coords: Coords) => Coords | null> = {
+    [HexDirection.EAST]: (coords: Coords) => ({ x: coords.x + 1, y: coords.y }),
+    [HexDirection.NORTHEAST]: (coords: Coords) => ({ x: coords.x + (coords.y % 2), y: coords.y - 1 }),
+    [HexDirection.NORTHWEST]: (coords: Coords) => ({ x: coords.x - (1 - coords.y % 2), y: coords.y - 1 }),
+    [HexDirection.WEST]: (coords: Coords) => ({ x: coords.x - 1, y: coords.y }),
+    [HexDirection.SOUTHWEST]: (coords: Coords) => ({ x: coords.x - (1 - coords.y % 2), y: coords.y + 1 }),
+    [HexDirection.SOUTHEAST]: (coords: Coords) => ({ x: coords.x + (coords.y % 2), y: coords.y + 1 }),
+    [HexDirection.NONE]: () => null,
+  };
 }
 
 export function reverseDirection(direction: HexDirection): HexDirection {
@@ -293,14 +303,21 @@ export class HexMap {
     return edgeDir;
   }
 
-  public static getEdgesForDataMatrix(data: number[][], width: number, height: number): { coord: Coords, value: number, edge: HexEdge }[] {
-
+  /**
+   * Get the edges of a hexagon in a data matrix. Use this in conjunction with a data matrix to display the outer
+   * limits of the reachable area, or range of a weapon.
+   * @param data The data matrix.
+   * @param width The width of the data matrix.
+   * @param height The height of the data matrix.
+   * @param delta The delta value to use for the edge detection. This is useful for detecting the border of the area. This value needs to be in the matrix
+   * @returns An array of objects containing the coordinates of the hexagon, the value of the hexagon, and the edge of the hexagon.
+   */
+  public static getEdgesForDataMatrix(data: number[][], width: number, height: number, delta: number = 10): { coord: Coords, value: number, edge: HexEdge }[] {
     let result: { coord: Coords, value: number, edge: HexEdge }[] = [];
     for (let j = 0; j < height; j++) {
       for (let i = 0; i < width; i++) {
         // only take the border into account
-        const delta = 10;
-        if (data[i][j] !== delta) { // TODO: magic value
+        if (data[i][j] !== delta) {
           continue;
         }
 
@@ -308,7 +325,7 @@ export class HexMap {
         result.push({ coord: { x: i, y: j }, value: data[i][j], edge: edgeDir });
       }
     }
-    
+
     return result;
   }
 
@@ -319,22 +336,8 @@ export class HexMap {
    * @returns New coordinates in the given direction, or null if the direction is unrecognized.
    */
   private static getCoordsInDirectionInternal(coords: Coords, direction: HexDirection): Coords | null {
-    switch (direction) {
-      case HexDirection.EAST:
-        return { x: coords.x + 1, y: coords.y };
-      case HexDirection.NORTHEAST:
-        return { x: coords.x + (coords.y % 2), y: coords.y - 1 };
-      case HexDirection.NORTHWEST:
-        return { x: coords.x - (1 - coords.y % 2), y: coords.y - 1 };
-      case HexDirection.WEST:
-        return { x: coords.x - 1, y: coords.y };
-      case HexDirection.SOUTHWEST:
-        return { x: coords.x - (1 - coords.y % 2), y: coords.y + 1 };
-      case HexDirection.SOUTHEAST:
-        return { x: coords.x + (coords.y % 2), y: coords.y + 1 };
-      default:
-        return null;
-    }
+    const getCoords = HexMapHelpers.directionCoordsMap[direction];
+    return getCoords ? getCoords(coords) : null;
   }
 
   /**
@@ -500,5 +503,67 @@ export class HexMap {
     }
     return deltaX > 0 ? HexDirection.NORTHEAST : HexDirection.NORTHWEST;
   }
+
+  /**
+   * Retrieves the coordinates of the hexagons that are at the edge / corner for a given radius and from a starting center position.
+   * @param center Starting coordinates.
+   * @param radius Radius of the hexagon.
+   * @returns The coordinates of the corners. No bound checking is done, so the coordinates could have invalid values (E.g. negative, out of bounds).
+   */
+  public static getOuterRadiusCoordsNoBounds(center: Coords, radius: number): Coords[] {
+    let result: Coords[] = [center, center, center, center, center, center, center];
+    for (let i = 0; i < radius; i++) {
+      for (let dir = HexDirection.NONE; dir <= HexDirection.SOUTHEAST; dir++) {
+        let newDir = HexMap.getCoordsInDirectionInternal(result[dir], dir);
+        if (newDir) {
+          result[dir] = newDir;
+        }
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Creates a flood-fill in a matrix of numbers to represent a filled radius around a hexagon cell at the center.
+   * @param center Starting coordinates.
+   * @param radius Radius of the hexagon.
+   * @returns A matrix with the filled radius.
+   */
+  public static createFloodFillMatrix(center: Coords, radius: number, matrix: number[][], width: number, height: number, value: number): number[][] {
+
+    const corners: Coords[] = HexMap.getOuterRadiusCoordsNoBounds(center, radius);
+
+    let westPoint = corners[HexDirection.NORTHWEST];
+    let eastPoint = corners[HexDirection.NORTHEAST];
+
+    // fill the top side from north-west & north-east to west and east.
+    for (let y_row = corners[HexDirection.NORTHWEST].y; y_row < center.y; y_row++) {
+      for (let x_col = westPoint.x; x_col <= eastPoint.x; x_col++) {
+        if (x_col >= 0 && x_col < width && y_row >= 0 && y_row < height) {
+          matrix[x_col][y_row] = value;
+        }
+      }
+
+      westPoint = HexMap.getCoordsInDirectionInternal(westPoint, HexDirection.SOUTHWEST) || westPoint;
+      eastPoint = HexMap.getCoordsInDirectionInternal(eastPoint, HexDirection.SOUTHEAST) || eastPoint;
+    }
+
+    // fill the bottom side from the midle row, heading from the west and east points to the south-west & south-east.
+    for (let y_row = center.y; y_row <= corners[HexDirection.SOUTHWEST].y; y_row++) {
+      for (let x_col = westPoint.x; x_col <= eastPoint.x; x_col++) {
+        if (x_col >= 0 && x_col < width && y_row >= 0 && y_row < height) {
+          matrix[x_col][y_row] = value;
+        }
+      }
+      
+      westPoint = HexMap.getCoordsInDirectionInternal(westPoint, HexDirection.SOUTHEAST) || westPoint;
+      eastPoint = HexMap.getCoordsInDirectionInternal(eastPoint, HexDirection.SOUTHWEST) || eastPoint;
+    }
+
+    return matrix;
+  }
+
+
 }
 
