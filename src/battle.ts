@@ -1,3 +1,5 @@
+import { assert } from "vitest";
+import { Ability, AbilityTarget, AbilityType } from "./battle/ability";
 import { Buff, Creature, CreatureStats } from "./battle/creature";
 import { TERRAIN_COST, TerrainType } from "./battle/terrain-types";
 import { checkFlankingStatus, HexDirection, HexFlankStatus, HexMap, reverseDirection } from "./hex-map";
@@ -42,6 +44,7 @@ export class MapRenderUpdate {
   public selectedCreatureIndex: number = -1;
   public currentArmyIndex: number = 0;
   public reachableCells: boolean = false;
+  public abilityReachableCells: boolean = false;
   public enemyReachableCells: boolean = false;
   public unitRenderUpdate: boolean = false;
   public hoverOverCell: Coords | null = null;
@@ -107,6 +110,7 @@ export class Battle {
   public enemy_potential_tiles: number[][] = [];
   public enemy_range_tiles: number[][] = [];
   public rangereach_tiles: number[][] = [];
+  public ability_reach_tiles: number[][] = [];
   // Units and objects which occupy a tile
   public cached_occupation_tiles: number[][] = [];
   public terrain_tiles: number[][] = [];
@@ -115,6 +119,7 @@ export class Battle {
   private prevRenderUpdate: MapRenderUpdate = new MapRenderUpdate();
   private unitReachData: ReachData[] = [];
   private unitRangeData: ReachData[] = [];
+  private abilityRangeData: ReachData[] = [];
 
   private currentActions: BattleAction[] = [];
   private finished: boolean = false;
@@ -134,6 +139,8 @@ export class Battle {
     Battle.initializeMapToSize(this.terrain_tiles, mapWidth, mapHeight);
 
     Battle.generateRandomTerrain(this.terrain_tiles, mapWidth, mapHeight);
+
+    Battle.initializeMapToSize(this.ability_reach_tiles, mapWidth, mapHeight);
 
     logMatrix(this.terrain_tiles, mapWidth, mapHeight, "Terrain");
   }
@@ -1275,6 +1282,130 @@ export class Battle {
     this.hookDoingAttack(source, target, damage, attackType, flankStatus);
     target.takeDamage(damage);
     console.log(`Dealt ${damage} damage to the creature`);
+  }
+
+
+  public selectActiveAbilityForCurrentUnit(abilityIndex: number) {
+    console.log("*** Using ability: ", abilityIndex);
+    // Get current unit
+    let creature = this.creatures[this.activeCreatureIndex];
+    if (!creature) {
+      return;
+    }
+
+    // Get the ability
+    if (abilityIndex >= creature.abilities.length) {
+      return;
+    }
+
+    let ability = creature.abilities[abilityIndex];
+    console.log("*** Using ability: ", ability);
+    //TODO:xxx:check ability type
+
+    if (ability.abilityType === AbilityType.Active) {
+      if (ability.requiresTarget) {
+        this.showAbilityReachableCells(ability, creature);
+      }
+    }
+
+    // if it's toggled off, reselect
+    // this.reselectCurrentUnit();
+  }
+
+  showAbilityReachableCells(ability: Ability, owningCreature: Creature): Coords[] {
+    let reachableCells: Coords[] = [];
+
+    Battle.resetNumericalMatrixToZero(this.ability_reach_tiles);
+    
+    this.abilityRangeData = [];
+    console.log("Showing ability reachable cells for: ", ability, owningCreature);
+    Battle.cacheRangedReachableCellsInternal(
+      this.hexMap,
+      this.cached_occupation_tiles,
+      owningCreature.pos,
+      ability.range,
+      this.ability_reach_tiles,
+      this.abilityRangeData,
+      this.creatures,
+      [1, 2] // TODO: this should not be the army index, but all the indices to store as targets (if it can target both friend and foe).
+    );
+
+    logMatrix(this.ability_reach_tiles, this.hexMap.width, this.hexMap.height, "Ability reach");
+
+    this.nextRenderUpdate.hoverPath = [];
+    this.nextRenderUpdate.abilityReachableCells = true;
+    this.nextRenderUpdate.somethingChanged = true;
+
+    return reachableCells;
+  }
+
+  /**
+   * Cache all reachable cells for the current creature for a ranged attack.
+   * @param coords The start position
+   * @param range The range to cache
+   */
+  public static cacheRangedReachableCellsInternal(
+    hexMap: HexMap,
+    cached_occupation_tiles: number[][],
+    coords: Coords,
+    range: number,
+    pathfindingMatrix: number[][],
+    rangeData: ReachData[],
+    creatures: Creature[],
+    armyIndices: number[]) {
+    // Start with the coords and the range
+    let frontier: ReachData[] = [{ coords, reach: range, cameFrom: coords }];
+
+    while (frontier.length > 0) {
+      let current = frontier.shift();
+      if (current === undefined) {
+        continue;
+      }
+      if (current.coords.x < 0 || current.coords.y < 0) {
+        continue;
+      }
+      if (current.coords.x >= hexMap.width || current.coords.y >= hexMap.height) {
+        continue;
+      }
+
+
+      if (pathfindingMatrix[current.coords.x][current.coords.y] !== 0) {
+        continue;
+      }
+
+      if (current.reach < 0) {
+        continue;
+      }
+
+      pathfindingMatrix[current.coords.x][current.coords.y] = current.reach + 1;
+
+      if (current.reach === 0) {
+        continue;
+      }
+
+      let neighbours = hexMap.getNeighbours(current.coords);
+      let neighbours_and_reach_pairs: ReachData[] = neighbours.map(neighbour => {
+        return {
+          coords: neighbour,
+          reach: current.reach - 1,
+          cameFrom: current.coords
+        }
+      });
+
+      // remove entries from neighbours that are already visited
+      neighbours_and_reach_pairs = neighbours_and_reach_pairs.filter(
+        neighbour => pathfindingMatrix[neighbour.coords.x][neighbour.coords.y] === 0);
+      for (const neighbour of neighbours_and_reach_pairs) {
+        frontier.push(neighbour);
+        const creatureIndex = cached_occupation_tiles[neighbour.coords.x][neighbour.coords.y] - 1;
+        if (creatureIndex >= 0 && 
+          armyIndices.some(idx => creatures[creatureIndex].armyAlignment === idx)) {
+          // An enemy is here, within range
+          rangeData.push(neighbour);
+          pathfindingMatrix[neighbour.coords.x][neighbour.coords.y] = 500;
+        }
+      }
+    }
   }
 
 

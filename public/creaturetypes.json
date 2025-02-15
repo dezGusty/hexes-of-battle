@@ -16,7 +16,8 @@
       "num_moves": 3,
       "range": 1,
       "stamina": 9
-    }
+    },
+    "ability_ids": []
   },
   {
     "name": "swordsman",
@@ -35,7 +36,8 @@
       "num_moves": 2,
       "range": 1,
       "stamina": 9
-    }
+    },
+    "ability_ids": []
   },
   {
     "name": "spearman",
@@ -54,7 +56,10 @@
       "num_moves": 3,
       "range": 1,
       "stamina": 10
-    }
+    },
+    "ability_ids": [
+      "jav-01"
+    ]
   },
   {
     "name": "barbarian",
@@ -73,7 +78,8 @@
       "num_moves": 3,
       "range": 1,
       "stamina": 12
-    }
+    },
+    "ability_ids": []
   },
   {
     "name": "peasant-archer",
@@ -92,7 +98,8 @@
       "num_moves": 3,
       "range": 6,
       "stamina": 10
-    }
+    },
+    "ability_ids": []
   },
   {
     "name": "crossbowman",
@@ -111,6 +118,7 @@
       "num_moves": 2,
       "range": 4,
       "stamina": 10
-    }
+    },
+    "ability_ids": []
   }
 ]

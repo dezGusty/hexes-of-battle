@@ -16,6 +16,7 @@ import { AdvancedBloomFilter, OutlineFilter } from 'pixi-filters';
 import { sound } from '@pixi/sound';
 import { DumbAI } from './battle/dumb-ai';
 import { BattleSettings } from './battle/settings';
+import { Ability } from './battle/ability';
 
 export enum GameState {
   InMenu,
@@ -35,13 +36,14 @@ export class HexesApp {
   private dumbAI: DumbAI = new DumbAI(this.battle);
 
   private NATIVE_RESOLUTION = { width: 1600, height: 900 };
+  // private NATIVE_RESOLUTION = { width: 1920, height: 1080 };
 
-  private ZOOM_LEVEL_MIN = 0.5;
-  private ZOOM_LEVEL_MAX = 2.0;
+  private ZOOM_LEVEL_MIN = 0.75;
+  private ZOOM_LEVEL_MAX = 1.5;
   private navZoomLevel: number = 1;
   private navMapOffset: Coords = { x: 0, y: 0 };
-  private MAP_OFFSET_MIN: Coords = { x: -600, y: -600 };
-  private MAP_OFFSET_MAX: Coords = { x: 1200, y: 1200 };
+  private MAP_OFFSET_MIN: Coords = { x: -400, y: -400 };
+  private MAP_OFFSET_MAX: Coords = { x: 1200, y: 800 };
 
   private mouseDragCoords: Coords = { x: 0, y: 0 };
   private mouseRightClickCoords: Coords = { x: 0, y: 0 };
@@ -107,6 +109,7 @@ export class HexesApp {
 
   private DEFAULT_FONT_STYLE: TextStyle | TextStyleOptions = { fontFamily: 'GustysSerpents', fontSize: 18, align: 'left' };
 
+  private abilityTypes: Ability[] = [];
   private creatureTemplates: CreatureTemplate[] = [];
   private creatureRepository: CreatureRepository = new CreatureRepository();
 
@@ -237,7 +240,7 @@ export class HexesApp {
 
     // this.hexTerrainContainer.destroy({ children: true });
     // this.hexTerrainContainer = new Container({ isRenderGroup: true });
-    
+
     this.terrainSprites.forEach((sprite) => { sprite.destroy(); });
     this.terrainSprites = [];
 
@@ -377,6 +380,10 @@ export class HexesApp {
   }
 
   public async loadTemplates() {
+    // Load the ability types
+    this.abilityTypes = await JsonLoader.loadJson<Ability[]>('./abilitytypes.json');
+    this.creatureRepository.setAbilities(this.abilityTypes);
+    
     // Load the "creaturetypes.json" file and read jsonData
     this.creatureTemplates = await JsonLoader.loadJson<CreatureTemplate[]>('./creaturetypes.json');
     this.creatureRepository.setCreatureTemplates(this.creatureTemplates);
@@ -436,7 +443,6 @@ export class HexesApp {
 
     this.commonControls.nextTurnButton?.onPress.connect(() => {
       this.battle.nextTurn();
-      // this.battle.selectNextUnit();
     });
 
     this.commonControls.nextUnitButton?.onPress.connect(() => {
@@ -489,6 +495,10 @@ export class HexesApp {
     this.commonControls.resetButton?.onPress.connect(() => {
       this.resetBattleData();
       this.startBattle();
+    });
+
+    this.commonControls.activeAbility1Button?.onPress.connect(() => {
+      this.battle.selectActiveAbilityForCurrentUnit(0);
     });
 
     if (this.uiSheet) {
@@ -713,7 +723,6 @@ export class HexesApp {
     if (!this.battle.isCurrentTurnAI()) {
       this.battle.selectNextUnitAndGetIndex();
     }
-
   }
 
   hookMovingUnit(_creature: Creature, _nextStep: Coords) {
@@ -861,21 +870,18 @@ export class HexesApp {
 
       unitSprite.filters = [];
       if (index === this.battle.activeCreatureIndex) {
-        // const filter = new GlowFilter({ color: 0xd4bf72, distance: 8, outerStrength: 2 });
         const filter = new OutlineFilter({ color: 0xd4bf72, thickness: 2 });
         unitSprite.filters = [filter];
       }
 
       if (index === mapUpdate.hoverEnemyIndex) {
-        // const filter = new GlowFilter({ color: 0xd43442, distance: 8, outerStrength: 2 });
         const filter = new OutlineFilter({ color: 0xd43442, thickness: 2 });
         unitSprite.filters = [filter];
       }
+
       if (index === mapUpdate.hoverOverUnitIndex) {
-        // const filter = new GlowFilter({color: 0x55cf55, distance: 8, outerStrength: 2}); 
         const filter = new OutlineFilter({ color: 0x55cf55, thickness: 2 });
         unitSprite.filters = [filter];
-
       }
 
       this.unitRenderSubgroups[creature.position.y].addChild(unitSprite);
@@ -968,6 +974,66 @@ export class HexesApp {
 
       // show ranged reachability
       let edges = HexMap.getEdgesForDataMatrix(this.battle.rangereach_tiles, this.hexMap.width, this.hexMap.height);
+      for (let edge of edges) {
+        let hexCoords: Coords = this.hexMap.hexToPixel(edge.coord.x, edge.coord.y);
+        hexCoords = {
+          x: hexCoords.x - this.hexMap.cellSize().x / 2,
+          y: hexCoords.y - this.hexMap.cellSize().y / 2
+        };
+
+        let spriteSrc = 'hex_empty.png';
+
+
+        switch (edge.edge) {
+          case HexEdge.EAST:
+            spriteSrc = 'hex_range_E.png';
+            break;
+          case HexEdge.NORTHEAST:
+            spriteSrc = 'hex_range_NE.png';
+            break;
+          case HexEdge.NORTH_NORTHEAST:
+            spriteSrc = 'hex_range_NNE.png';
+            break;
+          case HexEdge.NORTH:
+            spriteSrc = 'hex_range_N.png';
+            break;
+          case HexEdge.NORTH_NORTHWEST:
+            spriteSrc = 'hex_range_NNW.png';
+            break;
+          case HexEdge.NORTHWEST:
+            spriteSrc = 'hex_range_NW.png';
+            break;
+          case HexEdge.WEST:
+            spriteSrc = 'hex_range_W.png';
+            break;
+          case HexEdge.SOUTHWEST:
+            spriteSrc = 'hex_range_SW.png';
+            break;
+          case HexEdge.SOUTH_SOUTHWEST:
+            spriteSrc = 'hex_range_SSW.png';
+            break;
+          case HexEdge.SOUTH:
+            spriteSrc = 'hex_range_S.png';
+            break;
+          case HexEdge.SOUTH_SOUTHEAST:
+            spriteSrc = 'hex_range_SSE.png';
+            break;
+          case HexEdge.SOUTHEAST:
+            spriteSrc = 'hex_range_SE.png';
+            break;
+        }
+
+        let tempSprite = new Sprite(this.hexagonSheet?.textures[spriteSrc]);
+        tempSprite.tint = 0x5555d0;
+        tempSprite.position.copyFrom(hexCoords);
+        this.hexReachableSprites.push(tempSprite);
+        this.hexCellsContainer.addChild(tempSprite);
+      }
+    }
+
+    if (mapUpdate.abilityReachableCells) {
+      // show ability reachability
+      let edges = HexMap.getEdgesForDataMatrix(this.battle.ability_reach_tiles, this.hexMap.width, this.hexMap.height);
       for (let edge of edges) {
         let hexCoords: Coords = this.hexMap.hexToPixel(edge.coord.x, edge.coord.y);
         hexCoords = {

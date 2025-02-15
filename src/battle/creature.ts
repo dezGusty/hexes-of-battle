@@ -1,5 +1,6 @@
 import { HexDirection } from "../hex-map";
 import { Coords } from "../shared";
+import { Ability } from "./ability";
 import { GuidMaker, HobGUID } from "./guid";
 
 export class CreatureStats {
@@ -81,6 +82,7 @@ export enum CreatureType {
 export class CreatureTemplate {
   name: string = "none";
   stats: CreatureStats = new CreatureStats();
+  ability_ids: string[] = [];
 }
 
 
@@ -134,6 +136,7 @@ export class Creature {
   constructor(
     public creatureType: CreatureType = CreatureType.PEASANT,
     public stats: CreatureStats = { ...Creature.DEFAULT_CREATURE_PROPS },
+    public abilities: Ability[] = [],
     public buffs: Buff[] = []) {
     this.guid = GuidMaker.generateGuid();
   }
@@ -193,6 +196,7 @@ export class Creature {
 }
 
 export class CreatureRepository {
+  abilities: Ability[] = [];
   creatureTemplates: CreatureTemplate[] = [];
   nameToTypesMap: Map<CreatureType, string> = new Map<CreatureType, string>([
     [CreatureType.PEASANT, "peasant"],
@@ -204,6 +208,10 @@ export class CreatureRepository {
   ]);
 
   constructor() { }
+
+  setAbilities(abilities: Ability[]) {
+    this.abilities = abilities;
+  }
 
   setCreatureTemplates(templates: CreatureTemplate[]) {
     this.creatureTemplates = templates;
@@ -220,11 +228,19 @@ export class CreatureRepository {
       throw new Error(`Could not find creature template for creature type ${creatureType}`);
     }
 
-    let result = new Creature(creatureType, { ...creatureTemplate.stats });
+    let result = new Creature(creatureType, { ...creatureTemplate.stats }, []);
     result.stats.remaining_attacks = result.stats.num_attacks;
     result.stats.remaining_counterattacks = result.stats.num_counterattacks;
     result.stats.remaining_health = result.stats.health;
     result.stats.remaining_movement = result.stats.num_moves;
+
+    result.abilities = creatureTemplate.ability_ids.map(abilityId => {
+      const ability = this.abilities.find(ability => ability.id === abilityId);
+      if (!ability) {
+        return null;
+      }
+      return ability;
+    }).filter(ability => ability !== null) as Ability[];
 
     console.log("Created creature: ", result);
 
