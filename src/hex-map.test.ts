@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { reverseDirection, HexDirection } from '../src/hex-map';
+import { reverseDirection, HexDirection, hexDirectionToString } from './hex-map';
 
 describe('reverseDirection', () => {
   it('should return the opposite direction', () => {
@@ -13,5 +13,17 @@ describe('reverseDirection', () => {
 
   it('should return NONE for NONE direction', () => {
     expect(reverseDirection(HexDirection.NONE)).toBe(HexDirection.NONE);
+  });
+});
+
+describe('hexDirectionToString', () => {
+  it('should return the correct string for each direction', () => {
+    expect(hexDirectionToString(HexDirection.NONE)).toBe("NONE");
+    expect(hexDirectionToString(HexDirection.EAST)).toBe("EAST");
+    expect(hexDirectionToString(HexDirection.NORTHEAST)).toBe("NORTHEAST");
+    expect(hexDirectionToString(HexDirection.NORTHWEST)).toBe("NORTHWEST");
+    expect(hexDirectionToString(HexDirection.WEST)).toBe("WEST");
+    expect(hexDirectionToString(HexDirection.SOUTHWEST)).toBe("SOUTHWEST");
+    expect(hexDirectionToString(HexDirection.SOUTHEAST)).toBe("SOUTHEAST");
   });
 });

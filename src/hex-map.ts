@@ -39,8 +39,8 @@ export enum HexFlankStatus {
   BACKSTAB = 2
 }
 
-export function reverseDirection(direction: HexDirection): HexDirection {
-  const directionMap: Record<HexDirection, HexDirection> = {
+export class HexMapHelpers {
+  static directionOppositeMap: Record<HexDirection, HexDirection> = {
     [HexDirection.EAST]: HexDirection.WEST,
     [HexDirection.NORTHEAST]: HexDirection.SOUTHWEST,
     [HexDirection.NORTHWEST]: HexDirection.SOUTHEAST,
@@ -50,28 +50,23 @@ export function reverseDirection(direction: HexDirection): HexDirection {
     [HexDirection.NONE]: HexDirection.NONE,
   };
 
-  return directionMap[direction] || HexDirection.NONE;
+  static hexDirectionNamesMap: Record<HexDirection, string> = {
+    [HexDirection.NONE]: "NONE",
+    [HexDirection.EAST]: "EAST",
+    [HexDirection.NORTHEAST]: "NORTHEAST",
+    [HexDirection.NORTHWEST]: "NORTHWEST",
+    [HexDirection.WEST]: "WEST",
+    [HexDirection.SOUTHWEST]: "SOUTHWEST",
+    [HexDirection.SOUTHEAST]: "SOUTHEAST",
+  };
+}
+
+export function reverseDirection(direction: HexDirection): HexDirection {
+  return HexMapHelpers.directionOppositeMap[direction] || HexDirection.NONE;
 }
 
 export function hexDirectionToString(direction: HexDirection): string {
-  switch (direction) {
-    case HexDirection.NONE:
-      return "NONE";
-    case HexDirection.EAST:
-      return "EAST";
-    case HexDirection.NORTHEAST:
-      return "NORTHEAST";
-    case HexDirection.NORTHWEST:
-      return "NORTHWEST";
-    case HexDirection.WEST:
-      return "WEST";
-    case HexDirection.SOUTHWEST:
-      return "SOUTHWEST";
-    case HexDirection.SOUTHEAST:
-      return "SOUTHEAST";
-    default:
-      return "UNKNOWN";
-  }
+  return HexMapHelpers.hexDirectionNamesMap[direction] || "UNKNOWN";
 }
 
 /**
