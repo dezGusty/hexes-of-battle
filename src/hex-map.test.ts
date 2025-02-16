@@ -51,9 +51,33 @@ describe('getCoordsInDirectionInternal', () => {
   });
 });
 
+describe('getNeighbourInDirectionNoBounds_EAST', () => {
+  it('should return the correct coordinates for each direction', () => {
+    let coords = { x: 2, y: 2 };
+    expect(HexMap.getNeighbourInDirectionNoBounds(coords, HexDirection.EAST)).toEqual({ x: 3, y: 2 });
+  });
+});
+describe('getNeighbourInDirectionNoBounds_NORTHEAST', () => {
+  it('should return the correct coordinates for each direction', () => {
+    let coords = { x: 9, y: 0 };
+    expect(HexMap.getNeighbourInDirectionNoBounds(coords, HexDirection.NORTHEAST)).toEqual({ x: 9, y: -1 });
+
+    coords = { x: 9, y: -1 };
+    expect(HexMap.getNeighbourInDirectionNoBounds(coords, HexDirection.NORTHEAST)).toEqual({ x: 10, y: -2 });
+
+    coords = { x: 8, y: -2 };
+    expect(HexMap.getNeighbourInDirectionNoBounds(coords, HexDirection.NORTHEAST)).toEqual({ x: 8, y: -3 });
+  });
+});
+describe('getNeighbourInDirectionNoBounds_NORTHWEST', () => {
+  it('should return the correct coordinates for each direction', () => {
+    let coords = { x: 8, y: -1 };
+    expect(HexMap.getNeighbourInDirectionNoBounds(coords, HexDirection.NORTHWEST)).toEqual({ x: 8, y: -2 });
+  });
+});
+
 describe('getOuterRadiusCoordsNoBounds', () => {
   it('should return the correct coordinates for a given radius', () => {
-    // const hexMap = new HexMap(10, 10);
     const center = { x: 1, y: 5 };
     const radius = 2;
     let expectedCoords = [];
@@ -68,6 +92,75 @@ describe('getOuterRadiusCoordsNoBounds', () => {
     expect(HexMap.getOuterRadiusCoordsNoBounds(center, radius)).toEqual(expectedCoords);
   });
 });
+
+describe('getOuterRadiusCoordsNoBounds v2', () => {
+  it('should return the correct coordinates for a given radius', () => {
+    const center = { x: 7, y: 4 };
+    const radius = 4;
+    let expectedCoords = [];
+    expectedCoords[HexDirection.NONE] = { x: 7, y: 4 };
+    expectedCoords[HexDirection.NORTHEAST] = { x: 9, y: 0 };
+    expectedCoords[HexDirection.EAST] = { x: 11, y: 4 };
+    expectedCoords[HexDirection.SOUTHEAST] = { x: 9, y: 8 };
+    expectedCoords[HexDirection.SOUTHWEST] = { x: 5, y: 8 };
+    expectedCoords[HexDirection.WEST] = { x: 3, y: 4 };
+    expectedCoords[HexDirection.NORTHWEST] = { x: 5, y: 0 };
+
+    expect(HexMap.getOuterRadiusCoordsNoBounds(center, radius)).toEqual(expectedCoords);
+  });
+});
+
+describe('getOuterRadiusCoordsNoBounds v3', () => {
+  it('should return the correct coordinates for a given radius', () => {
+    const center = { x: 7, y: 4 };
+    const radius = 6;
+    let expectedCoords = [];
+    expectedCoords[HexDirection.NONE] = { x: 7, y: 4 };
+    expectedCoords[HexDirection.NORTHEAST] = { x: 10, y: -2 };
+    expectedCoords[HexDirection.EAST] = { x: 13, y: 4 };
+    expectedCoords[HexDirection.SOUTHEAST] = { x: 10, y: 10 };
+    expectedCoords[HexDirection.SOUTHWEST] = { x: 4, y: 10 };
+    expectedCoords[HexDirection.WEST] = { x: 1, y: 4 };
+    expectedCoords[HexDirection.NORTHWEST] = { x: 4, y: -2 };
+
+    expect(HexMap.getOuterRadiusCoordsNoBounds(center, radius)).toEqual(expectedCoords);
+  });
+});
+
+describe('getOuterRadiusCoordsNoBounds v4', () => {
+  it('should return the correct coordinates for a given radius', () => {
+    const center = { x: 9, y: 0 };
+    const radius = 2;
+    let expectedCoords = [];
+    expectedCoords[HexDirection.NONE] = { x: 9, y: 0 };
+    expectedCoords[HexDirection.EAST] = { x: 11, y: 0 };
+    expectedCoords[HexDirection.NORTHWEST] = { x: 8, y: -2 };
+    expectedCoords[HexDirection.NORTHEAST] = { x: 10, y: -2 };
+    expectedCoords[HexDirection.SOUTHEAST] = { x: 10, y: 2 };
+    expectedCoords[HexDirection.SOUTHWEST] = { x: 8, y: 2 };
+    expectedCoords[HexDirection.WEST] = { x: 7, y: 0 };
+
+    expect(HexMap.getOuterRadiusCoordsNoBounds(center, radius)).toEqual(expectedCoords);
+  });
+});
+
+describe('getOuterRadiusCoordsNoBounds v5', () => {
+  it('should return the correct coordinates for a given radius', () => {
+    const center = { x: 9, y: 0 };
+    const radius = 1;
+    let expectedCoords = [];
+    expectedCoords[HexDirection.NONE] = { x: 9, y: 0 };
+    expectedCoords[HexDirection.NORTHEAST] = { x: 9, y: -1 };
+    expectedCoords[HexDirection.EAST] = { x: 10, y: 0 };
+    expectedCoords[HexDirection.SOUTHEAST] = { x: 9, y: 1 };
+    expectedCoords[HexDirection.SOUTHWEST] = { x: 8, y: 1 };
+    expectedCoords[HexDirection.WEST] = { x: 8, y: 0 };
+    expectedCoords[HexDirection.NORTHWEST] = { x: 8, y: -1 };
+
+    expect(HexMap.getOuterRadiusCoordsNoBounds(center, radius)).toEqual(expectedCoords);
+  });
+});
+
 
 describe('createFloodFillMatrix', () => {
   it('should create a flood-fill matrix for a given radius', () => {
@@ -93,6 +186,68 @@ describe('createFloodFillMatrix', () => {
       [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
     ];
 
-    expect(HexMap.createFloodFillMatrix(center, radius, matrix, width, height, value)).toEqual(expectedMatrix);
+    expect(HexMap.fillRadiusInMatrix(center, radius, matrix, width, height, value)).toEqual(expectedMatrix);
   });
 });
+
+describe('createFloodFillMatrix v2', () => {
+  it('should create a flood-fill matrix for a given radius', () => {
+    const width = 10;
+    const height = 10;
+    const matrix = Array.from({ length: width }, () => Array(height).fill(0));
+    const center = { x: 1, y: 5 };
+    const radius = 2;
+    const value_cell = 1;
+    const value_border = 2;
+
+    // note: in the representation below, the X coordinate is on the vertical and the Y coordinate is on the horizontal
+
+    const expectedMatrix = [
+      [0, 0, 0, 2, 2, 1, 2, 2, 0, 0],
+      [0, 0, 0, 2, 1, 1, 1, 2, 0, 0],
+      [0, 0, 0, 2, 1, 1, 1, 2, 0, 0],
+      [0, 0, 0, 0, 2, 2, 2, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    ];
+
+    expect(HexMap.fillRadiusInMatrix(center, radius, matrix, width, height, value_cell, value_border)).toEqual(expectedMatrix);
+  });
+});
+
+
+// describe('createFloodFillMatrix v3', () => {
+//   it('should create a flood-fill matrix for a given radius', () => {
+//     const width = 13;
+//     const height = 9;
+//     const matrix = Array.from({ length: width }, () => Array(height).fill(0));
+//     const center = { x: 7, y: 4 };
+//     const radius = 4;
+//     const value_cell = 1;
+//     const value_border = 2;
+
+//     // note: in the representation below, the X coordinate is on the vertical and the Y coordinate is on the horizontal
+
+//     const expectedMatrix = [
+//       [0, 0, 0, 2, 2, 2, 0, 0, 0],
+//       [0, 2, 2, 1, 1, 1, 2, 2, 0],
+//       [2, 1, 1, 1, 1, 1, 1, 1, 2],
+//       [1, 1, 1, 1, 1, 1, 1, 1, 1],
+//       [1, 1, 1, 1, 1, 1, 1, 1, 1],
+//       [1, 1, 1, 1, 1, 1, 1, 1, 1],
+//       [1, 1, 1, 1, 1, 1, 1, 1, 1],
+//       [2, 2, 1, 1, 1, 1, 1, 2, 2],
+//       [0, 0, 2, 2, 1, 2, 2, 0, 0],
+//       [0, 0, 0, 0, 2, 0, 0, 0, 0],
+//       [0, 0, 0, 0, 2, 0, 0, 0, 0],
+//       [0, 0, 0, 0, 2, 0, 0, 0, 0],
+//       [0, 0, 0, 0, 2, 0, 0, 0, 0],
+//     ];
+
+//     expect(HexMap.fillRadiusInMatrix(center, radius, matrix, width, height, value_cell, value_border)).toEqual(expectedMatrix);
+//   });
+// });

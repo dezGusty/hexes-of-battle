@@ -984,8 +984,6 @@ export class HexesApp {
         };
 
         let spriteSrc = 'hex_empty.png';
-
-
         spriteSrc = getSpriteSourceForEdge(edge, spriteSrc);
 
         let tempSprite = new Sprite(this.hexagonSheet?.textures[spriteSrc]);
@@ -1006,7 +1004,7 @@ export class HexesApp {
           }
 
           let spriteSrc = 'hex_action_disabled_gray.png';
-          if (this.battle.ability_reach_tiles[i][j] === 500) {
+          if (this.battle.pathfinding_tiles[i][j] === 500) {
             spriteSrc = 'hex_action_red.png';
           }
 

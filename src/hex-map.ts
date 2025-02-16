@@ -62,11 +62,11 @@ export class HexMapHelpers {
 
   static directionCoordsMap: Record<HexDirection, (coords: Coords) => Coords | null> = {
     [HexDirection.EAST]: (coords: Coords) => ({ x: coords.x + 1, y: coords.y }),
-    [HexDirection.NORTHEAST]: (coords: Coords) => ({ x: coords.x + (coords.y % 2), y: coords.y - 1 }),
-    [HexDirection.NORTHWEST]: (coords: Coords) => ({ x: coords.x - (1 - coords.y % 2), y: coords.y - 1 }),
+    [HexDirection.NORTHEAST]: (coords: Coords) => ({ x: coords.x + (Math.abs(coords.y) % 2), y: coords.y - 1 }),
+    [HexDirection.NORTHWEST]: (coords: Coords) => ({ x: coords.x - (1 - Math.abs(coords.y) % 2), y: coords.y - 1 }),
     [HexDirection.WEST]: (coords: Coords) => ({ x: coords.x - 1, y: coords.y }),
-    [HexDirection.SOUTHWEST]: (coords: Coords) => ({ x: coords.x - (1 - coords.y % 2), y: coords.y + 1 }),
-    [HexDirection.SOUTHEAST]: (coords: Coords) => ({ x: coords.x + (coords.y % 2), y: coords.y + 1 }),
+    [HexDirection.SOUTHWEST]: (coords: Coords) => ({ x: coords.x - (1 - Math.abs(coords.y) % 2), y: coords.y + 1 }),
+    [HexDirection.SOUTHEAST]: (coords: Coords) => ({ x: coords.x + (Math.abs(coords.y) % 2), y: coords.y + 1 }),
     [HexDirection.NONE]: () => null,
   };
 }
@@ -205,6 +205,18 @@ export class HexMap {
     return result;
   }
 
+  /**
+   * Find a neighbour of a hexagon in a given direction (allows also outside the bounds).
+   * @param coords Starting coordinates
+   * @param direction The direction in which to find the neighbour
+   * @returns The coordinates of the neighbour in the given direction, or null if the neighbour is outside the map.
+   */
+  public static getNeighbourInDirectionNoBounds(coords: Coords, direction: HexDirection): Coords | null {
+    let result = HexMap.getCoordsInDirectionInternal(coords, direction);
+    if (result === null) return null;
+    return result;
+  }
+
   public static getNeighbourInDirectionInDataMatrix(coords: Coords, direction: HexDirection, data: number[][], width: number, height: number): { coord: Coords, value: number } | null {
     let result = HexMap.getCoordsInDirectionInternal(coords, direction);
     if (result === null) return null;
@@ -312,7 +324,11 @@ export class HexMap {
    * @param delta The delta value to use for the edge detection. This is useful for detecting the border of the area. This value needs to be in the matrix
    * @returns An array of objects containing the coordinates of the hexagon, the value of the hexagon, and the edge of the hexagon.
    */
-  public static getEdgesForDataMatrix(data: number[][], width: number, height: number, delta: number = 10): { coord: Coords, value: number, edge: HexEdge }[] {
+  public static getEdgesForDataMatrix(
+    data: number[][],
+    width: number,
+    height: number,
+    delta: number = 10): { coord: Coords, value: number, edge: HexEdge }[] {
     let result: { coord: Coords, value: number, edge: HexEdge }[] = [];
     for (let j = 0; j < height; j++) {
       for (let i = 0; i < width; i++) {
@@ -514,14 +530,34 @@ export class HexMap {
     let result: Coords[] = [center, center, center, center, center, center, center];
     for (let i = 0; i < radius; i++) {
       for (let dir = HexDirection.NONE; dir <= HexDirection.SOUTHEAST; dir++) {
-        let newDir = HexMap.getCoordsInDirectionInternal(result[dir], dir);
-        if (newDir) {
-          result[dir] = newDir;
+        let newCoords = HexMap.getCoordsInDirectionInternal(result[dir], dir);
+        if (newCoords) {
+          result[dir] = newCoords;
         }
       }
     }
 
     return result;
+  }
+
+  public static fillMatrixLine(
+    matrix: number[][],
+    from_x: number,
+    to_x: number,
+    y_row: number,
+    value_cell: number,
+    value_border: number,
+    width: number,
+    height: number) {
+    for (let x_col = from_x; x_col <= to_x; x_col++) {
+      if (x_col >= 0 && x_col < width && y_row >= 0 && y_row < height) {
+        if (x_col === from_x || x_col === to_x) {
+          matrix[x_col][y_row] = value_border;
+        } else {
+          matrix[x_col][y_row] = value_cell;
+        }
+      }
+    }
   }
 
   /**
@@ -530,36 +566,48 @@ export class HexMap {
    * @param radius Radius of the hexagon.
    * @returns A matrix with the filled radius.
    */
-  public static createFloodFillMatrix(center: Coords, radius: number, matrix: number[][], width: number, height: number, value: number): number[][] {
+  public static fillRadiusInMatrix(
+    center: Coords,
+    radius: number,
+    matrix: number[][],
+    width: number,
+    height: number,
+    value_cell: number = 1,
+    value_border: number = 1): number[][] {
 
     const corners: Coords[] = HexMap.getOuterRadiusCoordsNoBounds(center, radius);
+    console.log("*** fillRadiusInMatrix corners from center",  center, "radius", radius, 
+      corners[HexDirection.NORTHWEST], 
+      corners[HexDirection.NORTHEAST], 
+      corners[HexDirection.SOUTHWEST],
+      corners[HexDirection.SOUTHEAST]);
 
     let westPoint = corners[HexDirection.NORTHWEST];
     let eastPoint = corners[HexDirection.NORTHEAST];
 
-    // fill the top side from north-west & north-east to west and east.
-    for (let y_row = corners[HexDirection.NORTHWEST].y; y_row < center.y; y_row++) {
-      for (let x_col = westPoint.x; x_col <= eastPoint.x; x_col++) {
-        if (x_col >= 0 && x_col < width && y_row >= 0 && y_row < height) {
-          matrix[x_col][y_row] = value;
-        }
-      }
+    // first row
+    let y_row = corners[HexDirection.NORTHWEST].y;
+    HexMap.fillMatrixLine(matrix, westPoint.x, eastPoint.x, y_row, value_border, value_border, width, height);
+    westPoint = HexMap.getCoordsInDirectionInternal(westPoint, HexDirection.SOUTHWEST) || westPoint;
+    eastPoint = HexMap.getCoordsInDirectionInternal(eastPoint, HexDirection.SOUTHEAST) || eastPoint;
 
+    // fill the top side from north-west & north-east to west and east.
+    for (let y_row = corners[HexDirection.NORTHWEST].y + 1; y_row < center.y; y_row++) {
+      HexMap.fillMatrixLine(matrix, westPoint.x, eastPoint.x, y_row, value_cell, value_border, width, height);
       westPoint = HexMap.getCoordsInDirectionInternal(westPoint, HexDirection.SOUTHWEST) || westPoint;
       eastPoint = HexMap.getCoordsInDirectionInternal(eastPoint, HexDirection.SOUTHEAST) || eastPoint;
     }
 
     // fill the bottom side from the midle row, heading from the west and east points to the south-west & south-east.
-    for (let y_row = center.y; y_row <= corners[HexDirection.SOUTHWEST].y; y_row++) {
-      for (let x_col = westPoint.x; x_col <= eastPoint.x; x_col++) {
-        if (x_col >= 0 && x_col < width && y_row >= 0 && y_row < height) {
-          matrix[x_col][y_row] = value;
-        }
-      }
-      
+    for (let y_row = center.y; y_row < corners[HexDirection.SOUTHWEST].y; y_row++) {
+      HexMap.fillMatrixLine(matrix, westPoint.x, eastPoint.x, y_row, value_cell, value_border, width, height);
       westPoint = HexMap.getCoordsInDirectionInternal(westPoint, HexDirection.SOUTHEAST) || westPoint;
       eastPoint = HexMap.getCoordsInDirectionInternal(eastPoint, HexDirection.SOUTHWEST) || eastPoint;
     }
+
+    // last row
+    y_row = corners[HexDirection.SOUTHWEST].y;
+    HexMap.fillMatrixLine(matrix, westPoint.x, eastPoint.x, y_row, value_border, value_border, width, height);
 
     return matrix;
   }
