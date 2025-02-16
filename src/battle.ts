@@ -1,5 +1,4 @@
-import { assert } from "vitest";
-import { Ability, AbilityTarget, AbilityType } from "./battle/ability";
+import { Ability, AbilityType } from "./battle/ability";
 import { Buff, Creature, CreatureStats } from "./battle/creature";
 import { TERRAIN_COST, TerrainType } from "./battle/terrain-types";
 import { checkFlankingStatus, HexDirection, HexFlankStatus, HexMap, reverseDirection } from "./hex-map";
@@ -479,7 +478,7 @@ export class Battle {
     }
   }
 
-  tryToApplyAbilityWithActiveCreatureAtLocation(coords: Coords, optionalDirection: HexDirection) {
+  tryToApplyAbilityWithActiveCreatureAtLocation(coords: Coords, _optionalDirection: HexDirection) {
     if (this.activeCreatureIndex < 0) {
       return;
     }
