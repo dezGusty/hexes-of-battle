@@ -575,37 +575,54 @@ export class HexMap {
     value_cell: number = 1,
     value_border: number = 1): number[][] {
 
-    const corners: Coords[] = HexMap.getOuterRadiusCoordsNoBounds(center, radius);
-    console.log("*** fillRadiusInMatrix corners from center",  center, "radius", radius, 
-      corners[HexDirection.NORTHWEST], 
-      corners[HexDirection.NORTHEAST], 
-      corners[HexDirection.SOUTHWEST],
-      corners[HexDirection.SOUTHEAST]);
+    // Get the corners of the hexagon in the directions
+    //  NW        NE
+    //    \     /
+    //     \  /
+    // W ---X--- E
+    //   /   \
+    //  /     \
+    // SW      SE
 
+    const corners: Coords[] = HexMap.getOuterRadiusCoordsNoBounds(center, radius);
     let westPoint = corners[HexDirection.NORTHWEST];
     let eastPoint = corners[HexDirection.NORTHEAST];
 
+    // Start filling in the top side from the north-west to the north-east.
+    //    NW --- NE
     // first row
     let y_row = corners[HexDirection.NORTHWEST].y;
     HexMap.fillMatrixLine(matrix, westPoint.x, eastPoint.x, y_row, value_border, value_border, width, height);
     westPoint = HexMap.getCoordsInDirectionInternal(westPoint, HexDirection.SOUTHWEST) || westPoint;
     eastPoint = HexMap.getCoordsInDirectionInternal(eastPoint, HexDirection.SOUTHEAST) || eastPoint;
 
-    // fill the top side from north-west & north-east to west and east.
+    // Fill the top side from north-west & north-east points to the west and east points.
+    //    NW --- NE
+    //   / \    / \
+    //  /   \ /    \
+    // W --- X --- E
+
+
     for (let y_row = corners[HexDirection.NORTHWEST].y + 1; y_row < center.y; y_row++) {
       HexMap.fillMatrixLine(matrix, westPoint.x, eastPoint.x, y_row, value_cell, value_border, width, height);
       westPoint = HexMap.getCoordsInDirectionInternal(westPoint, HexDirection.SOUTHWEST) || westPoint;
       eastPoint = HexMap.getCoordsInDirectionInternal(eastPoint, HexDirection.SOUTHEAST) || eastPoint;
     }
 
-    // fill the bottom side from the midle row, heading from the west and east points to the south-west & south-east.
+    // Fill the bottom side from the midle row, heading from the west and east points to the south-west & south-east points.
+    // W --- X --- E
+    // \   / \   /
+    //  \ /   \ / 
+    //  SW --- SE
+
     for (let y_row = center.y; y_row < corners[HexDirection.SOUTHWEST].y; y_row++) {
       HexMap.fillMatrixLine(matrix, westPoint.x, eastPoint.x, y_row, value_cell, value_border, width, height);
       westPoint = HexMap.getCoordsInDirectionInternal(westPoint, HexDirection.SOUTHEAST) || westPoint;
       eastPoint = HexMap.getCoordsInDirectionInternal(eastPoint, HexDirection.SOUTHWEST) || eastPoint;
     }
 
-    // last row
+    // Last row
+    //  SW --- SE
     y_row = corners[HexDirection.SOUTHWEST].y;
     HexMap.fillMatrixLine(matrix, westPoint.x, eastPoint.x, y_row, value_border, value_border, width, height);
 
