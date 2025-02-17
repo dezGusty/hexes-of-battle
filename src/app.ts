@@ -974,7 +974,33 @@ export class HexesApp {
         }
       }
 
-      // show ranged reachability
+      // highlight ranged targets
+      for (let j = 0; j < this.hexMap.height; j++) {
+        for (let i = 0; i < this.hexMap.width; i++) {
+          if (this.battle.rangereach_targets[i][j] <= 0) {
+            continue;
+          }
+
+          let spriteSrc = 'hex_action_disabled_gray.png';
+          if (this.battle.rangereach_targets[i][j] === 500) {
+            spriteSrc = 'hex_action_red.png';
+          }
+
+          let hexCoords: Coords = this.hexMap.hexToPixel(i, j);
+          hexCoords = {
+            x: hexCoords.x - this.hexMap.cellSize().x / 2,
+            y: hexCoords.y - this.hexMap.cellSize().y / 2
+          };
+
+          let tempSprite = new Sprite(this.hexagonSheet?.textures[spriteSrc]);
+          tempSprite.position.copyFrom(hexCoords);
+          this.hexReachableSprites.push(tempSprite);
+          this.hexCellsContainer.addChild(tempSprite);
+        }
+      }
+
+
+      // show ranged reachability (border)
       let edges = HexMap.getEdgesForDataMatrix(this.battle.rangereach_tiles, this.hexMap.width, this.hexMap.height);
       for (let edge of edges) {
         let hexCoords: Coords = this.hexMap.hexToPixel(edge.coord.x, edge.coord.y);
@@ -996,7 +1022,7 @@ export class HexesApp {
 
     if (mapUpdate.abilityReachableCells) {
 
-      // show pathfinding tiles
+      // show ability reach targets
       for (let j = 0; j < this.hexMap.height; j++) {
         for (let i = 0; i < this.hexMap.width; i++) {
           if (this.battle.ability_reach_tiles[i][j] <= 0) {
@@ -1004,7 +1030,7 @@ export class HexesApp {
           }
 
           let spriteSrc = 'hex_action_disabled_gray.png';
-          if (this.battle.pathfinding_tiles[i][j] === 500) {
+          if (this.battle.ability_reach_targets[i][j] === 500) {
             spriteSrc = 'hex_action_red.png';
           }
 

@@ -117,7 +117,9 @@ export class Battle {
   public enemy_potential_tiles: number[][] = [];
   public enemy_range_tiles: number[][] = [];
   public rangereach_tiles: number[][] = [];
+  public rangereach_targets: number[][] = [];
   public ability_reach_tiles: number[][] = [];
+  public ability_reach_targets: number[][] = [];
   // Units and objects which occupy a tile
   public cached_occupation_tiles: number[][] = [];
   public terrain_tiles: number[][] = [];
@@ -142,6 +144,7 @@ export class Battle {
     Battle.initializeMapToSize(this.pathfinding_tiles, mapWidth, mapHeight);
     Battle.initializeMapToSize(this.cached_occupation_tiles, mapWidth, mapHeight);
     Battle.initializeMapToSize(this.rangereach_tiles, mapWidth, mapHeight);
+    Battle.initializeMapToSize(this.rangereach_targets, mapWidth, mapHeight);
     Battle.initializeMapToSize(this.enemy_potential_tiles, mapWidth, mapHeight);
     Battle.initializeMapToSize(this.enemy_range_tiles, mapWidth, mapHeight);
     Battle.initializeMapToSize(this.terrain_tiles, mapWidth, mapHeight);
@@ -149,6 +152,7 @@ export class Battle {
     Battle.generateRandomTerrain(this.terrain_tiles, mapWidth, mapHeight);
 
     Battle.initializeMapToSize(this.ability_reach_tiles, mapWidth, mapHeight);
+    Battle.initializeMapToSize(this.ability_reach_targets, mapWidth, mapHeight);
 
     logMatrix(this.terrain_tiles, mapWidth, mapHeight, "Terrain");
   }
@@ -222,67 +226,6 @@ export class Battle {
       this.cached_occupation_tiles[creature.pos.x][creature.pos.y] = i + 1;
     }
   }
-
-  /**
-   * Cache all reachable cells for the current creature for a ranged attack.
-   * @param coords The start position
-   * @param range The range to cache
-   */
-  // public cacheRangedReachableCells(
-  //   coords: Coords,
-  //   range: number,
-  //   pathfindingMatrix: number[][],
-  //   rangeData: ReachData[],
-  //   currentArmyIdx: number) {
-
-  //   // Start with the coords and the range
-  //   let frontier: ReachData[] = [{ coords, reach: range, cameFrom: coords }];
-
-  //   while (frontier.length > 0) {
-  //     let current = frontier.shift();
-  //     if (current === undefined) {
-  //       continue;
-  //     }
-
-  //     if (pathfindingMatrix[current.coords.x][current.coords.y] !== 0) {
-  //       continue;
-  //     }
-
-  //     if (current.reach < 0) {
-  //       continue;
-  //     }
-
-  //     pathfindingMatrix[current.coords.x][current.coords.y] = current.reach + 10;
-
-  //     if (current.reach === 0) {
-  //       continue;
-  //     }
-
-  //     let neighbours = this.hexMap.getNeighbours(current.coords);
-  //     let neighbours_and_reach_pairs: ReachData[] = neighbours.map(neighbour => {
-  //       return {
-  //         coords: neighbour,
-  //         reach: current.reach - 1,
-  //         cameFrom: current.coords
-  //       }
-  //     });
-
-  //     // remove entries from neighbours that are already visited
-  //     neighbours_and_reach_pairs = neighbours_and_reach_pairs.filter(
-  //       neighbour => pathfindingMatrix[neighbour.coords.x][neighbour.coords.y] === 0);
-
-  //     for (const neighbour of neighbours_and_reach_pairs) {
-  //       frontier.push(neighbour);
-  //       const creatureIndex = this.cached_occupation_tiles[neighbour.coords.x][neighbour.coords.y] - 1;
-  //       if (creatureIndex >= 0
-  //         && this.creatures[creatureIndex].armyAlignment !== currentArmyIdx) {
-  //         // An enemy is here, within range
-  //         rangeData.push(neighbour);
-  //         this.pathfinding_tiles[neighbour.coords.x][neighbour.coords.y] = 500;
-  //       }
-  //     }
-  //   }
-  // }
 
   /**
    * Prepare the map for pathfinding by caching the creatures and their positions.
@@ -402,6 +345,7 @@ export class Battle {
     );
     this.unitRangeData = [];
     Battle.resetNumericalMatrixToZero(this.rangereach_tiles);
+    Battle.resetNumericalMatrixToZero(this.rangereach_targets);
     if (creature.live_stats.is_ranged) {
       const otherArmyIndex = this.currentArmyIndex === 0 ? 1 : 0;
       Battle.cacheRangedReachableCellsInternal(
@@ -409,7 +353,7 @@ export class Battle {
         creaturePosition,
         creature.live_stats.range,
         this.rangereach_tiles,
-        this.pathfinding_tiles,
+        this.rangereach_targets,
         this.unitRangeData,
         this.creatures,
         [otherArmyIndex] // TODO: this should not be the army index, but all the indices to store as targets (if it can target both friend and foe).
@@ -483,7 +427,7 @@ export class Battle {
       return;
     }
 
-    if (this.ability_reach_tiles[coords.x][coords.y] <= 0) {
+    if (this.ability_reach_tiles[coords.x][coords.y] <= 0) { // ability_reach_targets ?
       console.log("Clicked on a non-reachable cell");
       return;
     }
@@ -512,7 +456,8 @@ export class Battle {
     }
 
     if (this.pathfinding_tiles[coords.x][coords.y] <= 0
-      && this.rangereach_tiles[coords.x][coords.y] <= 0) { // TODO: magic number!
+      && this.rangereach_tiles[coords.x][coords.y] <= 0
+      && this.rangereach_targets[coords.x][coords.y] <= 0) {
       console.log("Clicked on a non-reachable cell");
       return;
     }
@@ -553,21 +498,36 @@ export class Battle {
     // If the attacker is ranged, then don't move, just attack
     // If the attacker is melee, then move to the cell and attack
 
-    if (creature.live_stats.is_ranged && !meleePreference) {
+    if (creature.live_stats.is_ranged) {
+      if (!meleePreference) {
+        if (this.rangereach_tiles[coords.x][coords.y] <= 0) {
+          console.log("Clicked on a non-reachable cell for ranged attack");
+          return;
+        }
 
-      // The unit is ranged, the user WANTS to attack in a ranged mode, but should also check if the ranged unit is engaged in melee.
-      if (-1 == this.hexMap.getNeighbours(creature.pos).findIndex(neighbour => neighbour.x === coords.x && neighbour.y === coords.y)) {
-        // The target is not in melee range, so the ranged unit can attack it.
-        console.log("Range attack at: ", coords);
-        this.currentActions.push(new BattleAction(BattleActionType.ATTACK_RANGED, [coords], 0, 500, 50));
-        this.nextRenderUpdate.unitRenderUpdate = true;
-        this.nextRenderUpdate.somethingChanged = true;
-        return;
+        // The unit is ranged, the user WANTS to attack in a ranged mode, but should also check if the ranged unit is engaged in melee.
+        if (-1 == this.hexMap.getNeighbours(creature.pos).findIndex(neighbour => neighbour.x === coords.x && neighbour.y === coords.y)) {
+          // The target is not in melee range, so the ranged unit can attack it.
+          console.log("Range attack at: ", coords);
+          this.currentActions.push(new BattleAction(BattleActionType.ATTACK_RANGED, [coords], 0, 500, 50));
+          this.nextRenderUpdate.unitRenderUpdate = true;
+          this.nextRenderUpdate.somethingChanged = true;
+          return;
+        }
+      } else {
+        // melee preference
+        if (this.pathfinding_tiles[coords.x][coords.y] <= 0) {
+          console.log("Clicked on a non-reachable cell for melee attack");
+          return;
+        }
       }
-      // (else)
-      // The target is in melee range, so the ranged unit cannot attack it with a ranged attack.
-      // Continue with melee attack handling
     }
+
+
+    // (else)
+    // The target is in melee range, so the ranged unit cannot attack it with a ranged attack.
+    // Continue with melee attack handling
+
 
     // move creature on the hover path.
     let path: Coords[] = [];
@@ -1381,6 +1341,7 @@ export class Battle {
     let reachableCells: Coords[] = [];
 
     Battle.resetNumericalMatrixToZero(this.ability_reach_tiles);
+    Battle.resetNumericalMatrixToZero(this.ability_reach_targets);
 
     this.abilityRangeData = [];
     console.log("Showing ability reachable cells for: ", ability, owningCreature);
@@ -1389,7 +1350,7 @@ export class Battle {
       owningCreature.pos,
       ability.range,
       this.ability_reach_tiles,
-      this.pathfinding_tiles, // TODO: check this
+      this.ability_reach_targets,
       this.abilityRangeData,
       this.creatures,
       [1] // TODO: this should not be the army index, but all the indices to store as targets (if it can target both friend and foe).
