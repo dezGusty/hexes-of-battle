@@ -2,7 +2,7 @@ import { Ability, AbilityType } from "./battle/ability";
 import { Buff, Creature, CreatureStats } from "./battle/creature";
 import { TERRAIN_COST, TerrainType } from "./battle/terrain-types";
 import { checkFlankingStatus, HexDirection, HexFlankStatus, HexMap, reverseDirection } from "./hex-map";
-import { Coords, logMatrix } from "./shared";
+import { Coords, getRandomAttackDamage, logMatrix } from "./shared";
 
 export class CreatureInBattle {
   constructor(
@@ -67,7 +67,8 @@ export enum BattleActionType {
   ATTACK_MELEE = 2,
   ATTACK_RANGED = 3,
   COUNTER_ATTACK_MELEE = 4,
-  SELECT_NEXT = 5
+  SELECT_NEXT = 5,
+  TARGET_ABILITY = 6
 }
 
 export class BattleAction {
@@ -134,6 +135,7 @@ export class Battle {
   private finished: boolean = false;
   private onMouseOverCellPrevPrefMelee: boolean = false;
   private input_state: InputState = InputState.SELECT_UNIT_OR_TARGET;
+  private abilityToApply: Ability | null = null;
 
   constructor(
     public hexMap: HexMap) {
@@ -320,19 +322,12 @@ export class Battle {
     return result;
   }
 
-  public setMovementCostMatrixForUnit(_matrix: number[][], _creature: Creature) {
-
-  }
-
   showReachableCells(creature: Creature): Coords[] {
     let reachableCells: Coords[] = [];
     let creaturePosition = creature.pos;
 
     // TODO: this could also be done when movement occurs
     this.cacheCreaturesToHexMap();
-
-    // Battle.resetNumericalMatrixToZero(this.terrain_tiles);
-    // this.setMovementCostMatrixForUnit(this.terrain_tiles, creature);
 
     this.unitReachData = [];
     this.cacheMeleeReachableCells(
@@ -440,6 +435,8 @@ export class Battle {
     }
 
     console.log("Applying ability of creature", creature, " to creature: ", creatureAtTarget);
+    console.log("Applying ability: ", this.abilityToApply);
+    this.currentActions.push(new BattleAction(BattleActionType.TARGET_ABILITY, [coords], 0, 500, 50));
   }
 
   private getMovementCostForPath(path: Coords[], _creature: Creature): number {
@@ -571,6 +568,7 @@ export class Battle {
       } else if (event.button === 2) {
         // cancel ability selection
         this.input_state = InputState.SELECT_UNIT_OR_TARGET;
+        this.abilityToApply = null;
         this.reselectCurrentUnit();
       }
       return;
@@ -644,7 +642,6 @@ export class Battle {
     let enemyRangeData: ReachData[] = [];
     Battle.resetNumericalMatrixToZero(this.enemy_range_tiles);
     if (targetCreature.creature.live_stats.is_ranged) {
-      logMatrix(this.enemy_range_tiles, this.hexMap.width, this.hexMap.height, "Enemy range tiles BEFORE");
 
       const otherArmyIndex = targetCreature.indexOFArmy === 0 ? 1 : 0;
       console.log("Getting enemy range data for: ", targetCreature.creature, " at: ", coords, " range: ", targetCreature.creature.live_stats.range);
@@ -660,14 +657,6 @@ export class Battle {
       );
 
       logMatrix(this.enemy_range_tiles, this.hexMap.width, this.hexMap.height, "Enemy range tiles");
-
-      // this.cacheRangedReachableCells(
-      //   coords,
-      //   targetCreature.creature.live_stats.range,
-      //   this.enemy_range_tiles,
-      //   enemyRangeData,
-      //   targetCreature.indexOFArmy
-      // );
     }
 
     this.nextRenderUpdate.enemyReachableCells = true;
@@ -982,6 +971,15 @@ export class Battle {
 
         this.updateDoCounterAttack(currentAction);
         break;
+      case BattleActionType.TARGET_ABILITY:
+        currentAction.remainingTime -= delta;
+        // Show attack animation during this time. At the end, stop the animation.
+        if (currentAction.remainingTime > 0) {
+          return this.prevRenderUpdate;
+        }
+
+        this.updateDoApplyAbility(currentAction);
+        break;
       case BattleActionType.SELECT_NEXT:
         this.currentActions.shift();
         this.selectNextUnitAndGetIndex();
@@ -1069,7 +1067,6 @@ export class Battle {
           new BattleAction(BattleActionType.SELECT_NEXT, [], 0, 500, 50));
       }
     }
-
   }
 
   private updateDoAttackApplyDamageAndCounter(currentAction: BattleAction): boolean {
@@ -1107,6 +1104,111 @@ export class Battle {
     thisCreature.stats.remaining_movement = 0;
     return counterattacking;
   }
+  
+  private updateDoApplyAbility(currentAction: BattleAction) {
+    if (currentAction.step == 0) {
+      console.log("First step of applying ability", currentAction);
+      // Melee units may move to attack from behind, make certain that they are facing the right direction
+      if (currentAction.type == BattleActionType.TARGET_ABILITY) {
+        // Ranged units need a "general direction" to face.
+        const oneDirection = this.hexMap.getGeneralDirectionForTarget(this.creatures[this.activeCreatureIndex].pos, currentAction.path[0]);
+        if (this.creatures[this.activeCreatureIndex].facingDirection !== oneDirection) {
+          this.creatures[this.activeCreatureIndex].facingDirection = oneDirection;
+          this.nextRenderUpdate.unitRenderUpdate = true;
+          this.nextRenderUpdate.somethingChanged = true;
+        }
+      }
+
+      const animType: AnimationType = AnimationType.ATTACK_RANGED;
+      // First step, start playing animation
+      this.nextRenderUpdate.animationAtCoords = new AnimationAtCoords(animType, currentAction.path[0]);
+      this.nextRenderUpdate.somethingChanged = true;
+      currentAction.step++;
+      currentAction.remainingTime = currentAction.stepDuration;
+      console.log("Playing attack animation");
+      return;
+    } else if (currentAction.step == 1) {
+      // Second step, stop playing animation, and apply the damage
+      this.updateDoApplyAbilityEffect(currentAction);
+      console.log("Applied ability");
+
+      this.currentActions.shift();
+      this.nextRenderUpdate.unitRenderUpdate = true;
+      this.nextRenderUpdate.somethingChanged = true;
+      currentAction.step++;
+
+      // cancel ability selection
+      this.input_state = InputState.SELECT_UNIT_OR_TARGET;
+      this.abilityToApply = null;
+      this.currentActions.push(
+        new BattleAction(BattleActionType.SELECT_NEXT, [], 0, 500, 50));
+    }
+  }
+
+  private updateDoApplyAbilityEffect(currentAction: BattleAction) {
+    if (currentAction.path.length <= 0) {
+      return;
+    }
+
+    const target = currentAction.path[0];
+    let creatureInBattle = this.getCreatureAtPosition(target);
+    if (creatureInBattle === null) {
+      console.error("The creature is no longer there");
+      return;
+    }
+
+    let thisCreature = this.creatures[this.activeCreatureIndex];
+
+    // TODO:XXX
+    this.applyAbilityEffect(thisCreature, creatureInBattle.creature, currentAction.type);
+
+    if (!creatureInBattle.creature.isAlive) {
+      console.log("The creature has died");
+      this.hookUnitDied(creatureInBattle.creature);
+      this.creatures.splice(creatureInBattle.indexInArmy, 1);
+      this.checkVictoryConditionsAndState();
+      this.tryToSelectUnitAtLocation(thisCreature.pos);
+    }
+    // no counterattacks foreseen for spells (could add later?)
+
+    // for most units, after attacking, the turn is over, so also set their movement to 0
+    // take into account later to allow features such as moving after attacking.
+    thisCreature.stats.remaining_movement = 0; // TODO: analyze if this should be done for abilities as well.
+  }
+
+  /**
+   * 
+   * @param source The creature that is attacking (or counterattacking)
+   * @param target The creature being hit
+   * @param attackType The type of attack
+   */
+  private applyAbilityEffect(source: Creature, target: Creature, attackType: BattleActionType) {
+    if (attackType != BattleActionType.TARGET_ABILITY) {
+      return;
+    }
+
+    if (!this.abilityToApply) {
+      return;
+    }
+
+    let sourceDamage = getRandomAttackDamage(this.abilityToApply.damage_low, this.abilityToApply.damage_high);
+    let targetArmor = 0;
+
+    // ignore flanking / backstabing
+    let flankStatus = HexFlankStatus.NONE;
+    let damage = sourceDamage - targetArmor;
+    // make certain that we don't heal the target? what if it's a heal?
+    if (damage < 0) {
+      damage = 0;
+    }
+
+    // display this as a ranged attack
+    this.hookDoingAttack(source, target, damage, BattleActionType.ATTACK_RANGED, flankStatus);
+    target.takeDamage(damage);
+    source.stats.remaining_attacks--;
+    console.log(`Dealt ${damage} damage to the creature`);
+  }
+
 
   public recomputeAllPositionBuffs() {
     this.creatures.forEach(creature => {
@@ -1311,6 +1413,8 @@ export class Battle {
   }
 
 
+
+  
   public selectActiveAbilityForCurrentUnit(abilityIndex: number) {
     // Get current unit
     let creature = this.creatures[this.activeCreatureIndex];
@@ -1330,6 +1434,7 @@ export class Battle {
       if (ability.requiresTarget) {
         this.showAbilityReachableCells(ability, creature);
         this.input_state = InputState.SELECT_ABILITY_TARGET;
+        this.abilityToApply = ability;
       }
     }
 

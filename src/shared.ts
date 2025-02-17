@@ -13,3 +13,7 @@ export function logMatrix(matrix: number[][], windth: number, height: number, hi
   }
   console.log(rows);
 }
+
+export function getRandomAttackDamage(lower_bound: number, upper_bound: number): number {
+  return lower_bound + Math.floor(Math.random() * (upper_bound - lower_bound + 1));
+}

@@ -5,8 +5,10 @@
         "tooltip-name": "Patch up",
         "description": "Heal a friendly unit for a bit of health.",
         "abilityType": 1,
-        "allowedTargets": ["self", "allies"]
-        
+        "allowedTargets": [
+            "self",
+            "allies"
+        ]
     },
     {
         "id": "pck-01",
@@ -14,7 +16,9 @@
         "tooltip-name": "Pick-up ammo",
         "description": "Pick up ammo from the ground.",
         "abilityType": 1,
-        "allowedTargets": ["none"]
+        "allowedTargets": [
+            "none"
+        ]
     },
     {
         "id": "jav-01",
@@ -22,15 +26,13 @@
         "tooltip-name": "Throw javelin",
         "description": "Throw a javelin at an enemy.",
         "abilityType": 1,
-        "allowedTargets": ["enemies"],
+        "allowedTargets": [
+            "enemies"
+        ],
         "requiresTarget": true,
         "range": 2,
-        "damage": {
-            "type": "custom",
-            "range": 2,
-            "damage_low": 5,
-            "damage_high": 8
-        }
+        "damage_low": 8,
+        "damage_high": 10
     },
     {
         "id": "dbl-strike-01",
@@ -38,7 +40,9 @@
         "tooltip-name": "Double shot",
         "description": "Fire two arrows in quick succession at an enemy.",
         "abilityType": "toggle",
-        "allowedTargets": ["none"],
+        "allowedTargets": [
+            "none"
+        ],
         "cost": {
             "stamina": 5
         }

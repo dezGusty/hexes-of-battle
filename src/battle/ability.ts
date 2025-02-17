@@ -53,4 +53,7 @@ export class Ability {
     public description: string = "";
     public icon: string = "";
     public tooltipName: string = "";
+
+    public damage_low: number = 0;
+    public damage_high: number = 0;
 }
