@@ -407,6 +407,14 @@ export class HexMap {
     let result = HexMap.axial_round(q, r);
 
     // Adjust the horizontal position for lines with odd r, the q is shifted by half a cell to the right
+    //     /\/\
+    //    | | |  =>  {0, 0}, {1, 0}
+    //    \/\/\
+    //    | | |   =>  {0, 1}, {1, 1}
+    //   /\/\/
+    //  | | |  =>  {0, 2}, {1, 2}
+    //  \/\/
+    //
     // {0, 0} => {0, 0}
     //  {0, 1} => {0, 1}
     // {0, 2} => {1, 2}
@@ -493,6 +501,13 @@ export class HexMap {
     return HexDirection.NONE;
   }
 
+  /**
+   * Find the general direction from one hexagon to another hexagon.
+   * This can be used to determine how the units in the hex could be rotated to "look at" another hex
+   * @param source 
+   * @param target 
+   * @returns 
+   */
   public getGeneralDirectionForTarget(source: Coords, target: Coords): HexDirection {
     const neighbour = this.getDirectionForNeighbour(source, target);
     if (neighbour !== HexDirection.NONE) {
@@ -540,7 +555,18 @@ export class HexMap {
     return result;
   }
 
-  public static fillMatrixLine(
+  /**
+   * Fill in some values in a matrix for a segment of a line. 
+   * @param matrix The matrix to fill in. Uses the X coordinate as the first index and the Y coordinate as the second index.
+   * @param from_x Start index of the line.
+   * @param to_x    End index of the line.
+   * @param y_row   Row index of the line.
+   * @param value_cell The value to use to fill in the cells of the line.
+   * @param value_border The value to use to fill in the border cells of the line.
+   * @param width   Matrix width.
+   * @param height  Matrix height.
+   */
+  public static fillMatrixSubLine(
     matrix: number[][],
     from_x: number,
     to_x: number,
@@ -592,7 +618,7 @@ export class HexMap {
     //    NW --- NE
     // first row
     let y_row = corners[HexDirection.NORTHWEST].y;
-    HexMap.fillMatrixLine(matrix, westPoint.x, eastPoint.x, y_row, value_border, value_border, width, height);
+    HexMap.fillMatrixSubLine(matrix, westPoint.x, eastPoint.x, y_row, value_border, value_border, width, height);
     westPoint = HexMap.getCoordsInDirectionInternal(westPoint, HexDirection.SOUTHWEST) || westPoint;
     eastPoint = HexMap.getCoordsInDirectionInternal(eastPoint, HexDirection.SOUTHEAST) || eastPoint;
 
@@ -604,7 +630,7 @@ export class HexMap {
 
 
     for (let y_row = corners[HexDirection.NORTHWEST].y + 1; y_row < center.y; y_row++) {
-      HexMap.fillMatrixLine(matrix, westPoint.x, eastPoint.x, y_row, value_cell, value_border, width, height);
+      HexMap.fillMatrixSubLine(matrix, westPoint.x, eastPoint.x, y_row, value_cell, value_border, width, height);
       westPoint = HexMap.getCoordsInDirectionInternal(westPoint, HexDirection.SOUTHWEST) || westPoint;
       eastPoint = HexMap.getCoordsInDirectionInternal(eastPoint, HexDirection.SOUTHEAST) || eastPoint;
     }
@@ -616,7 +642,7 @@ export class HexMap {
     //  SW --- SE
 
     for (let y_row = center.y; y_row < corners[HexDirection.SOUTHWEST].y; y_row++) {
-      HexMap.fillMatrixLine(matrix, westPoint.x, eastPoint.x, y_row, value_cell, value_border, width, height);
+      HexMap.fillMatrixSubLine(matrix, westPoint.x, eastPoint.x, y_row, value_cell, value_border, width, height);
       westPoint = HexMap.getCoordsInDirectionInternal(westPoint, HexDirection.SOUTHEAST) || westPoint;
       eastPoint = HexMap.getCoordsInDirectionInternal(eastPoint, HexDirection.SOUTHWEST) || eastPoint;
     }
@@ -624,7 +650,7 @@ export class HexMap {
     // Last row
     //  SW --- SE
     y_row = corners[HexDirection.SOUTHWEST].y;
-    HexMap.fillMatrixLine(matrix, westPoint.x, eastPoint.x, y_row, value_border, value_border, width, height);
+    HexMap.fillMatrixSubLine(matrix, westPoint.x, eastPoint.x, y_row, value_border, value_border, width, height);
 
     return matrix;
   }
