@@ -172,7 +172,7 @@ export class Battle {
 
   static generateRandomTerrain(matrix: number[][], mapWidth: number, mapHeight: number): void {
     // Set-up the weights for the terrain types
-    const weights: number[] = [5, 1, 1, 0, 0];
+    const weights: number[] = [10, 2, 2, 1, 0];
     const terrain_type_limits: number[] = weights.map(
       (value, index) => {
         return value + weights.reduce((x, y, i) => i < index ? x + y : x, 0);
