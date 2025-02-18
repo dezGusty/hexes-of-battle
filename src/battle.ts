@@ -2,7 +2,8 @@ import { Ability, AbilityType } from "./battle/ability";
 import { Buff, Creature, CreatureStats } from "./battle/creature";
 import { TERRAIN_COST, TerrainType } from "./battle/terrain-types";
 import { checkFlankingStatus, HexDirection, HexFlankStatus, HexMap, reverseDirection } from "./hex-map";
-import { Coords, getRandomAttackDamage, logMatrix } from "./shared";
+import { Coords, getRandomValueBetween, logMatrix } from "./shared";
+import { resetNumericalMatrixToZero } from "./shared/matrix";
 
 export class CreatureInBattle {
   constructor(
@@ -55,6 +56,7 @@ export class MapRenderUpdate {
 
   public somethingChanged: boolean = false;
   public hoverEnemyIndex: number = -1;
+
 }
 
 export class ReachData {
@@ -211,17 +213,10 @@ export class Battle {
     console.log(`Selected creature in army: ${this.currentArmyIndex}, at index ${this.activeCreatureIndex}`);
   }
 
-  static resetNumericalMatrixToZero(matrix: number[][]) {
-    // Note: consider to matrix.length, matrix[0].length
-    for (let i = 0; i < matrix.length; i++) {
-      for (let j = 0; j < matrix[0].length; j++) {
-        matrix[i][j] = 0;
-      }
-    }
-  }
+  
 
   public cacheCreaturesToHexMap() {
-    Battle.resetNumericalMatrixToZero(this.cached_occupation_tiles);
+    resetNumericalMatrixToZero(this.cached_occupation_tiles);
 
     for (let i = 0; i < this.creatures.length; i++) {
       let creature = this.creatures[i];
@@ -246,7 +241,7 @@ export class Battle {
   ) {
     // reset the cache
     // reachData = [];
-    Battle.resetNumericalMatrixToZero(pathfindingMatrix);
+    resetNumericalMatrixToZero(pathfindingMatrix);
 
     let frontier: ReachData[] = [{ coords, reach, cameFrom: coords }];
 
@@ -322,6 +317,11 @@ export class Battle {
     return result;
   }
 
+  /**
+   * Caches hexes reacheable by walking, melee attacking, ranged attacking.
+   * @param creature 
+   * @returns 
+   */
   showReachableCells(creature: Creature): Coords[] {
     let reachableCells: Coords[] = [];
     let creaturePosition = creature.pos;
@@ -339,8 +339,8 @@ export class Battle {
       this.activeCreatureIndex
     );
     this.unitRangeData = [];
-    Battle.resetNumericalMatrixToZero(this.rangereach_tiles);
-    Battle.resetNumericalMatrixToZero(this.rangereach_targets);
+    resetNumericalMatrixToZero(this.rangereach_tiles);
+    resetNumericalMatrixToZero(this.rangereach_targets);
     if (creature.live_stats.is_ranged) {
       const otherArmyIndex = this.currentArmyIndex === 0 ? 1 : 0;
       Battle.cacheRangedReachableCellsInternal(
@@ -623,8 +623,8 @@ export class Battle {
       // just reset this, as we don't need to show the enemy reachable cells
       this.nextRenderUpdate.enemyReachableCells = true;
       this.nextRenderUpdate.hoverOverUnitIndex = targetCreature?.indexInArmy ?? -1;
-      Battle.resetNumericalMatrixToZero(this.enemy_potential_tiles);
-      Battle.resetNumericalMatrixToZero(this.enemy_range_tiles);
+      resetNumericalMatrixToZero(this.enemy_potential_tiles);
+      resetNumericalMatrixToZero(this.enemy_range_tiles);
       return;
     }
 
@@ -640,7 +640,7 @@ export class Battle {
     );
 
     let enemyRangeData: ReachData[] = [];
-    Battle.resetNumericalMatrixToZero(this.enemy_range_tiles);
+    resetNumericalMatrixToZero(this.enemy_range_tiles);
     if (targetCreature.creature.live_stats.is_ranged) {
 
       const otherArmyIndex = targetCreature.indexOFArmy === 0 ? 1 : 0;
@@ -1191,7 +1191,7 @@ export class Battle {
       return;
     }
 
-    let sourceDamage = getRandomAttackDamage(this.abilityToApply.damage_low, this.abilityToApply.damage_high);
+    let sourceDamage = getRandomValueBetween(this.abilityToApply.damage_low, this.abilityToApply.damage_high);
     let targetArmor = 0;
 
     // ignore flanking / backstabing
@@ -1445,8 +1445,8 @@ export class Battle {
   public showAbilityReachableCells(ability: Ability, owningCreature: Creature): Coords[] {
     let reachableCells: Coords[] = [];
 
-    Battle.resetNumericalMatrixToZero(this.ability_reach_tiles);
-    Battle.resetNumericalMatrixToZero(this.ability_reach_targets);
+    resetNumericalMatrixToZero(this.ability_reach_tiles);
+    resetNumericalMatrixToZero(this.ability_reach_targets);
 
     this.abilityRangeData = [];
     console.log("Showing ability reachable cells for: ", ability, owningCreature);
@@ -1467,7 +1467,7 @@ export class Battle {
     this.nextRenderUpdate.abilityReachableCells = true;
     this.nextRenderUpdate.reachableCells = true;
     this.nextRenderUpdate.somethingChanged = true;
-    Battle.resetNumericalMatrixToZero(this.pathfinding_tiles);
+    resetNumericalMatrixToZero(this.pathfinding_tiles);
 
 
     return reachableCells;

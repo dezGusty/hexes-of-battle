@@ -1,5 +1,5 @@
 import { HexDirection } from "../hex-map";
-import { Coords, getRandomAttackDamage } from "../shared";
+import { Coords, getRandomValueBetween } from "../shared";
 import { Ability } from "./ability";
 import { GuidMaker, HobGUID } from "./guid";
 
@@ -186,11 +186,11 @@ export class Creature {
   }
 
   public getRandomAttackDamageMelee(): number {
-    return getRandomAttackDamage(this.stats.attack_melee_low, this.stats.attack_melee_high);
+    return getRandomValueBetween(this.stats.attack_melee_low, this.stats.attack_melee_high);
   }
 
   public getRandomAttackDamageRanged(): number {
-    return getRandomAttackDamage(this.stats.attack_ranged_low, this.stats.attack_ranged_high);
+    return getRandomValueBetween(this.stats.attack_ranged_low, this.stats.attack_ranged_high);
   }
 }
 
