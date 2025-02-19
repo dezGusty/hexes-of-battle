@@ -1,4 +1,4 @@
-import { Coords } from "./shared";
+import { Coords } from "../shared";
 
 export class HexMapConfig {
   public OFFSET_X = 0;
@@ -576,13 +576,15 @@ export class HexMap {
     width: number,
     height: number) {
     for (let x_col = from_x; x_col <= to_x; x_col++) {
-      if (x_col >= 0 && x_col < width && y_row >= 0 && y_row < height) {
-        if (x_col === from_x || x_col === to_x) {
-          matrix[x_col][y_row] = value_border;
-        } else {
-          matrix[x_col][y_row] = value_cell;
-        }
+      if (x_col < 0 || x_col >= width || y_row < 0 || y_row >= height) {
+        continue;
       }
+
+      if (x_col === from_x || x_col === to_x) {
+        matrix[x_col][y_row] = value_border;
+        continue;
+      }
+      matrix[x_col][y_row] = value_cell;
     }
   }
 

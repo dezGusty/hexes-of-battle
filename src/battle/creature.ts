@@ -1,4 +1,4 @@
-import { HexDirection } from "../hex-map";
+import { HexDirection } from "../shared/hex-map";
 import { Coords, getRandomValueBetween } from "../shared";
 import { Ability } from "./ability";
 import { GuidMaker, HobGUID } from "./guid";

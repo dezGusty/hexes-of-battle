@@ -1,7 +1,8 @@
-import { ArmyControlType, Battle, ReachData } from "../battle";
-import { HexDirection } from "../hex-map";
+import { ArmyControlType, Battle } from "../battle";
+import { HexDirection } from "../shared/hex-map";
 import { Coords } from "../shared";
 import { HobGUID } from "./guid";
+import { BattleHexMapPath } from "./battle-hex-map-path";
 
 export enum DumbAIState {
   NONE = 0,
@@ -195,7 +196,7 @@ export class DumbAI {
     // go in the general direction of the enemy
 
     // Do another longer search for paths to enemies. This time, we want to find the path to the enemy
-    const longUnitReachData: ReachData[] = [];
+    // const longUnitReachData: ReachData[] = [];
     let alt_pathfinding_tiles: number[][] = [];
     const selectedCreature = this.battle.getSelectedCreature();
     if (!selectedCreature) {
@@ -203,14 +204,33 @@ export class DumbAI {
     }
 
     Battle.initializeMapToSize(alt_pathfinding_tiles, this.battle.hexMap.width, this.battle.hexMap.height);
-    this.battle.cacheMeleeReachableCells(
+    // this.battle.cacheMeleeReachableCells(
+    //   selectedCreature.position,
+    //   DumbAI.MAX_SEARCH_RANGE,
+    //   alt_pathfinding_tiles,
+    //   longUnitReachData,
+    //   this.battle.currentArmyIndex,
+    //   this.battle.activeCreatureIndex
+    // );
+
+    let highlightUnitsInArmies: number[] = [];
+    if (this.battle.creatures[this.battle.activeCreatureIndex].live_stats.remaining_attacks > 0) {
+      const otherArmyIndex = this.battle.currentArmyIndex === 0 ? 1 : 0;
+      highlightUnitsInArmies = [otherArmyIndex];
+    }
+
+    const longUnitReachData = BattleHexMapPath.cacheWalkableAndMeleeReachableCells(
+      this.battle.hexMap,
       selectedCreature.position,
       DumbAI.MAX_SEARCH_RANGE,
       alt_pathfinding_tiles,
-      longUnitReachData,
-      this.battle.currentArmyIndex,
-      this.battle.activeCreatureIndex
+      Battle.DEFAULT_TERRAIN_MOVE_COST,
+      { occupation_tiles: this.battle.cached_occupation_tiles, 
+        terrain_tiles: this.battle.terrain_tiles, 
+        creatures: this.battle.creatures },
+      { markUnitsInArmies: highlightUnitsInArmies }
     );
+
 
     if (longUnitReachData.length <= 0) {
       console.log("Could not cache melee reachable cells!");

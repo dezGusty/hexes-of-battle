@@ -1,9 +1,11 @@
 import { Ability, AbilityType } from "./battle/ability";
 import { Buff, Creature, CreatureStats } from "./battle/creature";
 import { TERRAIN_COST, TerrainType } from "./battle/terrain-types";
-import { checkFlankingStatus, HexDirection, HexFlankStatus, HexMap, reverseDirection } from "./hex-map";
+import { checkFlankingStatus, HexDirection, HexFlankStatus, HexMap, reverseDirection } from "./shared/hex-map";
 import { Coords, getRandomValueBetween, logMatrix } from "./shared";
 import { resetNumericalMatrixToZero } from "./shared/matrix";
+import { BattleHexMapPath } from "./battle/battle-hex-map-path";
+import { ReachData } from "./shared/reach-data";
 
 export class CreatureInBattle {
   constructor(
@@ -59,9 +61,7 @@ export class MapRenderUpdate {
 
 }
 
-export class ReachData {
-  constructor(public coords: Coords, public reach: number, public cameFrom: Coords) { }
-}
+
 
 export enum BattleActionType {
   NONE = 0,
@@ -139,6 +139,16 @@ export class Battle {
   private input_state: InputState = InputState.SELECT_UNIT_OR_TARGET;
   private abilityToApply: Ability | null = null;
 
+
+  public static DEFAULT_TERRAIN_MOVE_COST: Record<TerrainType, number> = {
+    [TerrainType.PLAIN]: 1,
+    [TerrainType.FOREST]: 2,
+    [TerrainType.HILL]: 3,
+    [TerrainType.SWAMP]: 4,
+    [TerrainType.MOUNTAIN]: 10,
+    [TerrainType.WATER]: 10
+  }
+
   constructor(
     public hexMap: HexMap) {
   }
@@ -202,7 +212,7 @@ export class Battle {
     return this.currentActions.length > 0;
   }
 
-  selectCreatureByArmyIndex(armyIndex: number, creatureIndex: number) {
+  private setSelectedArmyAndCreatureIndex(armyIndex: number, creatureIndex: number) {
     this.activeCreatureIndex = creatureIndex;
     this.renderStateChanged = true;
 
@@ -213,7 +223,7 @@ export class Battle {
     console.log(`Selected creature in army: ${this.currentArmyIndex}, at index ${this.activeCreatureIndex}`);
   }
 
-  
+
 
   public cacheCreaturesToHexMap() {
     resetNumericalMatrixToZero(this.cached_occupation_tiles);
@@ -238,6 +248,8 @@ export class Battle {
     reachData: ReachData[],
     currentArmyIdx: number,
     activeCreatureIdx: number,
+    terrainMoveCost: Record<TerrainType, number>,
+    terrain_tiles: number[][],
   ) {
     // reset the cache
     // reachData = [];
@@ -259,8 +271,10 @@ export class Battle {
 
       let neighbours = this.hexMap.getNeighbours(current.coords);
       let neighbours_and_reach_pairs: ReachData[] = neighbours.map(neighbour_coords => {
-        // TODO: also add the cost for the unit, because different unit buffs will be better
-        const cost = this.getDefaultCostForCellAt(neighbour_coords);
+        const terrain_type: TerrainType = (terrain_tiles[neighbour_coords.x][neighbour_coords.y] in TerrainType)
+          ? terrain_tiles[neighbour_coords.x][neighbour_coords.y]
+          : TerrainType.MOUNTAIN;
+        const cost: number = terrainMoveCost[terrain_type];
         return {
           coords: neighbour_coords,
           reach: current.reach - cost,
@@ -268,15 +282,7 @@ export class Battle {
         }
       });
 
-      // An optimisation could be applied by removing entries which are already visited, but if we're dealing with various path costs,
-      // We would also need to consider the cost of the path to the cell.
-      // remove entries from neighbours that are already visited
-      // neighbours_and_reach_pairs = neighbours_and_reach_pairs.filter(
-      //   neighbour => pathfindingMatrix[neighbour.coords.x][neighbour.coords.y] === 0);
-
-
       for (let neighbour of neighbours_and_reach_pairs) {
-
         // visited already and cost better than this neighbour ? skip.
         if (pathfindingMatrix[neighbour.coords.x][neighbour.coords.y] > 0 &&
           pathfindingMatrix[neighbour.coords.x][neighbour.coords.y] >= neighbour.reach + 10) {
@@ -326,18 +332,38 @@ export class Battle {
     let reachableCells: Coords[] = [];
     let creaturePosition = creature.pos;
 
+
     // TODO: this could also be done when movement occurs
     this.cacheCreaturesToHexMap();
 
-    this.unitReachData = [];
-    this.cacheMeleeReachableCells(
+    // this.unitReachData = [];
+    // this.cacheMeleeReachableCells(
+    //   creaturePosition,
+    //   creature.live_stats.remaining_movement,
+    //   this.pathfinding_tiles,
+    //   this.unitReachData,
+    //   this.currentArmyIndex,
+    //   this.activeCreatureIndex,
+    //   Battle.DEFAULT_TERRAIN_MOVE_COST,
+    //   this.terrain_tiles
+    // );
+
+    let highlightUnitsInArmies: number[] = [];
+    if (this.creatures[this.activeCreatureIndex].live_stats.remaining_attacks > 0) {
+      const otherArmyIndex = this.currentArmyIndex === 0 ? 1 : 0;
+      highlightUnitsInArmies = [otherArmyIndex];
+    }
+
+    this.unitReachData = BattleHexMapPath.cacheWalkableAndMeleeReachableCells(
+      this.hexMap,
       creaturePosition,
       creature.live_stats.remaining_movement,
       this.pathfinding_tiles,
-      this.unitReachData,
-      this.currentArmyIndex,
-      this.activeCreatureIndex
+      Battle.DEFAULT_TERRAIN_MOVE_COST,
+      { occupation_tiles: this.cached_occupation_tiles, terrain_tiles: this.terrain_tiles, creatures: this.creatures },
+      { markUnitsInArmies: highlightUnitsInArmies }
     );
+
     this.unitRangeData = [];
     resetNumericalMatrixToZero(this.rangereach_tiles);
     resetNumericalMatrixToZero(this.rangereach_targets);
@@ -412,7 +438,7 @@ export class Battle {
     console.log("Clicked on creature: ", creatureInBattle);
     if (this.currentArmyIndex === creatureInBattle.indexOFArmy) {
       // select the creature for further orders
-      this.selectCreatureByArmyIndex(creatureInBattle.indexOFArmy, creatureInBattle.indexInArmy);
+      this.setSelectedArmyAndCreatureIndex(creatureInBattle.indexOFArmy, creatureInBattle.indexInArmy);
       this.showReachableCells(creatureInBattle.creature);
     }
   }
@@ -439,10 +465,15 @@ export class Battle {
     this.currentActions.push(new BattleAction(BattleActionType.TARGET_ABILITY, [coords], 0, 500, 50));
   }
 
-  private getMovementCostForPath(path: Coords[], _creature: Creature): number {
+  private getMovementCostForPath(path: Coords[], _creature: Creature, terrainMoveCost: Record<TerrainType, number>): number {
     let cost = 0;
     for (let i = 0; i < path.length; i++) {
-      cost += this.getDefaultCostForCellAt(path[i]);
+      const terrain_type_num = this.getTerrainAt(path[i]);
+      const terrain_type: TerrainType = (terrain_type_num in TerrainType)
+        ? terrain_type_num
+        : TerrainType.MOUNTAIN;
+
+      cost += terrainMoveCost[terrain_type];
     }
     return cost;
   }
@@ -465,7 +496,7 @@ export class Battle {
       // move creature.
       console.log("Moving creature to cell: ", coords);
       const path = this.findPathFromSelectedUnitToCell(coords);
-      creature.stats.remaining_movement -= this.getMovementCostForPath(path, creature); // TODO: consider moving into setter
+      creature.stats.remaining_movement -= this.getMovementCostForPath(path, creature, Battle.DEFAULT_TERRAIN_MOVE_COST); // TODO: consider moving into setter
       this.currentActions.push(new BattleAction(BattleActionType.MOVE, path, 0, 50, 50));
       this.nextRenderUpdate.hoverOverCell = null;
       this.nextRenderUpdate.hoverPath = [];
@@ -543,7 +574,7 @@ export class Battle {
       path = this.findPathFromSelectedUnitToCell(coords);
       path.pop();
     }
-    creature.stats.remaining_movement -= this.getMovementCostForPath(path, creature); // TODO: consider moving to setter.
+    creature.stats.remaining_movement -= this.getMovementCostForPath(path, creature, Battle.DEFAULT_TERRAIN_MOVE_COST); // TODO: consider moving to setter.
 
     console.log("Adding action to move with path: ", path);
     this.currentActions.push(new BattleAction(BattleActionType.MOVE, path, 0, 50, 50, creature, creatureAtTarget.creature));
@@ -629,15 +660,24 @@ export class Battle {
     }
 
     // also show the potential movement of the enemy unit?
-    let enemyReachData: ReachData[] = [];
-    this.cacheMeleeReachableCells(
+
+    let highlightUnitsInArmies: number[] = [];
+    if (this.creatures[this.activeCreatureIndex].live_stats.remaining_attacks > 0) {
+      const otherArmyIndex = this.currentArmyIndex === 0 ? 1 : 0;
+      highlightUnitsInArmies = [otherArmyIndex];
+    }
+
+    // don't care about the return value, as we don't need to show any paths, just the reachable cells
+    BattleHexMapPath.cacheWalkableAndMeleeReachableCells(
+      this.hexMap,
       coords,
       targetCreature.creature.live_stats.remaining_movement,
       this.enemy_potential_tiles,
-      enemyReachData,
-      targetCreature.indexOFArmy,
-      targetCreature.indexInArmy
+      Battle.DEFAULT_TERRAIN_MOVE_COST,
+      { occupation_tiles: this.cached_occupation_tiles, terrain_tiles: this.terrain_tiles, creatures: this.creatures },
+      { markUnitsInArmies: highlightUnitsInArmies }
     );
+
 
     let enemyRangeData: ReachData[] = [];
     resetNumericalMatrixToZero(this.enemy_range_tiles);
@@ -914,7 +954,7 @@ export class Battle {
 
   private selectUnitByIndex(armyIndex: number, unitIndex: number) {
     if (unitIndex >= 0) {
-      this.selectCreatureByArmyIndex(armyIndex, unitIndex);
+      this.setSelectedArmyAndCreatureIndex(armyIndex, unitIndex);
       this.showReachableCells(this.creatures[unitIndex]);
     }
     this.nextRenderUpdate.hoverPath = [];
@@ -1104,7 +1144,7 @@ export class Battle {
     thisCreature.stats.remaining_movement = 0;
     return counterattacking;
   }
-  
+
   private updateDoApplyAbility(currentAction: BattleAction) {
     if (currentAction.step == 0) {
       console.log("First step of applying ability", currentAction);
@@ -1414,7 +1454,7 @@ export class Battle {
 
 
 
-  
+
   public selectActiveAbilityForCurrentUnit(abilityIndex: number) {
     // Get current unit
     let creature = this.creatures[this.activeCreatureIndex];

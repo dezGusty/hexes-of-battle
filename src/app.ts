@@ -1,6 +1,6 @@
 import { Application, Sprite, Assets, Text, TextStyle, BitmapText, Spritesheet, Texture, Container, TextStyleOptions, AnimatedSprite } from 'pixi.js';
 import pkg from './../package.json';
-import { HexDirection, HexEdge, HexFlankStatus, HexMap } from './hex-map';
+import { HexDirection, HexEdge, HexFlankStatus, HexMap } from './shared/hex-map';
 import { CommonControls } from './ui/common-controls';
 import { Coords } from './shared';
 import { AnimationType, Battle, BattleActionType, MapRenderUpdate } from './battle';
