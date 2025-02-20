@@ -1,4 +1,4 @@
-import { Ability, AbilityType } from "./battle/ability";
+import { Ability, AbilityTarget, AbilityType } from "./battle/ability";
 import { Buff, Creature, CreatureStats } from "./battle/creature";
 import { TERRAIN_COST, TerrainType } from "./battle/terrain-types";
 import { checkFlankingStatus, HexDirection, HexFlankStatus, HexMap, reverseDirection } from "./shared/hex-map";
@@ -136,7 +136,6 @@ export class Battle {
   private prevRenderUpdate: MapRenderUpdate = new MapRenderUpdate();
   private unitReachData: ReachData[] = [];
   private unitRangeData: ReachData[] = [];
-  private abilityRangeData: ReachData[] = [];
 
   private currentActions: BattleAction[] = [];
   private finished: boolean = false;
@@ -272,18 +271,6 @@ export class Battle {
     // TODO: this could also be done when movement occurs
     this.cacheCreaturesToHexMap();
 
-    // this.unitReachData = [];
-    // this.cacheMeleeReachableCells(
-    //   creaturePosition,
-    //   creature.live_stats.remaining_movement,
-    //   this.pathfinding_tiles,
-    //   this.unitReachData,
-    //   this.currentArmyIndex,
-    //   this.activeCreatureIndex,
-    //   Battle.DEFAULT_TERRAIN_MOVE_COST,
-    //   this.terrain_tiles
-    // );
-
     let highlightUnitsInArmies: number[] = [];
     if (this.creatures[this.activeCreatureIndex].live_stats.remaining_attacks > 0) {
       const otherArmyIndex = this.currentArmyIndex === 0 ? 1 : 0;
@@ -305,15 +292,14 @@ export class Battle {
     resetNumericalMatrixToZero(this.rangereach_targets);
     if (creature.live_stats.is_ranged) {
       const otherArmyIndex = this.currentArmyIndex === 0 ? 1 : 0;
-      Battle.cacheRangedReachableCellsInternal(
+      this.unitRangeData = BattleHexMapPath.cacheRangedReachableCells(
         this.hexMap,
         creaturePosition,
         creature.live_stats.range,
         this.rangereach_tiles,
         this.rangereach_targets,
-        this.unitRangeData,
         this.creatures,
-        [otherArmyIndex] // TODO: this should not be the army index, but all the indices to store as targets (if it can target both friend and foe).
+        { markUnitsInArmies: [otherArmyIndex] }
       );
     }
 
@@ -615,21 +601,19 @@ export class Battle {
     );
 
 
-    let enemyRangeData: ReachData[] = [];
     resetNumericalMatrixToZero(this.enemy_range_tiles);
-    if (targetCreature.creature.live_stats.is_ranged) {
 
+    if (targetCreature.creature.live_stats.is_ranged) {
       const otherArmyIndex = targetCreature.indexOFArmy === 0 ? 1 : 0;
       console.log("Getting enemy range data for: ", targetCreature.creature, " at: ", coords, " range: ", targetCreature.creature.live_stats.range);
-      Battle.cacheRangedReachableCellsInternal(
+      BattleHexMapPath.cacheRangedReachableCells(
         this.hexMap,
         coords,
         targetCreature.creature.live_stats.range,
         this.enemy_range_tiles,
-        this.enemy_potential_tiles, // TODO: check this
-        enemyRangeData,
+        this.enemy_potential_tiles,
         this.creatures,
-        [otherArmyIndex] // TODO: this should not be the army index, but all the indices to store as targets (if it can target both friend and foe).
+        { markUnitsInArmies: [otherArmyIndex] }
       );
 
       logMatrix(this.enemy_range_tiles, this.hexMap.width, this.hexMap.height, "Enemy range tiles");
@@ -1408,17 +1392,24 @@ export class Battle {
     resetNumericalMatrixToZero(this.ability_reach_tiles);
     resetNumericalMatrixToZero(this.ability_reach_targets);
 
-    this.abilityRangeData = [];
     console.log("Showing ability reachable cells for: ", ability, owningCreature);
-    Battle.cacheRangedReachableCellsInternal(
+    let markUnitsInArmies: number[] = [];
+    if (ability.allowedTargets.includes(AbilityTarget.Enemies)) {
+      markUnitsInArmies.push(this.currentArmyIndex === 0 ? 1 : 0);
+    }
+    if (ability.allowedTargets.includes(AbilityTarget.Allies)) {
+      markUnitsInArmies.push(this.currentArmyIndex);
+    }
+
+    // TODO: use result ?
+    BattleHexMapPath.cacheRangedReachableCells(
       this.hexMap,
       owningCreature.pos,
       ability.range,
       this.ability_reach_tiles,
       this.ability_reach_targets,
-      this.abilityRangeData,
       this.creatures,
-      [1] // TODO: this should not be the army index, but all the indices to store as targets (if it can target both friend and foe).
+      { markUnitsInArmies: markUnitsInArmies }
     );
 
     logMatrix(this.ability_reach_tiles, this.hexMap.width, this.hexMap.height, "Ability reach");
@@ -1433,47 +1424,6 @@ export class Battle {
     return reachableCells;
   }
 
-  /**
-   * Cache all reachable cells for the current creature for a ranged attack.
-   * @param coords The start position
-   * @param range The range to cache
-   */
-  public static cacheRangedReachableCellsInternal(
-    hexMap: HexMap,
-    coords: Coords,
-    range: number,
-    reachableCellsMatrix: number[][],
-    targetMatrix: number[][],
-    rangeData: ReachData[],
-    creatures: Creature[],
-    armyIndices: number[]) {
-
-    const occupied_value = 11;
-    const border_value = 10;
-    HexMap.fillRadiusInMatrix(coords, range, reachableCellsMatrix, hexMap.width, hexMap.height, occupied_value, border_value);
-
-    // Go through all creatures and check if they are situated in the pathfinding matrix
-    creatures.forEach((creature) => {
-      if (armyIndices.includes(creature.armyAlignment)) {
-        const x = creature.pos.x;
-        const y = creature.pos.y;
-        if (x < 0 || x >= hexMap.width || y < 0 || y >= hexMap.height) {
-          return;
-        }
-
-        if (reachableCellsMatrix[creature.pos.x][creature.pos.y] > 0) {
-          rangeData.push(new ReachData(creature.pos, 1, coords));
-          targetMatrix[creature.pos.x][creature.pos.y] = 500;
-          console.log("Creature at: ", creature.pos, " is targetable from ", coords, "range", range);
-        } else {
-          console.log("Creature at: ", creature.pos, " is NOT targetable from ", coords, "range", range);
-
-        }
-      } else {
-        console.log("Creature at: ", creature.pos, " is not targetable (due to army index) ", creature.armyAlignment);
-      }
-    });
-  }
 
 
 }

@@ -28,12 +28,17 @@ export class BattleHexMapPath {
   }
 
   /**
-     * Prepare the map for pathfinding by caching the creatures and their positions.
-     * Also caches reachable cells for the current creature.
-     * This is different from the range version, as this takes obstacles into account.
-     * @param startCoords 
-     * @param reach 
-     */
+   * For a given start position and reach (typically depicting a unit's coordinated and movement points), 
+   * calculate and cache the reachable tiles for the unit.
+   * @param hexMap The hex map
+   * @param startCoords The start position
+   * @param reach The reach
+   * @param pathfindingMatrix [in][out]The pathfinding matrix
+   * @param terrainMoveCost The terrain move cost for each terrain type
+   * @param mapData [input] The map data - contains the occupation tiles, terrain tiles and creature list
+   * @param options [input] The options
+   * @returns All hexes/tiles which can be reached.
+   */
   public static cacheWalkableAndMeleeReachableCells(
     hexMap: HexMap,
     startCoords: Coords,
@@ -41,7 +46,7 @@ export class BattleHexMapPath {
     pathfindingMatrix: number[][],
     terrainMoveCost: Record<number, number>,
     mapData: { occupation_tiles: number[][], terrain_tiles: number[][], creatures: Creature[] },
-    options: { markUnitsInArmies: number[] } = { markUnitsInArmies: [0, 1] }, // E.g. this.creatures[activeCreatureIdx].live_stats.remaining_attacks > 0
+    options: { markUnitsInArmies: number[] } = { markUnitsInArmies: [0, 1] },
   ): ReachData[] {
     // reset the cache
     let reachData: ReachData[] = [];
@@ -108,5 +113,45 @@ export class BattleHexMapPath {
     }
 
     return reachData;
+  }
+
+
+  /**
+   * Cache all reachable cells for the current creature for a ranged attack.
+   * @param coords The start position
+   * @param range The range to cache
+   */
+  public static cacheRangedReachableCells(
+    hexMap: HexMap,
+    coords: Coords,
+    range: number,
+    reachableCellsMatrix: number[][],
+    targetMatrix: number[][],
+    creatures: Creature[],
+    options: { markUnitsInArmies: number[] } = { markUnitsInArmies: [0, 1] }): ReachData[] {
+
+    let rangeData: ReachData[] = [];
+
+    const occupied_value = BattleHexMapPath.CELL_PATH_OFFSET + 1;
+    const border_value = BattleHexMapPath.CELL_PATH_OFFSET;
+    HexMap.fillRadiusInMatrix(coords, range, reachableCellsMatrix, hexMap.width, hexMap.height, occupied_value, border_value);
+
+    // Go through all creatures and check if they are situated in the pathfinding matrix
+    creatures.forEach((creature) => {
+      if (options.markUnitsInArmies.includes(creature.armyAlignment)) {
+        const x = creature.pos.x;
+        const y = creature.pos.y;
+        if (x < 0 || x >= hexMap.width || y < 0 || y >= hexMap.height) {
+          return;
+        }
+
+        if (reachableCellsMatrix[creature.pos.x][creature.pos.y] > 0) {
+          rangeData.push(new ReachData(creature.pos, 1, coords));
+          targetMatrix[creature.pos.x][creature.pos.y] = 500;
+        }
+      }
+    });
+
+    return rangeData;
   }
 }
