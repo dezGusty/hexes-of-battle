@@ -6,15 +6,9 @@ import { Coords, getRandomValueBetween, logMatrix } from "./shared";
 import { resetNumericalMatrixToZero } from "./shared/matrix";
 import { BattleHexMapPath } from "./battle/battle-hex-map-path";
 import { ReachData } from "./shared/reach-data";
+import { CreatureInBattle } from "./battle/creature-in-battle";
 
-export class CreatureInBattle {
-  constructor(
-    public creature: Creature,
-    public position: Coords,
-    public indexInArmy: number,
-    public indexOFArmy: number) {
-  }
-}
+
 
 export enum AnimationType {
   NONE = 0,
@@ -101,6 +95,17 @@ export enum InputState {
   SELECT_ABILITY_TARGET = 3
 }
 
+export enum AttackCursorHint {
+  NONE = "",
+  ATTACK_MELEE_E = "attack_melee_e",
+  ATTACK_MELEE_NE = "attack_melee_ne",
+  ATTACK_MELEE_NW = "attack_melee_nw",
+  ATTACK_MELEE_W = "attack_melee_w",
+  ATTACK_MELEE_SW = "attack_melee_sw",
+  ATTACK_MELEE_SE = "attack_melee_se"
+}
+
+
 /**
  * Handles a battle on the hex battle map between two armies.
  */
@@ -147,7 +152,17 @@ export class Battle {
     [TerrainType.SWAMP]: 4,
     [TerrainType.MOUNTAIN]: 10,
     [TerrainType.WATER]: 10
-  }
+  };
+
+  public static DIRECTION_TO_ATTACK_CURSOR: Record<HexDirection, AttackCursorHint> = {
+    [HexDirection.NONE]: AttackCursorHint.NONE,
+    [HexDirection.EAST]: AttackCursorHint.ATTACK_MELEE_E,
+    [HexDirection.NORTHEAST]: AttackCursorHint.ATTACK_MELEE_NE,
+    [HexDirection.NORTHWEST]: AttackCursorHint.ATTACK_MELEE_NW,
+    [HexDirection.WEST]: AttackCursorHint.ATTACK_MELEE_W,
+    [HexDirection.SOUTHWEST]: AttackCursorHint.ATTACK_MELEE_SW,
+    [HexDirection.SOUTHEAST]: AttackCursorHint.ATTACK_MELEE_SE
+  };
 
   constructor(
     public hexMap: HexMap) {
@@ -233,85 +248,6 @@ export class Battle {
       this.cached_occupation_tiles[creature.pos.x][creature.pos.y] = i + 1;
     }
   }
-
-  /**
-   * Prepare the map for pathfinding by caching the creatures and their positions.
-   * Also caches reachable cells for the current creature.
-   * This is different from the range version, as this takes obstacles into account.
-   * @param coords 
-   * @param reach 
-   */
-  public cacheMeleeReachableCells(
-    coords: Coords,
-    reach: number,
-    pathfindingMatrix: number[][],
-    reachData: ReachData[],
-    currentArmyIdx: number,
-    activeCreatureIdx: number,
-    terrainMoveCost: Record<TerrainType, number>,
-    terrain_tiles: number[][],
-  ) {
-    // reset the cache
-    // reachData = [];
-    resetNumericalMatrixToZero(pathfindingMatrix);
-
-    let frontier: ReachData[] = [{ coords, reach, cameFrom: coords }];
-
-    while (frontier.length > 0) {
-      let current = frontier.shift();
-      if (current === undefined) {
-        continue;
-      }
-      // Normally we would break when reach is 0, but we want to also allow 
-      // moving the creature to the max of its ability AND also allow an attack if configured.
-      // so cache the cells if the reach is 0 and there are enemy creatures on them.
-      if (current.reach < 0) {
-        continue;
-      }
-
-      let neighbours = this.hexMap.getNeighbours(current.coords);
-      let neighbours_and_reach_pairs: ReachData[] = neighbours.map(neighbour_coords => {
-        const terrain_type: TerrainType = (terrain_tiles[neighbour_coords.x][neighbour_coords.y] in TerrainType)
-          ? terrain_tiles[neighbour_coords.x][neighbour_coords.y]
-          : TerrainType.MOUNTAIN;
-        const cost: number = terrainMoveCost[terrain_type];
-        return {
-          coords: neighbour_coords,
-          reach: current.reach - cost,
-          cameFrom: current.coords
-        }
-      });
-
-      for (let neighbour of neighbours_and_reach_pairs) {
-        // visited already and cost better than this neighbour ? skip.
-        if (pathfindingMatrix[neighbour.coords.x][neighbour.coords.y] > 0 &&
-          pathfindingMatrix[neighbour.coords.x][neighbour.coords.y] >= neighbour.reach + 10) {
-          continue;
-        }
-
-        // Check presence of enemies.
-        if (this.cached_occupation_tiles[neighbour.coords.x][neighbour.coords.y] > 0) {
-          const neighborCreatureIndex = this.cached_occupation_tiles[neighbour.coords.x][neighbour.coords.y] - 1;
-          if (neighborCreatureIndex >= 0 && this.creatures[neighborCreatureIndex].armyAlignment !== currentArmyIdx) {
-            if (this.creatures[activeCreatureIdx].live_stats.remaining_attacks > 0) {
-              // don't add it to the frontier, (cannot pass through enemy)
-              // but add it to the reachable cells
-              reachData.push(neighbour);
-              pathfindingMatrix[neighbour.coords.x][neighbour.coords.y] = 500;
-            }
-          }
-          continue;
-        }
-
-        if (current.reach > 0) {
-          frontier.push(neighbour);
-          reachData.push(neighbour);
-          pathfindingMatrix[neighbour.coords.x][neighbour.coords.y] = neighbour.reach + 10;
-        }
-      }
-    }
-  }
-
 
   public getDefaultCostForCellAt(coords: Coords): number {
     const terrain_type = this.getTerrainAt(coords);
@@ -746,7 +682,7 @@ export class Battle {
       // Cannot reach this neighbour
       if (neighbour.x === activeCreature.position.x && neighbour.y === activeCreature.position.y) {
         // "We are already where we need to be!"
-        this.nextRenderUpdate.cursorHint = this.getAttackCursorForDirection(reverseDirection(optionalDirection));
+        this.nextRenderUpdate.cursorHint = Battle.DIRECTION_TO_ATTACK_CURSOR[reverseDirection(optionalDirection)];
         this.nextRenderUpdate.somethingChanged = true;
         return;
       }
@@ -760,7 +696,7 @@ export class Battle {
         if (this.nextRenderUpdate.hoverPath.length >= 2) {
           // get the direction between the last and the second last cell
           optionalDirection = this.hexMap.getDirectionForNeighbour(coords, this.nextRenderUpdate.hoverPath[this.nextRenderUpdate.hoverPath.length - 2]);
-          this.nextRenderUpdate.cursorHint = this.getAttackCursorForDirection(reverseDirection(optionalDirection));
+          this.nextRenderUpdate.cursorHint = Battle.DIRECTION_TO_ATTACK_CURSOR[reverseDirection(optionalDirection)];
           this.nextRenderUpdate.somethingChanged = true;
           return;
         } else {
@@ -788,29 +724,10 @@ export class Battle {
 
     // yes, the neighbour is reachable, so we can attack from the given direction
     this.nextRenderUpdate.hoverPath = this.findPathFromSelectedUnitToCell(neighbour);
-    this.nextRenderUpdate.cursorHint = this.getAttackCursorForDirection(reverseDirection(optionalDirection));
+    this.nextRenderUpdate.cursorHint = Battle.DIRECTION_TO_ATTACK_CURSOR[reverseDirection(optionalDirection)];
     this.nextRenderUpdate.somethingChanged = true;
   }
 
-  public getAttackCursorForDirection(direction: HexDirection): string {
-    switch (direction) {
-      case HexDirection.EAST:
-        return "attack_melee_e";
-      case HexDirection.NORTHEAST:
-        return "attack_melee_ne";
-      case HexDirection.NORTHWEST:
-        return "attack_melee_nw";
-      case HexDirection.WEST:
-        return "attack_melee_w";
-      case HexDirection.SOUTHWEST:
-        return "attack_melee_sw";
-      case HexDirection.SOUTHEAST:
-        return "attack_melee_se";
-      default:
-        return "";
-    }
-    return "";
-  }
 
   static findPathToCellInReachData(coords: Coords, reachData: ReachData[]): Coords[] {
     let path: Coords[] = [];
@@ -1249,6 +1166,9 @@ export class Battle {
     console.log(`Dealt ${damage} damage to the creature`);
   }
 
+  public start() {
+    this.recomputeAllPositionBuffs();
+  }
 
   public recomputeAllPositionBuffs() {
     this.creatures.forEach(creature => {

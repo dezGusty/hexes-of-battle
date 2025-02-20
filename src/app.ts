@@ -4,7 +4,7 @@ import { HexDirection, HexEdge, HexFlankStatus, HexMap } from './shared/hex-map'
 import { CommonControls } from './ui/common-controls';
 import { Coords } from './shared';
 import { AnimationType, Battle, BattleActionType, MapRenderUpdate } from './battle';
-import { Creature, CreatureRepository, CreatureTemplate, CreatureType } from './battle/creature';
+import { Creature, CreatureTemplate, CreatureType } from './battle/creature';
 import { ProgressBar } from '@pixi/ui';
 import { UnitStatsPanel } from './ui/unit-stats-panel';
 import { DamageValueCollection } from './ui/damage-value-display';
@@ -17,6 +17,7 @@ import { sound } from '@pixi/sound';
 import { DumbAI } from './battle/dumb-ai';
 import { BattleSettings } from './battle/settings';
 import { Ability } from './battle/ability';
+import { CreatureRepository } from './battle/creature-repository';
 
 export enum GameState {
   InMenu,
@@ -199,7 +200,7 @@ export class HexesApp {
   startBattle() {
     this.hookNextTurn(0, 0);
 
-    this.battle.recomputeAllPositionBuffs();
+    this.battle.start();
 
     // this.battle.selectNextUnit();
     if (this.settings.sound.musicOn) {
