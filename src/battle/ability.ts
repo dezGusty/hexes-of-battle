@@ -1,16 +1,16 @@
 
 export enum AbilityType {
-    Active = 1,
-    Passive = 2,
-    Toggle = 3
+    Active = "active",
+    Passive = "passive",
+    Toggle = "toggle"
 }
 
 export enum AbilityTarget {
-    Self = 1, // for abilities that target self (E.g. heal self)
-    Allies = 2, // for abilities that target allies (E.g. heal ally)
-    Enemies = 3, // for abilities that target enemies (E.g. throw javelin at enemy)
-    None = 4, // for abilities that don't target anything (e.g. pick-up ammo from the ground)
-    Terrain = 5 // for abilities that target a cell (E.g. create a fireball at location)
+    Self = "self", // for abilities that target self (E.g. heal self)
+    Allies = "allies", // for abilities that target allies (E.g. heal ally)
+    Enemies = "enemies", // for abilities that target enemies (E.g. throw javelin at enemy)
+    None = "none", // for abilities that don't target anything (e.g. pick-up ammo from the ground)
+    Terrain = "terrain" // for abilities that target a cell (E.g. create a fireball at location)
 }
 
 /**

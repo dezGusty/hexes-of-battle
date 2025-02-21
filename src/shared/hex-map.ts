@@ -124,9 +124,6 @@ export class HexMap {
   static INV_SQRT3: number = 1 / Math.sqrt(3);
   static SQRT3: number = Math.sqrt(3);
 
-
-  public tiles: number[][] = [];
-
   public offset(): Coords { return { x: this.config.OFFSET_X, y: this.config.OFFSET_Y }; }
   public setOffset(x: number, y: number) { this.config.OFFSET_X = x; this.config.OFFSET_Y = y; }
   public cellSize(): Coords { return { x: this.config.CELL_WIDTH, y: this.config.CELL_HEIGHT }; }
@@ -134,18 +131,6 @@ export class HexMap {
 
   constructor(public width: number, public height: number, private config: HexMapConfig = { ...HexMap.DEFAULT_HEX_MAP_CONFIG }) {
 
-  }
-
-  public initializeToSize(mapWidth: number, mapHeight: number) {
-    for (let i = 0; i < mapWidth; i++) {
-      this.tiles[i] = [];
-      for (let j = 0; j < mapHeight; j++) {
-        // get a random value between 1 and 5
-        // Note: for the time being, just use this hardcoded value until more graphics are added
-        let randomValue = 3;
-        this.tiles[i][j] = randomValue;
-      }
-    }
   }
 
   /**

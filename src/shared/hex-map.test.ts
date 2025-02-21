@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { reverseDirection, HexDirection, hexDirectionToString, HexMapHelpers, HexMap } from './hex-map';
+import { reverseDirection, HexDirection, hexDirectionToString, HexMapHelpers, HexMap, checkFlankingStatus, HexFlankStatus } from './hex-map';
 
 describe('reverseDirection', () => {
   it('should return the opposite direction', () => {
@@ -251,3 +251,27 @@ describe('createFloodFillMatrix v2', () => {
 //     expect(HexMap.fillRadiusInMatrix(center, radius, matrix, width, height, value_cell, value_border)).toEqual(expectedMatrix);
 //   });
 // });
+
+describe('checkFlankingStatus', () => {
+  it('should return NONE when facing direction or attack direction is NONE', () => {
+    expect(checkFlankingStatus(HexDirection.NONE, HexDirection.EAST)).toBe(HexFlankStatus.NONE);
+    expect(checkFlankingStatus(HexDirection.EAST, HexDirection.NONE)).toBe(HexFlankStatus.NONE);
+  });
+
+  it('should return FLANK when attack is coming from flanking directions', () => {
+    expect(checkFlankingStatus(HexDirection.WEST, HexDirection.NORTHEAST)).toBe(HexFlankStatus.FLANK);
+    expect(checkFlankingStatus(HexDirection.WEST, HexDirection.SOUTHEAST)).toBe(HexFlankStatus.FLANK);
+  });
+
+  it('should return BACKSTAB when attack is coming from backstab direction', () => {
+    expect(checkFlankingStatus(HexDirection.WEST, HexDirection.EAST)).toBe(HexFlankStatus.BACKSTAB);
+    expect(checkFlankingStatus(HexDirection.EAST, HexDirection.WEST)).toBe(HexFlankStatus.BACKSTAB);
+  });
+
+  it('should return NONE when attack is coming from other directions', () => {
+    expect(checkFlankingStatus(HexDirection.WEST, HexDirection.NORTHWEST)).toBe(HexFlankStatus.NONE);
+    expect(checkFlankingStatus(HexDirection.WEST, HexDirection.SOUTHWEST)).toBe(HexFlankStatus.NONE);
+    expect(checkFlankingStatus(HexDirection.EAST, HexDirection.NORTHEAST)).toBe(HexFlankStatus.NONE);
+    expect(checkFlankingStatus(HexDirection.EAST, HexDirection.SOUTHEAST)).toBe(HexFlankStatus.NONE);
+  });
+});

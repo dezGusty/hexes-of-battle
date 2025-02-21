@@ -3,7 +3,7 @@ import pkg from './../package.json';
 import { HexDirection, HexEdge, HexFlankStatus, HexMap } from './shared/hex-map';
 import { CommonControls } from './ui/common-controls';
 import { Coords } from './shared';
-import { AnimationType, Battle, BattleActionType, MapRenderUpdate } from './battle';
+import { AnimationType, Battle, MapRenderUpdate } from './battle';
 import { Creature, CreatureTemplate, CreatureType } from './battle/creature';
 import { ProgressBar } from '@pixi/ui';
 import { UnitStatsPanel } from './ui/unit-stats-panel';
@@ -18,6 +18,7 @@ import { DumbAI } from './battle/dumb-ai';
 import { BattleSettings } from './battle/settings';
 import { Ability } from './battle/ability';
 import { CreatureRepository } from './battle/creature-repository';
+import { BattleActionType } from './battle/battle-action';
 
 export enum GameState {
   InMenu,
@@ -384,7 +385,7 @@ export class HexesApp {
     // Load the ability types
     this.abilityTypes = await JsonLoader.loadJson<Ability[]>('./abilitytypes.json');
     this.creatureRepository.setAbilities(this.abilityTypes);
-    
+
     // Load the "creaturetypes.json" file and read jsonData
     this.creatureTemplates = await JsonLoader.loadJson<CreatureTemplate[]>('./creaturetypes.json');
     this.creatureRepository.setCreatureTemplates(this.creatureTemplates);
@@ -1376,18 +1377,21 @@ export class HexesApp {
           let renderContainerAdjustedCoords = this.adjustInContainerCoords(
             { x: event.clientX, y: event.clientY },
             this.renderContainerOffset,
-            this.renderContainer.scale);
+            this.renderContainer.scale
+          );
 
           let navAdjustedCoords = this.adjustInContainerCoords(
             renderContainerAdjustedCoords,
             this.navMapOffset,
-            { x: this.navZoomLevel, y: this.navZoomLevel });
+            { x: this.navZoomLevel, y: this.navZoomLevel }
+          );
 
           // let hexCoords = this.hexMap.pixelToHex(navAdjustedCoords.x, navAdjustedCoords.y);
           let hexCoordsWithDetails = this.hexMap.pixelToHexWithDirectionalDetail(navAdjustedCoords.x, navAdjustedCoords.y);
           let hexCoords = hexCoordsWithDetails.cell;
 
           if (hexCoords.x >= 0 && hexCoords.x < this.hexMap.width && hexCoords.y >= 0 && hexCoords.y < this.hexMap.height) {
+            console.log("*** Mouse UP on cell: " + hexCoords.x + ", " + hexCoords.y);
             this.battle?.onMouseClickOnCell(event, hexCoords, hexCoordsWithDetails.direction, this.controlPressed);
           }
         }
@@ -1409,6 +1413,7 @@ export class HexesApp {
       let hexCoords = hexCoordsWithDetails.cell;
 
       if (hexCoords.x >= 0 && hexCoords.x < this.hexMap.width && hexCoords.y >= 0 && hexCoords.y < this.hexMap.height) {
+        console.log("*** Click on cell: " + hexCoords.x + ", " + hexCoords.y);
         this.battle?.onMouseClickOnCell(event, hexCoords, hexCoordsWithDetails.direction, this.controlPressed);
       }
     });

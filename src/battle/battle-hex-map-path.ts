@@ -1,6 +1,6 @@
 import { Coords } from "../shared";
 import { HexMap } from "../shared/hex-map";
-import { resetNumericalMatrixToZero } from "../shared/matrix";
+import { NumMatrix } from "../shared/num-matrix";
 import { ReachData } from "../shared/reach-data";
 import { Creature } from "./creature";
 
@@ -50,7 +50,7 @@ export class BattleHexMapPath {
   ): ReachData[] {
     // reset the cache
     let reachData: ReachData[] = [];
-    resetNumericalMatrixToZero(pathfindingMatrix);
+    NumMatrix.resetToZero(pathfindingMatrix);
 
     let frontier: ReachData[] = [{ coords: startCoords, reach, cameFrom: startCoords }];
 
@@ -127,7 +127,7 @@ export class BattleHexMapPath {
     range: number,
     reachableCellsMatrix: number[][],
     targetMatrix: number[][],
-    creatures: Creature[],
+    mapData: { creatures: Creature[] },
     options: { markUnitsInArmies: number[] } = { markUnitsInArmies: [0, 1] }): ReachData[] {
 
     let rangeData: ReachData[] = [];
@@ -137,7 +137,7 @@ export class BattleHexMapPath {
     HexMap.fillRadiusInMatrix(coords, range, reachableCellsMatrix, hexMap.width, hexMap.height, occupied_value, border_value);
 
     // Go through all creatures and check if they are situated in the pathfinding matrix
-    creatures.forEach((creature) => {
+    mapData.creatures.forEach((creature) => {
       if (options.markUnitsInArmies.includes(creature.armyAlignment)) {
         const x = creature.pos.x;
         const y = creature.pos.y;
@@ -153,5 +153,41 @@ export class BattleHexMapPath {
     });
 
     return rangeData;
+  }
+
+  /**
+   * Find the path to a cell from the list of allin the reach data.
+   * @param coords The coordinates to find the path to (end position). This is useful when hovering with the mouse over a hex and
+   * we want to show the path to that hex.
+   * @param reachData The full set of ReachData entries for the current creature. This will contain all reachable cells.
+   * @returns An array containing the path to the cell.
+   */
+  public static findPathToCellInReachData(coords: Coords, reachData: ReachData[]): Coords[] {
+    let path: Coords[] = [];
+    // Get all reach data entries that have the same final coordinates.
+    let finalElements = reachData.filter((element) => element.coords.x === coords.x && element.coords.y === coords.y);
+    // If there are no such elements, return an empty path.
+    if (finalElements.length === 0) {
+      return path;
+    }
+
+    // If there are multiple elements, choose the one with the smallest cost / largest reach
+    let finalElement = finalElements.reduce((prev, current) => prev.reach > current.reach ? prev : current);
+
+    while (finalElements.length > 0 && finalElement) {
+      path.push(finalElement.coords);
+
+      finalElements = reachData.filter((element) =>
+        element.coords.x === finalElement?.cameFrom.x
+        && element.coords.y === finalElement?.cameFrom.y);
+
+      if (finalElements.length === 0) {
+        break;
+      }
+      finalElement = finalElements.reduce((prev, current) => prev.reach > current.reach ? prev : current);
+    }
+
+    path.reverse();
+    return path;
   }
 }

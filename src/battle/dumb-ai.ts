@@ -3,6 +3,7 @@ import { HexDirection } from "../shared/hex-map";
 import { Coords } from "../shared";
 import { HobGUID } from "./guid";
 import { BattleHexMapPath } from "./battle-hex-map-path";
+import { NumMatrix } from "../shared/num-matrix";
 
 export enum DumbAIState {
   NONE = 0,
@@ -203,15 +204,7 @@ export class DumbAI {
       return;
     }
 
-    Battle.initializeMapToSize(alt_pathfinding_tiles, this.battle.hexMap.width, this.battle.hexMap.height);
-    // this.battle.cacheMeleeReachableCells(
-    //   selectedCreature.position,
-    //   DumbAI.MAX_SEARCH_RANGE,
-    //   alt_pathfinding_tiles,
-    //   longUnitReachData,
-    //   this.battle.currentArmyIndex,
-    //   this.battle.activeCreatureIndex
-    // );
+    NumMatrix.initializeToSize(alt_pathfinding_tiles, this.battle.hexMap.width, this.battle.hexMap.height);
 
     let highlightUnitsInArmies: number[] = [];
     if (this.battle.creatures[this.battle.activeCreatureIndex].live_stats.remaining_attacks > 0) {
@@ -225,9 +218,11 @@ export class DumbAI {
       DumbAI.MAX_SEARCH_RANGE,
       alt_pathfinding_tiles,
       Battle.DEFAULT_TERRAIN_MOVE_COST,
-      { occupation_tiles: this.battle.cached_occupation_tiles, 
-        terrain_tiles: this.battle.terrain_tiles, 
-        creatures: this.battle.creatures },
+      {
+        occupation_tiles: this.battle.cached_occupation_tiles,
+        terrain_tiles: this.battle.terrain_tiles,
+        creatures: this.battle.creatures
+      },
       { markUnitsInArmies: highlightUnitsInArmies }
     );
 
@@ -240,13 +235,6 @@ export class DumbAI {
 
     console.log("longUnitReachData: ", longUnitReachData);
 
-    // Find the enemy with the least health
-    // let targetEnemy = longUnitReachData[0];
-    // for (let enemy of longUnitReachData) {
-    //   if (enemy.scost < targetEnemy.cost) {
-    //     targetEnemy = enemy;
-    //   }
-    // }
     let foundEntryIdx = longUnitReachData.findIndex(entry => entry.coords.x === targetEnemy.position.x && entry.coords.y === targetEnemy.position.y);
     if (foundEntryIdx < 0) {
       console.log("Desired unit is not reachable");
@@ -254,7 +242,7 @@ export class DumbAI {
       return;
     }
 
-    let longPathToEnemy = Battle.findPathToCellInReachData(targetEnemy.position, longUnitReachData);
+    let longPathToEnemy = BattleHexMapPath.findPathToCellInReachData(targetEnemy.position, longUnitReachData);
     if (longPathToEnemy.length <= 0) {
       console.log("No path found to target enemy");
       this.state = DumbAIState.SELECT_UNIT;
