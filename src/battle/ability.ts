@@ -13,6 +13,13 @@ export enum AbilityTarget {
     Terrain = "terrain" // for abilities that target a cell (E.g. create a fireball at location)
 }
 
+export enum AbilityResourceUse {
+    Ammo = "ammo",
+    Mana = "mana",
+    Health = "health",
+    None = "none"
+}
+
 /**
  * Represents an ability that a character can use in battle.
  * Abilities could be active or passive.
@@ -56,4 +63,6 @@ export class Ability {
 
     public damage_low: number = 0;
     public damage_high: number = 0;
+    public resource_used: AbilityResourceUse = AbilityResourceUse.None;
+    public resource_cost: number = 0;
 }

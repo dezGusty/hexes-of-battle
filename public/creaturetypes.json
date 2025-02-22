@@ -2,6 +2,7 @@
   {
     "name": "peasant",
     "stats": {
+      "ammo": 0,
       "attack_melee_low": 6,
       "attack_melee_high": 9,
       "attack_ranged_low": 0,
@@ -22,6 +23,7 @@
   {
     "name": "swordsman",
     "stats": {
+      "ammo": 0,
       "attack_melee_low": 9,
       "attack_melee_high": 10,
       "attack_ranged_low": 0,
@@ -42,6 +44,7 @@
   {
     "name": "spearman",
     "stats": {
+      "ammo": 1,
       "attack_melee_low": 7,
       "attack_melee_high": 10,
       "attack_ranged_low": 0,
@@ -64,6 +67,7 @@
   {
     "name": "barbarian",
     "stats": {
+      "ammo": 0,
       "attack_melee_low": 9,
       "attack_melee_high": 12,
       "attack_ranged_low": 0,
@@ -84,6 +88,7 @@
   {
     "name": "peasant-archer",
     "stats": {
+      "ammo": 10,
       "attack_melee_low": 5,
       "attack_melee_high": 6,
       "attack_ranged_low": 7,
@@ -104,6 +109,7 @@
   {
     "name": "crossbowman",
     "stats": {
+      "ammo": 10,
       "attack_melee_low": 5,
       "attack_melee_high": 6,
       "attack_ranged_low": 8,

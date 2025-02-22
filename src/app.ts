@@ -42,6 +42,7 @@ export class HexesApp {
 
   private ZOOM_LEVEL_MIN = 0.75;
   private ZOOM_LEVEL_MAX = 1.5;
+  private ZOOM_STEP = 0.05;
   private navZoomLevel: number = 1;
   private navMapOffset: Coords = { x: 0, y: 0 };
   private MAP_OFFSET_MIN: Coords = { x: -400, y: -400 };
@@ -67,7 +68,10 @@ export class HexesApp {
   private softCursorTextures: Record<string, Texture> = {};
   private displayOnScreenTouchControls: boolean = false;
 
-  private commonControls: CommonControls = new CommonControls();
+  private commonControls: CommonControls = new CommonControls(
+    { zoomMin: this.ZOOM_LEVEL_MIN * 100, zoomMax: this.ZOOM_LEVEL_MAX * 100, zoomStep: this.ZOOM_STEP * 100 }
+  );
+
   private unitStats?: UnitStatsPanel = undefined;
   private topSidePanel?: TopSidePanel = undefined;
   private softCursorName: string = 'default';
@@ -341,10 +345,11 @@ export class HexesApp {
   public async initializeTexts() {
     await Assets.load('./GustysSerpentsFontL.xml');
 
-    this.fpsText = new BitmapText({ text: 'FPS: 0', style: this.DEFAULT_FONT_STYLE, });
-    this.fpsText.x = 62;
+    this.fpsText = new BitmapText({ text: 'FPS: 0', style: this.DEFAULT_FONT_STYLE });
+    this.fpsText.x = 136;
     this.fpsText.y = 2;
     this.fpsText.alpha = 0.7;
+    this.fpsText.style.fontSize = 14;
     this.uiRenderGroup.addChild(this.fpsText);
 
     const style = new TextStyle({ fontFamily: 'Arial', fontSize: 18, fill: { color: '#ffffff', alpha: 1 } });
@@ -397,8 +402,17 @@ export class HexesApp {
    * @param zoomOffset Where to zoom in/out from. Default is the center of the screen.
    */
   public modifyZoomLevel(delta: number, zoomOffset: Coords = { x: 0.5, y: 0.5 }): void {
+    this.setZoomLevel(this.navZoomLevel + delta, zoomOffset);
+  }
+
+  /**
+   * Modify the zoom level of the map by a given delta.
+   * @param delta A positive or negative value to modify the zoom level by
+   * @param zoomOffset Where to zoom in/out from. Default is the center of the screen.
+   */
+  public setZoomLevel(newZoomLevel: number, zoomOffset: Coords = { x: 0.5, y: 0.5 }): void {
     let oldHexContainerSize = { x: this.hexZoneContainer.width, y: this.hexZoneContainer.height };
-    this.navZoomLevel += delta;
+    this.navZoomLevel = newZoomLevel;
     // Clamp the zoom level
     this.navZoomLevel = Math.max(this.ZOOM_LEVEL_MIN, this.navZoomLevel);
     this.navZoomLevel = Math.min(this.ZOOM_LEVEL_MAX, this.navZoomLevel);
@@ -413,16 +427,27 @@ export class HexesApp {
 
   public initializeCommonControls(): void {
     this.commonControls.initializeButtons();
-    this.commonControls.getControls().forEach((button) => {
-      this.uiRenderGroup.addChild(button);
+    this.commonControls.getControls().forEach((control) => {
+      this.uiRenderGroup.addChild(control);
     });
 
     this.commonControls.zoomInButton?.onPress.connect(() => {
-      this.modifyZoomLevel(0.1);
+      this.modifyZoomLevel(this.ZOOM_STEP);
+      if (this.commonControls.zoomSlider) {
+        this.commonControls.zoomSlider.value = this.navZoomLevel * 100;
+      }
     });
 
     this.commonControls.zoomOutButton?.onPress.connect(() => {
-      this.modifyZoomLevel(-0.1);
+      this.modifyZoomLevel(-1 * this.ZOOM_STEP);
+      if (this.commonControls.zoomSlider) {
+        this.commonControls.zoomSlider.value = this.navZoomLevel * 100;
+      }
+    });
+
+    this.commonControls.zoomSlider?.onUpdate.connect((value) => {
+      console.log('Zoom slider value: ' + value);
+      this.setZoomLevel(value / 100);
     });
 
     this.commonControls.toggleCoordsButton?.onPress.connect(() => {
@@ -685,6 +710,10 @@ export class HexesApp {
       this.hookRecommendEndTurn(armyIndex);
     }
 
+    this.battle.hookActiveUnitChanged = (creature: Creature) => {
+      this.hookActiveUnitChanged(creature);
+    }
+
     this.renderUnits(new MapRenderUpdate());
   }
 
@@ -756,6 +785,22 @@ export class HexesApp {
     if (this.commonControls.nextTurnButton) {
       this.commonControls.nextTurnButton.filters = [new AdvancedBloomFilter({ threshold: 0.25, bloomScale: 1, brightness: 1, blur: 5, quality: 3 })];
     }
+  }
+
+  hookActiveUnitChanged(creature: Creature) {
+    console.log("Selected unit changed to: " + creature.creatureType);
+    let description = "";
+    let visible = false;
+    if (creature.abilities.length > 0) {
+      description = creature.abilities[0].name;
+      visible = true;
+    }
+
+    if (this.commonControls.activeAbility1Button) {
+      this.commonControls.activeAbility1Button.text = description;
+      this.commonControls.activeAbility1Button.visible = visible;
+    }
+
   }
 
   private directionToSpriteName(direction: HexDirection): string {
@@ -1347,8 +1392,14 @@ export class HexesApp {
         };
         if (event.deltaY < 0) {
           this.modifyZoomLevel(0.1, ratio);
+          if (this.commonControls.zoomSlider) {
+            this.commonControls.zoomSlider.value = this.navZoomLevel * 100;
+          }
         } else {
           this.modifyZoomLevel(-0.1, ratio);
+          if (this.commonControls.zoomSlider) {
+            this.commonControls.zoomSlider.value = this.navZoomLevel * 100;
+          }
         }
       }
     });

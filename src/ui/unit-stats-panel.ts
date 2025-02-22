@@ -23,6 +23,7 @@ export class UnitStatsPanel {
   private rangedDefenseText = new Text({ ...UnitStatsPanel.DEFAULT_FONT_STYLE, text: 'Ranged Defense: ' });
   private counterAttacksText = new Text({ ...UnitStatsPanel.DEFAULT_FONT_STYLE, text: 'CounterAttacks: ' });
   private staminaText = new Text({ ...UnitStatsPanel.DEFAULT_FONT_STYLE, text: 'Stamina: ' });
+  private ammoText = new Text({ ...UnitStatsPanel.DEFAULT_FONT_STYLE, text: 'Ammo: ' });
 
   private bannerSprite?: Sprite = undefined;
   private bannerBg?: NineSliceSprite = undefined;
@@ -88,7 +89,7 @@ export class UnitStatsPanel {
     });
 
     windowBg.width = 200;
-    windowBg.height = 380;
+    windowBg.height = 410;
 
     const title = new Text({
       text: `Stats`,
@@ -141,6 +142,7 @@ export class UnitStatsPanel {
     this.rangedDefenseText.position = { x: 10, y: 290 };
     this.counterAttacksText.position = { x: 10, y: 320 };
     this.staminaText.position = { x: 10, y: 350 };
+    this.ammoText.position = { x: 10, y: 380 };
 
     this.window.addChild(this.unitTypeText);
     this.window.addChild(this.hpText);
@@ -153,6 +155,7 @@ export class UnitStatsPanel {
     this.window.addChild(this.rangedDefenseText);
     this.window.addChild(this.counterAttacksText);
     this.window.addChild(this.staminaText);
+    this.window.addChild(this.ammoText);
 
     this.view.addChild(this.window);
   }
@@ -175,6 +178,7 @@ export class UnitStatsPanel {
     this.rangedDefenseText.text = `Ranged Defense: ${this.stats?.defense_ranged}`;
     this.counterAttacksText.text = `CounterAttacks: ${this.stats?.remaining_counterattacks} / ${this.stats?.num_counterattacks}`;
     this.staminaText.text = `Stamina: ${this.stats?.stamina}`;
+    this.ammoText.text = `Ammo: ${this.stats?.remaining_ammo} / ${this.stats?.ammo}`;
   }
 
   public toggleVisibility() {

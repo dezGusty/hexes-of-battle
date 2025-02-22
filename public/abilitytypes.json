@@ -4,7 +4,7 @@
         "name": "patch-up",
         "tooltip-name": "Patch up",
         "description": "Heal a friendly unit for a bit of health.",
-        "abilityType": 1,
+        "abilityType": "active",
         "allowedTargets": [
             "self",
             "allies"
@@ -15,7 +15,7 @@
         "name": "pick-up ammo",
         "tooltip-name": "Pick-up ammo",
         "description": "Pick up ammo from the ground.",
-        "abilityType": 1,
+        "abilityType": "active",
         "allowedTargets": [
             "none"
         ]
@@ -25,14 +25,16 @@
         "name": "throw-javelin",
         "tooltip-name": "Throw javelin",
         "description": "Throw a javelin at an enemy.",
-        "abilityType": 1,
+        "abilityType": "active",
         "allowedTargets": [
             "enemies"
         ],
         "requiresTarget": true,
         "range": 2,
         "damage_low": 8,
-        "damage_high": 10
+        "damage_high": 10,
+        "resource_used": "ammo",
+        "resource_cost": 1
     },
     {
         "id": "dbl-strike-01",

@@ -35,6 +35,7 @@ export class CreatureRepository {
     }
 
     let result = new Creature(creatureType, { ...creatureTemplate.stats }, []);
+    result.stats.remaining_ammo = result.stats.ammo;
     result.stats.remaining_attacks = result.stats.num_attacks;
     result.stats.remaining_counterattacks = result.stats.num_counterattacks;
     result.stats.remaining_health = result.stats.health;
