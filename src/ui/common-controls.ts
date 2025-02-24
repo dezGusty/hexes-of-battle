@@ -8,30 +8,22 @@ import { TextStyle, TextStyleOptions, Text, Container } from "pixi.js";
  */
 export class CommonControls {
 
-  private isFullScreen: boolean = false;
 
   public menuButton?: FancyButton;
 
-  public fullscreenToggleButton?: FancyButton;
   public zoomInButton?: FancyButton;
   public zoomOutButton?: FancyButton;
   public zoomSlider?: Slider;
-  public toggleCoordsButton?: FancyButton;
-  public toggleGridButton?: FancyButton;
   public nextTurnButton?: FancyButton;
   public nextUnitButton?: FancyButton;
-  public showHealthbarsButton?: FancyButton;
   public toggleStatsButton?: FancyButton;
   public togglePerfStatsButton?: FancyButton;
-  public toggleMusicButton?: FancyButton;
   public resetButton?: FancyButton;
 
   public activeAbility1Button?: FancyButton;
 
   static DEFAULT_FONT_STYLE: TextStyle | TextStyleOptions = { fontFamily: 'GustysSerpents', fontSize: 16, align: 'left' };
   private DEFAULT_BUTTON_STYLE: ButtonOptions = {
-
-
     defaultView: 'btn_simple.png',
     hoverView: 'btn_simple_hover.png',
     pressedView: 'btn_simple_click.png',
@@ -44,6 +36,13 @@ export class CommonControls {
     pressedView: 'thin_button_2_hover.png',
     nineSliceSprite: [4, 4, 4, 4],
     padding: 2,
+  };
+
+  private CRYSTAL_BUTTON_STYLE: ButtonOptions = {
+    defaultView: 'btn_crystal_med_normal.png',
+    hoverView: 'btn_crystal_med_hover.png',
+    pressedView: 'btn_crystal_med_hover.png',
+    nineSliceSprite: [13, 13, 13, 13]
   };
 
   private SMALL_BUTTON_STYLE: ButtonOptions = {
@@ -61,11 +60,6 @@ export class CommonControls {
   }
 
   public initializeButtons() {
-    // Create the fullscreen toggle button reusing the DEFAULT_BUTTON_STYLE property
-    this.fullscreenToggleButton = new FancyButton({
-      ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_fullscreen.png'
-    })
-    this.fullscreenToggleButton.position.set(10, 40);
 
     this.zoomOutButton = new FancyButton({ ...this.SMALL_BUTTON_STYLE, icon: 'glyph_minus.png' });
     this.zoomOutButton.position.set(1390, 30);
@@ -102,25 +96,11 @@ export class CommonControls {
     this.zoomInButton.width = 24;
     this.zoomInButton.height = 24;
 
-    this.toggleCoordsButton = new FancyButton({ ...this.THIN_BUTTON_STYLE, icon: 'glyph_xy.png' });
-    this.toggleCoordsButton.position.set(10, 160);
-    this.toggleCoordsButton.width = 48;
-    this.toggleCoordsButton.height = 48;
-
-    this.toggleGridButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_grid.png' });
-    this.toggleGridButton.position.set(10, 210);
-
-    this.showHealthbarsButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_toggle_healthbars.png' });
-    this.showHealthbarsButton.position.set(10, 260);
-
     this.toggleStatsButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_toggle_stats.png' });
     this.toggleStatsButton.position.set(10, 310);
 
     this.togglePerfStatsButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_toggle_perf_stats.png' });
     this.togglePerfStatsButton.position.set(10, 360);
-
-    this.toggleMusicButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_toggle_music.png' });
-    this.toggleMusicButton.position.set(10, 410);
 
     this.resetButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_reset.png' });
     this.resetButton.position.set(10, 460);
@@ -142,32 +122,25 @@ export class CommonControls {
     this.nextTurnButton.height = 75;
     this.nextTurnButton.text = new Text({ ...CommonControls.DEFAULT_FONT_STYLE, text: '\n[E]nd Turn' });
     
-    this.menuButton = new FancyButton({ ...this.THIN_BUTTON_STYLE, icon: 'glyph_menu.png' });
+    this.menuButton = new FancyButton({ ...this.CRYSTAL_BUTTON_STYLE, icon: 'glyph_menu.png' });
     this.menuButton.position.set(4, 4);
     this.menuButton.width = 130;
-    this.menuButton.height = 32;
+    this.menuButton.height = 48;
     this.menuButton.text = new Text(
       { ...CommonControls.DEFAULT_FONT_STYLE, text: 'Menu', style: { fontSize: 16, fill: "#DDFFFF" } }
     );
 
-
-    this.connectEventHandlers();
   }
 
   public getControls(): Container[] {
     let results = [];
-    if (this.fullscreenToggleButton) results.push(this.fullscreenToggleButton);
     if (this.zoomSlider) results.push(this.zoomSlider);
     if (this.zoomInButton) results.push(this.zoomInButton);
     if (this.zoomOutButton) results.push(this.zoomOutButton);
-    if (this.toggleCoordsButton) results.push(this.toggleCoordsButton);
-    if (this.toggleGridButton) results.push(this.toggleGridButton);
     if (this.nextTurnButton) results.push(this.nextTurnButton);
     if (this.nextUnitButton) results.push(this.nextUnitButton);
-    if (this.showHealthbarsButton) results.push(this.showHealthbarsButton);
     if (this.toggleStatsButton) results.push(this.toggleStatsButton);
     if (this.togglePerfStatsButton) results.push(this.togglePerfStatsButton);
-    if (this.toggleMusicButton) results.push(this.toggleMusicButton);
     if (this.resetButton) results.push(this.resetButton);
     if (this.menuButton) results.push(this.menuButton);
 
@@ -176,37 +149,6 @@ export class CommonControls {
     return results;
   }
 
-  public connectEventHandlers() {
-    this.fullscreenToggleButton?.onPress.connect(() => {
-      if (this.isFullScreen) {
-        this.exitFullscreen();
-      }
-      else {
-        this.enterFullscreen();
-      }
-    });
-  }
 
 
-  private async enterFullscreen() {
-    if (this.isFullScreen) return;
-
-    const containingElement: HTMLElement | null = document.getElementById('game');
-    if (!containingElement) {
-      console.error('Failed to find the game container element');
-      return;
-    }
-    await containingElement.requestFullscreen();
-    console.log('Entered fullscreen mode');
-    this.isFullScreen = true;
-  }
-
-  private async exitFullscreen() {
-    console.log('Exiting fullscreen mode');
-    if (!this.isFullScreen) return;
-
-    await document.exitFullscreen();
-    console.log('Exited fullscreen mode');
-    this.isFullScreen = false;
-  }
 }

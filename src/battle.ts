@@ -368,7 +368,6 @@ export class Battle {
     return cost;
   }
 
-
   /**
    * 
    * @param coords Coordinates of the cell to move to or attack
@@ -1322,6 +1321,7 @@ export class Battle {
     console.log("*** Requesting ability for current unit: ", ability);
 
     if (this.verifyAbilityUseByCreatureHasResources(ability, creature) == false) {
+      console.log("Cannot use ability - not enough resources");
       return;
     }
 
@@ -1391,38 +1391,66 @@ export class Battle {
   }
 
   public verifyAbilityUseByCreatureHasResources(ability: Ability, creature: Creature): boolean {
-    // Check that there are sufficient resources to use the ability
-    switch (ability.resource_used) {
-      case AbilityResourceUse.Ammo:
-        if (creature.live_stats.remaining_ammo < ability.resource_cost) {
-          console.log("Cannot use ability - not enough ammo");
+    // Check that there are sufficient resources to use the ability.
+    // If several resources are used, check all of them.
+    // If any of the resources are insufficient, return false.
+    for (let res of ability.resources) {
+
+      switch (res.resource_used) {
+        case AbilityResourceUse.Ammo:
+          if (creature.live_stats.remaining_ammo < res.resource_cost) {
+            console.log("Cannot use ability - not enough ammo");
+            return false;
+          }
+          break;
+        case AbilityResourceUse.Attack:
+          if (creature.live_stats.remaining_attacks < res.resource_cost) {
+            console.log("Cannot use ability - not enough attacks");
+            return false;
+          }
+          break;
+        case AbilityResourceUse.Stamina:
+          if (creature.live_stats.stamina < res.resource_cost) {
+            console.log("Cannot use ability - not enough stamina");
+            return false;
+          }
+          break;
+        case AbilityResourceUse.Mana:
+          console.log("Cannot use ability - no mana/magic enabled!");
+          break;
+        case AbilityResourceUse.Health:
+          console.log("Cannot use ability - no blood magic enabled!");
+          break;
+        case AbilityResourceUse.None:
+          console.log("Cannot use ability - no resource configured");
           return false;
-        }
-        break;
-      case AbilityResourceUse.Mana:
-        break;
-      case AbilityResourceUse.Health:
-        break;
-      case AbilityResourceUse.None:
-        console.log("Cannot use ability - no resource configured");
-        return false;
+      }
     }
     return true;
   }
 
   public deductCostForAbilityUseByCreature(ability: Ability, creature: Creature) {
     // Deduct the resources for using the ability
-    switch (ability.resource_used) {
-      case AbilityResourceUse.Ammo:
-        creature.live_stats.remaining_ammo -= ability.resource_cost;
-        break;
-      case AbilityResourceUse.Mana:
-        break;
-      case AbilityResourceUse.Health:
-        break;
-      case AbilityResourceUse.None:
-        break;
+    for (let res of ability.resources) {
+      switch (res.resource_used) {
+        case AbilityResourceUse.Ammo:
+          creature.live_stats.remaining_ammo -= res.resource_cost;
+          break;
+        case AbilityResourceUse.Attack:
+          creature.live_stats.remaining_attacks -= res.resource_cost;
+          break;
+        case AbilityResourceUse.Stamina:
+          creature.live_stats.stamina -= res.resource_cost;
+          break;
+        case AbilityResourceUse.Mana:
+          break;
+        case AbilityResourceUse.Health:
+          break;
+        case AbilityResourceUse.None:
+          break;
+      }
     }
+
   }
 }
 

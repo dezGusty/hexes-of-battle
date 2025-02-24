@@ -1,5 +1,6 @@
 import { Container, NineSliceSprite, Sprite, Spritesheet, Text, TextOptions, Texture } from "pixi.js";
 import { Creature, CreatureStats } from "../battle/creature";
+import { Coords } from "../shared";
 
 /**
  * Contains UI controls to show the unit stats during a battle.
@@ -24,6 +25,10 @@ export class UnitStatsPanel {
   private counterAttacksText = new Text({ ...UnitStatsPanel.DEFAULT_FONT_STYLE, text: 'CounterAttacks: ' });
   private staminaText = new Text({ ...UnitStatsPanel.DEFAULT_FONT_STYLE, text: 'Stamina: ' });
   private ammoText = new Text({ ...UnitStatsPanel.DEFAULT_FONT_STYLE, text: 'Ammo: ' });
+
+  private tooltipText = new Text({ ...UnitStatsPanel.DEFAULT_FONT_STYLE, text: 'Tooltip' });
+  private tooltipWindow?: NineSliceSprite = undefined;
+  private hpIcon?: Sprite = undefined;
 
   private bannerSprite?: Sprite = undefined;
   private bannerBg?: NineSliceSprite = undefined;
@@ -71,8 +76,8 @@ export class UnitStatsPanel {
         this.faceSprite.x += this.faceBg.x;
         this.faceSprite.y += this.faceBg.y;
       }
-      this.faceSprite.width = 64;
-      this.faceSprite.height = 64;
+      this.faceSprite.width = 128;
+      this.faceSprite.height = 128;
       this.window.addChild(this.faceSprite);
     }
   }
@@ -88,8 +93,8 @@ export class UnitStatsPanel {
       bottomHeight: 15,
     });
 
-    windowBg.width = 200;
-    windowBg.height = 410;
+    windowBg.width = 1200;
+    windowBg.height = 150;
 
     const title = new Text({
       text: `Stats`,
@@ -97,11 +102,11 @@ export class UnitStatsPanel {
     });
 
     title.anchor.set(0.5);
-    title.x = windowBg.width / 2;
-    title.y = 25;
-
+    title.position = { x: 200, y: 125};
+    
     this.window.addChild(windowBg);
-
+    this.window.addChild(title);
+    
     this.bannerBg = new NineSliceSprite({
       texture: this.uiSheet.textures['progress_bg.png'],
       leftWidth: 5,
@@ -115,34 +120,33 @@ export class UnitStatsPanel {
     this.window.addChild(this.bannerBg);
 
     this.faceBg = new NineSliceSprite({
-      texture: this.uiSheet.textures['progress_bg.png'],
-      leftWidth: 5,
-      topHeight: 5,
-      rightWidth: 5,
-      bottomHeight: 5
+      texture: this.uiSheet.textures['thin_panel_semitransparent.png'],
+      leftWidth: 4,
+      topHeight: 4,
+      rightWidth: 4,
+      bottomHeight: 4
     });
-    this.faceBg.width = 64 + 10;
-    this.faceBg.height = 64 + 10;
-    this.faceBg.position = { x: (0 - 64) / 2 - 5, y: -30 - 5 };
+    this.faceBg.width = 128 + 10;
+    this.faceBg.height = 128 + 10;
+    this.faceBg.position = { x: 5, y: 5 };
     this.window.addChild(this.faceBg);
 
 
-    this.window.addChild(title);
-    this.window.position = { x: 1350, y: 110 };
+    this.window.position = { x: 135, y: 1080 - 150 };
 
 
-    this.unitTypeText.position = { x: 10, y: 50 };
-    this.hpText.position = { x: 10, y: 80 };
-    this.attackMeleeText.position = { x: 10, y: 110 };
-    this.attackRangedText.position = { x: 10, y: 140 };
-    this.rangeText.position = { x: 10, y: 170 };
-    this.movementText.position = { x: 10, y: 200 };
-    this.attacksText.position = { x: 10, y: 230 };
-    this.meleeDefenseText.position = { x: 10, y: 260 };
-    this.rangedDefenseText.position = { x: 10, y: 290 };
-    this.counterAttacksText.position = { x: 10, y: 320 };
-    this.staminaText.position = { x: 10, y: 350 };
-    this.ammoText.position = { x: 10, y: 380 };
+    this.unitTypeText.position = { x: 310, y: 10 };
+    this.hpText.position = { x: 310, y: 40 };
+    this.attackMeleeText.position = { x: 310, y: 70 };
+    this.attackRangedText.position = { x: 310, y: 100 };
+    this.rangeText.position = { x: 310, y: 130 };
+    this.movementText.position = { x: 510, y: 10 };
+    this.attacksText.position = { x: 510, y: 40 };
+    this.meleeDefenseText.position = { x: 510, y: 70 };
+    this.rangedDefenseText.position = { x: 510, y: 100 };
+    this.counterAttacksText.position = { x: 510, y: 130 };
+    this.staminaText.position = { x: 710, y: 10 };
+    this.ammoText.position = { x: 710, y: 40 };
 
     this.window.addChild(this.unitTypeText);
     this.window.addChild(this.hpText);
@@ -156,6 +160,31 @@ export class UnitStatsPanel {
     this.window.addChild(this.counterAttacksText);
     this.window.addChild(this.staminaText);
     this.window.addChild(this.ammoText);
+
+    this.hpIcon = new Sprite(this.uiSheet.textures['glyph_toggle_healthbars.png']);
+    this.hpIcon.position = { x: 280, y: 80 };
+    this.hpIcon.width = 48;
+    this.hpIcon.height = 48;
+    this.hpIcon.interactive = true;
+
+
+    this.window.addChild(this.hpIcon);
+
+    this.tooltipWindow = new NineSliceSprite({
+      texture: this.uiSheet.textures['thin_panel_semitransparent.png'],
+      leftWidth: 4,
+      topHeight: 4,
+      rightWidth: 4,
+      bottomHeight: 4,
+    });
+    this.tooltipText.position = { x: 20, y: 20 };
+    this.tooltipWindow.addChild(this.tooltipText);
+    this.tooltipWindow.position = { x: 300, y: -5 - 80 };
+    this.tooltipWindow.visible = false;
+    this.tooltipWindow.width = 420;
+    this.tooltipWindow.height = 80;
+    this.window.addChild(this.tooltipWindow);
+
 
     this.view.addChild(this.window);
   }
@@ -189,7 +218,23 @@ export class UnitStatsPanel {
     this.window.visible = false;
   }
 
+  public isVisible() {
+    return this.window.visible;
+  }
 
-
+  mousemove(coords: Coords) {
+    let x = coords.x - this.window.x;
+    let y = coords.y - this.window.y;
+    if (this.hpIcon
+      && x > this.hpIcon?.x
+      && x < this.hpIcon?.x + this.hpIcon?.width
+      && y > this.hpIcon?.y
+      && y < this.hpIcon?.y + this.hpIcon?.height) {
+      this.tooltipText.text = 'Current hitpoints. Depicts overall health and\nbasic protective gear of unit.';
+      if (this.tooltipWindow) this.tooltipWindow.visible = true;
+    } else {
+      if (this.tooltipWindow) this.tooltipWindow.visible = false;
+    }
+  }
 
 }

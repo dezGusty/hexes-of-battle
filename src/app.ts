@@ -19,6 +19,7 @@ import { BattleSettings } from './battle/settings';
 import { Ability } from './battle/ability';
 import { CreatureRepository } from './battle/creature-repository';
 import { BattleActionType } from './battle/battle-action';
+import { BattleMenuPanel } from './ui/battle-menu';
 
 export enum GameState {
   InMenu,
@@ -37,14 +38,14 @@ export class HexesApp {
   private battle = new Battle(this.hexMap);
   private dumbAI: DumbAI = new DumbAI(this.battle);
 
-  private NATIVE_RESOLUTION = { width: 1600, height: 900 };
-  // private NATIVE_RESOLUTION = { width: 1920, height: 1080 };
+  // private NATIVE_RESOLUTION = { width: 1600, height: 900 };
+  private NATIVE_RESOLUTION = { width: 1920, height: 1080 };
 
   private ZOOM_LEVEL_MIN = 0.75;
-  private ZOOM_LEVEL_MAX = 1.5;
+  private ZOOM_LEVEL_MAX = 2.0;
   private ZOOM_STEP = 0.05;
-  private navZoomLevel: number = 1;
-  private navMapOffset: Coords = { x: 0, y: 0 };
+  private navZoomLevel: number = 1.4;
+  private navMapOffset: Coords = { x: 0, y: -100 };
   private MAP_OFFSET_MIN: Coords = { x: -400, y: -400 };
   private MAP_OFFSET_MAX: Coords = { x: 1200, y: 800 };
 
@@ -57,6 +58,7 @@ export class HexesApp {
   private terrainTexture?: Texture = undefined;
   private hexagonSheet?: Spritesheet = undefined;
   private uiSheet?: Spritesheet = undefined;
+  private uiSheet_2?: Spritesheet = undefined;
   private unitsSheet?: Spritesheet = undefined;
   private bannersSheet?: Spritesheet = undefined;
 
@@ -103,6 +105,7 @@ export class HexesApp {
   private unitRenderGroup: Container = new Container({ isRenderGroup: true });
   private uiRenderGroup: Container = new Container({ isRenderGroup: true });
   private uiPlusRenderGroup: Container = new Container({ isRenderGroup: true });
+  private uiCursorRenderGroup: Container = new Container({ isRenderGroup: true });
   private renderContainer: Container = new Container();
 
   private hexZoneContainer: Container = new Container({ isRenderGroup: true });
@@ -121,6 +124,8 @@ export class HexesApp {
 
   private tempMessage = "";
   private controlPressed: boolean = false;
+
+  private battleMenuPanel?: BattleMenuPanel = undefined;
 
   constructor(public app: Application) {
     // this.currentGameState = GameState.InMenu;
@@ -172,6 +177,7 @@ export class HexesApp {
     this.renderContainer.addChild(this.hexZoneContainer);
     this.renderContainer.addChild(this.uiRenderGroup);
     this.renderContainer.addChild(this.uiPlusRenderGroup);
+    this.renderContainer.addChild(this.uiCursorRenderGroup);
 
     this.hexZoneContainer.addChild(this.hexTerrainContainer);
     this.hexZoneContainer.addChild(this.hexCellsGridContainer);
@@ -192,6 +198,7 @@ export class HexesApp {
     this.setupMainLoop();
     this.setupInputHandlers();
 
+    this.setNavMapOffset(this.navMapOffset);
     this.startBattle();
 
     // set-up a resize event listener
@@ -317,6 +324,10 @@ export class HexesApp {
     if (!this.uiSheet) {
       console.error('Failed to load the UI spritesheet');
     }
+    this.uiSheet_2 = await Assets.load('ui/hexes_blue_ui_sheet.json');
+    if (!this.uiSheet_2) {
+      console.error('Failed to load the 2nd UI spritesheet');
+    }
 
     this.bannersSheet = await Assets.load('bannersspritesheet.json');
     if (!this.bannersSheet) {
@@ -338,7 +349,7 @@ export class HexesApp {
 
     this.softCursorSprite = new Sprite(this.softCursorTextures['default']);
     // this.renderContainer.cursor = 'none';
-    this.uiPlusRenderGroup.addChild(this.softCursorSprite);
+    this.uiCursorRenderGroup.addChild(this.softCursorSprite);
 
   }
 
@@ -427,8 +438,21 @@ export class HexesApp {
 
   public initializeCommonControls(): void {
     this.commonControls.initializeButtons();
+
+    if (this.uiSheet) {
+      this.battleMenuPanel = new BattleMenuPanel(this.uiPlusRenderGroup, this.uiSheet);
+      this.battleMenuPanel.hide();
+    }
+
+
     this.commonControls.getControls().forEach((control) => {
       this.uiRenderGroup.addChild(control);
+    });
+
+    this.commonControls.menuButton?.onPress.connect(() => {
+      if (this.battleMenuPanel) {
+        this.battleMenuPanel.toggleVisibility();
+      }
     });
 
     this.commonControls.zoomInButton?.onPress.connect(() => {
@@ -450,7 +474,8 @@ export class HexesApp {
       this.setZoomLevel(value / 100);
     });
 
-    this.commonControls.toggleCoordsButton?.onPress.connect(() => {
+    this.battleMenuPanel && this.battleMenuPanel.toggleCoordsButton?.onPress.connect(() => {
+      console.log("*** toggle coords button pressed");
       this.settings.debug.showCoords = !this.settings.debug.showCoords;
       this.settings.save();
 
@@ -461,7 +486,8 @@ export class HexesApp {
       });
     });
 
-    this.commonControls.toggleGridButton?.onPress.connect(() => {
+
+    this.battleMenuPanel && this.battleMenuPanel.toggleGridButton?.onPress.connect(() => {
       this.settings.hex.showGrid = !this.settings.hex.showGrid;
       this.settings.save();
 
@@ -476,7 +502,7 @@ export class HexesApp {
       this.battle.selectNextUnitAndGetIndex();
     });
 
-    this.commonControls.showHealthbarsButton?.onPress.connect(() => {
+    this.battleMenuPanel && this.battleMenuPanel.showHealthbarsButton?.onPress.connect(() => {
       this.showHealthbars = !this.showHealthbars;
       this.battle.reselectCurrentUnit();
     });
@@ -487,7 +513,7 @@ export class HexesApp {
       }
 
       if (!this.unitStats) {
-        this.unitStats = new UnitStatsPanel(this.renderContainer, this.uiSheet);
+        this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.uiSheet);
         this.unitStats.hide();
       }
 
@@ -509,7 +535,7 @@ export class HexesApp {
       this.perfDisplayPanel.toggleVisibility(this.uiRenderGroup, this.uiSheet);
     });
 
-    this.commonControls.toggleMusicButton?.onPress.connect(() => {
+    this.battleMenuPanel && this.battleMenuPanel.toggleMusicButton?.onPress.connect(() => {
       this.settings.sound.musicOn = !this.settings.sound.musicOn;
       this.settings.save();
       if (this.settings.sound.musicOn) {
@@ -529,7 +555,7 @@ export class HexesApp {
     });
 
     if (this.uiSheet) {
-      this.unitStats = new UnitStatsPanel(this.renderContainer, this.uiSheet);
+      this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.uiSheet);
     }
   }
 
@@ -555,7 +581,7 @@ export class HexesApp {
       return;
     }
 
-    this.topSidePanel = new TopSidePanel(this.renderContainer, this.uiSheet);
+    this.topSidePanel = new TopSidePanel(this.uiPlusRenderGroup, this.uiSheet);
     this.topSidePanel.setLeftBannerTexture(this.bannersSheet?.textures[
       this.getBannerTextureNameForArmyIndex(0)]);
     this.topSidePanel.setRightBannerTexture(this.bannersSheet?.textures[
@@ -897,11 +923,12 @@ export class HexesApp {
 
       if (this.showHealthbars) {
         let healthBar = new ProgressBar({
-          bg: 'progress_bg.png',
+          // bg: 'progress_bg.png',
+          bg: 'thin_button_normal.png',
           fill: 'progress_fill.png',
           nineSliceSprite: {
-            bg: [3, 3, 3, 3],
-            fill: [2, 2, 2, 2],
+            bg: [4, 4, 4, 4],
+            fill: [3, 3, 3, 3],
           },
           fillPaddings: { top: 2, right: 2, bottom: 2, left: 2 },
         });
@@ -1421,6 +1448,12 @@ export class HexesApp {
       if (event.button === 1) {
         this.mouseDragCoords = { x: 0, y: 0 };
       }
+
+      if (this.battleMenuPanel?.isVisible()) {
+        return;
+      }
+
+
       // If this is the right button, move or attack ? pass it on to the battle class.
       if (event.button === 2) {
         console.log('Right click');
@@ -1460,16 +1493,25 @@ export class HexesApp {
         renderContainerAdjustedCoords,
         this.navMapOffset,
         { x: this.navZoomLevel, y: this.navZoomLevel });
+
+      if (this.battleMenuPanel?.isVisible()) {
+        return;
+      }
+
       let hexCoordsWithDetails = this.hexMap.pixelToHexWithDirectionalDetail(navAdjustedCoords.x, navAdjustedCoords.y);
       let hexCoords = hexCoordsWithDetails.cell;
 
       if (hexCoords.x >= 0 && hexCoords.x < this.hexMap.width && hexCoords.y >= 0 && hexCoords.y < this.hexMap.height) {
-        console.log("*** Click on cell: " + hexCoords.x + ", " + hexCoords.y);
+        // console.log("*** Click on cell: " + hexCoords.x + ", " + hexCoords.y);
         this.battle?.onMouseClickOnCell(event, hexCoords, hexCoordsWithDetails.direction, this.controlPressed);
       }
     });
 
     document.addEventListener('mousemove', (event) => {
+      if (this.battleMenuPanel?.isVisible()) {
+        return;
+      }
+
       if (this.currentGameState === GameState.InGame) {
 
         if (this.mouseDragCoords.x > 0 && this.mouseDragCoords.y > 0) {
@@ -1496,12 +1538,17 @@ export class HexesApp {
           this.renderContainerOffset,
           this.renderContainer.scale);
 
+
         this.softCursorSprite.position.copyFrom(renderContainerAdjustedCoords);
 
         let navAdjustedCoords = this.adjustInContainerCoords(
           renderContainerAdjustedCoords,
           this.navMapOffset,
           { x: this.navZoomLevel, y: this.navZoomLevel });
+
+        if (this.unitStats?.isVisible()) {
+          this.unitStats.mousemove(renderContainerAdjustedCoords);
+        }
         let hexCoordsWithDetails = this.hexMap.pixelToHexWithDirectionalDetail(navAdjustedCoords.x, navAdjustedCoords.y);
         let hexCoords = hexCoordsWithDetails.cell;
 

@@ -17,8 +17,15 @@ export enum AbilityResourceUse {
     Ammo = "ammo",
     Mana = "mana",
     Health = "health",
+    Attack = "attack",
+    Stamina = "stamina",
     None = "none"
 }
+
+export class AbilityResource {
+    resource_used: AbilityResourceUse = AbilityResourceUse.None;
+    resource_cost: number = 0;
+};
 
 /**
  * Represents an ability that a character can use in battle.
@@ -63,6 +70,7 @@ export class Ability {
 
     public damage_low: number = 0;
     public damage_high: number = 0;
-    public resource_used: AbilityResourceUse = AbilityResourceUse.None;
-    public resource_cost: number = 0;
+    public resources: AbilityResource[] = [];
+    // public resource_used: AbilityResourceUse = AbilityResourceUse.None;
+    // public resource_cost: number = 0;
 }
