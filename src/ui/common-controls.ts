@@ -39,9 +39,9 @@ export class CommonControls {
   };
 
   private CRYSTAL_BUTTON_STYLE: ButtonOptions = {
-    defaultView: 'btn_crystal_med_normal.png',
-    hoverView: 'btn_crystal_med_hover.png',
-    pressedView: 'btn_crystal_med_hover.png',
+    defaultView: 'btn_gray_crystal_normal.png',
+    hoverView: 'btn_gray_crystal_hover.png',
+    pressedView: 'btn_gray_crystal_hover.png',
     nineSliceSprite: [13, 13, 13, 13]
   };
 
@@ -126,6 +126,7 @@ export class CommonControls {
     this.menuButton.position.set(4, 4);
     this.menuButton.width = 130;
     this.menuButton.height = 48;
+    this.menuButton.tint = 0xFF9988;
     this.menuButton.text = new Text(
       { ...CommonControls.DEFAULT_FONT_STYLE, text: 'Menu', style: { fontSize: 16, fill: "#DDFFFF" } }
     );
