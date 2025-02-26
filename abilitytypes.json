@@ -33,8 +33,20 @@
         "range": 2,
         "damage_low": 8,
         "damage_high": 10,
-        "resource_used": "ammo",
-        "resource_cost": 1
+        "resources": [
+            {
+                "resource_used": "ammo",
+                "resource_cost": 1
+            },
+            {
+                "resource_used": "stamina",
+                "resource_cost": 1
+            },
+            {
+                "resource_used": "attack",
+                "resource_cost": 1
+            }
+        ]
     },
     {
         "id": "dbl-strike-01",
