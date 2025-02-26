@@ -49,8 +49,6 @@ export class CreatureRepository {
       return ability;
     }).filter(ability => ability !== null) as Ability[];
 
-    console.log("Created creature: ", result);
-
     return result;
   }
 }

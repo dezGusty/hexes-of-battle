@@ -1,4 +1,4 @@
-import { Application, Sprite, Assets, Text, TextStyle, BitmapText, Spritesheet, Texture, Container, TextStyleOptions, AnimatedSprite } from 'pixi.js';
+import { Application, Sprite, Assets, Text, TextStyle, BitmapText, Spritesheet, Texture, Container, TextStyleOptions, AnimatedSprite, Graphics } from 'pixi.js';
 import pkg from './../package.json';
 import { HexDirection, HexEdge, HexFlankStatus, HexMap } from './shared/hex-map';
 import { CommonControls } from './ui/common-controls';
@@ -98,6 +98,8 @@ export class HexesApp {
   private turnChangeDisplay: TurnChangeCollection = new TurnChangeCollection();
   private perfDisplayPanel: PerfDisplayPanel = new PerfDisplayPanel();
 
+  private outerRenderBoundsRect1: Graphics = new Graphics();
+  private outerRenderBoundsRect2: Graphics = new Graphics();
 
   // Add render groups for layering
   private terrainRenderGroup: Container = new Container({ isRenderGroup: true });
@@ -107,6 +109,7 @@ export class HexesApp {
   private uiPlusRenderGroup: Container = new Container({ isRenderGroup: true });
   private uiCursorRenderGroup: Container = new Container({ isRenderGroup: true });
   private renderContainer: Container = new Container();
+  private outerBoundsContainer: Container = new Container();
 
   private hexZoneContainer: Container = new Container({ isRenderGroup: true });
   private hexTerrainContainer: Container = new Container({ isRenderGroup: true });
@@ -172,6 +175,7 @@ export class HexesApp {
 
     // Add the stage to the canvas
     this.app.stage.addChild(this.renderContainer);
+    this.app.stage.addChild(this.outerBoundsContainer);
 
     this.renderContainer.addChild(this.terrainRenderGroup);
     this.renderContainer.addChild(this.hexZoneContainer);
@@ -280,23 +284,70 @@ export class HexesApp {
       this.instructionsText.text = this.tempMessage + "\nResized to: " + width + 'x' + height;
     }
     const originalWindowSize = this.NATIVE_RESOLUTION;
-    console.log('Resized to: ' + width + ' x ' + height + '. With original size of: ' + originalWindowSize.width + ' x ' + originalWindowSize.height);
     // keep the aspect ratio
     const scaling = { x: width / originalWindowSize.width, y: height / originalWindowSize.height };
     const minScale = Math.min(scaling.x, scaling.y);
-
+    console.log('Resized to: ' + width + ' x ' + height 
+      + '. With original size of: ' + originalWindowSize.width + ' x ' + originalWindowSize.height 
+      + ". Scaling factor of " + minScale.toFixed(2));
+    
     this.renderContainer.scale.set(minScale, minScale);
 
     this.hexZoneContainer.scale.set(this.navZoomLevel, this.navZoomLevel);
 
+    const delta = {
+      x: Math.abs(width - originalWindowSize.width * minScale) / 2,
+      y: Math.abs(height - originalWindowSize.height * minScale) / 2
+    };
+    const verticalShift = -30;
+    console.log("Delta is: " + delta.x + ", " + delta.y);
+
     // Set-up an offset for the render container.
     // It should be in the middle horizontally and about 30 pixels up from the middle vertically
     this.renderContainerOffset = {
-      x: (width - originalWindowSize.width * minScale) / 2,
-      y: Math.max((height - originalWindowSize.height * minScale) / 2 - 30, 0)
+      x: delta.x,
+      y: Math.max(delta.y + verticalShift, 0)
     };
+    // this.renderContainerOffset = delta;
 
+    console.log("Render container offset is now: " + this.renderContainerOffset.x + ", " + this.renderContainerOffset.y);
     this.renderContainer.position.set(this.renderContainerOffset.x, this.renderContainerOffset.y);
+
+    const blackColor = 0x000000;
+    if (this.renderContainerOffset.x > 0) {
+      // need to add black rectangles on the sides
+
+      // Add a black rectangle on the left, via Graphics
+      this.outerRenderBoundsRect1.clear();
+      this.outerRenderBoundsRect1.rect(0, 0, delta.x, originalWindowSize.height);
+      this.outerRenderBoundsRect1.fill(blackColor);
+      this.outerBoundsContainer.removeChild(this.outerRenderBoundsRect1);
+      this.outerBoundsContainer.addChild(this.outerRenderBoundsRect1);
+
+      // Add a black rectangle on the right, via Graphics
+      this.outerRenderBoundsRect2.clear();
+      this.outerRenderBoundsRect2.rect(width - delta.x, 0, delta.x, originalWindowSize.height);
+      this.outerRenderBoundsRect2.fill(blackColor);
+      this.outerBoundsContainer.removeChild(this.outerRenderBoundsRect2);
+      this.outerBoundsContainer.addChild(this.outerRenderBoundsRect2);
+
+    } else if (this.renderContainerOffset.y > 0) {
+      // need to add black rectangles on the top and bottom
+
+      // Add a black rectangle on the top, via Graphics
+      this.outerRenderBoundsRect1.clear();
+      this.outerRenderBoundsRect1.rect(0, 0, originalWindowSize.width, delta.y + verticalShift);
+      this.outerRenderBoundsRect1.fill(blackColor);
+      this.outerBoundsContainer.removeChild(this.outerRenderBoundsRect1);
+      this.outerBoundsContainer.addChild(this.outerRenderBoundsRect1);
+
+      // Add a black rectangle on the bottom, via Graphics
+      this.outerRenderBoundsRect2.clear();
+      this.outerRenderBoundsRect2.rect(0, height - delta.y + verticalShift, originalWindowSize.width, delta.y - verticalShift);
+      this.outerRenderBoundsRect2.fill(blackColor);
+      this.outerBoundsContainer.removeChild(this.outerRenderBoundsRect2);
+      this.outerBoundsContainer.addChild(this.outerRenderBoundsRect2);
+    }
   }
 
 

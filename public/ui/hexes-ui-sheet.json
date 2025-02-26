@@ -236,6 +236,94 @@
                 "h": 32
             }
         },
+        "glyph_hp": {
+            "frame": {
+                "x": 273,
+                "y": 1,
+                "w": 32,
+                "h": 32
+            }
+        },
+        "glyph_attack_melee": {
+            "frame": {
+                "x": 273,
+                "y": 35,
+                "w": 32,
+                "h": 32
+            }
+        },
+        "glyph_attack_ranged": {
+            "frame": {
+                "x": 307,
+                "y": 1,
+                "w": 32,
+                "h": 32
+            }
+        },
+        "glyph_range": {
+            "frame": {
+                "x": 307,
+                "y": 35,
+                "w": 32,
+                "h": 32
+            }
+        },
+        "glyph_movement": {
+            "frame": {
+                "x": 341,
+                "y": 1,
+                "w": 32,
+                "h": 32
+            }
+        },
+        "glyph_attacks": {
+            "frame": {
+                "x": 341,
+                "y": 35,
+                "w": 32,
+                "h": 32
+            }
+        },
+        "glyph_defense_melee": {
+            "frame": {
+                "x": 375,
+                "y": 1,
+                "w": 32,
+                "h": 32
+            }
+        },
+        "glyph_defense_ranged": {
+            "frame": {
+                "x": 375,
+                "y": 35,
+                "w": 32,
+                "h": 32
+            }
+        },
+        "glyph_counterattacks": {
+            "frame": {
+                "x": 409,
+                "y": 1,
+                "w": 32,
+                "h": 32
+            }
+        },
+        "glyph_stamina": {
+            "frame": {
+                "x": 409,
+                "y": 35,
+                "w": 32,
+                "h": 32
+            }
+        },
+        "glyph_ammo": {
+            "frame": {
+                "x": 443,
+                "y": 1,
+                "w": 32,
+                "h": 32
+            }
+        },
         "panel.png": {
             "frame": {"x": 397,"y": 151,"w": 64,"h": 64}
         },
