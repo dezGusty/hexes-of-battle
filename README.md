@@ -2,9 +2,36 @@
 
 Take control of an army and battle a ~~challenging~~ challenged enemy in a turn based strategy game.
 
-![Pic01](./docs/hob_v0.9_scr_1.jpg)
+![Pic01](./docs/hob_v0.19.5_scr_1.jpg)
 
 You can play the latest build of the game here: ➡️ <https://dezgusty.github.io/hexes-of-battle/> ⬅️
+
+## The game so far
+
+You start directly in a battle, and there is nothing beyond that, just reload the battle if you want another go.
+There are 4 different types of terrain, with some minor variations:
+
+- plains: nothing special
+  - 1 movement cost
+- forests
+  - 2 movement cost
+  - +1 bonus to range defense
+- hills
+  - 3 movement cost
+  - +1 bonus to melee attack and defense
+- swamp
+  - 4 movement cost
+  - -1 to defense
+
+Attacking from the back (backstabing) provides a bonus damage +2.
+Attacking from the flanks provides a bonus damage of +1.
+
+Some units may have special skills
+
+- Spearman
+  - Throw a javelin (one per combat).
+    - Range: 2
+    - (similar damage to regular attack, but bypasses armor and doesn't trigger a retaliation)
 
 ## Inspiration
 
