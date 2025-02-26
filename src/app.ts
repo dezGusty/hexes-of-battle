@@ -1081,7 +1081,7 @@ export class HexesApp {
             continue;
           }
 
-          let spriteSrc = 'hex_action_disabled_gray.png';
+          let spriteSrc = 'hex_gray';
           if (this.battle.pathfinding_tiles[i][j] === 500) {
             spriteSrc = 'hex_action_red.png';
           }
@@ -1106,7 +1106,7 @@ export class HexesApp {
             continue;
           }
 
-          let spriteSrc = 'hex_action_disabled_gray.png';
+          let spriteSrc = 'hex_gray';
           if (this.battle.rangereach_targets[i][j] === 500) {
             spriteSrc = 'hex_action_red.png';
           }
@@ -1154,7 +1154,7 @@ export class HexesApp {
             continue;
           }
 
-          let spriteSrc = 'hex_action_disabled_gray.png';
+          let spriteSrc = 'hex_gray';
           if (this.battle.ability_reach_targets[i][j] === 500) {
             spriteSrc = 'hex_action_red.png';
           }
@@ -1204,7 +1204,7 @@ export class HexesApp {
             continue;
           }
 
-          let spriteSrc = 'hex_action_disabled_gray.png';
+          let spriteSrc = 'hex_enemy_movement.png';
           if (this.battle.enemy_potential_tiles[i][j] === 500) {
             spriteSrc = 'hex_action_blue.png';
           }
@@ -1245,7 +1245,7 @@ export class HexesApp {
     if (mapUpdate.hoverOverCell) {
       if (!this.hexHoverSprite) {
         this.hexHoverSprite = new Sprite(this.hexagonSheet?.textures['hex_usable_yellow.png']);
-        // this.hexHoverSprite = new Sprite(this.hexagonSheet?.textures['hex_action_disabled_gray.png']);
+        // this.hexHoverSprite = new Sprite(this.hexagonSheet?.textures['hex_gray']);
         this.hexCellsContainer.addChild(this.hexHoverSprite);
       }
 
