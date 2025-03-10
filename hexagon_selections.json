@@ -40,7 +40,7 @@
                 "h": 92
             }
         },
-        "hex_action_disabled_gray.png": {
+        "hex_gray": {
             "frame": {
                 "x": 329,
                 "y": 1,
@@ -187,6 +187,14 @@
         "hex_dir_W.png": {
             "frame": {
                 "x": 165,
+                "y": 377,
+                "w": 80,
+                "h": 92
+            }
+        },
+        "hex_enemy_movement.png": {
+            "frame": {
+                "x": 247,
                 "y": 377,
                 "w": 80,
                 "h": 92
