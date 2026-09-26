@@ -8,6 +8,7 @@ import { BattleHexMapPath } from "./battle/battle-hex-map-path";
 import { ReachData } from "./shared/reach-data";
 import { CreatureInBattle } from "./battle/creature-in-battle";
 import { BattleAction, BattleActionType } from "./battle/battle-action";
+import { BattleConfig, BattleResult } from "./battle/battle-types";
 
 
 
@@ -99,6 +100,7 @@ export class Battle {
 
   public renderStateChanged: boolean = true;
   public creatures: Creature[] = [];
+  public casualties: Creature[] = [];
 
   public pathfinding_tiles: number[][] = [];
   public enemy_potential_tiles: number[][] = [];
@@ -144,6 +146,34 @@ export class Battle {
 
   constructor(
     public hexMap: HexMap) {
+  }
+
+  public initializeFromConfig(config: BattleConfig): void {
+    this.initializeToSize(config.mapWidth, config.mapHeight);
+    if (config.terrainTiles) {
+      this.terrain_tiles = config.terrainTiles;
+    }
+    if (config.armyControl) {
+      this.army_control = [...config.armyControl];
+    }
+    this.creatures = [...config.creatures];
+    this.casualties = [];
+    this.finished = false;
+    this.turnNumber = 0;
+    this.currentArmyIndex = 0;
+    this.activeCreatureIndex = -1;
+  }
+
+  public getBattleResult(): BattleResult | null {
+    if (!this.finished) {
+      return null;
+    }
+    return {
+      victorArmyIndex: this.checkVictoryConditions(),
+      turnsTaken: this.turnNumber + 1,
+      survivingCreatures: this.creatures.filter(c => c.isAlive),
+      casualties: [...this.casualties]
+    };
   }
 
   public initializeToSize(mapWidth: number, mapHeight: number) {
@@ -482,39 +512,57 @@ export class Battle {
     this.currentActions.push(BattleAction.CreateAttackMelee(creature, creatureAtTarget.creature));
   }
 
-
-  //TODO: move over to view; the battle should not care about the input, what if we're dealing with a controller or touch input ?
-  onMouseClickOnCell(
-    event: MouseEvent,
+  public handlePrimaryCellAction(
     coords: Coords,
-    optionalDirection: HexDirection = HexDirection.NONE,
-    meleePreference: boolean) {
+    optionalDirection: HexDirection = HexDirection.NONE
+  ): boolean {
     if (this.hasRunningActions()) {
-      // if this is busy with an animation (movement, attack), ignore the click
-      return;
+      return false;
     }
 
     if (this.army_control[this.currentArmyIndex] === ArmyControlType.AI) {
-      return;
+      return false;
     }
 
-    if (event.button === 0) {
-      if (this.selectTargetForAbility(coords, optionalDirection)) {
-        return;
-      }
-    }
-    if (event.button === 2) {
-      if (this.cancelTargetForAbilityIfApplicable()) {
-        return;
-      }
+    if (this.selectTargetForAbility(coords, optionalDirection)) {
+      return true;
     }
 
-    // Left mouse button
+    this.tryToSelectUnitAtLocation(coords);
+    return true;
+  }
+
+  public handleSecondaryCellAction(
+    coords: Coords,
+    optionalDirection: HexDirection = HexDirection.NONE,
+    meleePreference: boolean = false
+  ): boolean {
+    if (this.hasRunningActions()) {
+      return false;
+    }
+
+    if (this.army_control[this.currentArmyIndex] === ArmyControlType.AI) {
+      return false;
+    }
+
+    if (this.cancelTargetForAbilityIfApplicable()) {
+      return true;
+    }
+
+    this.moveOrAttackWithActiveCreatureAtLocation(coords, optionalDirection, meleePreference);
+    return true;
+  }
+
+  onMouseClickOnCell(
+    event: { button: number },
+    coords: Coords,
+    optionalDirection: HexDirection = HexDirection.NONE,
+    meleePreference: boolean = false
+  ) {
     if (event.button === 0) {
-      this.tryToSelectUnitAtLocation(coords);
+      this.handlePrimaryCellAction(coords, optionalDirection);
     } else if (event.button === 2) {
-      console.log("Right mouse button clicked, coords: ", coords, "dir:", optionalDirection, ", meleePref:", meleePreference);
-      this.moveOrAttackWithActiveCreatureAtLocation(coords, optionalDirection, meleePreference);
+      this.handleSecondaryCellAction(coords, optionalDirection, meleePreference);
     }
   }
 
@@ -980,6 +1028,7 @@ export class Battle {
 
     if (!creatureInBattle.creature.isAlive) {
       console.log("The creature has died");
+      this.casualties.push(creatureInBattle.creature);
       this.hookUnitDied(creatureInBattle.creature);
       this.creatures.splice(creatureInBattle.indexInArmy, 1);
       this.checkVictoryConditionsAndState();
@@ -1047,6 +1096,7 @@ export class Battle {
 
     if (!creatureInBattle.creature.isAlive) {
       console.log("The creature has died");
+      this.casualties.push(creatureInBattle.creature);
       this.hookUnitDied(creatureInBattle.creature);
       this.creatures.splice(creatureInBattle.indexInArmy, 1);
       this.checkVictoryConditionsAndState();
@@ -1244,6 +1294,7 @@ export class Battle {
       console.log("The creature has died");
       const targetUnitIndex = this.creatures.findIndex((element) => element === currentAction.targetUnit);
       if (targetUnitIndex >= 0) {
+        this.casualties.push(this.creatures[targetUnitIndex]);
         this.hookUnitDied(this.creatures[targetUnitIndex]);
         this.creatures.splice(targetUnitIndex, 1);
         this.checkVictoryConditionsAndState();
