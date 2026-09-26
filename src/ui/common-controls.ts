@@ -53,7 +53,7 @@ export class CommonControls {
   };
 
   public constructor(public options: {
-    zoomMin: number, zoomMax: number, zoomStep: number
+    zoomMin: number, zoomMax: number, zoomStep: number, zoomValue?: number
   } = { zoomMin: 0, zoomMax: 100, zoomStep: 5 }
 
   ) {
@@ -84,7 +84,7 @@ export class CommonControls {
       min: this.options.zoomMin,
       max: this.options.zoomMax,
       step: this.options.zoomStep,
-      value: 50,
+      value: this.options.zoomValue ?? 50,
       showValue: false
     });
     this.zoomSlider.position.set(1420, 30 + 6);
