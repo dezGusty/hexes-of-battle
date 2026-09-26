@@ -1,15 +1,13 @@
 import { Coords } from '../shared';
 import { HexDirection, HexMap } from '../shared/hex-map';
+import { HexViewportCamera } from '../shared/hex-viewport-camera';
 import { Battle } from '../battle';
 
 export interface BattleInputDelegate {
   isMenuBlockingInput: () => boolean;
-  onCursorMove: (renderContainerCoords: Coords) => void;
+  onCursorMove: (stageCoords: Coords) => void;
   onClearHover: () => void;
-  onPanOffsetBy: (delta: Coords) => void;
-  onZoomBy: (delta: number, zoomRatio?: Coords) => void;
-  getNavMapOffset: () => Coords;
-  getZoomLevel: () => number;
+  getCamera: () => HexViewportCamera;
   getStageOffsetAndScale: () => { offset: Coords; scale: Coords };
   getScreenSize: () => { width: number; height: number };
 }
@@ -35,18 +33,19 @@ export class BattleInputController {
 
   public attach(): void {
     this.boundKeyDown = (event: KeyboardEvent) => {
+      const camera = this.delegate.getCamera();
       if (event.code === 'ArrowUp') {
-        this.delegate.onPanOffsetBy({ x: 0, y: -10 });
+        camera.panBy({ x: 0, y: -10 });
       } else if (event.code === 'ArrowDown') {
-        this.delegate.onPanOffsetBy({ x: 0, y: 10 });
+        camera.panBy({ x: 0, y: 10 });
       } else if (event.code === 'ArrowLeft') {
-        this.delegate.onPanOffsetBy({ x: -10, y: 0 });
+        camera.panBy({ x: 0 - 10, y: 0 });
       } else if (event.code === 'ArrowRight') {
-        this.delegate.onPanOffsetBy({ x: 10, y: 0 });
+        camera.panBy({ x: 10, y: 0 });
       } else if (event.code === 'Equal') {
-        this.delegate.onZoomBy(0.1);
+        camera.zoomBy(camera.zoomStep);
       } else if (event.code === 'Minus') {
-        this.delegate.onZoomBy(-0.1);
+        camera.zoomBy(-camera.zoomStep);
       } else if (event.code === 'ControlLeft' || event.code === 'ControlRight') {
         this.controlPressed = true;
       }
@@ -65,14 +64,15 @@ export class BattleInputController {
 
     this.boundWheel = (event: WheelEvent) => {
       const screenSize = this.delegate.getScreenSize();
+      const camera = this.delegate.getCamera();
       const ratio: Coords = {
         x: event.clientX / screenSize.width,
         y: event.clientY / screenSize.height,
       };
       if (event.deltaY < 0) {
-        this.delegate.onZoomBy(0.1, ratio);
+        camera.zoomBy(0.1, ratio);
       } else {
-        this.delegate.onZoomBy(-0.1, ratio);
+        camera.zoomBy(-0.1, ratio);
       }
     };
 
@@ -118,32 +118,26 @@ export class BattleInputController {
         return;
       }
 
+      const camera = this.delegate.getCamera();
+
       if (this.mouseDragCoords.x > 0 && this.mouseDragCoords.y > 0) {
         const deltaX = event.clientX - this.mouseDragCoords.x;
         const deltaY = event.clientY - this.mouseDragCoords.y;
-        this.delegate.onPanOffsetBy({ x: deltaX, y: deltaY });
+        camera.panBy({ x: deltaX, y: deltaY });
         this.mouseDragCoords = { x: event.clientX, y: event.clientY };
         return;
       }
 
       const stageInfo = this.delegate.getStageOffsetAndScale();
-      const renderContainerAdjustedCoords = this.adjustInContainerCoords(
+      const stageCoords = camera.screenToStageCoords(
         { x: event.clientX, y: event.clientY },
         stageInfo.offset,
         stageInfo.scale
       );
+      this.delegate.onCursorMove(stageCoords);
 
-      this.delegate.onCursorMove(renderContainerAdjustedCoords);
-
-      const navMapOffset = this.delegate.getNavMapOffset();
-      const zoomLevel = this.delegate.getZoomLevel();
-      const navAdjustedCoords = this.adjustInContainerCoords(
-        renderContainerAdjustedCoords,
-        navMapOffset,
-        { x: zoomLevel, y: zoomLevel }
-      );
-
-      const hexInfo = this.hexMap.pixelToHexWithDirectionalDetail(navAdjustedCoords.x, navAdjustedCoords.y);
+      const worldCoords = camera.stageToWorldCoords(stageCoords);
+      const hexInfo = this.hexMap.pixelToHexWithDirectionalDetail(worldCoords.x, worldCoords.y);
       if (this.isHexInBounds(hexInfo.cell)) {
         this.battle.onMouseOverCell(hexInfo.cell, hexInfo.direction, this.controlPressed);
       } else {
@@ -171,30 +165,17 @@ export class BattleInputController {
   }
 
   private screenToHex(screenX: number, screenY: number): { cell: Coords; direction: HexDirection } {
+    const camera = this.delegate.getCamera();
     const stageInfo = this.delegate.getStageOffsetAndScale();
-    const renderContainerAdjustedCoords = this.adjustInContainerCoords(
+    const worldCoords = camera.screenToWorldCoords(
       { x: screenX, y: screenY },
       stageInfo.offset,
       stageInfo.scale
     );
-    const navMapOffset = this.delegate.getNavMapOffset();
-    const zoomLevel = this.delegate.getZoomLevel();
-    const navAdjustedCoords = this.adjustInContainerCoords(
-      renderContainerAdjustedCoords,
-      navMapOffset,
-      { x: zoomLevel, y: zoomLevel }
-    );
-    return this.hexMap.pixelToHexWithDirectionalDetail(navAdjustedCoords.x, navAdjustedCoords.y);
+    return this.hexMap.pixelToHexWithDirectionalDetail(worldCoords.x, worldCoords.y);
   }
 
   private isHexInBounds(cell: Coords): boolean {
     return cell.x >= 0 && cell.x < this.hexMap.width && cell.y >= 0 && cell.y < this.hexMap.height;
-  }
-
-  private adjustInContainerCoords(sourceCoords: Coords, offsetCoords: Coords, containerScaling: Coords): Coords {
-    return {
-      x: (sourceCoords.x - offsetCoords.x) / containerScaling.x,
-      y: (sourceCoords.y - offsetCoords.y) / containerScaling.y,
-    };
   }
 }

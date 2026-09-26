@@ -23,14 +23,6 @@ export class BattleScene implements Scene {
   private view!: BattleView;
   private inputController!: BattleInputController;
 
-  private ZOOM_LEVEL_MIN = 0.75;
-  private ZOOM_LEVEL_MAX = 2.0;
-  private ZOOM_STEP = 0.05;
-  private navZoomLevel: number = 1.4;
-  private navMapOffset: Coords = { x: 0, y: -100 };
-  private MAP_OFFSET_MIN: Coords = { x: -400, y: -400 };
-  private MAP_OFFSET_MAX: Coords = { x: 1200, y: 800 };
-
   private creatureRepository: CreatureRepository = new CreatureRepository();
 
   public async enter(context: GameContext, params?: { config?: BattleConfig }): Promise<void> {
@@ -57,14 +49,14 @@ export class BattleScene implements Scene {
       context.settings,
       this.hexMap,
       this.battle,
-      this.navZoomLevel
+      1.4
     );
     this.container.addChild(this.view.container);
 
     this.view.initialize({
-      onZoomIn: () => this.modifyZoomLevel(this.ZOOM_STEP),
-      onZoomOut: () => this.modifyZoomLevel(-1 * this.ZOOM_STEP),
-      onZoomSliderUpdate: (value) => this.setZoomLevel(value / 100),
+      onZoomIn: () => this.view.zoomBy(this.view.camera.zoomStep),
+      onZoomOut: () => this.view.zoomBy(-this.view.camera.zoomStep),
+      onZoomSliderUpdate: (value) => this.view.setZoomLevel(value / 100),
       onNextTurn: () => this.battle.nextTurn(),
       onNextUnit: () => this.battle.selectNextUnitAndGetIndex(),
       onReset: () => this.resetBattle(),
@@ -75,15 +67,9 @@ export class BattleScene implements Scene {
 
     this.inputController = new BattleInputController(this.battle, this.hexMap, {
       isMenuBlockingInput: () => this.view.battleMenuPanel?.isVisible() ?? false,
-      onCursorMove: (renderContainerCoords) => this.view.updateCursorPosition(renderContainerCoords),
+      onCursorMove: (stageCoords) => this.view.updateCursorPosition(stageCoords),
       onClearHover: () => this.view.clearHover(),
-      onPanOffsetBy: (delta) => this.setNavMapOffset({
-        x: this.navMapOffset.x + delta.x,
-        y: this.navMapOffset.y + delta.y,
-      }),
-      onZoomBy: (delta, zoomRatio) => this.modifyZoomLevel(delta, zoomRatio),
-      getNavMapOffset: () => this.navMapOffset,
-      getZoomLevel: () => this.navZoomLevel,
+      getCamera: () => this.view.camera,
       getStageOffsetAndScale: () => ({
         offset: this.context.stage.position,
         scale: this.context.stage.scale,
@@ -95,7 +81,6 @@ export class BattleScene implements Scene {
     });
     this.inputController.attach();
 
-    this.setNavMapOffset(this.navMapOffset);
     this.startBattle();
   }
 
@@ -105,7 +90,7 @@ export class BattleScene implements Scene {
   }
 
   public resize(_width: number, _height: number): void {
-    this.view.setZoomLevel(this.navZoomLevel);
+    this.view.camera.applyTransform();
   }
 
   public exit(): void {
@@ -129,29 +114,6 @@ export class BattleScene implements Scene {
     this.dumbAI = new DumbAI(this.battle);
     this.view.resetGridAndTerrain();
     this.startBattle();
-  }
-
-  public modifyZoomLevel(delta: number, zoomOffset: Coords = { x: 0.5, y: 0.5 }): void {
-    this.setZoomLevel(this.navZoomLevel + delta, zoomOffset);
-  }
-
-  public setZoomLevel(newZoomLevel: number, zoomOffset: Coords = { x: 0.5, y: 0.5 }): void {
-    const hexZone = this.view.getHexZoneContainer();
-    const oldHexContainerSize = { x: hexZone.width, y: hexZone.height };
-    this.navZoomLevel = Math.max(this.ZOOM_LEVEL_MIN, Math.min(this.ZOOM_LEVEL_MAX, newZoomLevel));
-
-    this.view.setZoomLevel(this.navZoomLevel);
-
-    this.setNavMapOffset({
-      x: this.navMapOffset.x + (oldHexContainerSize.x - hexZone.width) * zoomOffset.x,
-      y: this.navMapOffset.y + (oldHexContainerSize.y - hexZone.height) * zoomOffset.y,
-    });
-  }
-
-  public setNavMapOffset(offset: Coords): void {
-    this.navMapOffset.y = Math.max(this.MAP_OFFSET_MIN.y, Math.min(this.MAP_OFFSET_MAX.y, offset.y));
-    this.navMapOffset.x = Math.max(this.MAP_OFFSET_MIN.x, Math.min(this.MAP_OFFSET_MAX.x, offset.x));
-    this.view.setNavMapOffset(this.navMapOffset);
   }
 
   private hookBattleEvents(): void {

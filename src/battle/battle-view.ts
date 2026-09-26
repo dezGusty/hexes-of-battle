@@ -5,6 +5,7 @@ import { sound } from '@pixi/sound';
 import { GameAssets } from '../core/scene';
 import { BattleSettings } from './settings';
 import { HexDirection, HexEdge, HexFlankStatus, HexMap } from '../shared/hex-map';
+import { HexViewportCamera } from '../shared/hex-viewport-camera';
 import { Coords } from '../shared';
 import { Creature, CreatureType } from './creature';
 import { AnimationType, Battle, MapRenderUpdate } from '../battle';
@@ -73,6 +74,8 @@ export class BattleView {
   private hexCellsContainer: Container = new Container({ isRenderGroup: true });
   private hexUiRenderGroup: Container = new Container({ isRenderGroup: true });
 
+  public camera!: HexViewportCamera;
+
   constructor(
     private assets: GameAssets,
     private settings: BattleSettings,
@@ -88,7 +91,15 @@ export class BattleView {
     this.container.addChild(this.uiPlusRenderGroup);
     this.container.addChild(this.uiCursorRenderGroup);
 
-    this.hexZoneContainer.scale.set(this.initialZoomLevel, this.initialZoomLevel);
+    this.camera = new HexViewportCamera(this.hexZoneContainer, {
+      zoomMin: 0.75,
+      zoomMax: 2.0,
+      zoomStep: 0.05,
+      initialZoom: this.initialZoomLevel,
+      panOffsetMin: { x: -400, y: -400 },
+      panOffsetMax: { x: 1200, y: 800 },
+      initialPanOffset: { x: 0, y: -100 },
+    });
 
     this.hexZoneContainer.addChild(this.hexTerrainContainer);
     this.hexZoneContainer.addChild(this.hexCellsGridContainer);
@@ -114,14 +125,29 @@ export class BattleView {
   }
 
   public setNavMapOffset(offset: Coords): void {
-    this.hexZoneContainer.position.copyFrom(offset);
+    this.camera.setPanOffset(offset);
   }
 
-  public setZoomLevel(zoomLevel: number): void {
-    this.hexZoneContainer.scale.set(zoomLevel, zoomLevel);
-    if (this.commonControls?.zoomSlider) {
-      this.commonControls.zoomSlider.value = zoomLevel * 100;
+  public setZoomLevel(zoomLevel: number, focalRatio?: Coords): void {
+    if (focalRatio) {
+      this.camera.setZoom(zoomLevel, focalRatio);
+    } else {
+      this.camera.setZoom(zoomLevel);
     }
+    if (this.commonControls?.zoomSlider) {
+      this.commonControls.zoomSlider.value = this.camera.zoomLevel * 100;
+    }
+  }
+
+  public zoomBy(delta: number, focalRatio?: Coords): void {
+    this.camera.zoomBy(delta, focalRatio);
+    if (this.commonControls?.zoomSlider) {
+      this.commonControls.zoomSlider.value = this.camera.zoomLevel * 100;
+    }
+  }
+
+  public panBy(delta: Coords): void {
+    this.camera.panBy(delta);
   }
 
   public updateCursorPosition(coords: Coords): void {
