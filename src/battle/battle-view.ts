@@ -8,8 +8,9 @@ import { HexDirection, HexEdge, HexFlankStatus, HexMap } from '../shared/hex-map
 import { HexViewportCamera } from '../shared/hex-viewport-camera';
 import { Coords } from '../shared';
 import { Creature, CreatureType } from './creature';
-import { AnimationType, Battle, MapRenderUpdate } from '../battle';
+import { AnimationType, ArmyControlType, Battle, MapRenderUpdate } from '../battle';
 import { BattleActionType } from './battle-action';
+import { CPUPlayer } from './cpu-player';
 import { CommonControls } from '../ui/common-controls';
 import { BattleMenuPanel } from '../ui/battle-menu';
 import { UnitStatsPanel } from '../ui/unit-stats-panel';
@@ -81,8 +82,55 @@ export class BattleView {
     private settings: BattleSettings,
     private hexMap: HexMap,
     private battle: Battle,
-    private initialZoomLevel: number = 1.4
+    private initialZoomLevel: number = 1.4,
+    private cpuPlayer?: CPUPlayer,
+    private armyNames: [string, string] = [
+      "The Count of Ekkina's 1st Army",
+      "Knights of The Grand Duke"
+    ]
   ) {}
+
+  public setCpuPlayer(cpuPlayer: CPUPlayer | undefined): void {
+    this.cpuPlayer = cpuPlayer;
+    this.updateArmyNames();
+  }
+
+  public setArmyNames(names: [string, string]): void {
+    this.armyNames = names;
+    this.updateArmyNames();
+  }
+
+  public getFormattedArmyName(armyIndex: number): string {
+    const baseName = this.armyNames[armyIndex] ?? (armyIndex === 0 ? "The Count of Ekkina's 1st Army" : "Knights of The Grand Duke");
+    const isPlayer = this.battle.army_control[armyIndex] === ArmyControlType.PLAYER;
+
+    let tag = '';
+    if (isPlayer) {
+      tag = 'Human';
+    } else {
+      const personality = this.cpuPlayer?.personalityName;
+      if (personality) {
+        const capitalized = personality.charAt(0).toUpperCase() + personality.slice(1);
+        tag = `CPU ${capitalized}`;
+      } else {
+        tag = 'CPU';
+      }
+    }
+
+    if (armyIndex === 0) {
+      // Player 1 has it as a suffix
+      return `${baseName} - ${tag}`;
+    } else {
+      // Player 2 has it as a prefix
+      return `${tag} - ${baseName}`;
+    }
+  }
+
+  public updateArmyNames(): void {
+    if (!this.topSidePanel) return;
+    this.topSidePanel.setLeftArmyName(this.getFormattedArmyName(0));
+    this.topSidePanel.setRightArmyName(this.getFormattedArmyName(1));
+  }
 
   public initialize(events: BattleViewEvents): void {
     this.container.addChild(this.terrainRenderGroup);
@@ -270,6 +318,7 @@ export class BattleView {
 
     this.initializeMapGrid();
     this.renderUnits(new MapRenderUpdate());
+    this.updateArmyNames();
   }
 
   private initializeCommonControls(events: BattleViewEvents): void {
@@ -371,8 +420,7 @@ export class BattleView {
     this.topSidePanel.setRightBannerTexture(
       this.assets.bannersSheet?.textures[this.getBannerTextureNameForArmyIndex(1)]
     );
-    this.topSidePanel.setLeftArmyName("The Count of Ekkina's 1st Army");
-    this.topSidePanel.setRightArmyName("Knights of The Grand Duke");
+    this.updateArmyNames();
   }
 
   private initializeMapGrid(): void {

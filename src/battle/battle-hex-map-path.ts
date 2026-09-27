@@ -173,9 +173,20 @@ export class BattleHexMapPath {
 
     // If there are multiple elements, choose the one with the smallest cost / largest reach
     let finalElement = finalElements.reduce((prev, current) => prev.reach > current.reach ? prev : current);
+    const visited = new Set<string>();
 
     while (finalElements.length > 0 && finalElement) {
+      const key = `${finalElement.coords.x},${finalElement.coords.y}`;
+      if (visited.has(key)) {
+        break;
+      }
+      visited.add(key);
+
       path.push(finalElement.coords);
+
+      if (finalElement.cameFrom.x === finalElement.coords.x && finalElement.cameFrom.y === finalElement.coords.y) {
+        break;
+      }
 
       finalElements = reachData.filter((element) =>
         element.coords.x === finalElement?.cameFrom.x

@@ -12,6 +12,8 @@ export class TopSidePanel {
   private bannerRight?: Sprite = undefined;
   private bannerLeftBg?: NineSliceSprite = undefined;
   private bannerRightBg?: NineSliceSprite = undefined;
+  private leftArmyText?: Text = undefined;
+  private rightArmyText?: Text = undefined;
 
   setActiveArmyIndex(index: number) {
     if (index === 0) {
@@ -67,16 +69,25 @@ export class TopSidePanel {
   }
 
   setLeftArmyName(name: string) {
-    const armyNameText = new Text({ ...TopSidePanel.DEFAULT_FONT_STYLE, text: name });
-    armyNameText.position = { x: 32 + TopSidePanel.DEFAULT_BANNER_SIZE, y: 8 };
-    this.window.addChild(armyNameText);
+    if (this.leftArmyText) {
+      this.window.removeChild(this.leftArmyText);
+      this.leftArmyText.destroy();
+      this.leftArmyText = undefined;
+    }
+    this.leftArmyText = new Text({ ...TopSidePanel.DEFAULT_FONT_STYLE, text: name });
+    this.leftArmyText.position = { x: 32 + TopSidePanel.DEFAULT_BANNER_SIZE, y: 8 };
+    this.window.addChild(this.leftArmyText);
   }
 
   setRightArmyName(name: string) {
-    const armyNameText = new Text({ ...TopSidePanel.RIGHT_ALIGN_FONT_STYLE, text: name });
-
-    armyNameText.position = { x: 1200 - 2 * 32 - 20 - armyNameText.width, y: 8 };
-    this.window.addChild(armyNameText);
+    if (this.rightArmyText) {
+      this.window.removeChild(this.rightArmyText);
+      this.rightArmyText.destroy();
+      this.rightArmyText = undefined;
+    }
+    this.rightArmyText = new Text({ ...TopSidePanel.RIGHT_ALIGN_FONT_STYLE, text: name });
+    this.rightArmyText.position = { x: 1200 - 2 * 32 - 20 - this.rightArmyText.width, y: 8 };
+    this.window.addChild(this.rightArmyText);
   }
 
   setRightBannerTexture(texture: Texture | undefined) {

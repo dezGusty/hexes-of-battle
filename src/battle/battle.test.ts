@@ -3,7 +3,7 @@ import { Battle, ArmyControlType } from '../battle';
 import { HexMap } from '../shared/hex-map';
 import { Creature, CreatureType } from './creature';
 import { BattleConfig } from './battle-types';
-import { DumbAI } from './dumb-ai';
+import { DumbCPUPlayer } from './dumb-cpu-player';
 
 describe('Battle Domain Engine', () => {
   it('should initialize correctly from a BattleConfig', () => {
@@ -103,7 +103,7 @@ describe('Battle Domain Engine', () => {
     expect(result?.casualties[0]).toBe(unitB);
   });
 
-  it('should allow DumbAI to execute its turn when currentArmyIndex switches to AI', () => {
+  it('should allow DumbCPUPlayer to execute its turn when currentArmyIndex switches to AI', () => {
     const hexMap = new HexMap(10, 8);
     const battle = new Battle(hexMap);
 
@@ -123,7 +123,7 @@ describe('Battle Domain Engine', () => {
     });
     battle.start();
 
-    const dumbAI = new DumbAI(battle);
+    const dumbCpu = new DumbCPUPlayer(battle);
 
     // Switch to AI turn
     battle.nextTurn();
@@ -131,8 +131,8 @@ describe('Battle Domain Engine', () => {
     expect(battle.isCurrentTurnAI()).toBe(true);
 
     // Run AI update steps (step 1 transitions NONE -> SELECT_UNIT, step 2 selects unit)
-    dumbAI.update(16);
-    dumbAI.update(16);
+    dumbCpu.update(16);
+    dumbCpu.update(16);
     expect(battle.activeCreatureIndex).toBe(1);
     expect(battle.getSelectedCreature()).toBe(aiUnit);
   });

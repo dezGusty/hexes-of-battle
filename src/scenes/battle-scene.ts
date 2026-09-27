@@ -5,7 +5,8 @@ import { HexDirection, HexMap } from "../shared/hex-map";
 import { Coords } from "../shared";
 import { Battle } from "../battle";
 import { CreatureType } from "../battle/creature";
-import { DumbAI } from "../battle/dumb-ai";
+import { CPUPersonalityType, CPUPlayer } from "../battle/cpu-player";
+import { CPUPlayerFactory } from "../battle/cpu-player-factory";
 import { CreatureRepository } from "../battle/creature-repository";
 import { BattleView } from "../battle/battle-view";
 import { BattleInputController } from "../battle/battle-input-controller";
@@ -19,14 +20,18 @@ export class BattleScene implements Scene {
 
   private hexMap: HexMap = new HexMap(13, 9);
   private battle!: Battle;
-  private dumbAI!: DumbAI;
+  private cpuPlayer!: CPUPlayer;
   private view!: BattleView;
   private inputController!: BattleInputController;
+  private currentConfig?: BattleConfig;
 
   private creatureRepository: CreatureRepository = new CreatureRepository();
 
   public async enter(context: GameContext, params?: { config?: BattleConfig }): Promise<void> {
     this.context = context;
+    this.currentConfig = params?.config;
+
+    console.log("Entering BattleScene with params:", params);
 
     this.creatureRepository.setAbilities(context.templates.abilityTypes);
     this.creatureRepository.setCreatureTemplates(context.templates.creatureTemplates);
@@ -41,7 +46,13 @@ export class BattleScene implements Scene {
       this.initializeDefaultMapAndArmies();
     }
 
-    this.dumbAI = new DumbAI(this.battle);
+    // temporary - remove when shipping
+    let overrideDefaultPersonality: string = CPUPersonalityType.AGGRESSIVE;
+    if (null != params?.config?.aiPersonality) {
+      overrideDefaultPersonality = params.config.aiPersonality;
+    }
+
+    this.cpuPlayer = CPUPlayerFactory.create(overrideDefaultPersonality, this.battle);
     this.hexMap.setOffset(150, 135);
 
     this.view = new BattleView(
@@ -49,7 +60,9 @@ export class BattleScene implements Scene {
       context.settings,
       this.hexMap,
       this.battle,
-      1.4
+      1.4,
+      this.cpuPlayer,
+      params?.config?.armyNames
     );
     this.container.addChild(this.view.container);
 
@@ -86,7 +99,7 @@ export class BattleScene implements Scene {
 
   public update(deltaMS: number): void {
     this.view.update(deltaMS, this.context.app.ticker.FPS);
-    this.dumbAI.update(deltaMS);
+    this.cpuPlayer.update(deltaMS);
   }
 
   public resize(_width: number, _height: number): void {
@@ -111,7 +124,8 @@ export class BattleScene implements Scene {
 
   private resetBattle(): void {
     this.initializeDefaultMapAndArmies();
-    this.dumbAI = new DumbAI(this.battle);
+    this.cpuPlayer = CPUPlayerFactory.create(this.currentConfig?.aiPersonality, this.battle);
+    this.view.setCpuPlayer(this.cpuPlayer);
     this.view.resetGridAndTerrain();
     this.startBattle();
   }

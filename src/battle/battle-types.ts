@@ -1,5 +1,6 @@
 import { Creature } from './creature';
 import { ArmyControlType } from '../battle';
+import { CPUPersonalityType } from './cpu-player';
 
 export interface BattleConfig {
   mapWidth: number;
@@ -7,6 +8,8 @@ export interface BattleConfig {
   creatures: Creature[];
   terrainTiles?: number[][];
   armyControl?: ArmyControlType[];
+  aiPersonality?: CPUPersonalityType | string;
+  armyNames?: [string, string];
 }
 
 export interface BattleResult {
