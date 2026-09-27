@@ -40,3 +40,12 @@ Turn mechanics:
   - eador: running out of stamina makes the unit unable to move; takes increased damage, inflicts decreased damage, reduces speed.
     - reduced stamina when entering hill/forest/swaps, -2 when moving and attacking in same turn, -1 when attacking without moving, -3 forced march
   - total war series: exhausted units have 65% armor, 85% speed, 80% charge bonus, 70% melee def, 65% reload speed.
+
+- fantasy general 2:
+  - squad mechanics: some units are single units (E.g. heroes), but most are squads consisting of several units/warriors
+  (E.g. 10 warriors),
+  - the squad size is typically detrimental due to an additional mechanic:
+    - individual squad members can be injured/incapacitated or outright killed.
+    - if injured/incapacitated, they can heal back either on their own, with magic or map doodads.
+    - but if killed, the unit can only heal up to their alive members ratio.
+  - an incomplete squad has a lower damage output (proportional)
