@@ -52,6 +52,7 @@ How to run it locally (requires git & Node.js v.22 or newer):
 - run `npm run dev` to run the server locally in development mode
 - open the link provided by Vite in the terminal: (E.g. <http://localhost:5173/>)
 - open a code editor (E.g. vscode) and start hacking at the code
+- some tests are implemented, run `npm test` to execute them
 
 ## Licensing
 
