@@ -254,11 +254,11 @@ export class HexBoard3D {
         if (terrain === TerrainType.WATER) {
           elevation = -0.08;
         } else if (terrain === TerrainType.HILL) {
-          elevation = 0.12;
+          elevation = 0.25;
         } else if (terrain === TerrainType.SWAMP) {
           elevation = -0.04;
         } else if (terrain === TerrainType.MOUNTAIN) {
-          elevation = 0.25;
+          elevation = 0.50;
         }
 
         const tileMaterials = this.getTileMaterials(terrain);
@@ -344,9 +344,9 @@ export class HexBoard3D {
 
         let elevation = 0;
         if (terrain === TerrainType.WATER) elevation = -0.08;
-        else if (terrain === TerrainType.HILL) elevation = 0.12;
+        else if (terrain === TerrainType.HILL) elevation = 0.25;
         else if (terrain === TerrainType.SWAMP) elevation = -0.04;
-        else if (terrain === TerrainType.MOUNTAIN) elevation = 0.25;
+        else if (terrain === TerrainType.MOUNTAIN) elevation = 0.50;
 
         const canvas = document.createElement('canvas');
         canvas.width = 128;
@@ -426,9 +426,9 @@ export class HexBoard3D {
 
         let elevation = 0;
         if (terrain === TerrainType.WATER) elevation = -0.08;
-        else if (terrain === TerrainType.HILL) elevation = 0.12;
+        else if (terrain === TerrainType.HILL) elevation = 0.25;
         else if (terrain === TerrainType.SWAMP) elevation = -0.04;
-        else if (terrain === TerrainType.MOUNTAIN) elevation = 0.25;
+        else if (terrain === TerrainType.MOUNTAIN) elevation = 0.50;
 
         const borderMesh = new THREE.Mesh(ringGeo, borderMat);
         const pos = this.hexToWorld(x, y);

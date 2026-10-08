@@ -9,6 +9,7 @@ import { CreatureInBattle } from "./battle/creature-in-battle";
 import { BattleAction, BattleActionType } from "./battle/battle-action";
 import { BattleConfig, BattleResult } from "./battle/battle-types";
 import { CombatConfig, DEFAULT_COMBAT_CONFIG, ExhaustionState, MoraleState, getRetaliationDamageMultiplier } from "./battle/combat-rules";
+import { TerrainType } from "./battle/terrain-types";
 import { SeedableRNG } from "./shared/prng";
 
 export enum AnimationType {
@@ -210,11 +211,24 @@ export class Battle {
       return c;
     });
 
+    // If a non-flying unit is set on top of a mountain, change that hex to a hill
+    for (const creature of this.creatures) {
+      if (!creature.isFlying && creature.pos) {
+        const { x, y } = creature.pos;
+        if (x >= 0 && x < this.hexMap.width && y >= 0 && y < this.hexMap.height) {
+          if (this.terrain_tiles[x]?.[y] === TerrainType.MOUNTAIN) {
+            this.terrain_tiles[x][y] = TerrainType.HILL;
+          }
+        }
+      }
+    }
+
     this.start();
   }
 
   public generateTerrain(matrix: number[][], mapWidth: number, mapHeight: number) {
-    const weights = [14, 3, 3, 1, 0];
+    // Terrain weights: Plain (0): 15, Forest (1): 3, Hill (2): 2, Swamp (3): 1, Mountain (4): 1
+    const weights = [15, 3, 2, 1, 1];
     const terrain_type_limits: number[] = weights.map((value, index) => {
       return value + weights.reduce((x, y, i) => (i < index ? x + y : x), 0);
     });
@@ -263,7 +277,10 @@ export class Battle {
     }
   }
 
-  public getMoveCostForTerrain(terrainType: number): number {
+  public getMoveCostForTerrain(terrainType: number, creature?: Creature): number {
+    if (creature?.isFlying) {
+      return 1;
+    }
     return this.combatConfig.terrain.moveCosts[terrainType] ?? 1;
   }
 
@@ -290,7 +307,7 @@ export class Battle {
 
     const terrainCostsRecord: Record<number, number> = {};
     for (let t = 0; t <= 5; t++) {
-      terrainCostsRecord[t] = this.getMoveCostForTerrain(t);
+      terrainCostsRecord[t] = this.getMoveCostForTerrain(t, creature);
     }
 
     const maxMove = creature.exhaustionState === ExhaustionState.DEPLETED ? 0 : creature.live_stats.remaining_movement;
@@ -413,7 +430,7 @@ export class Battle {
       if (path.length === 0) return;
 
       const terrainCostsRecord: Record<number, number> = {};
-      for (let t = 0; t <= 5; t++) terrainCostsRecord[t] = this.getMoveCostForTerrain(t);
+      for (let t = 0; t <= 5; t++) terrainCostsRecord[t] = this.getMoveCostForTerrain(t, creature);
 
       const moveCost = this.getMovementCostForPath(path, creature, terrainCostsRecord);
       const staminaCost = this.getStaminaCostForPath(path, creature);
@@ -468,7 +485,7 @@ export class Battle {
     }
 
     const terrainCostsRecord: Record<number, number> = {};
-    for (let t = 0; t <= 5; t++) terrainCostsRecord[t] = this.getMoveCostForTerrain(t);
+    for (let t = 0; t <= 5; t++) terrainCostsRecord[t] = this.getMoveCostForTerrain(t, creature);
 
     if (path.length > 0) {
       const moveCost = this.getMovementCostForPath(path, creature, terrainCostsRecord);
@@ -583,7 +600,7 @@ export class Battle {
     }
 
     const terrainCostsRecord: Record<number, number> = {};
-    for (let t = 0; t <= 5; t++) terrainCostsRecord[t] = this.getMoveCostForTerrain(t);
+    for (let t = 0; t <= 5; t++) terrainCostsRecord[t] = this.getMoveCostForTerrain(t, targetCreature?.creature);
 
     BattleHexMapPath.cacheWalkableAndMeleeReachableCells(
       this.hexMap,
@@ -1351,7 +1368,10 @@ export class Battle {
     }
   }
 
-  private getMovementCostForPath(path: Coords[], _creature: Creature, terrainMoveCost: Record<number, number>): number {
+  private getMovementCostForPath(path: Coords[], creature: Creature, terrainMoveCost: Record<number, number>): number {
+    if (creature?.isFlying) {
+      return path.length;
+    }
     let cost = 0;
     for (let i = 0; i < path.length; i++) {
       const terrain = this.getTerrainAt(path[i]);

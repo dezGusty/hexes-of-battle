@@ -301,4 +301,50 @@ describe("Tactical Systems Validation", () => {
       expect(resultA.totalStaminaSpent[1]).toBe(resultB.totalStaminaSpent[1]);
     });
   });
+
+  describe("7. Terrain Types, Hills, Mountains & Flying Units", () => {
+    it("should allow flying units to traverse mountains and water with cost 1", () => {
+      const hexMap = new HexMap(6, 6);
+      const battle = new Battle(hexMap);
+
+      const groundUnit = new Creature(CreatureType.SWORDSMAN);
+      expect(groundUnit.isFlying).toBe(false);
+      expect(battle.getMoveCostForTerrain(4, groundUnit)).toBe(10); // Mountain impassable to ground unit
+      expect(battle.getMoveCostForTerrain(5, groundUnit)).toBe(10); // Water impassable to ground unit
+
+      const flyingUnit = new Creature(CreatureType.HERO_COMMANDER);
+      flyingUnit.stats.flying = true;
+      expect(flyingUnit.isFlying).toBe(true);
+      expect(battle.getMoveCostForTerrain(4, flyingUnit)).toBe(1); // Mountain traversable by flying unit
+      expect(battle.getMoveCostForTerrain(5, flyingUnit)).toBe(1); // Water traversable by flying unit
+    });
+
+    it("should convert mountain terrain to hill when a non-flying unit is configured on it", () => {
+      const hexMap = new HexMap(6, 6);
+      const battle = new Battle(hexMap);
+
+      const groundUnit = new Creature(CreatureType.SWORDSMAN);
+      groundUnit.position = { x: 2, y: 2 };
+      expect(groundUnit.isFlying).toBe(false);
+
+      const terrainTiles = [
+        [0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0],
+        [0, 0, 4, 0, 0, 0], // Mountain at (2, 2)
+        [0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0],
+      ];
+
+      battle.initializeFromConfig({
+        mapWidth: 6,
+        mapHeight: 6,
+        terrainTiles,
+        creatures: [groundUnit],
+      });
+
+      // (2, 2) was Mountain (4), but because groundUnit was placed on it, it must be changed to Hill (2)
+      expect(battle.getTerrainAt({ x: 2, y: 2 })).toBe(2);
+    });
+  });
 });

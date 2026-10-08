@@ -435,7 +435,8 @@ export abstract class BaseCPUPlayer implements CPUPlayer {
     highlightUnitsInArmies.push(otherArmyIndex);
 
     const terrainCostsRecord: Record<number, number> = {};
-    for (let t = 0; t <= 5; t++) terrainCostsRecord[t] = this.battle.getMoveCostForTerrain(t);
+    const activeCreature = this.battle.getActiveCreature() ?? undefined;
+    for (let t = 0; t <= 5; t++) terrainCostsRecord[t] = this.battle.getMoveCostForTerrain(t, activeCreature);
 
     const longUnitReachData = BattleHexMapPath.cacheWalkableAndMeleeReachableCells(
       this.battle.hexMap,

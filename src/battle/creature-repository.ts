@@ -39,6 +39,7 @@ export class CreatureRepository {
     result.stats.model_hp = creatureTemplate.model_hp ?? result.stats.model_hp;
     result.stats.tier = creatureTemplate.tier ?? result.stats.tier;
     result.stats.is_hero = creatureTemplate.is_hero ?? result.stats.is_hero;
+    result.stats.flying = creatureTemplate.flying ?? creatureTemplate.stats.flying ?? false;
     result.stats.traits = creatureTemplate.traits ? [...creatureTemplate.traits] : [];
 
     result.stats.remaining_ammo = result.stats.ammo;

@@ -37,6 +37,7 @@ export class CreatureStats {
   is_hero: boolean = false;
   tier: number = 1;
   traits: string[] = [];
+  flying: boolean = false;
 
   static EMPTY: CreatureStats = {
     ammo: 0,
@@ -70,6 +71,7 @@ export class CreatureStats {
     is_hero: false,
     tier: 1,
     traits: [],
+    flying: false,
   };
 }
 
@@ -113,6 +115,7 @@ export class CreatureTemplate {
   model_hp: number = 5;
   tier: number = 1;
   is_hero: boolean = false;
+  flying: boolean = false;
   traits: string[] = [];
   stats: CreatureStats = new CreatureStats();
   ability_ids: string[] = [];
@@ -156,11 +159,15 @@ export class Creature {
     is_hero: false,
     tier: 1,
     traits: [],
+    flying: false,
   };
 
   public position: Coords = { x: 0, y: 0 };
   public get pos(): Coords {
     return this.position;
+  }
+  public get isFlying(): boolean {
+    return this.stats.flying === true || this.stats.traits.includes('flying') || this.stats.traits.includes('Floating');
   }
   public facingDirection: HexDirection = HexDirection.EAST;
   public armyAlignment: number = 0;
