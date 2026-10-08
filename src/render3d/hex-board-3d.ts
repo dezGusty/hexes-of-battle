@@ -3,6 +3,18 @@ import { HexDirection, HexMap } from '../shared/hex-map';
 import { Coords } from '../shared';
 import { TerrainType } from '../battle/terrain-types';
 
+export interface HexBoard3DOptions {
+  showGrid?: boolean;
+  borderThickness?: number;
+  borderColor?: string;
+  showCoords?: boolean;
+  coordsFontSize?: number;
+  coordsFontFamily?: string;
+  coordsColor?: string;
+  coordsStrokeColor?: string;
+  coordsStrokeWidth?: number;
+}
+
 export class HexBoard3D {
   public readonly group: THREE.Group = new THREE.Group();
   public readonly hexMap: HexMap;
@@ -14,6 +26,7 @@ export class HexBoard3D {
   private tileMeshes: Map<string, THREE.Mesh> = new Map();
   private overlayMeshes: Map<string, THREE.Mesh> = new Map();
   private gridBordersGroup: THREE.Group = new THREE.Group();
+  private coordsGroup: THREE.Group = new THREE.Group();
   private hoverMesh: THREE.Mesh;
   private selectedRingMesh: THREE.Mesh;
   private facingIndicatorGroup: THREE.Group = new THREE.Group();
@@ -21,6 +34,13 @@ export class HexBoard3D {
   private showGrid: boolean = true;
   private borderThickness: number = 2.5;
   private borderColor: string = '#000000';
+
+  private showCoords: boolean = true;
+  private coordsFontSize: number = 14;
+  private coordsFontFamily: string = 'GustysSerpents, sans-serif';
+  private coordsColor: string = '#ffffff';
+  private coordsStrokeColor: string = '#000000';
+  private coordsStrokeWidth: number = 3;
 
   private materials: Record<string, THREE.Material> = {};
   private sideMaterial: THREE.Material = new THREE.MeshStandardMaterial({
@@ -31,12 +51,19 @@ export class HexBoard3D {
 
   constructor(
     hexMap: HexMap,
-    options?: { showGrid?: boolean; borderThickness?: number; borderColor?: string }
+    options?: HexBoard3DOptions
   ) {
     this.hexMap = hexMap;
     if (options?.showGrid !== undefined) this.showGrid = options.showGrid;
     if (options?.borderThickness !== undefined) this.borderThickness = options.borderThickness;
     if (options?.borderColor !== undefined) this.borderColor = options.borderColor;
+
+    if (options?.showCoords !== undefined) this.showCoords = options.showCoords;
+    if (options?.coordsFontSize !== undefined) this.coordsFontSize = options.coordsFontSize;
+    if (options?.coordsFontFamily !== undefined) this.coordsFontFamily = options.coordsFontFamily;
+    if (options?.coordsColor !== undefined) this.coordsColor = options.coordsColor;
+    if (options?.coordsStrokeColor !== undefined) this.coordsStrokeColor = options.coordsStrokeColor;
+    if (options?.coordsStrokeWidth !== undefined) this.coordsStrokeWidth = options.coordsStrokeWidth;
 
     this.initMaterials();
 
@@ -50,6 +77,7 @@ export class HexBoard3D {
 
     this.group.add(this.facingIndicatorGroup);
     this.group.add(this.gridBordersGroup);
+    this.group.add(this.coordsGroup);
 
     this.buildBoard();
   }
@@ -255,6 +283,7 @@ export class HexBoard3D {
     }
 
     this.rebuildGridBorders();
+    this.rebuildCoords();
   }
 
   public setGridVisible(visible: boolean): void {
@@ -276,6 +305,94 @@ export class HexBoard3D {
     this.rebuildGridBorders();
   }
 
+  public setCoordsVisible(visible: boolean): void {
+    this.showCoords = visible;
+    this.coordsGroup.visible = visible;
+  }
+
+  public isCoordsVisible(): boolean {
+    return this.showCoords;
+  }
+
+  public rebuildCoords(): void {
+    while (this.coordsGroup.children.length > 0) {
+      const child = this.coordsGroup.children[0] as THREE.Mesh;
+      this.coordsGroup.remove(child);
+      child.geometry?.dispose();
+      if (child.material) {
+        if (Array.isArray(child.material)) {
+          child.material.forEach((m) => {
+            (m as THREE.MeshBasicMaterial).map?.dispose();
+            m.dispose();
+          });
+        } else {
+          ((child.material as THREE.MeshBasicMaterial).map)?.dispose();
+          child.material.dispose();
+        }
+      }
+    }
+
+    if (typeof document === 'undefined') return;
+
+    for (let x = 0; x < this.hexMap.width; x++) {
+      for (let y = 0; y < this.hexMap.height; y++) {
+        let terrain: TerrainType = TerrainType.PLAIN;
+        if (typeof (this.hexMap as any).getTerrain === 'function') {
+          terrain = (this.hexMap as any).getTerrain(x, y);
+        }
+
+        let elevation = 0;
+        if (terrain === TerrainType.WATER) elevation = -0.08;
+        else if (terrain === TerrainType.HILL) elevation = 0.12;
+        else if (terrain === TerrainType.SWAMP) elevation = -0.04;
+        else if (terrain === TerrainType.MOUNTAIN) elevation = 0.25;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 128;
+        canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.clearRect(0, 0, 128, 64);
+          ctx.font = `bold ${this.coordsFontSize * 2}px ${this.coordsFontFamily}`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+
+          const text = `${x},${y}`;
+          if (this.coordsStrokeWidth > 0) {
+            ctx.strokeStyle = this.coordsStrokeColor;
+            ctx.lineWidth = this.coordsStrokeWidth * 2;
+            ctx.strokeText(text, 64, 32);
+          }
+
+          ctx.fillStyle = this.coordsColor;
+          ctx.fillText(text, 64, 32);
+
+          const texture = new THREE.CanvasTexture(canvas);
+          texture.colorSpace = THREE.SRGBColorSpace;
+          texture.minFilter = THREE.LinearFilter;
+          texture.magFilter = THREE.LinearFilter;
+
+          const mat = new THREE.MeshBasicMaterial({
+            map: texture,
+            transparent: true,
+            side: THREE.DoubleSide,
+            depthTest: true,
+          });
+
+          const geo = new THREE.PlaneGeometry(0.85, 0.42);
+          geo.rotateX(-Math.PI * 0.5);
+
+          const mesh = new THREE.Mesh(geo, mat);
+          const pos = this.hexToWorld(x, y);
+          mesh.position.set(pos.x, pos.y + elevation + 0.005, pos.z);
+          this.coordsGroup.add(mesh);
+        }
+      }
+    }
+
+    this.coordsGroup.visible = this.showCoords;
+  }
+
   public rebuildGridBorders(): void {
     while (this.gridBordersGroup.children.length > 0) {
       const child = this.gridBordersGroup.children[0] as THREE.Mesh;
@@ -290,7 +407,6 @@ export class HexBoard3D {
 
     const ringGeo = new THREE.RingGeometry(innerRadius, outerRadius, 6);
     ringGeo.rotateX(-Math.PI * 0.5);
-    ringGeo.rotateY(Math.PI / 6);
 
     const borderMat = new THREE.MeshBasicMaterial({
       color: new THREE.Color(this.borderColor),
@@ -335,7 +451,6 @@ export class HexBoard3D {
   private createRingMesh(colorHex: number): THREE.Mesh {
     const geo = new THREE.RingGeometry(this.hexRadius * 0.75, this.hexRadius * 0.95, 6);
     geo.rotateX(-Math.PI * 0.5);
-    geo.rotateY(Math.PI / 6);
     const mat = new THREE.MeshBasicMaterial({
       color: colorHex,
       transparent: true,
@@ -447,6 +562,27 @@ export class HexBoard3D {
       this.group.remove(m);
       m.geometry.dispose();
     });
+    while (this.gridBordersGroup.children.length > 0) {
+      const child = this.gridBordersGroup.children[0] as THREE.Mesh;
+      this.gridBordersGroup.remove(child);
+      child.geometry?.dispose();
+    }
+    while (this.coordsGroup.children.length > 0) {
+      const child = this.coordsGroup.children[0] as THREE.Mesh;
+      this.coordsGroup.remove(child);
+      child.geometry?.dispose();
+      if (child.material) {
+        if (Array.isArray(child.material)) {
+          child.material.forEach((m) => {
+            (m as THREE.MeshBasicMaterial).map?.dispose();
+            m.dispose();
+          });
+        } else {
+          ((child.material as THREE.MeshBasicMaterial).map)?.dispose();
+          child.material.dispose();
+        }
+      }
+    }
     this.clearReachOverlays();
   }
 }

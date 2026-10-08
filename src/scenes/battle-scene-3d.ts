@@ -102,6 +102,9 @@ export class BattleScene3D implements Scene {
       onToggleGrid: (showGrid) => {
         this.view.setGridVisible(showGrid);
       },
+      onToggleCoords: (showCoords) => {
+        this.view.setCoordsVisible(showCoords);
+      },
     });
 
     this.view.setHud(this.hud, () => ({

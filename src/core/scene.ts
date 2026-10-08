@@ -26,6 +26,14 @@ export interface HudConfig {
   gridBorderThickness?: number;
   gridBorderColor?: string;
   showGrid?: boolean;
+  coordinates?: {
+    showCoords?: boolean;
+    fontSize?: number;
+    fontFamily?: string;
+    color?: string;
+    strokeColor?: string;
+    strokeWidth?: number;
+  };
 }
 
 export interface GameTemplates {

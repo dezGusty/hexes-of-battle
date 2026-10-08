@@ -5,6 +5,14 @@
     "borderColor": "#000000",
     "borderOpacity": 1.0
   },
+  "coordinates": {
+    "showCoords": true,
+    "fontSize": 14,
+    "fontFamily": "GustysSerpents, sans-serif",
+    "color": "#ffffff",
+    "strokeColor": "#000000",
+    "strokeWidth": 3
+  },
   "healthbars": {
     "showHealthbars": true
   },

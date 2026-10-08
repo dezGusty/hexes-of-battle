@@ -132,6 +132,16 @@ export class HexesEngine {
         } else if (this.templates.hudConfig.showGrid !== undefined) {
           this.settings.hex.showGrid = this.templates.hudConfig.showGrid;
         }
+
+        const coordsCfg = this.templates.hudConfig.coordinates;
+        if (coordsCfg) {
+          if (coordsCfg.showCoords !== undefined) this.settings.debug.showCoords = coordsCfg.showCoords;
+          if (coordsCfg.fontSize !== undefined) this.settings.debug.coordsFontSize = coordsCfg.fontSize;
+          if (coordsCfg.fontFamily !== undefined) this.settings.debug.coordsFontFamily = coordsCfg.fontFamily;
+          if (coordsCfg.color !== undefined) this.settings.debug.coordsColor = coordsCfg.color;
+          if (coordsCfg.strokeColor !== undefined) this.settings.debug.coordsStrokeColor = coordsCfg.strokeColor;
+          if (coordsCfg.strokeWidth !== undefined) this.settings.debug.coordsStrokeWidth = coordsCfg.strokeWidth;
+        }
       }
     } catch {
       // Use defaults if not found

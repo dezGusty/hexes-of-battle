@@ -70,6 +70,12 @@ export class BattleView3D {
       showGrid: settings.hex.showGrid,
       borderThickness: settings.hex.gridBorderThickness,
       borderColor: settings.hex.gridBorderColor,
+      showCoords: settings.debug.showCoords,
+      coordsFontSize: settings.debug.coordsFontSize,
+      coordsFontFamily: settings.debug.coordsFontFamily,
+      coordsColor: settings.debug.coordsColor,
+      coordsStrokeColor: settings.debug.coordsStrokeColor,
+      coordsStrokeWidth: settings.debug.coordsStrokeWidth,
     });
     this.sceneManager.scene.add(this.hexBoard.group);
     this.sceneManager.scene.add(this.projectileSystem.group);
@@ -95,6 +101,10 @@ export class BattleView3D {
 
   public setGridBorderThickness(thickness: number): void {
     this.hexBoard.setGridBorderThickness(thickness);
+  }
+
+  public setCoordsVisible(visible: boolean): void {
+    this.hexBoard.setCoordsVisible(visible);
   }
 
   public setZoomLevel(normalized: number): void {

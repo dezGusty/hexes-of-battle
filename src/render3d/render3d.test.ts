@@ -175,5 +175,29 @@ describe('3D Graphics Engine & Rendering Systems', () => {
 
       hexBoard.dispose();
     });
+
+    it('should support coordinates display rendering and toggling', () => {
+      const hexMap = new HexMap(8, 5);
+      const hexBoard = new HexBoard3D(hexMap, {
+        showCoords: true,
+        coordsFontSize: 14,
+        coordsColor: '#ffffff',
+        coordsStrokeColor: '#000000',
+        coordsStrokeWidth: 3,
+      });
+
+      expect(hexBoard.isCoordsVisible()).toBe(true);
+
+      // Toggle off
+      hexBoard.setCoordsVisible(false);
+      expect(hexBoard.isCoordsVisible()).toBe(false);
+
+      // Toggle back on
+      hexBoard.setCoordsVisible(true);
+      expect(hexBoard.isCoordsVisible()).toBe(true);
+
+      hexBoard.dispose();
+    });
   });
 });
+

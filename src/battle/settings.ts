@@ -17,6 +17,11 @@ export class HexDisplaySettings {
 export class DebugSettings {
   public showCoords: boolean = true;
   public showPerfStats: boolean = false;
+  public coordsFontSize: number = 14;
+  public coordsFontFamily: string = 'GustysSerpents, sans-serif';
+  public coordsColor: string = '#ffffff';
+  public coordsStrokeColor: string = '#000000';
+  public coordsStrokeWidth: number = 3;
 }
 
 export class BattleSettings {

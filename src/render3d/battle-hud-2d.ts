@@ -23,6 +23,7 @@ export interface BattleHud2DEvents {
   onActiveAbility1?: () => void;
   onToggleStats?: () => void;
   onToggleGrid?: (showGrid: boolean) => void;
+  onToggleCoords?: (showCoords: boolean) => void;
 }
 
 /**
@@ -155,6 +156,9 @@ export class BattleHud2D {
     this.battleMenuPanel?.toggleCoordsButton?.onPress.connect(() => {
       this.settings.debug.showCoords = !this.settings.debug.showCoords;
       this.settings.save();
+      if (events.onToggleCoords) {
+        events.onToggleCoords(this.settings.debug.showCoords);
+      }
     });
 
     this.battleMenuPanel?.showHealthbarsButton?.onPress.connect(() => {
