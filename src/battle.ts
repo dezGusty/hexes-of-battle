@@ -267,6 +267,11 @@ export class Battle {
     return this.combatConfig.terrain.moveCosts[terrainType] ?? 1;
   }
 
+  public getActiveCreature(): Creature | null {
+    if (this.activeCreatureIndex < 0 || this.activeCreatureIndex >= this.creatures.length) return null;
+    return this.creatures[this.activeCreatureIndex];
+  }
+
   public getStaminaCostForTerrain(terrainType: number): number {
     return this.combatConfig.terrain.staminaCosts[terrainType] ?? 1;
   }

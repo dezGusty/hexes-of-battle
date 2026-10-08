@@ -1,0 +1,14 @@
+{
+  "grid": {
+    "showGrid": true,
+    "borderThickness": 2.5,
+    "borderColor": "#000000",
+    "borderOpacity": 1.0
+  },
+  "healthbars": {
+    "showHealthbars": true
+  },
+  "tooltips": {
+    "enabled": true
+  }
+}

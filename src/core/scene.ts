@@ -16,11 +16,24 @@ export interface GameAssets {
   softCursorTextures: Record<string, Texture>;
 }
 
+export interface HudConfig {
+  grid?: {
+    showGrid?: boolean;
+    borderThickness?: number;
+    borderColor?: string;
+    borderOpacity?: number;
+  };
+  gridBorderThickness?: number;
+  gridBorderColor?: string;
+  showGrid?: boolean;
+}
+
 export interface GameTemplates {
   abilityTypes: Ability[];
   creatureTemplates: CreatureTemplate[];
   combatConfig?: CombatConfig;
   scenarios?: any[];
+  hudConfig?: HudConfig;
 }
 
 export interface GameContext {

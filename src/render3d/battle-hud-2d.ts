@@ -1,0 +1,347 @@
+import { Container, Sprite, Texture } from "pixi.js";
+import { AdvancedBloomFilter } from "pixi-filters";
+import { GameAssets } from "../core/scene";
+import { BattleSettings } from "../battle/settings";
+import { Battle, ArmyControlType } from "../battle";
+import { CPUPlayer } from "../battle/cpu-player";
+import { Creature } from "../battle/creature";
+import { Coords } from "../shared";
+import { CommonControls } from "../ui/common-controls";
+import { TopSidePanel } from "../ui/top-side-panel";
+import { BattleMenuPanel } from "../ui/battle-menu";
+import { UnitStatsPanel } from "../ui/unit-stats-panel";
+import { TurnChangeCollection } from "../ui/turn-change-display";
+
+export interface BattleHud2DEvents {
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onZoomSliderUpdate: (value: number) => void;
+  onNextTurn: () => void;
+  onNextUnit: () => void;
+  onReset: () => void;
+  onRest: () => void;
+  onActiveAbility1?: () => void;
+  onToggleStats?: () => void;
+  onToggleGrid?: (showGrid: boolean) => void;
+}
+
+/**
+ * 2D PixiJS UI overlay for the 3D Battle Arena.
+ * Contains TopSidePanel, CommonControls (Rest, End Turn, Next Unit, Zoom, Menu),
+ * UnitStatsPanel, BattleMenuPanel, and TurnChangeDisplay banners.
+ */
+export class BattleHud2D {
+  public readonly container: Container = new Container();
+
+  public readonly uiRenderGroup: Container = new Container();
+  public readonly uiPlusRenderGroup: Container = new Container();
+  public readonly uiCursorRenderGroup: Container = new Container();
+
+  public commonControls!: CommonControls;
+  public topSidePanel?: TopSidePanel;
+  public battleMenuPanel?: BattleMenuPanel;
+  public unitStats?: UnitStatsPanel;
+  public turnChangeDisplay: TurnChangeCollection = new TurnChangeCollection();
+  public softCursorSprite?: Sprite;
+
+  private assets: GameAssets;
+  public readonly settings: BattleSettings;
+  private battle: Battle;
+  private cpuPlayer?: CPUPlayer;
+  private armyNames: [string, string] = [
+    "The Count of Ekkina's 1st Army",
+    "Knights of The Grand Duke"
+  ];
+
+  constructor(
+    assets: GameAssets,
+    settings: BattleSettings,
+    battle: Battle,
+    cpuPlayer?: CPUPlayer,
+    armyNames?: [string, string]
+  ) {
+    this.assets = assets;
+    this.settings = settings;
+    this.battle = battle;
+    this.cpuPlayer = cpuPlayer;
+    if (armyNames) {
+      this.armyNames = armyNames;
+    }
+
+    this.container.addChild(this.uiRenderGroup);
+    this.container.addChild(this.uiPlusRenderGroup);
+    this.container.addChild(this.uiCursorRenderGroup);
+  }
+
+  public initialize(events: BattleHud2DEvents): void {
+    if (this.assets.uiSheet) {
+      this.turnChangeDisplay.setUISheet(this.assets.uiSheet);
+      if (this.assets.softCursorTextures['default']) {
+        this.softCursorSprite = new Sprite(this.assets.softCursorTextures['default']);
+        this.uiCursorRenderGroup.addChild(this.softCursorSprite);
+      }
+    }
+
+    this.initializeCommonControls(events);
+    this.initializeTopPanel();
+    this.updateArmyNames();
+  }
+
+  public setCpuPlayer(cpuPlayer: CPUPlayer | undefined): void {
+    this.cpuPlayer = cpuPlayer;
+    this.updateArmyNames();
+  }
+
+  public getFormattedArmyName(armyIndex: number): string {
+    const baseName = this.armyNames[armyIndex] ?? (armyIndex === 0 ? "The Count of Ekkina's 1st Army" : "Knights of The Grand Duke");
+    const isPlayer = this.battle.army_control[armyIndex] === ArmyControlType.PLAYER;
+
+    let tag = '';
+    if (isPlayer) {
+      tag = 'Human';
+    } else {
+      const personality = this.cpuPlayer?.personalityName;
+      if (personality) {
+        const capitalized = personality.charAt(0).toUpperCase() + personality.slice(1);
+        tag = `CPU ${capitalized}`;
+      } else {
+        tag = 'CPU';
+      }
+    }
+
+    if (armyIndex === 0) {
+      return `${baseName} - ${tag}`;
+    } else {
+      return `${tag} - ${baseName}`;
+    }
+  }
+
+  public updateArmyNames(): void {
+    if (!this.topSidePanel) return;
+    this.topSidePanel.setLeftArmyName(this.getFormattedArmyName(0));
+    this.topSidePanel.setRightArmyName(this.getFormattedArmyName(1));
+  }
+
+  private initializeCommonControls(events: BattleHud2DEvents): void {
+    this.commonControls = new CommonControls({
+      zoomMin: 75,
+      zoomMax: 200,
+      zoomStep: 5,
+      zoomValue: 100,
+    });
+    this.commonControls.initializeButtons();
+
+    if (this.assets.uiSheet) {
+      this.battleMenuPanel = new BattleMenuPanel(this.uiPlusRenderGroup, this.assets.uiSheet);
+      this.battleMenuPanel.hide();
+    }
+
+    this.commonControls.getControls().forEach((control) => {
+      this.uiRenderGroup.addChild(control);
+    });
+
+    this.commonControls.menuButton?.onPress.connect(() => {
+      this.battleMenuPanel?.toggleVisibility();
+    });
+
+    this.battleMenuPanel?.toggleGridButton?.onPress.connect(() => {
+      this.settings.hex.showGrid = !this.settings.hex.showGrid;
+      this.settings.save();
+      if (events.onToggleGrid) {
+        events.onToggleGrid(this.settings.hex.showGrid);
+      }
+    });
+
+    this.battleMenuPanel?.toggleCoordsButton?.onPress.connect(() => {
+      this.settings.debug.showCoords = !this.settings.debug.showCoords;
+      this.settings.save();
+    });
+
+    this.battleMenuPanel?.showHealthbarsButton?.onPress.connect(() => {
+      this.settings.hex.showHealthbars = !this.settings.hex.showHealthbars;
+      this.settings.save();
+    });
+
+    this.commonControls.zoomInButton?.onPress.connect(() => events.onZoomIn());
+    this.commonControls.zoomOutButton?.onPress.connect(() => events.onZoomOut());
+    this.commonControls.zoomSlider?.onUpdate.connect((val) => events.onZoomSliderUpdate(val));
+
+    this.commonControls.nextTurnButton?.onPress.connect(() => events.onNextTurn());
+    this.commonControls.nextUnitButton?.onPress.connect(() => events.onNextUnit());
+    this.commonControls.restButton?.onPress.connect(() => events.onRest());
+    this.commonControls.resetButton?.onPress.connect(() => events.onReset());
+
+    if (events.onActiveAbility1) {
+      this.commonControls.activeAbility1Button?.onPress.connect(() => events.onActiveAbility1!());
+    }
+
+    this.commonControls.toggleStatsButton?.onPress.connect(() => {
+      if (!this.assets.uiSheet) return;
+      if (!this.unitStats) {
+        this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet);
+        this.unitStats.toggleVisibility();
+      } else {
+        this.unitStats.toggleVisibility();
+      }
+      if (events.onToggleStats) events.onToggleStats();
+    });
+  }
+
+  private initializeTopPanel(): void {
+    if (!this.assets.uiSheet) return;
+
+    this.topSidePanel = new TopSidePanel(this.uiRenderGroup, this.assets.uiSheet);
+
+    const bannerLeftTexture = this.getBannerTextureForArmyIndex(0);
+    const bannerRightTexture = this.getBannerTextureForArmyIndex(1);
+    this.topSidePanel.setLeftBannerTexture(bannerLeftTexture);
+    this.topSidePanel.setRightBannerTexture(bannerRightTexture);
+
+    this.topSidePanel.setLeftArmyName(this.getFormattedArmyName(0));
+    this.topSidePanel.setRightArmyName(this.getFormattedArmyName(1));
+    this.topSidePanel.setActiveArmyIndex(0);
+  }
+
+  public getBannerTextureForArmyIndex(armyIndex: number): Texture | undefined {
+    if (!this.assets.bannersSheet) return undefined;
+    const name = armyIndex === 0 ? "banner_green.png" : "banner_blue.png";
+    return this.assets.bannersSheet.textures[name];
+  }
+
+  public showTurnBanner(turnNum: number, armyIdx: number): void {
+    const isPlayer = this.battle.army_control[armyIdx] === ArmyControlType.PLAYER;
+    const baseName = this.armyNames[armyIdx] ?? (armyIdx === 0 ? "Player 1" : "Player 2");
+    const bannerText = `Turn ${turnNum + 1}\n${baseName} (${isPlayer ? 'Human' : 'CPU'})`;
+    const texture = this.getBannerTextureForArmyIndex(armyIdx);
+
+    this.turnChangeDisplay.addTurnChange(bannerText, this.uiPlusRenderGroup, { x: 500, y: 350 }, texture);
+
+    if (this.topSidePanel) {
+      this.topSidePanel.setActiveArmyIndex(armyIdx);
+    }
+    if (this.commonControls?.nextTurnButton) {
+      this.commonControls.nextTurnButton.filters = [];
+    }
+  }
+
+  public showVictoryBanner(victorArmyIndex: number): void {
+    const message = `Victory for Army ${victorArmyIndex + 1}`;
+    const texture = this.getBannerTextureForArmyIndex(victorArmyIndex);
+    this.turnChangeDisplay.addEndOfBattle(message, this.uiPlusRenderGroup, { x: 500, y: 350 }, texture);
+
+    if (this.topSidePanel) {
+      this.topSidePanel.setActiveArmyIndex(victorArmyIndex);
+    }
+  }
+
+  public showEndTurnRecommendation(): void {
+    if (this.commonControls?.nextTurnButton) {
+      this.commonControls.nextTurnButton.filters = [
+        new AdvancedBloomFilter({ threshold: 0.25, bloomScale: 1, brightness: 1, blur: 5, quality: 3 }),
+      ];
+    }
+  }
+
+  public updateActiveUnitAbility(creature: Creature): void {
+    let description = '';
+    let visible = false;
+    if (creature.abilities.length > 0) {
+      description = creature.abilities[0].name;
+      visible = true;
+    }
+    if (this.commonControls?.activeAbility1Button) {
+      this.commonControls.activeAbility1Button.text = description;
+      this.commonControls.activeAbility1Button.visible = visible;
+    }
+  }
+
+  public updateUnitStats(creature: Creature): void {
+    if (!this.unitStats) return;
+    const bannerTexture = this.getBannerTextureForArmyIndex(creature.armyAlignment);
+    this.unitStats.setBannerTexture(bannerTexture);
+    this.unitStats.setCreature(creature);
+
+    let faceName = 'peasant_face.png';
+    switch (creature.creatureType) {
+      case 'peasant' as any:
+      case 0:
+        faceName = 'peasant_face.png';
+        break;
+      case 'peasant_archer' as any:
+      case 1:
+        faceName = 'peasant_archer_face.png';
+        break;
+      case 'spearman' as any:
+      case 2:
+        faceName = 'spearman_face.png';
+        break;
+      case 'swordsman' as any:
+      case 3:
+        faceName = 'swordman_face.png';
+        break;
+      case 'barbarian' as any:
+      case 4:
+        faceName = 'barbarian_face.png';
+        break;
+      case 'crossbowman' as any:
+      case 5:
+        faceName = 'crossbowman_face.png';
+        break;
+    }
+
+    const faceTexture = this.assets.unitsSheet?.textures[faceName];
+    this.unitStats.setFaceTexture(faceTexture);
+    this.unitStats.update();
+  }
+
+  public updateCursorPosition(coords: Coords): void {
+    if (this.softCursorSprite) {
+      this.softCursorSprite.position.set(coords.x, coords.y);
+    }
+    if (this.unitStats?.isVisible()) {
+      this.unitStats.mousemove(coords);
+    }
+  }
+
+  public isPointerOverUI(stageX: number, stageY: number): boolean {
+    if (this.isMenuBlockingInput()) return true;
+
+    // Left sidebar controls (Menu at top, toggle buttons, Rest, Next Unit, End Turn)
+    if (stageX >= 0 && stageX <= 165) {
+      if ((stageY >= 0 && stageY <= 65) || (stageY >= 295 && stageY <= 890)) {
+        return true;
+      }
+    }
+
+    // Top banner header
+    if (stageY >= 0 && stageY <= 65) {
+      return true;
+    }
+
+    // Zoom controls on top right
+    if (stageX >= 1370 && stageX <= 1620 && stageY >= 15 && stageY <= 65) {
+      return true;
+    }
+
+    // Active ability button
+    if (this.commonControls?.activeAbility1Button?.visible) {
+      if (stageX >= 800 && stageX <= 970 && stageY >= 790 && stageY <= 870) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  public update(deltaMS: number): void {
+    this.turnChangeDisplay.update(deltaMS);
+  }
+
+  public isMenuBlockingInput(): boolean {
+    return this.battleMenuPanel?.isVisible() ?? false;
+  }
+
+  public destroy(): void {
+    this.container.removeChildren();
+  }
+}

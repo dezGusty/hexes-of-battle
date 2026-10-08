@@ -61,11 +61,19 @@ export class HexesEngine {
     }
 
     await this.app.init({
-      background: '#102229',
+      backgroundAlpha: 0,
       width: this.nativeResolution.width,
       height: this.nativeResolution.height,
       resizeTo: containingElement,
     });
+
+    this.app.canvas.style.position = 'absolute';
+    this.app.canvas.style.top = '0';
+    this.app.canvas.style.left = '0';
+    this.app.canvas.style.width = '100%';
+    this.app.canvas.style.height = '100%';
+    this.app.canvas.style.zIndex = '10';
+    this.app.canvas.style.outline = 'none';
 
     this.setScalingForSize(this.app.screen.width, this.app.screen.height);
     containingElement.appendChild(this.app.canvas);
@@ -105,6 +113,28 @@ export class HexesEngine {
       this.templates.scenarios = await JsonLoader.loadJson<any[]>('./scenarios.json');
     } catch {
       // Use empty if not found
+    }
+    try {
+      this.templates.hudConfig = await JsonLoader.loadJson<any>('./hud.json');
+      if (this.templates.hudConfig) {
+        if (this.templates.hudConfig.grid?.borderThickness !== undefined) {
+          this.settings.hex.gridBorderThickness = this.templates.hudConfig.grid.borderThickness;
+        } else if (this.templates.hudConfig.gridBorderThickness !== undefined) {
+          this.settings.hex.gridBorderThickness = this.templates.hudConfig.gridBorderThickness;
+        }
+        if (this.templates.hudConfig.grid?.borderColor !== undefined) {
+          this.settings.hex.gridBorderColor = this.templates.hudConfig.grid.borderColor;
+        } else if (this.templates.hudConfig.gridBorderColor !== undefined) {
+          this.settings.hex.gridBorderColor = this.templates.hudConfig.gridBorderColor;
+        }
+        if (this.templates.hudConfig.grid?.showGrid !== undefined) {
+          this.settings.hex.showGrid = this.templates.hudConfig.grid.showGrid;
+        } else if (this.templates.hudConfig.showGrid !== undefined) {
+          this.settings.hex.showGrid = this.templates.hudConfig.showGrid;
+        }
+      }
+    } catch {
+      // Use defaults if not found
     }
   }
 

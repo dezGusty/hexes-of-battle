@@ -10,6 +10,8 @@ export class HexDisplaySettings {
   public showGrid: boolean = true;
   public showHealthbars: boolean = true;
   public showStats: boolean = true;
+  public gridBorderThickness: number = 2.5;
+  public gridBorderColor: string = '#000000';
 }
 
 export class DebugSettings {

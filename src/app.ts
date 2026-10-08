@@ -1,6 +1,6 @@
 import { Application } from "pixi.js";
 import { HexesEngine } from "./core/engine";
-import { BattleScene } from "./scenes/battle-scene";
+import { BattleScene3D } from "./scenes/battle-scene-3d";
 
 export enum GameState {
   InMenu,
@@ -21,7 +21,7 @@ export class HexesApp {
     await this.engine.initialize();
 
     // Register initial scenes
-    const battleScene = new BattleScene();
+    const battleScene = new BattleScene3D();
     this.engine.sceneManager.register(battleScene);
 
     // Switch to initial scene
