@@ -31,6 +31,34 @@ describe('3D Graphics Engine & Rendering Systems', () => {
 
       expect(hexBoard.group.children.length).toBeGreaterThan(50);
     });
+
+    it('should align hexes in pointy-topped orientation with straight horizontal East/West lines', () => {
+      const hexMap = new HexMap(10, 6);
+      const hexBoard = new HexBoard3D(hexMap);
+
+      const pos0 = hexBoard.hexToWorld(2, 3);
+      const pos1 = hexBoard.hexToWorld(3, 3);
+
+      // Same row (y=3) across different columns (x=2 to x=3) should have identical Z (horizontal line)
+      expect(pos0.z).toBeCloseTo(pos1.z, 5);
+      // X increases for East neighbor
+      expect(pos1.x).toBeGreaterThan(pos0.x);
+    });
+
+    it('should support dynamic terrain types via getTerrain provider', () => {
+      const hexMap = new HexMap(4, 4);
+      const hexBoard = new HexBoard3D(hexMap, {
+        getTerrain: (x, y) => {
+          if (x === 0 && y === 0) return 4; // Mountain
+          if (x === 1 && y === 0) return 5; // Water
+          if (x === 2 && y === 0) return 1; // Forest
+          return 0; // Plain
+        },
+      });
+
+      expect(hexBoard.group.children.length).toBeGreaterThan(0);
+      hexBoard.dispose();
+    });
   });
 
   describe('2. Multi-Model Squad 3D Visual Generation', () => {

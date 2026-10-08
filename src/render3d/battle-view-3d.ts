@@ -76,6 +76,7 @@ export class BattleView3D {
       coordsColor: settings.debug.coordsColor,
       coordsStrokeColor: settings.debug.coordsStrokeColor,
       coordsStrokeWidth: settings.debug.coordsStrokeWidth,
+      getTerrain: (x, y) => this.battle.getTerrainAt({ x, y }),
     });
     this.sceneManager.scene.add(this.hexBoard.group);
     this.sceneManager.scene.add(this.projectileSystem.group);
@@ -114,7 +115,7 @@ export class BattleView3D {
   public async loadAllAssets(): Promise<void> {
     await Promise.all([
       this.visualFactory.loadCatalogAssets('units_80x160.png', 'unitsspritesheet.json'),
-      this.hexBoard.loadTerrainAssets('hex_terrain.png', 'hex_terrain.json'),
+      this.hexBoard.loadTerrainAssets('textures/terrain/'),
     ]);
     this.syncAllSquads();
   }
@@ -308,6 +309,7 @@ export class BattleView3D {
   }
 
   public resetGridAndTerrain(): void {
+    this.hexBoard.rebuildBoard();
     this.syncAllSquads();
     this.sceneManager.resetCamera();
   }

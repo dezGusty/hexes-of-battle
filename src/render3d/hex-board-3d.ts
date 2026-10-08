@@ -13,6 +13,7 @@ export interface HexBoard3DOptions {
   coordsColor?: string;
   coordsStrokeColor?: string;
   coordsStrokeWidth?: number;
+  getTerrain?: (x: number, y: number) => TerrainType;
 }
 
 export class HexBoard3D {
@@ -42,6 +43,8 @@ export class HexBoard3D {
   private coordsStrokeColor: string = '#000000';
   private coordsStrokeWidth: number = 3;
 
+  private getTerrain?: (x: number, y: number) => TerrainType;
+
   private materials: Record<string, THREE.Material> = {};
   private sideMaterial: THREE.Material = new THREE.MeshStandardMaterial({
     color: 0x33281e,
@@ -64,6 +67,7 @@ export class HexBoard3D {
     if (options?.coordsColor !== undefined) this.coordsColor = options.coordsColor;
     if (options?.coordsStrokeColor !== undefined) this.coordsStrokeColor = options.coordsStrokeColor;
     if (options?.coordsStrokeWidth !== undefined) this.coordsStrokeWidth = options.coordsStrokeWidth;
+    if (options?.getTerrain !== undefined) this.getTerrain = options.getTerrain;
 
     this.initMaterials();
 
@@ -118,54 +122,48 @@ export class HexBoard3D {
   }
 
   public async loadTerrainAssets(
-    imageSrc: string = 'hex_terrain.png',
-    jsonSrc: string = 'hex_terrain.json'
+    basePath: string = 'textures/terrain/'
   ): Promise<void> {
     if (typeof document === 'undefined') return;
 
     try {
-      const resp = await fetch(jsonSrc);
-      const json = await resp.json();
-      const frames = json.frames;
+      const loader = new THREE.TextureLoader();
+      const loadTex = (url: string) =>
+        new Promise<THREE.Texture>((resolve, reject) => {
+          loader.load(
+            url,
+            (tex) => {
+              tex.colorSpace = THREE.SRGBColorSpace;
+              tex.magFilter = THREE.LinearFilter;
+              tex.minFilter = THREE.LinearMipmapLinearFilter;
+              resolve(tex);
+            },
+            undefined,
+            (err) => reject(err)
+          );
+        });
 
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.src = imageSrc;
-      await new Promise<void>((resolve, reject) => {
-        if (img.complete && img.naturalWidth > 0) resolve();
-        else {
-          img.onload = () => resolve();
-          img.onerror = (err) => reject(err);
-        }
+      const [grassTex, forestTex, dirtTex, swampTex, mountainTex, waterTex] = await Promise.all([
+        loadTex(`${basePath}grass.jpg`),
+        loadTex(`${basePath}forest.jpg`),
+        loadTex(`${basePath}dirt.jpg`),
+        loadTex(`${basePath}swamp.jpg`),
+        loadTex(`${basePath}mountain.jpg`),
+        loadTex(`${basePath}water.jpg`),
+      ]);
+
+      this.materials['grass'] = new THREE.MeshStandardMaterial({ map: grassTex, roughness: 0.8 });
+      this.materials['forest'] = new THREE.MeshStandardMaterial({ map: forestTex, roughness: 0.85 });
+      this.materials['dirt'] = new THREE.MeshStandardMaterial({ map: dirtTex, roughness: 0.9 });
+      this.materials['swamp'] = new THREE.MeshStandardMaterial({ map: swampTex, roughness: 0.85, metalness: 0.05 });
+      this.materials['mountain'] = new THREE.MeshStandardMaterial({ map: mountainTex, roughness: 0.75, metalness: 0.1 });
+      this.materials['water'] = new THREE.MeshStandardMaterial({
+        map: waterTex,
+        roughness: 0.15,
+        metalness: 0.3,
+        transparent: true,
+        opacity: 0.88,
       });
-
-      const createTerrainTexture = (frameKey: string) => {
-        const f = frames[frameKey]?.frame;
-        if (!f) return null;
-        const canvas = document.createElement('canvas');
-        canvas.width = 128;
-        canvas.height = 128;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return null;
-        ctx.drawImage(img, f.x, f.y, f.w, f.h, 0, 0, 128, 128);
-        const texture = new THREE.CanvasTexture(canvas);
-        texture.colorSpace = THREE.SRGBColorSpace;
-        texture.magFilter = THREE.LinearFilter;
-        texture.minFilter = THREE.LinearMipmapLinearFilter;
-        return texture;
-      };
-
-      const terrain1 = createTerrainTexture('terrain_1.png');
-      const terrain2 = createTerrainTexture('terrain_2.png');
-      const terrain3 = createTerrainTexture('terrain_3.png');
-      const terrain4 = createTerrainTexture('terrain_4.png');
-      const terrain5 = createTerrainTexture('terrain_5.png');
-
-      if (terrain1) this.materials['grass'] = new THREE.MeshStandardMaterial({ map: terrain1, roughness: 0.8 });
-      if (terrain2) this.materials['forest'] = new THREE.MeshStandardMaterial({ map: terrain2, roughness: 0.8 });
-      if (terrain3) this.materials['dirt'] = new THREE.MeshStandardMaterial({ map: terrain3, roughness: 0.85 });
-      if (terrain4) this.materials['swamp'] = new THREE.MeshStandardMaterial({ map: terrain4, roughness: 0.85 });
-      if (terrain5) this.materials['water'] = new THREE.MeshStandardMaterial({ map: terrain5, roughness: 0.2, metalness: 0.3, transparent: true, opacity: 0.85 });
 
       this.rebuildBoard();
     } catch (e) {
@@ -185,14 +183,15 @@ export class HexBoard3D {
 
   /**
    * Converts grid hex (x, y) to 3D world space (X, Y, Z).
+   * Hexagons are oriented pointy-topped (pointy towards North/South, flat on East/West),
+   * allowing units to move in a straight line horizontally (East/West).
    */
   public hexToWorld(x: number, y: number): THREE.Vector3 {
-    // Pointy-topped / flat-topped matching HexMap layout
-    const widthSpacing = this.hexRadius * 1.5;
-    const heightSpacing = this.hexRadius * Math.sqrt(3);
+    const widthSpacing = this.hexRadius * Math.sqrt(3);
+    const heightSpacing = this.hexRadius * 1.5;
 
-    const worldX = (x - (this.hexMap.width - 1) * 0.5) * widthSpacing;
-    const worldZ = (y + (x % 2) * 0.5 - (this.hexMap.height - 1) * 0.5) * heightSpacing;
+    const worldX = (x + (Math.abs(y) % 2) * 0.5 - (this.hexMap.width - 1) * 0.5) * widthSpacing;
+    const worldZ = (y - (this.hexMap.height - 1) * 0.5) * heightSpacing;
 
     return new THREE.Vector3(worldX, 0, worldZ);
   }
@@ -241,13 +240,13 @@ export class HexBoard3D {
       this.hexHeight,
       6
     );
-    // Rotate so edges match the grid orientation
-    hexGeometry.rotateY(Math.PI / 6);
 
     for (let x = 0; x < this.hexMap.width; x++) {
       for (let y = 0; y < this.hexMap.height; y++) {
         let terrain: TerrainType = TerrainType.PLAIN;
-        if (typeof (this.hexMap as any).getTerrain === 'function') {
+        if (this.getTerrain) {
+          terrain = this.getTerrain(x, y);
+        } else if (typeof (this.hexMap as any).getTerrain === 'function') {
           terrain = (this.hexMap as any).getTerrain(x, y);
         }
 
@@ -337,7 +336,9 @@ export class HexBoard3D {
     for (let x = 0; x < this.hexMap.width; x++) {
       for (let y = 0; y < this.hexMap.height; y++) {
         let terrain: TerrainType = TerrainType.PLAIN;
-        if (typeof (this.hexMap as any).getTerrain === 'function') {
+        if (this.getTerrain) {
+          terrain = this.getTerrain(x, y);
+        } else if (typeof (this.hexMap as any).getTerrain === 'function') {
           terrain = (this.hexMap as any).getTerrain(x, y);
         }
 
@@ -405,7 +406,7 @@ export class HexBoard3D {
     const outerRadius = this.hexRadius * 0.995;
     const innerRadius = Math.max(0.05, outerRadius - thicknessWorld);
 
-    const ringGeo = new THREE.RingGeometry(innerRadius, outerRadius, 6);
+    const ringGeo = new THREE.RingGeometry(innerRadius, outerRadius, 6, 1, Math.PI / 6);
     ringGeo.rotateX(-Math.PI * 0.5);
 
     const borderMat = new THREE.MeshBasicMaterial({
@@ -417,7 +418,9 @@ export class HexBoard3D {
     for (let x = 0; x < this.hexMap.width; x++) {
       for (let y = 0; y < this.hexMap.height; y++) {
         let terrain: TerrainType = TerrainType.PLAIN;
-        if (typeof (this.hexMap as any).getTerrain === 'function') {
+        if (this.getTerrain) {
+          terrain = this.getTerrain(x, y);
+        } else if (typeof (this.hexMap as any).getTerrain === 'function') {
           terrain = (this.hexMap as any).getTerrain(x, y);
         }
 
@@ -438,7 +441,6 @@ export class HexBoard3D {
 
   private createHighlightHexMesh(colorHex: number, opacity: number): THREE.Mesh {
     const geo = new THREE.CylinderGeometry(this.hexRadius * 0.98, this.hexRadius * 0.98, 0.04, 6);
-    geo.rotateY(Math.PI / 6);
     const mat = new THREE.MeshBasicMaterial({
       color: colorHex,
       transparent: true,
@@ -449,7 +451,7 @@ export class HexBoard3D {
   }
 
   private createRingMesh(colorHex: number): THREE.Mesh {
-    const geo = new THREE.RingGeometry(this.hexRadius * 0.75, this.hexRadius * 0.95, 6);
+    const geo = new THREE.RingGeometry(this.hexRadius * 0.75, this.hexRadius * 0.95, 6, 1, Math.PI / 6);
     geo.rotateX(-Math.PI * 0.5);
     const mat = new THREE.MeshBasicMaterial({
       color: colorHex,
@@ -499,14 +501,14 @@ export class HexBoard3D {
     const arrowMat = new THREE.MeshBasicMaterial({ color: 0xffe066 });
     const arrowMesh = new THREE.Mesh(arrowGeo, arrowMat);
 
-    // Position arrow on outer edge of hex in facing direction
+    // Position arrow on outer edge of hex in facing direction (pointy-topped)
     const angleMap: Record<HexDirection, number> = {
       [HexDirection.EAST]: 0,
-      [HexDirection.SOUTHEAST]: Math.PI / 3,
-      [HexDirection.SOUTHWEST]: (2 * Math.PI) / 3,
+      [HexDirection.SOUTHEAST]: Math.PI / 6,
+      [HexDirection.SOUTHWEST]: (5 * Math.PI) / 6,
       [HexDirection.WEST]: Math.PI,
-      [HexDirection.NORTHWEST]: (4 * Math.PI) / 3,
-      [HexDirection.NORTHEAST]: (5 * Math.PI) / 3,
+      [HexDirection.NORTHWEST]: (7 * Math.PI) / 6,
+      [HexDirection.NORTHEAST]: (11 * Math.PI) / 6,
       [HexDirection.NONE]: 0,
     };
     const angle = angleMap[facing] ?? 0;
