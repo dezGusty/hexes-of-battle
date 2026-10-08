@@ -3,6 +3,7 @@ import { EventBus } from './event-bus';
 import { BattleSettings } from '../battle/settings';
 import { Ability } from '../battle/ability';
 import { CreatureTemplate } from '../battle/creature';
+import { CombatConfig } from '../battle/combat-rules';
 
 export interface GameAssets {
   terrainTexture?: Texture;
@@ -18,6 +19,8 @@ export interface GameAssets {
 export interface GameTemplates {
   abilityTypes: Ability[];
   creatureTemplates: CreatureTemplate[];
+  combatConfig?: CombatConfig;
+  scenarios?: any[];
 }
 
 export interface GameContext {

@@ -8,11 +8,14 @@
     "build": "tsc && vite build",
     "test": "vitest run",
     "test:watch": "vitest",
+    "simulate": "tsx src/headless/batch-runner.ts",
     "preview": "vite preview",
     "deploy": "vite build && gh-pages -d dist"
   },
   "devDependencies": {
+    "@types/node": "^26.6.4",
     "gh-pages": "^6.2.0",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^8.3.1",
     "vitest": "^5.0.2"

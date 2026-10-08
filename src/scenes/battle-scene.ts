@@ -39,10 +39,16 @@ export class BattleScene implements Scene {
     if (params?.config) {
       this.hexMap = new HexMap(params.config.mapWidth, params.config.mapHeight);
       this.battle = new Battle(this.hexMap);
+      if (context.templates.combatConfig) {
+        this.battle.setCombatConfig(context.templates.combatConfig);
+      }
       this.battle.initializeFromConfig(params.config);
     } else {
       this.hexMap = new HexMap(13, 9);
       this.battle = new Battle(this.hexMap);
+      if (context.templates.combatConfig) {
+        this.battle.setCombatConfig(context.templates.combatConfig);
+      }
       this.initializeDefaultMapAndArmies();
     }
 
@@ -74,6 +80,7 @@ export class BattleScene implements Scene {
       onNextUnit: () => this.battle.selectNextUnitAndGetIndex(),
       onReset: () => this.resetBattle(),
       onActiveAbility1: () => this.battle.selectActiveAbilityForCurrentUnit(0),
+      onRest: () => this.battle.restActiveCreature(),
     });
 
     this.hookBattleEvents();

@@ -13,6 +13,7 @@ export enum CPUPlayerState {
   DECIDE_ACTION_FOR_SELECTED_UNIT,
   SELECT_MOVE,
   SELECT_ATTACK,
+  SELECT_REST,
   SELECT_END_TURN,
 }
 
@@ -68,6 +69,9 @@ export abstract class BaseCPUPlayer implements CPUPlayer {
       case CPUPlayerState.SELECT_ATTACK:
         this.selectAttack();
         break;
+      case CPUPlayerState.SELECT_REST:
+        this.selectRest();
+        break;
       case CPUPlayerState.SELECT_END_TURN:
         this.selectEndTurn();
         break;
@@ -101,54 +105,83 @@ export abstract class BaseCPUPlayer implements CPUPlayer {
         return;
       }
 
-      const foundIndex = this.handledCreatures.findIndex((x) => x.equals(selectedCreature.GUID));
-      if (foundIndex >= 0) {
-        continue;
-      } else {
-        keepSearching = false;
-        this.handledCreatures.push(selectedCreature.GUID);
+      if (!this.hasHandledCreature(selectedCreature.GUID)) {
+        this.state = CPUPlayerState.DECIDE_ACTION_FOR_SELECTED_UNIT;
+        return;
       }
     }
-
-    this.state = CPUPlayerState.DECIDE_ACTION_FOR_SELECTED_UNIT;
   }
 
   protected decideAction(): void {
-    this.targetCoords = { x: -1, y: -1 };
-    this.attackDirection = HexDirection.NONE;
-    this.attackMeleePreference = false;
-    this.battle.cacheCreaturesToHexMap();
-
-    const creature = this.battle.getSelectedCreature();
-    if (!creature) {
+    const selectedCreature = this.battle.getSelectedCreature();
+    if (!selectedCreature) {
+      this.state = CPUPlayerState.SELECT_END_TURN;
       return;
     }
 
-    if (creature.stats.is_ranged) {
-      const rangeData = this.battle.getRangeDataForSelectedCreature();
-      if (rangeData.length > 0) {
-        const target = this.chooseRangedTarget(creature, rangeData.map((d) => d.coords));
+    if (selectedCreature.live_stats.remaining_attacks <= 0 && selectedCreature.live_stats.remaining_movement <= 0) {
+      this.markCreatureHandled(selectedCreature.GUID);
+      this.state = CPUPlayerState.SELECT_UNIT;
+      return;
+    }
+
+    // 1. Ranged Attack Decision
+    if (selectedCreature.live_stats.is_ranged && selectedCreature.live_stats.remaining_attacks > 0) {
+      const rangedTargets = this.findRangedTargets(selectedCreature);
+      if (rangedTargets.length > 0) {
+        const target = this.chooseRangedTarget(selectedCreature, rangedTargets);
         if (target) {
           this.targetCoords = target;
+          this.attackDirection = HexDirection.NONE;
+          this.attackMeleePreference = false;
           this.state = CPUPlayerState.SELECT_ATTACK;
           return;
         }
       }
     }
 
-    const reachData = this.battle.getReachableMeleeEnemies();
-    if (reachData.length > 0) {
-      const chosen = this.chooseMeleeTarget(creature, reachData.map((d) => d.coords));
-      if (chosen) {
-        this.targetCoords = chosen.target;
-        this.attackDirection = chosen.direction;
-        this.attackMeleePreference = true;
-        this.state = CPUPlayerState.SELECT_ATTACK;
+    // 2. Melee Attack Decision
+    if (selectedCreature.live_stats.remaining_attacks > 0) {
+      const meleeTargets = this.findMeleeTargets();
+      if (meleeTargets.length > 0) {
+        const result = this.chooseMeleeTarget(selectedCreature, meleeTargets);
+        if (result) {
+          this.targetCoords = result.target;
+          this.attackDirection = result.direction;
+          this.attackMeleePreference = true;
+          this.state = CPUPlayerState.SELECT_ATTACK;
+          return;
+        }
+      }
+    }
+
+    // 3. Movement Decision
+    if (selectedCreature.live_stats.remaining_movement > 0) {
+      const destination = this.chooseMoveDestination(selectedCreature);
+      if (destination) {
+        this.moveDestinationCoords = destination;
+        this.state = CPUPlayerState.SELECT_MOVE;
         return;
       }
     }
 
-    this.state = CPUPlayerState.SELECT_MOVE;
+    // 4. If winded/exhausted with no other good action, rest
+    if (selectedCreature.stats.stamina < selectedCreature.stats.max_stamina * 0.5) {
+      this.state = CPUPlayerState.SELECT_REST;
+      return;
+    }
+
+    this.markCreatureHandled(selectedCreature.GUID);
+    this.state = CPUPlayerState.SELECT_UNIT;
+  }
+
+  protected selectRest(): void {
+    const selectedCreature = this.battle.getSelectedCreature();
+    if (selectedCreature) {
+      this.battle.restActiveCreature();
+      this.markCreatureHandled(selectedCreature.GUID);
+    }
+    this.state = CPUPlayerState.SELECT_UNIT;
   }
 
   protected moveSelected(): void {
@@ -158,31 +191,63 @@ export abstract class BaseCPUPlayer implements CPUPlayer {
       return;
     }
 
-    const destination = this.chooseMoveDestination(selectedCreature);
-    if (destination) {
-      this.battle.moveOrAttackWithActiveCreatureAtLocation(destination, HexDirection.NONE, false);
+    this.battle.moveOrAttackWithActiveCreatureAtLocation(this.moveDestinationCoords, HexDirection.NONE);
+    if (selectedCreature.live_stats.remaining_attacks <= 0) {
+      this.markCreatureHandled(selectedCreature.GUID);
+      this.state = CPUPlayerState.SELECT_UNIT;
+    } else {
+      this.state = CPUPlayerState.DECIDE_ACTION_FOR_SELECTED_UNIT;
     }
-
-    this.state = CPUPlayerState.SELECT_UNIT;
   }
 
   protected selectAttack(): void {
-    if (this.targetCoords.x !== -1 && this.targetCoords.y !== -1) {
-      this.battle.moveOrAttackWithActiveCreatureAtLocation(
-        this.targetCoords,
-        this.attackDirection,
-        this.attackMeleePreference
-      );
+    const selectedCreature = this.battle.getSelectedCreature();
+    if (!selectedCreature) {
+      this.state = CPUPlayerState.SELECT_UNIT;
+      return;
     }
+
+    this.battle.moveOrAttackWithActiveCreatureAtLocation(
+      this.targetCoords,
+      this.attackDirection,
+      this.attackMeleePreference
+    );
+
+    this.markCreatureHandled(selectedCreature.GUID);
     this.state = CPUPlayerState.SELECT_UNIT;
   }
 
-  protected selectEndTurn(): void {
-    this.battle.nextTurn();
-    this.state = CPUPlayerState.NONE;
+  protected hasHandledCreature(guid: HobGUID): boolean {
+    return this.handledCreatures.some((g) => g.equals(guid));
   }
 
-  // --- Subclass Strategy Hooks ---
+  protected markCreatureHandled(guid: HobGUID): void {
+    if (!this.hasHandledCreature(guid)) {
+      this.handledCreatures.push(guid);
+    }
+  }
+
+  protected findRangedTargets(_creature: Creature): Coords[] {
+    const targets: Coords[] = [];
+    const otherArmyIndex = this.battle.currentArmyIndex === 0 ? 1 : 0;
+
+    for (let x = 0; x < this.battle.rangereach_targets.length; x++) {
+      for (let y = 0; y < this.battle.rangereach_targets[x].length; y++) {
+        if (this.battle.rangereach_targets[x][y] === BattleHexMapPath.CELL_ENEMY) {
+          const creatureInBattle = this.battle.getCreatureAtPosition({ x, y });
+          if (creatureInBattle && creatureInBattle.indexOFArmy === otherArmyIndex) {
+            targets.push({ x, y });
+          }
+        }
+      }
+    }
+    return targets;
+  }
+
+  protected findMeleeTargets(): Coords[] {
+    const enemies = this.battle.getReachableMeleeEnemies();
+    return enemies.map((reachData) => reachData.coords);
+  }
 
   protected chooseRangedTarget(_attacker: Creature, candidates: Coords[]): Coords | null {
     if (candidates.length === 0) return null;
@@ -190,41 +255,52 @@ export abstract class BaseCPUPlayer implements CPUPlayer {
   }
 
   protected chooseMeleeTarget(
-    _attacker: Creature,
+    attacker: Creature,
     candidates: Coords[]
   ): { target: Coords; direction: HexDirection } | null {
     if (candidates.length === 0) return null;
-    return { target: candidates[0], direction: HexDirection.NONE };
+    const target = candidates[0];
+    const flankInfo = this.findBestMeleeFlankDirection(attacker, target);
+    return { target, direction: flankInfo.direction };
   }
 
   protected chooseMoveDestination(creature: Creature): Coords | null {
     const enemies = this.getEnemies();
-    if (enemies.length === 0) {
-      return null;
-    }
+    if (enemies.length === 0) return null;
 
+    let bestDist = Infinity;
     let targetEnemy = enemies[0];
     for (const enemy of enemies) {
-      if (enemy.stats.health < targetEnemy.stats.health) {
+      const dist = Math.abs(creature.pos.x - enemy.pos.x) + Math.abs(creature.pos.y - enemy.pos.y);
+      if (dist < bestDist) {
+        bestDist = dist;
         targetEnemy = enemy;
       }
     }
 
-    const longPath = this.findLongPathToTarget(creature.position, targetEnemy.position);
-    if (longPath.length === 0) {
-      return null;
+    const neighbours = this.battle.hexMap.getNeighbours(targetEnemy.position);
+    for (const n of neighbours) {
+      if (this.battle.getCreatureAtPosition(n) && (n.x !== creature.pos.x || n.y !== creature.pos.y)) {
+        continue;
+      }
+      const longPath = this.findLongPathToTarget(creature.position, n);
+      if (longPath.length > 0) {
+        const numMoves = creature.live_stats.remaining_movement;
+        const stepIndex = Math.min(numMoves, longPath.length) - 1;
+        if (stepIndex >= 0 && longPath[stepIndex]) {
+          return longPath[stepIndex];
+        }
+      }
     }
 
-    const numMoves = creature.stats.remaining_movement;
-    if (numMoves <= 0) {
-      return null;
-    }
-
-    const stepIndex = Math.min(numMoves, longPath.length) - 1;
-    return longPath[stepIndex] ?? null;
+    return null;
   }
 
-  // --- Utility Methods for AI Decision Making ---
+  protected selectEndTurn(): void {
+    this.handledCreatures = [];
+    this.state = CPUPlayerState.NONE;
+    this.battle.nextTurn();
+  }
 
   public getEnemies(armyIndex: number = this.battle.currentArmyIndex): Creature[] {
     return this.battle.creatures.filter((c) => c.armyAlignment !== armyIndex && c.isAlive);
@@ -248,17 +324,17 @@ export abstract class BaseCPUPlayer implements CPUPlayer {
     let flankStatus = HexFlankStatus.NONE;
 
     if (direction !== HexDirection.NONE) {
-      const attackFromDir = direction;
-      flankStatus = checkFlankingStatus(defender.facingDirection, attackFromDir);
+      flankStatus = checkFlankingStatus(defender.facingDirection, direction);
       if (flankStatus === HexFlankStatus.BACKSTAB) {
-        flankBonus = 2;
+        flankBonus = this.battle.combatConfig.facing.rear.damageBonus;
       } else if (flankStatus === HexFlankStatus.FLANK) {
-        flankBonus = 1;
+        flankBonus = this.battle.combatConfig.facing.flank.damageBonus;
       }
     }
 
-    const minAtk = attacker.live_stats.attack_melee_low + flankBonus;
-    const maxAtk = attacker.live_stats.attack_melee_high + flankBonus;
+    const mult = attacker.getDamageOutputMultiplier();
+    const minAtk = Math.round(attacker.live_stats.attack_melee_low * mult) + flankBonus;
+    const maxAtk = Math.round(attacker.live_stats.attack_melee_high * mult) + flankBonus;
     const def = defender.live_stats.defense_melee;
 
     const damageMin = Math.max(0, minAtk - def);
@@ -273,8 +349,9 @@ export abstract class BaseCPUPlayer implements CPUPlayer {
     attacker: Creature,
     defender: Creature
   ): { damageMin: number; damageMax: number; avgDamage: number; willKill: boolean } {
-    const minAtk = attacker.live_stats.attack_ranged_low;
-    const maxAtk = attacker.live_stats.attack_ranged_high;
+    const mult = attacker.getDamageOutputMultiplier();
+    const minAtk = Math.round(attacker.live_stats.attack_ranged_low * mult);
+    const maxAtk = Math.round(attacker.live_stats.attack_ranged_high * mult);
     const def = defender.live_stats.defense_ranged;
 
     const damageMin = Math.max(0, minAtk - def);
@@ -286,15 +363,19 @@ export abstract class BaseCPUPlayer implements CPUPlayer {
   }
 
   public canDefenderCounterattack(_attacker: Creature, defender: Creature): boolean {
-    return defender.live_stats.remaining_counterattacks > 0;
+    if (defender.live_stats.remaining_counterattacks <= 0) return false;
+    if (defender.stats.stamina < this.battle.combatConfig.retaliation.minStamina) return false;
+    if (defender.isExhausted || defender.isPanickedOrRouting) return false;
+    return true;
   }
 
   public calculateCounterattackDamage(
     defender: Creature,
     attacker: Creature
   ): { damageMin: number; damageMax: number; avgDamage: number; willKillAttacker: boolean } {
-    const minAtk = defender.live_stats.attack_melee_low;
-    const maxAtk = defender.live_stats.attack_melee_high;
+    const mult = defender.getDamageOutputMultiplier();
+    const minAtk = Math.round(defender.live_stats.attack_melee_low * mult);
+    const maxAtk = Math.round(defender.live_stats.attack_melee_high * mult);
     const def = attacker.live_stats.defense_melee;
 
     const damageMin = Math.max(0, minAtk - def);
@@ -353,12 +434,15 @@ export abstract class BaseCPUPlayer implements CPUPlayer {
     const otherArmyIndex = this.battle.currentArmyIndex === 0 ? 1 : 0;
     highlightUnitsInArmies.push(otherArmyIndex);
 
+    const terrainCostsRecord: Record<number, number> = {};
+    for (let t = 0; t <= 5; t++) terrainCostsRecord[t] = this.battle.getMoveCostForTerrain(t);
+
     const longUnitReachData = BattleHexMapPath.cacheWalkableAndMeleeReachableCells(
       this.battle.hexMap,
       from,
       maxRange,
       altTiles,
-      Battle.DEFAULT_TERRAIN_MOVE_COST,
+      terrainCostsRecord,
       {
         occupation_tiles: this.battle.cached_occupation_tiles,
         terrain_tiles: this.battle.terrain_tiles,
@@ -367,14 +451,9 @@ export abstract class BaseCPUPlayer implements CPUPlayer {
       { markUnitsInArmies: highlightUnitsInArmies }
     );
 
-    if (longUnitReachData.length === 0) {
-      return [];
-    }
-
+    if (longUnitReachData.length === 0) return [];
     const foundEntry = longUnitReachData.some((entry) => entry.coords.x === to.x && entry.coords.y === to.y);
-    if (!foundEntry) {
-      return [];
-    }
+    if (!foundEntry) return [];
 
     return BattleHexMapPath.findPathToCellInReachData(to, longUnitReachData);
   }

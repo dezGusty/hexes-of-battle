@@ -96,6 +96,16 @@ export class HexesEngine {
   public async loadTemplates(): Promise<void> {
     this.templates.abilityTypes = await JsonLoader.loadJson<Ability[]>('./abilitytypes.json');
     this.templates.creatureTemplates = await JsonLoader.loadJson<CreatureTemplate[]>('./creaturetypes.json');
+    try {
+      this.templates.combatConfig = await JsonLoader.loadJson<any>('./combat_config.json');
+    } catch {
+      // Use defaults if not found
+    }
+    try {
+      this.templates.scenarios = await JsonLoader.loadJson<any[]>('./scenarios.json');
+    } catch {
+      // Use empty if not found
+    }
   }
 
   public async loadAssets(): Promise<void> {

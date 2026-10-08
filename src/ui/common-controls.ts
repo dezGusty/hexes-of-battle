@@ -2,13 +2,13 @@ import { ButtonOptions, FancyButton, Slider } from "@pixi/ui";
 import { TextStyle, TextStyleOptions, Text, Container } from "pixi.js";
 
 /**
- * A class to contain the UI elements that are common to all pages.
- * - Fullscreen mode toggle button
- * - Zoom in/out buttons
+ * Common tactical UI controls:
+ * - Zoom in/out, Zoom slider
+ * - Next unit, End turn, Rest action
+ * - Toggle stats, Toggle perf stats, Reset
+ * - Ability triggers
  */
 export class CommonControls {
-
-
   public menuButton?: FancyButton;
 
   public zoomInButton?: FancyButton;
@@ -16,6 +16,7 @@ export class CommonControls {
   public zoomSlider?: Slider;
   public nextTurnButton?: FancyButton;
   public nextUnitButton?: FancyButton;
+  public restButton?: FancyButton;
   public toggleStatsButton?: FancyButton;
   public togglePerfStatsButton?: FancyButton;
   public resetButton?: FancyButton;
@@ -27,7 +28,7 @@ export class CommonControls {
     defaultView: 'btn_simple.png',
     hoverView: 'btn_simple_hover.png',
     pressedView: 'btn_simple_click.png',
-    nineSliceSprite: [7, 7, 7, 7]
+    nineSliceSprite: [7, 7, 7, 7],
   };
 
   private THIN_BUTTON_STYLE: ButtonOptions = {
@@ -42,32 +43,32 @@ export class CommonControls {
     defaultView: 'btn_gray_crystal_normal.png',
     hoverView: 'btn_gray_crystal_hover.png',
     pressedView: 'btn_gray_crystal_hover.png',
-    nineSliceSprite: [13, 13, 13, 13]
+    nineSliceSprite: [13, 13, 13, 13],
   };
 
   private SMALL_BUTTON_STYLE: ButtonOptions = {
     defaultView: 'thin_button_2_normal.png',
     hoverView: 'thin_button_2_hover.png',
     pressedView: 'thin_button_2_hover.png',
-    nineSliceSprite: [4, 4, 4, 4]
+    nineSliceSprite: [4, 4, 4, 4],
   };
 
-  public constructor(public options: {
-    zoomMin: number, zoomMax: number, zoomStep: number, zoomValue?: number
-  } = { zoomMin: 0, zoomMax: 100, zoomStep: 5 }
-
-  ) {
-  }
+  public constructor(
+    public options: {
+      zoomMin: number;
+      zoomMax: number;
+      zoomStep: number;
+      zoomValue?: number;
+    } = { zoomMin: 0, zoomMax: 100, zoomStep: 5 }
+  ) {}
 
   public initializeButtons() {
-
     this.zoomOutButton = new FancyButton({ ...this.SMALL_BUTTON_STYLE, icon: 'glyph_minus.png' });
     this.zoomOutButton.position.set(1390, 30);
     this.zoomOutButton.width = 24;
     this.zoomOutButton.height = 24;
 
     this.zoomSlider = new Slider({
-      // bg: 'progress_bg.png',
       bg: 'thin_button_normal.png',
       fill: 'thin_button_normal.png',
       slider: 'thin_button_hover.png',
@@ -85,7 +86,7 @@ export class CommonControls {
       max: this.options.zoomMax,
       step: this.options.zoomStep,
       value: this.options.zoomValue ?? 50,
-      showValue: false
+      showValue: false,
     });
     this.zoomSlider.position.set(1420, 30 + 6);
     this.zoomSlider.width = 144;
@@ -110,6 +111,12 @@ export class CommonControls {
     this.activeAbility1Button.width = 130;
     this.activeAbility1Button.height = 48;
 
+    this.restButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_stamina' });
+    this.restButton.position.set(10, 600);
+    this.restButton.width = 130;
+    this.restButton.height = 75;
+    this.restButton.text = new Text({ ...CommonControls.DEFAULT_FONT_STYLE, text: '\n[R]est (+5)' });
+
     this.nextUnitButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_next_unit.png' });
     this.nextUnitButton.position.set(10, 695);
     this.nextUnitButton.width = 130;
@@ -121,16 +128,17 @@ export class CommonControls {
     this.nextTurnButton.width = 130;
     this.nextTurnButton.height = 75;
     this.nextTurnButton.text = new Text({ ...CommonControls.DEFAULT_FONT_STYLE, text: '\n[E]nd Turn' });
-    
+
     this.menuButton = new FancyButton({ ...this.CRYSTAL_BUTTON_STYLE, icon: 'glyph_menu.png' });
     this.menuButton.position.set(4, 4);
     this.menuButton.width = 130;
     this.menuButton.height = 48;
-    this.menuButton.tint = 0xFF9988;
-    this.menuButton.text = new Text(
-      { ...CommonControls.DEFAULT_FONT_STYLE, text: 'Menu', style: { fontSize: 16, fill: "#DDFFFF" } }
-    );
-
+    this.menuButton.tint = 0xff9988;
+    this.menuButton.text = new Text({
+      ...CommonControls.DEFAULT_FONT_STYLE,
+      text: 'Menu',
+      style: { fontSize: 16, fill: '#DDFFFF' },
+    });
   }
 
   public getControls(): Container[] {
@@ -138,18 +146,15 @@ export class CommonControls {
     if (this.zoomSlider) results.push(this.zoomSlider);
     if (this.zoomInButton) results.push(this.zoomInButton);
     if (this.zoomOutButton) results.push(this.zoomOutButton);
+    if (this.restButton) results.push(this.restButton);
     if (this.nextTurnButton) results.push(this.nextTurnButton);
     if (this.nextUnitButton) results.push(this.nextUnitButton);
     if (this.toggleStatsButton) results.push(this.toggleStatsButton);
     if (this.togglePerfStatsButton) results.push(this.togglePerfStatsButton);
     if (this.resetButton) results.push(this.resetButton);
     if (this.menuButton) results.push(this.menuButton);
-
     if (this.activeAbility1Button) results.push(this.activeAbility1Button);
 
     return results;
   }
-
-
-
 }

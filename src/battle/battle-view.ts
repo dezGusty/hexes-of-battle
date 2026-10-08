@@ -19,6 +19,8 @@ import { DamageValueCollection } from '../ui/damage-value-display';
 import { TurnChangeCollection } from '../ui/turn-change-display';
 import { PerfDisplayPanel } from '../ui/perf-display-panel';
 
+import { ExhaustionState } from './combat-rules';
+
 export interface BattleViewEvents {
   onZoomIn: () => void;
   onZoomOut: () => void;
@@ -27,6 +29,7 @@ export interface BattleViewEvents {
   onNextUnit: () => void;
   onReset: () => void;
   onActiveAbility1: () => void;
+  onRest?: () => void;
 }
 
 export class BattleView {
@@ -364,6 +367,7 @@ export class BattleView {
 
     this.commonControls.nextTurnButton?.onPress.connect(() => events.onNextTurn());
     this.commonControls.nextUnitButton?.onPress.connect(() => events.onNextUnit());
+    this.commonControls.restButton?.onPress.connect(() => events.onRest?.());
 
     this.battleMenuPanel?.showHealthbarsButton?.onPress.connect(() => {
       this.showHealthbars = !this.showHealthbars;
@@ -522,17 +526,13 @@ export class BattleView {
     this.hexUnitBars = [];
 
     this.battle.creatures.forEach((creature, index) => {
-      let { x, y } = this.hexMap.hexToPixel(creature.position.x, creature.position.y);
-      x -= this.hexMap.cellSize().x / 2;
-      y -= this.hexMap.cellSize().y / 2;
-
-      let unitTextureName = 'peasant_fork_right.png';
-
+      const centerPixel = this.hexMap.hexToPixel(creature.position.x, creature.position.y);
       const isFacingRight =
         creature.facingDirection === HexDirection.EAST ||
         creature.facingDirection === HexDirection.SOUTHEAST ||
         creature.facingDirection === HexDirection.NORTHEAST;
 
+      let unitTextureName = 'peasant_fork_right.png';
       switch (creature.creatureType) {
         case CreatureType.PEASANT:
           unitTextureName = isFacingRight ? 'peasant_fork_right.png' : 'peasant_fork_left.png';
@@ -552,52 +552,161 @@ export class BattleView {
         case CreatureType.CROSSBOWMAN:
           unitTextureName = isFacingRight ? 'crossbowman_right.png' : 'crossbowman_left.png';
           break;
+        case CreatureType.HEAVY_KNIGHTS:
+          unitTextureName = isFacingRight ? 'swordman_right.png' : 'swordman_left.png';
+          break;
+        case CreatureType.BEHEMOTH:
+          unitTextureName = isFacingRight ? 'barbarian_right.png' : 'barbarian_left.png';
+          break;
+        case CreatureType.HERO_COMMANDER:
+          unitTextureName = isFacingRight ? 'swordman_right.png' : 'swordman_left.png';
+          break;
       }
 
-      const unitSprite = new Sprite(this.assets.unitsSheet?.textures[unitTextureName]);
-      unitSprite.x = x;
-      unitSprite.y = y;
-      this.unitSprites.push(unitSprite);
-
+      // Direction indicator on hex tile
       if (this.showFacingDirections) {
         const dirTex = this.directionToSpriteName(creature.facingDirection);
         const dirSprite = new Sprite(this.assets.hexagonSheet?.textures[dirTex]);
-        dirSprite.position = { x, y };
+        dirSprite.position = {
+          x: centerPixel.x - this.hexMap.cellSize().x / 2,
+          y: centerPixel.y - this.hexMap.cellSize().y / 2,
+        };
         dirSprite.alpha = 0.5;
         this.unitSprites.push(dirSprite);
         this.unitRenderSubgroups[creature.position.y]?.addChild(dirSprite);
       }
 
+      // Formation Layout based on squad model count
+      const totalModels = creature.maxModels;
+      const aliveModels = creature.aliveModelCount;
+
+      let rows = 2;
+      let cols = 4;
+      let scale = 0.38;
+      let stepX = 14;
+      let stepY = 12;
+
+      if (totalModels >= 16) {
+        rows = 4;
+        cols = 4;
+        scale = 0.26;
+        stepX = 12;
+        stepY = 9;
+      } else if (totalModels >= 12) {
+        rows = 3;
+        cols = 4;
+        scale = 0.30;
+        stepX = 13;
+        stepY = 10;
+      } else if (totalModels >= 8) {
+        rows = 2;
+        cols = 4;
+        scale = 0.36;
+        stepX = 14;
+        stepY = 12;
+      } else if (totalModels >= 6) {
+        rows = 2;
+        cols = 3;
+        scale = 0.42;
+        stepX = 16;
+        stepY = 14;
+      } else if (totalModels >= 4) {
+        rows = 2;
+        cols = 2;
+        scale = 0.48;
+        stepX = 18;
+        stepY = 16;
+      } else {
+        rows = 1;
+        cols = 1;
+        scale = 0.85;
+        stepX = 0;
+        stepY = 0;
+      }
+
+      // Render each model in the squad formation
+      for (let m = 0; m < totalModels; m++) {
+        const row = Math.floor(m / cols);
+        const col = m % cols;
+        const isAlive = m < aliveModels;
+
+        const offsetX = cols > 1 ? (col - (cols - 1) / 2) * stepX : 0;
+        const offsetY = rows > 1 ? (row - (rows - 1) / 2) * stepY : 0;
+
+        const modelSprite = new Sprite(this.assets.unitsSheet?.textures[unitTextureName]);
+        modelSprite.anchor.set(0.5, 0.5);
+        modelSprite.scale.set(scale, scale);
+        modelSprite.x = centerPixel.x + offsetX;
+        modelSprite.y = centerPixel.y + offsetY - 4;
+
+        if (isAlive) {
+          modelSprite.alpha = 1.0;
+          if (creature.stats.is_hero && m === 0) {
+            modelSprite.tint = 0xffe680; // Hero commander golden highlight
+          }
+        } else {
+          // Fallen casualty model shown dimmed
+          modelSprite.alpha = 0.20;
+          modelSprite.tint = 0x555555;
+        }
+
+        if (index === this.battle.activeCreatureIndex) {
+          modelSprite.filters = [new OutlineFilter({ color: 0xd4bf72, thickness: 2 })];
+        } else if (index === mapUpdate.hoverEnemyIndex) {
+          modelSprite.filters = [new OutlineFilter({ color: 0xd43442, thickness: 2 })];
+        } else if (index === mapUpdate.hoverOverUnitIndex) {
+          modelSprite.filters = [new OutlineFilter({ color: 0x55cf55, thickness: 2 })];
+        }
+
+        this.unitSprites.push(modelSprite);
+        this.unitRenderSubgroups[creature.position.y]?.addChild(modelSprite);
+      }
+
+      // Dual Bars: Health Bar & Stamina Bar
       if (this.showHealthbars) {
+        // 1. Health Bar (Top)
         const healthBar = new ProgressBar({
           bg: 'thin_button_normal.png',
           fill: 'progress_fill.png',
           nineSliceSprite: { bg: [4, 4, 4, 4], fill: [3, 3, 3, 3] },
-          fillPaddings: { top: 2, right: 2, bottom: 2, left: 2 },
+          fillPaddings: { top: 1, right: 1, bottom: 1, left: 1 },
         });
-        healthBar.width = 80;
-        healthBar.height = 8;
-        healthBar.x = x;
-        healthBar.y = y + 60;
-        healthBar.progress = (100 * creature.stats.remaining_health) / creature.stats.health;
-        healthBar.rotation = -Math.PI / 2;
-
+        healthBar.width = 60;
+        healthBar.height = 6;
+        healthBar.x = centerPixel.x - 30;
+        healthBar.y = centerPixel.y + 24;
+        healthBar.progress = Math.max(0, (100 * creature.stats.remaining_health) / creature.stats.health);
         this.hexUnitBars.push(healthBar);
         this.unitRenderSubgroups[creature.position.y]?.addChild(healthBar);
-      }
 
-      unitSprite.filters = [];
-      if (index === this.battle.activeCreatureIndex) {
-        unitSprite.filters = [new OutlineFilter({ color: 0xd4bf72, thickness: 2 })];
-      }
-      if (index === mapUpdate.hoverEnemyIndex) {
-        unitSprite.filters = [new OutlineFilter({ color: 0xd43442, thickness: 2 })];
-      }
-      if (index === mapUpdate.hoverOverUnitIndex) {
-        unitSprite.filters = [new OutlineFilter({ color: 0x55cf55, thickness: 2 })];
-      }
+        // 2. Stamina Bar (Bottom)
+        const staminaBar = new ProgressBar({
+          bg: 'thin_button_normal.png',
+          fill: 'progress_fill.png',
+          nineSliceSprite: { bg: [4, 4, 4, 4], fill: [3, 3, 3, 3] },
+          fillPaddings: { top: 1, right: 1, bottom: 1, left: 1 },
+        });
+        staminaBar.width = 60;
+        staminaBar.height = 4;
+        staminaBar.x = centerPixel.x - 30;
+        staminaBar.y = centerPixel.y + 31;
+        staminaBar.progress = Math.max(0, (100 * creature.stats.stamina) / Math.max(1, creature.stats.max_stamina));
 
-      this.unitRenderSubgroups[creature.position.y]?.addChild(unitSprite);
+        // Color stamina bar according to exhaustion state
+        const exhaustion = creature.exhaustionState;
+        if (exhaustion === ExhaustionState.FRESH) {
+          staminaBar.tint = 0x44dd88;
+        } else if (exhaustion === ExhaustionState.WINDED) {
+          staminaBar.tint = 0xddcc33;
+        } else if (exhaustion === ExhaustionState.EXHAUSTED) {
+          staminaBar.tint = 0xee7722;
+        } else {
+          staminaBar.tint = 0xcc2222;
+        }
+
+        this.hexUnitBars.push(staminaBar);
+        this.unitRenderSubgroups[creature.position.y]?.addChild(staminaBar);
+      }
     });
   }
 

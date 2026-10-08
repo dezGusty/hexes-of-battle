@@ -54,6 +54,10 @@ How to run it locally (requires git & Node.js v.22 or newer):
 - open a code editor (E.g. vscode) and start hacking at the code
 - some tests are implemented, run `npm test` to execute them
 
+### Running simulations
+
+Headless CLI simulation runner via `npm run simulate -- --runs=N --scenario=ID` in `src/headless/batch-runner.ts`.
+
 ## Licensing
 
 The source code is available under the MIT license.

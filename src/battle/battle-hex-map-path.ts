@@ -70,15 +70,13 @@ export class BattleHexMapPath {
 
       // Store the neighbours and their reach values (cost and source).
       let neighbours_and_reach_pairs: ReachData[] = neighbours.map(neighbour_coords => {
-        const terrain_type: number = (mapData.terrain_tiles[neighbour_coords.x][neighbour_coords.y] in Object.keys(terrainMoveCost))
-          ? mapData.terrain_tiles[neighbour_coords.x][neighbour_coords.y]
-          : BattleHexMapPath.INVALID_CELL_MOVE_COST;
-        const cost: number = terrainMoveCost[terrain_type];
+        const terrain_type: number = mapData.terrain_tiles[neighbour_coords.x]?.[neighbour_coords.y] ?? 0;
+        const cost: number = terrainMoveCost[terrain_type] ?? BattleHexMapPath.INVALID_CELL_MOVE_COST;
         return {
           coords: neighbour_coords,
           reach: current.reach - cost,
           cameFrom: current.coords
-        }
+        };
       });
 
       for (let neighbour of neighbours_and_reach_pairs) {
