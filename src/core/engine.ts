@@ -142,6 +142,23 @@ export class HexesEngine {
           if (coordsCfg.strokeColor !== undefined) this.settings.debug.coordsStrokeColor = coordsCfg.strokeColor;
           if (coordsCfg.strokeWidth !== undefined) this.settings.debug.coordsStrokeWidth = coordsCfg.strokeWidth;
         }
+
+        const fpsCfg = this.templates.hudConfig.fps;
+        if (fpsCfg) {
+          if (fpsCfg.showFps !== undefined) this.settings.debug.showFps = fpsCfg.showFps;
+          if (fpsCfg.fontSize !== undefined) this.settings.debug.fpsFontSize = fpsCfg.fontSize;
+          if (fpsCfg.fontFamily !== undefined) this.settings.debug.fpsFontFamily = fpsCfg.fontFamily;
+          if (fpsCfg.color !== undefined) this.settings.debug.fpsColor = fpsCfg.color;
+          if (fpsCfg.alpha !== undefined) this.settings.debug.fpsAlpha = fpsCfg.alpha;
+          if (fpsCfg.x !== undefined || fpsCfg.y !== undefined) {
+            this.settings.debug.fpsPosition = {
+              x: fpsCfg.x ?? this.settings.debug.fpsPosition.x,
+              y: fpsCfg.y ?? this.settings.debug.fpsPosition.y,
+            };
+          }
+        } else if (this.templates.hudConfig.showFps !== undefined) {
+          this.settings.debug.showFps = this.templates.hudConfig.showFps;
+        }
       }
     } catch {
       // Use defaults if not found

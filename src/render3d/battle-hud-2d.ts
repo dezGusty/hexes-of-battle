@@ -1,4 +1,5 @@
-import { Container, Sprite, Texture } from "pixi.js";
+import { BitmapText, Container, Sprite, Texture } from "pixi.js";
+import { sound } from "@pixi/sound";
 import { AdvancedBloomFilter } from "pixi-filters";
 import { GameAssets } from "../core/scene";
 import { BattleSettings } from "../battle/settings";
@@ -10,6 +11,7 @@ import { CommonControls } from "../ui/common-controls";
 import { TopSidePanel } from "../ui/top-side-panel";
 import { BattleMenuPanel } from "../ui/battle-menu";
 import { UnitStatsPanel } from "../ui/unit-stats-panel";
+import { PerfDisplayPanel } from "../ui/perf-display-panel";
 import { TurnChangeCollection } from "../ui/turn-change-display";
 
 export interface BattleHud2DEvents {
@@ -24,6 +26,7 @@ export interface BattleHud2DEvents {
   onToggleStats?: () => void;
   onToggleGrid?: (showGrid: boolean) => void;
   onToggleCoords?: (showCoords: boolean) => void;
+  onToggleMusic?: (musicOn: boolean) => void;
 }
 
 /**
@@ -42,6 +45,8 @@ export class BattleHud2D {
   public topSidePanel?: TopSidePanel;
   public battleMenuPanel?: BattleMenuPanel;
   public unitStats?: UnitStatsPanel;
+  public perfDisplayPanel: PerfDisplayPanel = new PerfDisplayPanel();
+  public fpsText?: BitmapText;
   public turnChangeDisplay: TurnChangeCollection = new TurnChangeCollection();
   public softCursorSprite?: Sprite;
 
@@ -72,6 +77,8 @@ export class BattleHud2D {
     this.container.addChild(this.uiRenderGroup);
     this.container.addChild(this.uiPlusRenderGroup);
     this.container.addChild(this.uiCursorRenderGroup);
+
+    this.initializeFpsIndicator();
   }
 
   public initialize(events: BattleHud2DEvents): void {
@@ -80,6 +87,12 @@ export class BattleHud2D {
       if (this.assets.softCursorTextures['default']) {
         this.softCursorSprite = new Sprite(this.assets.softCursorTextures['default']);
         this.uiCursorRenderGroup.addChild(this.softCursorSprite);
+      }
+      this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet);
+      if (this.settings.hex.showStats) {
+        this.unitStats.show();
+      } else {
+        this.unitStats.hide();
       }
     }
 
@@ -166,6 +179,18 @@ export class BattleHud2D {
       this.settings.save();
     });
 
+    this.battleMenuPanel?.toggleMusicButton?.onPress.connect(() => {
+      this.settings.sound.musicOn = !this.settings.sound.musicOn;
+      this.settings.save();
+      sound.stop('track_dark_whispers');
+      if (this.settings.sound.musicOn) {
+        sound.play('track_dark_whispers', { loop: true, volume: this.settings.sound.musicVolume });
+      }
+      if (events.onToggleMusic) {
+        events.onToggleMusic(this.settings.sound.musicOn);
+      }
+    });
+
     this.commonControls.zoomInButton?.onPress.connect(() => events.onZoomIn());
     this.commonControls.zoomOutButton?.onPress.connect(() => events.onZoomOut());
     this.commonControls.zoomSlider?.onUpdate.connect((val) => events.onZoomSliderUpdate(val));
@@ -183,12 +208,33 @@ export class BattleHud2D {
       if (!this.assets.uiSheet) return;
       if (!this.unitStats) {
         this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet);
-        this.unitStats.toggleVisibility();
-      } else {
-        this.unitStats.toggleVisibility();
       }
+      this.unitStats.toggleVisibility();
+      this.settings.hex.showStats = this.unitStats.isVisible();
+      this.settings.save();
       if (events.onToggleStats) events.onToggleStats();
     });
+
+    this.commonControls.togglePerfStatsButton?.onPress.connect(() => {
+      if (!this.assets.uiSheet) return;
+      this.perfDisplayPanel.toggleVisibility(this.uiRenderGroup, this.assets.uiSheet);
+    });
+  }
+
+  private initializeFpsIndicator(): void {
+    this.fpsText = new BitmapText({
+      text: 'FPS: 0',
+      style: {
+        fontFamily: this.settings.debug.fpsFontFamily || 'GustysSerpents',
+        fontSize: this.settings.debug.fpsFontSize || 14,
+        align: 'left',
+      },
+    });
+    this.fpsText.x = this.settings.debug.fpsPosition?.x ?? 136;
+    this.fpsText.y = this.settings.debug.fpsPosition?.y ?? 2;
+    this.fpsText.alpha = this.settings.debug.fpsAlpha ?? 0.7;
+    this.fpsText.visible = this.settings.debug.showFps;
+    this.uiRenderGroup.addChild(this.fpsText);
   }
 
   private initializeTopPanel(): void {
@@ -337,8 +383,24 @@ export class BattleHud2D {
     return false;
   }
 
-  public update(deltaMS: number): void {
+  public update(deltaMS: number, fps?: number): void {
     this.turnChangeDisplay.update(deltaMS);
+    this.perfDisplayPanel.update();
+    if (this.fpsText && fps !== undefined) {
+      this.fpsText.text = `FPS: ${Math.round(fps)}`;
+      this.fpsText.visible = this.settings.debug.showFps;
+    }
+  }
+
+  public setFpsVisible(visible: boolean): void {
+    this.settings.debug.showFps = visible;
+    if (this.fpsText) {
+      this.fpsText.visible = visible;
+    }
+  }
+
+  public isFpsVisible(): boolean {
+    return this.fpsText?.visible ?? this.settings.debug.showFps;
   }
 
   public isMenuBlockingInput(): boolean {

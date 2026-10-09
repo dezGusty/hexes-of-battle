@@ -142,7 +142,7 @@ export class BattleScene3D implements Scene {
 
   public update(deltaMS: number): void {
     this.view.update(deltaMS);
-    this.hud.update(deltaMS);
+    this.hud.update(deltaMS, this.context.app.ticker.FPS);
     this.cpuPlayer.update(deltaMS);
   }
 
@@ -168,6 +168,7 @@ export class BattleScene3D implements Scene {
       this.hud.updateUnitStats(active);
     }
 
+    sound.stop("track_dark_whispers");
     if (this.context.settings.sound.musicOn) {
       sound.play("track_dark_whispers", { loop: true, volume: this.context.settings.sound.musicVolume });
     }

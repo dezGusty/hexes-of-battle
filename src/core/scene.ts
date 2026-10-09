@@ -34,6 +34,22 @@ export interface HudConfig {
     strokeColor?: string;
     strokeWidth?: number;
   };
+  fps?: {
+    showFps?: boolean;
+    fontSize?: number;
+    fontFamily?: string;
+    color?: string;
+    alpha?: number;
+    x?: number;
+    y?: number;
+  };
+  showFps?: boolean;
+  healthbars?: {
+    showHealthbars?: boolean;
+  };
+  tooltips?: {
+    enabled?: boolean;
+  };
 }
 
 export interface GameTemplates {

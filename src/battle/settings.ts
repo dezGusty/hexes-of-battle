@@ -9,7 +9,7 @@ export class SoundSettings {
 export class HexDisplaySettings {
   public showGrid: boolean = true;
   public showHealthbars: boolean = true;
-  public showStats: boolean = true;
+  public showStats: boolean = false;
   public gridBorderThickness: number = 2.5;
   public gridBorderColor: string = '#000000';
 }
@@ -17,6 +17,12 @@ export class HexDisplaySettings {
 export class DebugSettings {
   public showCoords: boolean = true;
   public showPerfStats: boolean = false;
+  public showFps: boolean = true;
+  public fpsFontSize: number = 14;
+  public fpsFontFamily: string = 'GustysSerpents';
+  public fpsColor: string = '#ffffff';
+  public fpsAlpha: number = 0.7;
+  public fpsPosition: { x: number; y: number } = { x: 136, y: 2 };
   public coordsFontSize: number = 14;
   public coordsFontFamily: string = 'GustysSerpents, sans-serif';
   public coordsColor: string = '#ffffff';
@@ -31,25 +37,40 @@ export class BattleSettings {
   public debug: DebugSettings = new DebugSettings();
 
   public load() {
+    if (typeof localStorage === 'undefined') return;
 
     // Load the settings from the browser's local storage
     const sound = localStorage.getItem('hob.sound');
     if (sound) {
-      this.sound = JSON.parse(sound);
+      try {
+        Object.assign(this.sound, JSON.parse(sound));
+      } catch {
+        // Fall back to default
+      }
     }
 
     const hex = localStorage.getItem('hob.hex');
     if (hex) {
-      this.hex = JSON.parse(hex);
+      try {
+        Object.assign(this.hex, JSON.parse(hex));
+      } catch {
+        // Fall back to default
+      }
     }
 
     const debug = localStorage.getItem('hob.debug');
     if (debug) {
-      this.debug = JSON.parse(debug);
+      try {
+        Object.assign(this.debug, JSON.parse(debug));
+      } catch {
+        // Fall back to default
+      }
     }
   }
 
   public save() {
+    if (typeof localStorage === 'undefined') return;
+
     // Save the sound settings to the browser's local storage
     localStorage.setItem('hob.sound', JSON.stringify(this.sound));
     // Save the hex display settings to the browser's local storage

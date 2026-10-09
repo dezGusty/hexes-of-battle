@@ -223,8 +223,8 @@ export class UnitStatsPanel {
     this.window.addChild(this.tooltipWindow);
     this.window.addChild(this.tooltipText);
 
-
     this.view.addChild(this.window);
+    this.hide();
   }
 
   public getBuffDescOrUndefined(buff: Buff): string[] {
@@ -337,6 +337,10 @@ export class UnitStatsPanel {
 
   public toggleVisibility() {
     this.window.visible = !this.window.visible;
+  }
+
+  public show() {
+    this.window.visible = true;
   }
 
   public hide() {

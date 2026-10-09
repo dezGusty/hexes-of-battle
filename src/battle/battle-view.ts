@@ -378,9 +378,10 @@ export class BattleView {
       if (!this.assets.uiSheet) return;
       if (!this.unitStats) {
         this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet);
-        this.unitStats.hide();
       }
       this.unitStats.toggleVisibility();
+      this.settings.hex.showStats = this.unitStats.isVisible();
+      this.settings.save();
       if (this.unitStats && this.battle.activeCreatureIndex >= 0) {
         this.unitStats.setCreature(this.battle.creatures[this.battle.activeCreatureIndex]);
         this.unitStats.update();
@@ -395,10 +396,9 @@ export class BattleView {
     this.battleMenuPanel?.toggleMusicButton?.onPress.connect(() => {
       this.settings.sound.musicOn = !this.settings.sound.musicOn;
       this.settings.save();
+      sound.stop('track_dark_whispers');
       if (this.settings.sound.musicOn) {
         sound.play('track_dark_whispers', { loop: true, volume: this.settings.sound.musicVolume });
-      } else {
-        sound.stop('track_dark_whispers');
       }
     });
 
@@ -411,6 +411,15 @@ export class BattleView {
 
     if (this.assets.uiSheet) {
       this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet);
+      if (this.settings.hex.showStats) {
+        this.unitStats.show();
+        if (this.battle.activeCreatureIndex >= 0) {
+          this.unitStats.setCreature(this.battle.creatures[this.battle.activeCreatureIndex]);
+          this.unitStats.update();
+        }
+      } else {
+        this.unitStats.hide();
+      }
     }
   }
 
@@ -489,11 +498,16 @@ export class BattleView {
   private initializeTexts(): void {
     this.fpsText = new BitmapText({
       text: 'FPS: 0',
-      style: { fontFamily: 'GustysSerpents', fontSize: 14, align: 'left' },
+      style: {
+        fontFamily: this.settings.debug.fpsFontFamily || 'GustysSerpents',
+        fontSize: this.settings.debug.fpsFontSize || 14,
+        align: 'left',
+      },
     });
-    this.fpsText.x = 136;
-    this.fpsText.y = 2;
-    this.fpsText.alpha = 0.7;
+    this.fpsText.x = this.settings.debug.fpsPosition?.x ?? 136;
+    this.fpsText.y = this.settings.debug.fpsPosition?.y ?? 2;
+    this.fpsText.alpha = this.settings.debug.fpsAlpha ?? 0.7;
+    this.fpsText.visible = this.settings.debug.showFps;
     this.uiRenderGroup.addChild(this.fpsText);
 
     const style = new TextStyle({ fontFamily: 'Arial', fontSize: 18, fill: { color: '#ffffff', alpha: 1 } });

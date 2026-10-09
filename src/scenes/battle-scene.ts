@@ -124,6 +124,13 @@ export class BattleScene implements Scene {
     this.battle.start();
     this.view.showTurnBanner(0, 0);
 
+    const active = this.battle.getActiveCreature();
+    if (active) {
+      this.view.updateActiveUnitAbility(active);
+      this.view.showStatsForUnit(active);
+    }
+
+    sound.stop("track_dark_whispers");
     if (this.context.settings.sound.musicOn) {
       sound.play("track_dark_whispers", { loop: true, volume: this.context.settings.sound.musicVolume });
     }
@@ -169,6 +176,7 @@ export class BattleScene implements Scene {
 
     this.battle.hookActiveUnitChanged = (creature) => {
       this.view.updateActiveUnitAbility(creature);
+      this.view.showStatsForUnit(creature);
     };
   }
 

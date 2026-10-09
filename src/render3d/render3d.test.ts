@@ -1,5 +1,14 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+vi.mock("@pixi/sound", () => ({
+  sound: {
+    play: vi.fn(),
+    stop: vi.fn(),
+  },
+}));
+
 import * as THREE from 'three';
+import { Texture as PixiTexture } from 'pixi.js';
 import { HexBoard3D } from './hex-board-3d';
 import { HexMap } from '../shared/hex-map';
 import { Creature, CreatureType } from '../battle/creature';
@@ -8,6 +17,7 @@ import { ProjectileSystem3D } from './projectiles/projectile-system-3d';
 import { BattleHud2D } from './battle-hud-2d';
 import { Battle } from '../battle';
 import { BattleSettings } from '../battle/settings';
+import { UnitStatsPanel } from '../ui/unit-stats-panel';
 
 describe('3D Graphics Engine & Rendering Systems', () => {
   describe('1. 3D Hex Board & Coordinates', () => {
@@ -173,6 +183,66 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       // Center battlefield area (should not block 3D interaction)
       expect(hud.isPointerOverUI(800, 500)).toBe(false);
       expect(hud.isPointerOverUI(1100, 600)).toBe(false);
+
+      hud.destroy();
+    });
+
+    it('should initialize FPS indicator from settings and update FPS text on frame tick', () => {
+      const battle = new Battle(new HexMap(13, 9));
+      const settings = new BattleSettings();
+      settings.debug.showFps = true;
+      settings.debug.fpsFontSize = 16;
+      const assets = { softCursorTextures: {} };
+
+      const hud = new BattleHud2D(assets, settings, battle);
+
+      expect(hud.fpsText).toBeDefined();
+      expect(hud.isFpsVisible()).toBe(true);
+
+      // Update with 60 FPS
+      hud.update(16.6, 59.8);
+      expect(hud.fpsText?.text).toBe('FPS: 60');
+
+      // Toggle FPS visibility
+      hud.setFpsVisible(false);
+      expect(hud.isFpsVisible()).toBe(false);
+      expect(hud.fpsText?.visible).toBe(false);
+
+      hud.setFpsVisible(true);
+      expect(hud.isFpsVisible()).toBe(true);
+      expect(hud.fpsText?.visible).toBe(true);
+
+      hud.destroy();
+    });
+
+    it('should respect settings.hex.showStats in BattleHud2D', () => {
+      const battle = new Battle(new HexMap(13, 9));
+      const settings = new BattleSettings();
+      settings.hex.showStats = true;
+
+      const dummyUiSheet = {
+        textures: new Proxy({}, {
+          get: () => PixiTexture.EMPTY,
+        }),
+      };
+
+      const assets = {
+        uiSheet: dummyUiSheet as any,
+        softCursorTextures: {},
+      };
+
+      const hud = new BattleHud2D(assets, settings, battle);
+      hud.unitStats = new UnitStatsPanel(hud.uiPlusRenderGroup, dummyUiSheet as unknown as any);
+      if (settings.hex.showStats) {
+        hud.unitStats.show();
+      }
+
+      expect(hud.unitStats.isVisible()).toBe(true);
+
+      // Toggling stats updates settings
+      hud.unitStats.toggleVisibility();
+      settings.hex.showStats = hud.unitStats.isVisible();
+      expect(settings.hex.showStats).toBe(false);
 
       hud.destroy();
     });

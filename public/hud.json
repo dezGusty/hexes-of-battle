@@ -13,6 +13,15 @@
     "strokeColor": "#000000",
     "strokeWidth": 3
   },
+  "fps": {
+    "showFps": true,
+    "fontSize": 14,
+    "fontFamily": "GustysSerpents",
+    "color": "#ffffff",
+    "alpha": 0.7,
+    "x": 136,
+    "y": 2
+  },
   "healthbars": {
     "showHealthbars": true
   },

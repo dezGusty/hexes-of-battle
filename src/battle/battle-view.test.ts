@@ -7,6 +7,7 @@ vi.mock("@pixi/sound", () => ({
   },
 }));
 
+import { Container, Texture, Spritesheet } from "pixi.js";
 import { Battle, ArmyControlType } from "../battle";
 import { HexMap } from "../shared/hex-map";
 import { BattleView } from "./battle-view";
@@ -14,6 +15,7 @@ import { BattleSettings } from "./settings";
 import { AggressiveCPUPlayer } from "./aggressive-cpu-player";
 import { DefensiveCPUPlayer } from "./defensive-cpu-player";
 import { DumbCPUPlayer } from "./dumb-cpu-player";
+import { UnitStatsPanel } from "../ui/unit-stats-panel";
 
 describe("BattleView Army Names Formatting", () => {
   const dummyAssets: any = { softCursorTextures: {} };
@@ -73,3 +75,114 @@ describe("BattleView Army Names Formatting", () => {
     expect(view.getFormattedArmyName(1)).toBe("Human - Silver Vanguard");
   });
 });
+
+describe("UnitStatsPanel Visibility", () => {
+  it("should initialize as hidden and toggle to visible on first toggle click", () => {
+    const container = new Container();
+    const dummyUiSheet = {
+      textures: new Proxy({}, {
+        get: () => Texture.EMPTY,
+      }),
+    } as unknown as Spritesheet;
+
+    const panel = new UnitStatsPanel(container, dummyUiSheet);
+
+    // Initial state must be hidden
+    expect(panel.isVisible()).toBe(false);
+
+    // First toggle must show the panel
+    panel.toggleVisibility();
+    expect(panel.isVisible()).toBe(true);
+
+    // Second toggle must hide the panel
+    panel.toggleVisibility();
+    expect(panel.isVisible()).toBe(false);
+
+    // show() and hide() direct controls
+    panel.show();
+    expect(panel.isVisible()).toBe(true);
+    panel.hide();
+    expect(panel.isVisible()).toBe(false);
+  });
+
+  it("should persist and load showStats in hob.hex in localStorage", () => {
+    const storage: Record<string, string> = {};
+    (globalThis as any).localStorage = {
+      getItem: (key: string) => storage[key] ?? null,
+      setItem: (key: string, value: string) => {
+        storage[key] = value;
+      },
+      removeItem: (key: string) => {
+        delete storage[key];
+      },
+      clear: () => {
+        Object.keys(storage).forEach((k) => delete storage[k]);
+      },
+    };
+
+    const settings = new BattleSettings();
+    expect(settings.hex.showStats).toBe(false);
+
+    // Change and save
+    settings.hex.showStats = true;
+    settings.save();
+
+    const storedHex = JSON.parse(storage['hob.hex'] || '{}');
+    expect(storedHex.showStats).toBe(true);
+
+    // Load in fresh settings
+    const newSettings = new BattleSettings();
+    newSettings.load();
+    expect(newSettings.hex.showStats).toBe(true);
+
+    // Turn off and save
+    newSettings.hex.showStats = false;
+    newSettings.save();
+
+    const updatedSettings = new BattleSettings();
+    updatedSettings.load();
+    expect(updatedSettings.hex.showStats).toBe(false);
+  });
+
+  it("should persist and load musicOn in hob.sound in localStorage", () => {
+    const storage: Record<string, string> = {};
+    (globalThis as any).localStorage = {
+      getItem: (key: string) => storage[key] ?? null,
+      setItem: (key: string, value: string) => {
+        storage[key] = value;
+      },
+      removeItem: (key: string) => {
+        delete storage[key];
+      },
+      clear: () => {
+        Object.keys(storage).forEach((k) => delete storage[k]);
+      },
+    };
+
+    const settings = new BattleSettings();
+    expect(settings.sound.musicOn).toBe(false);
+
+    // Toggle music on and save
+    settings.sound.musicOn = true;
+    settings.save();
+
+    const storedSound = JSON.parse(storage['hob.sound'] || '{}');
+    expect(storedSound.musicOn).toBe(true);
+
+    // Load in fresh settings
+    const loadedSettings = new BattleSettings();
+    loadedSettings.load();
+    expect(loadedSettings.sound.musicOn).toBe(true);
+
+    // Toggle music off and save
+    loadedSettings.sound.musicOn = false;
+    loadedSettings.save();
+
+    const reloadedSettings = new BattleSettings();
+    reloadedSettings.load();
+    expect(reloadedSettings.sound.musicOn).toBe(false);
+  });
+});
+
+
+
