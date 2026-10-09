@@ -83,7 +83,9 @@ export class BillboardStaticVisual implements IUnitVisual {
   }
 
   public setCasualtyFade(opacity: number): void {
-    this.material.opacity = Math.max(0, Math.min(1, opacity));
+    const clamped = Math.max(0, Math.min(1, opacity));
+    this.material.opacity = clamped;
+    this.mesh.visible = clamped > 0;
   }
 
   public update(deltaMs: number): void {

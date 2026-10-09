@@ -25,6 +25,8 @@ export interface BattleViewEvents {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onZoomSliderUpdate: (value: number) => void;
+  onAltitudeUp?: () => void;
+  onAltitudeDown?: () => void;
   onNextTurn: () => void;
   onNextUnit: () => void;
   onReset: () => void;
@@ -349,6 +351,12 @@ export class BattleView {
     this.commonControls.zoomInButton?.onPress.connect(() => events.onZoomIn());
     this.commonControls.zoomOutButton?.onPress.connect(() => events.onZoomOut());
     this.commonControls.zoomSlider?.onUpdate.connect((val) => events.onZoomSliderUpdate(val));
+    if (events.onAltitudeUp) {
+      this.commonControls.altitudeUpButton?.onPress.connect(() => events.onAltitudeUp!());
+    }
+    if (events.onAltitudeDown) {
+      this.commonControls.altitudeDownButton?.onPress.connect(() => events.onAltitudeDown!());
+    }
 
     this.battleMenuPanel?.toggleCoordsButton?.onPress.connect(() => {
       this.settings.debug.showCoords = !this.settings.debug.showCoords;

@@ -1,6 +1,6 @@
 import { sound } from '@pixi/sound';
 import { Battle, MapRenderUpdate } from '../battle';
-import { HexFlankStatus, HexMap } from '../shared/hex-map';
+import { HexDirection, HexFlankStatus, HexMap, checkFlankingStatus } from '../shared/hex-map';
 import { Coords } from '../shared';
 import { Creature } from '../battle/creature';
 import { BattleActionType } from '../battle/battle-action';
@@ -34,7 +34,9 @@ export class BattleView3D {
 
   // Interaction & Input State
   private hoveredHex: Coords | null = null;
+  private hoveredDirection: HexDirection = HexDirection.NONE;
   private isPointerDown: boolean = false;
+  private isCtrlPressed: boolean = false;
   private lastPointerPos: Coords = { x: 0, y: 0 };
   private pointerButton: number = 0;
 
@@ -51,6 +53,13 @@ export class BattleView3D {
   private boundClick?: (e: MouseEvent) => void;
   private boundContextMenu?: (e: MouseEvent) => void;
   private boundKeyDown?: (e: KeyboardEvent) => void;
+  private boundKeyUp?: (e: KeyboardEvent) => void;
+  private boundBlur?: () => void;
+
+  // Active keyboard navigation keys
+  private pressedKeys: Set<string> = new Set();
+  public cameraPanSpeed: number = 16.0; // world units per second
+  public cameraRotateSpeed: number = 2.2; // radians per second
 
   constructor(
     container: HTMLElement,
@@ -273,6 +282,9 @@ export class BattleView3D {
   }
 
   public update(deltaMS: number): void {
+    // 0. Update smooth continuous camera keyboard inputs (W, A, S, D, Q, E)
+    this.updateCameraKeyboardInput(deltaMS);
+
     // 1. Process battle engine actions and updates
     const mapUpdate: MapRenderUpdate = this.battle.update(deltaMS);
 
@@ -280,22 +292,36 @@ export class BattleView3D {
       // Sync unit positions and alive counts
       this.squadVisuals.forEach((squad, guidStr) => {
         const creature = this.battle.creatures.find((c) => c.GUID.toString() === guidStr);
-        if (creature) {
-          if (!creature.isAlive && squad.creature.aliveModelCount === 0) {
-            squad.updateStats();
-          } else {
-            const worldPos = this.hexBoard.hexToWorld(creature.position.x, creature.position.y);
-            squad.rootGroup.position.copy(worldPos);
-            squad.setFacing(creature.facingDirection);
-            squad.updateStats();
-          }
+        if (creature && creature.isAlive && creature.aliveModelCount > 0) {
+          const worldPos = this.hexBoard.hexToWorld(creature.position.x, creature.position.y);
+          squad.rootGroup.position.copy(worldPos);
+          squad.setFacing(creature.facingDirection);
+          squad.updateStats();
+        } else {
+          squad.updateStats();
         }
       });
       this.updateActiveUnitSelection();
+      this.updateHoverVisuals();
     }
 
-    // 2. Update 3D squads (overhead bars, animations, floating text)
-    this.squadVisuals.forEach((squad) => squad.update(deltaMS, this.sceneManager.camera));
+    // 2. Update 3D squads (overhead bars, animations, floating text) and cleanup eliminated squads
+    const toRemoveGuids: string[] = [];
+    this.squadVisuals.forEach((squad, guidStr) => {
+      squad.update(deltaMS, this.sceneManager.camera);
+      if (squad.isEliminated && !squad.hasActiveEffects) {
+        toRemoveGuids.push(guidStr);
+      }
+    });
+
+    for (const guid of toRemoveGuids) {
+      const squad = this.squadVisuals.get(guid);
+      if (squad) {
+        this.sceneManager.scene.remove(squad.rootGroup);
+        squad.dispose();
+        this.squadVisuals.delete(guid);
+      }
+    }
 
     // 3. Update 3D projectiles
     this.projectileSystem.update(deltaMS);
@@ -316,6 +342,118 @@ export class BattleView3D {
 
   public showTurnBanner(_turnNum: number, _armyIdx: number): void {
     this.updateActiveUnitSelection();
+  }
+
+  private clearHoverState(): void {
+    this.hoveredHex = null;
+    this.hoveredDirection = HexDirection.NONE;
+    this.hexBoard.setHoverHex(null);
+    this.hexBoard.clearAttackPreview();
+    this.hexBoard.clearPathPreview();
+    this.hud?.setCursor('default');
+  }
+
+  private updateHoverVisuals(): void {
+    if (!this.hoveredHex) {
+      this.clearHoverState();
+      return;
+    }
+
+    this.hexBoard.setHoverHex(this.hoveredHex);
+
+    const activeCreature = this.battle.getActiveCreature();
+    const targetCreature = this.battle.getCreatureAtPosition(this.hoveredHex);
+    const renderUpdate = this.battle.nextRenderUpdate;
+
+    // 1. Update cursor hint in HUD
+    if (renderUpdate.cursorHint) {
+      this.hud?.setCursor(renderUpdate.cursorHint);
+    } else {
+      this.hud?.setCursor('default');
+    }
+
+    // 2. Attack Preview & Flank Calculation
+    if (
+      activeCreature &&
+      targetCreature &&
+      targetCreature.indexOFArmy !== activeCreature.armyAlignment &&
+      activeCreature.live_stats.remaining_attacks > 0
+    ) {
+      const isRanged = activeCreature.live_stats.is_ranged && activeCreature.stats.remaining_ammo > 0;
+      const isMeleeForced = this.isCtrlPressed;
+
+      if (isRanged && !isMeleeForced) {
+        // Standard Ranged Attack Preview: target ring only, no origin hex or melee ground arrow
+        const inRangedReach =
+          (this.battle.rangereach_tiles[this.hoveredHex.x]?.[this.hoveredHex.y] ?? 0) > 0 ||
+          (this.battle.rangereach_targets[this.hoveredHex.x]?.[this.hoveredHex.y] ?? 0) > 0;
+
+        if (inRangedReach) {
+          this.hexBoard.setAttackPreview(this.hoveredHex, null, HexFlankStatus.NONE);
+          this.hexBoard.clearPathPreview();
+          this.hud?.setCursor('attack_ranged');
+        } else {
+          this.hexBoard.clearAttackPreview();
+          this.hexBoard.clearPathPreview();
+          this.hud?.setCursor('default');
+        }
+        return;
+      }
+
+      // Melee Attack Preview (or forced melee with CTRL)
+      let originHex: Coords | null = null;
+
+      if (renderUpdate.hoverPath && renderUpdate.hoverPath.length > 0) {
+        const lastNode = renderUpdate.hoverPath[renderUpdate.hoverPath.length - 1];
+        if (lastNode.x === this.hoveredHex.x && lastNode.y === this.hoveredHex.y) {
+          if (renderUpdate.hoverPath.length >= 2) {
+            originHex = renderUpdate.hoverPath[renderUpdate.hoverPath.length - 2];
+          } else {
+            originHex = activeCreature.position;
+          }
+        } else {
+          // Destination approach hex where the unit steps to attack
+          originHex = lastNode;
+        }
+      } else {
+        const isAdjacent = this.hexMap.getNeighbours(activeCreature.position).some(
+          (n) => n.x === this.hoveredHex!.x && n.y === this.hoveredHex!.y
+        );
+        if (this.hoveredDirection !== HexDirection.NONE) {
+          const hoveredNeighbour = this.hexMap.getNeighbourInDirection(this.hoveredHex, this.hoveredDirection);
+          if (hoveredNeighbour && hoveredNeighbour.x === activeCreature.position.x && hoveredNeighbour.y === activeCreature.position.y) {
+            originHex = activeCreature.position;
+          } else if (isAdjacent) {
+            originHex = activeCreature.position;
+          } else if (hoveredNeighbour) {
+            originHex = hoveredNeighbour;
+          }
+        } else if (isAdjacent) {
+          originHex = activeCreature.position;
+        }
+      }
+
+      let flankStatus = HexFlankStatus.NONE;
+      if (originHex) {
+        const attackFromDir = this.hexMap.getDirectionForNeighbour(originHex, this.hoveredHex);
+        flankStatus = checkFlankingStatus(targetCreature.creature.facingDirection, attackFromDir);
+      }
+
+      this.hexBoard.setAttackPreview(this.hoveredHex, originHex, flankStatus);
+      if (renderUpdate.hoverPath && renderUpdate.hoverPath.length > 0) {
+        this.hexBoard.setPathPreview(renderUpdate.hoverPath);
+      } else {
+        this.hexBoard.clearPathPreview();
+      }
+    } else {
+      this.hexBoard.clearAttackPreview();
+
+      if (renderUpdate.hoverPath && renderUpdate.hoverPath.length > 0) {
+        this.hexBoard.setPathPreview(renderUpdate.hoverPath);
+      } else {
+        this.hexBoard.clearPathPreview();
+      }
+    }
   }
 
   private getStageCoords(clientX: number, clientY: number): Coords {
@@ -342,8 +480,19 @@ export class BattleView3D {
       this.lastPointerPos = { x: e.clientX, y: e.clientY };
     };
 
-    this.boundPointerUp = () => {
+    this.boundPointerUp = (e: PointerEvent) => {
       this.isPointerDown = false;
+      const stageCoords = this.getStageCoords(e.clientX, e.clientY);
+      if (this.hud?.isPointerOverUI(stageCoords.x, stageCoords.y)) {
+        return;
+      }
+      if (this.battle.isCurrentTurnAI()) return;
+
+      // Right-click: Target for movement or attack
+      if (e.button === 2 && this.hoveredHex) {
+        this.battle.handleSecondaryCellAction(this.hoveredHex, this.hoveredDirection, e.ctrlKey);
+        this.updateHoverVisuals();
+      }
     };
 
     this.boundPointerMove = (e: PointerEvent) => {
@@ -354,10 +503,7 @@ export class BattleView3D {
         const dx = e.clientX - this.lastPointerPos.x;
         const dy = e.clientY - this.lastPointerPos.y;
 
-        if (this.pointerButton === 2) {
-          // Right-click drag: Orbit camera
-          this.sceneManager.rotateCamera(-dx * 0.008, -dy * 0.006);
-        } else if (this.pointerButton === 1) {
+        if (this.pointerButton === 1) {
           // Middle-click drag: Pan camera
           this.sceneManager.panCamera(-dx * 0.02, -dy * 0.02);
         }
@@ -365,8 +511,7 @@ export class BattleView3D {
       }
 
       if (this.hud?.isPointerOverUI(stageCoords.x, stageCoords.y)) {
-        this.hoveredHex = null;
-        this.hexBoard.setHoverHex(null);
+        this.clearHoverState();
         return;
       }
 
@@ -377,12 +522,18 @@ export class BattleView3D {
         if (hitTile) {
           const { hexX, hexY } = (hitTile.object as any).userData;
           this.hoveredHex = { x: hexX, y: hexY };
-          this.hexBoard.setHoverHex(this.hoveredHex);
+
+          const centerWorld = this.hexBoard.hexToWorld(hexX, hexY);
+          const dx = hitTile.point.x - centerWorld.x;
+          const dz = hitTile.point.z - centerWorld.z;
+          this.hoveredDirection = this.hexBoard.worldVectorToHexDirection(dx, dz);
+
+          this.battle.onMouseOverCell(this.hoveredHex, this.hoveredDirection, e.ctrlKey);
+          this.updateHoverVisuals();
           return;
         }
       }
-      this.hoveredHex = null;
-      this.hexBoard.setHoverHex(null);
+      this.clearHoverState();
     };
 
     this.boundWheel = (e: WheelEvent) => {
@@ -402,7 +553,8 @@ export class BattleView3D {
       if (this.battle.isCurrentTurnAI()) return;
 
       if (e.button === 0 && this.hoveredHex) {
-        this.battle.handlePrimaryCellAction(this.hoveredHex);
+        this.battle.handlePrimaryCellAction(this.hoveredHex, this.hoveredDirection);
+        this.updateHoverVisuals();
       }
     };
 
@@ -414,27 +566,67 @@ export class BattleView3D {
     window.addEventListener('click', this.boundClick);
   }
 
+  public updateCameraKeyboardInput(deltaMS: number): void {
+    if (this.pressedKeys.size === 0) return;
+
+    const dt = deltaMS / 1000;
+    const moveDist = this.cameraPanSpeed * dt;
+    const rotateAngle = this.cameraRotateSpeed * dt;
+
+    let panX = 0;
+    let panZ = 0;
+    let rotateYaw = 0;
+
+    if (this.pressedKeys.has('w')) panZ -= moveDist;
+    if (this.pressedKeys.has('s')) panZ += moveDist;
+    if (this.pressedKeys.has('a')) panX -= moveDist;
+    if (this.pressedKeys.has('d')) panX += moveDist;
+
+    if (this.pressedKeys.has('q')) rotateYaw -= rotateAngle;
+    if (this.pressedKeys.has('e')) rotateYaw += rotateAngle;
+
+    if (panX !== 0 || panZ !== 0) {
+      this.sceneManager.panCamera(panX, panZ);
+    }
+    if (rotateYaw !== 0) {
+      this.sceneManager.rotateCamera(rotateYaw);
+    }
+  }
+
+  public isKeyPressed(key: string): boolean {
+    return this.pressedKeys.has(key.toLowerCase());
+  }
+
+  public setKeyPressed(key: string, pressed: boolean): void {
+    if (pressed) {
+      this.pressedKeys.add(key.toLowerCase());
+    } else {
+      this.pressedKeys.delete(key.toLowerCase());
+    }
+  }
+
   private setupKeyboardControls(): void {
     this.boundKeyDown = (e: KeyboardEvent) => {
-      switch (e.key.toLowerCase()) {
-        case 'q':
-          this.sceneManager.rotateCamera(-0.1);
-          break;
-        case 'e':
-          this.sceneManager.rotateCamera(0.1);
-          break;
-        case 'w':
-          this.sceneManager.panCamera(0, -0.5);
-          break;
-        case 's':
-          this.sceneManager.panCamera(0, 0.5);
-          break;
-        case 'a':
-          this.sceneManager.panCamera(-0.5, 0);
-          break;
-        case 'd':
-          this.sceneManager.panCamera(0.5, 0);
-          break;
+      const key = e.key.toLowerCase();
+
+      if (e.key === 'Control' || e.ctrlKey) {
+        this.isCtrlPressed = true;
+        if (this.hoveredHex) {
+          this.battle.onMouseOverCell(this.hoveredHex, this.hoveredDirection, true);
+          this.updateHoverVisuals();
+        }
+      }
+
+      // Continuous movement/rotation keys are tracked in pressedKeys for smooth frame-by-frame updates
+      if (['w', 'a', 's', 'd', 'q', 'e'].includes(key)) {
+        this.pressedKeys.add(key);
+        return;
+      }
+
+      // Single-input hotkeys (only trigger once on initial keydown, ignore OS auto-repeat)
+      if (e.repeat) return;
+
+      switch (key) {
         case 'r':
           if (this.events?.onRest) this.events.onRest();
           break;
@@ -451,7 +643,28 @@ export class BattleView3D {
           break;
       }
     };
+
+    this.boundKeyUp = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+      this.pressedKeys.delete(key);
+
+      if (e.key === 'Control' || !e.ctrlKey) {
+        this.isCtrlPressed = false;
+        if (this.hoveredHex) {
+          this.battle.onMouseOverCell(this.hoveredHex, this.hoveredDirection, false);
+          this.updateHoverVisuals();
+        }
+      }
+    };
+
+    this.boundBlur = () => {
+      this.pressedKeys.clear();
+      this.isCtrlPressed = false;
+    };
+
     window.addEventListener('keydown', this.boundKeyDown);
+    window.addEventListener('keyup', this.boundKeyUp);
+    window.addEventListener('blur', this.boundBlur);
   }
 
   public destroy(): void {
@@ -462,6 +675,9 @@ export class BattleView3D {
     if (this.boundWheel) window.removeEventListener('wheel', this.boundWheel);
     if (this.boundClick) window.removeEventListener('click', this.boundClick);
     if (this.boundKeyDown) window.removeEventListener('keydown', this.boundKeyDown);
+    if (this.boundKeyUp) window.removeEventListener('keyup', this.boundKeyUp);
+    if (this.boundBlur) window.removeEventListener('blur', this.boundBlur);
+    this.pressedKeys.clear();
 
     this.squadVisuals.forEach((s) => s.dispose());
     this.hexBoard.dispose();

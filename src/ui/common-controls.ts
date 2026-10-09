@@ -14,6 +14,8 @@ export class CommonControls {
   public zoomInButton?: FancyButton;
   public zoomOutButton?: FancyButton;
   public zoomSlider?: Slider;
+  public altitudeUpButton?: FancyButton;
+  public altitudeDownButton?: FancyButton;
   public nextTurnButton?: FancyButton;
   public nextUnitButton?: FancyButton;
   public restButton?: FancyButton;
@@ -97,6 +99,26 @@ export class CommonControls {
     this.zoomInButton.width = 24;
     this.zoomInButton.height = 24;
 
+    this.altitudeUpButton = new FancyButton({ ...this.SMALL_BUTTON_STYLE });
+    this.altitudeUpButton.position.set(1600, 30);
+    this.altitudeUpButton.width = 24;
+    this.altitudeUpButton.height = 24;
+    this.altitudeUpButton.text = new Text({
+      ...CommonControls.DEFAULT_FONT_STYLE,
+      text: '▲',
+      style: { fontSize: 12, fill: '#DDFFFF', align: 'center' },
+    });
+
+    this.altitudeDownButton = new FancyButton({ ...this.SMALL_BUTTON_STYLE });
+    this.altitudeDownButton.position.set(1630, 30);
+    this.altitudeDownButton.width = 24;
+    this.altitudeDownButton.height = 24;
+    this.altitudeDownButton.text = new Text({
+      ...CommonControls.DEFAULT_FONT_STYLE,
+      text: '▼',
+      style: { fontSize: 12, fill: '#DDFFFF', align: 'center' },
+    });
+
     this.toggleStatsButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_toggle_stats.png' });
     this.toggleStatsButton.position.set(10, 310);
 
@@ -146,6 +168,8 @@ export class CommonControls {
     if (this.zoomSlider) results.push(this.zoomSlider);
     if (this.zoomInButton) results.push(this.zoomInButton);
     if (this.zoomOutButton) results.push(this.zoomOutButton);
+    if (this.altitudeUpButton) results.push(this.altitudeUpButton);
+    if (this.altitudeDownButton) results.push(this.altitudeDownButton);
     if (this.restButton) results.push(this.restButton);
     if (this.nextTurnButton) results.push(this.nextTurnButton);
     if (this.nextUnitButton) results.push(this.nextUnitButton);

@@ -93,16 +93,18 @@ export class MeshSkeletalVisual implements IUnitVisual {
   }
 
   public setCasualtyFade(opacity: number): void {
+    const clamped = Math.max(0, Math.min(1, opacity));
     this.model.traverse((child) => {
       if ((child as THREE.Mesh).isMesh) {
         const mesh = child as THREE.Mesh;
         if (mesh.material) {
           const mat = mesh.material as THREE.Material;
           mat.transparent = true;
-          mat.opacity = Math.max(0, Math.min(1, opacity));
+          mat.opacity = clamped;
         }
       }
     });
+    this.model.visible = clamped > 0;
   }
 
   public update(deltaMs: number): void {

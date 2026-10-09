@@ -22,6 +22,12 @@ describe('HobGUID', () => {
     expect(guid1.equals(guid2)).toBe(true);
     expect(guid1.equals(guid3)).toBe(false);
   });
+
+  it('should return the GUID string on toString()', () => {
+    const guid = new HobGUID('abcd-1234');
+    expect(guid.toString()).toBe('abcd-1234');
+    expect(`${guid}`).toBe('abcd-1234');
+  });
 });
 
 describe('GuidMaker', () => {

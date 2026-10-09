@@ -173,7 +173,7 @@ describe("Tactical Systems Validation", () => {
       expect(unit.stats.stamina).toBe(6);
     });
 
-    it("should recover stamina on Rest action", () => {
+    it("should recover stamina on Rest action and prevent multiple rests in the same turn", () => {
       const hexMap = new HexMap(10, 8);
       const battle = new Battle(hexMap);
 
@@ -190,12 +190,40 @@ describe("Tactical Systems Validation", () => {
       });
 
       battle.handlePrimaryCellAction({ x: 2, y: 2 });
-      battle.restActiveCreature();
+      const firstRest = battle.restActiveCreature();
+      expect(firstRest).toBe(true);
       battle.stepInstant();
 
       expect(unit.stats.stamina).toBe(8); // 3 + 5 = 8
       expect(unit.stats.remaining_movement).toBe(0);
       expect(unit.stats.remaining_attacks).toBe(0);
+      expect(unit.stats.has_rested).toBe(true);
+
+      // Attempting to rest again in the same turn must be rejected
+      const secondRest = battle.restActiveCreature();
+      expect(secondRest).toBe(false);
+      expect(unit.stats.stamina).toBe(8);
+    });
+
+    it("should not allow rest if the unit already moved, attacked, or is at full stamina", () => {
+      const unit = new Creature(CreatureType.SWORDSMAN);
+      unit.stats.stamina = 14;
+      unit.stats.max_stamina = 14;
+      // Full stamina -> cannot rest
+      expect(unit.canRest()).toBe(false);
+
+      // Depleted stamina -> can rest if untouched
+      unit.stats.stamina = 5;
+      expect(unit.canRest()).toBe(true);
+
+      // Unit moved -> cannot rest
+      unit.stats.remaining_movement = 2; // num_moves is 4
+      expect(unit.canRest()).toBe(false);
+
+      // Reset movement, but unit attacked -> cannot rest
+      unit.stats.remaining_movement = unit.stats.num_moves;
+      unit.stats.remaining_attacks = 0;
+      expect(unit.canRest()).toBe(false);
     });
   });
 

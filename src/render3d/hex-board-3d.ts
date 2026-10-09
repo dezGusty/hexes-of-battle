@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { HexDirection, HexMap } from '../shared/hex-map';
+import { HexDirection, HexFlankStatus, HexMap } from '../shared/hex-map';
 import { Coords } from '../shared';
 import { TerrainType } from '../battle/terrain-types';
 
@@ -31,6 +31,8 @@ export class HexBoard3D {
   private hoverMesh: THREE.Mesh;
   private selectedRingMesh: THREE.Mesh;
   private facingIndicatorGroup: THREE.Group = new THREE.Group();
+  private attackPreviewGroup: THREE.Group = new THREE.Group();
+  private pathPreviewGroup: THREE.Group = new THREE.Group();
 
   private showGrid: boolean = true;
   private borderThickness: number = 2.5;
@@ -80,6 +82,8 @@ export class HexBoard3D {
     this.group.add(this.selectedRingMesh);
 
     this.group.add(this.facingIndicatorGroup);
+    this.group.add(this.attackPreviewGroup);
+    this.group.add(this.pathPreviewGroup);
     this.group.add(this.gridBordersGroup);
     this.group.add(this.coordsGroup);
 
@@ -559,6 +563,209 @@ export class HexBoard3D {
     this.updateReachOverlays([], []);
   }
 
+  public worldVectorToHexDirection(dx: number, dz: number): HexDirection {
+    const dist = Math.hypot(dx, dz);
+    if (dist < 0.08) return HexDirection.NONE;
+
+    let angle = Math.atan2(dz, dx);
+    if (angle < 0) angle += Math.PI * 2;
+
+    const deg = (angle * 180) / Math.PI;
+
+    if (deg >= 30 && deg < 90) return HexDirection.SOUTHEAST;
+    if (deg >= 90 && deg < 150) return HexDirection.SOUTHWEST;
+    if (deg >= 150 && deg < 210) return HexDirection.WEST;
+    if (deg >= 210 && deg < 270) return HexDirection.NORTHWEST;
+    if (deg >= 270 && deg < 330) return HexDirection.NORTHEAST;
+    return HexDirection.EAST;
+  }
+
+  public getHexElevation(x: number, y: number): number {
+    let terrain: TerrainType = TerrainType.PLAIN;
+    if (this.getTerrain) {
+      terrain = this.getTerrain(x, y);
+    }
+    if (terrain === TerrainType.WATER) return -0.08;
+    if (terrain === TerrainType.HILL) return 0.25;
+    if (terrain === TerrainType.SWAMP) return -0.04;
+    if (terrain === TerrainType.MOUNTAIN) return 0.50;
+    return 0;
+  }
+
+  public setAttackPreview(
+    targetCoords: Coords,
+    originCoords: Coords | null,
+    flankStatus: HexFlankStatus = HexFlankStatus.NONE
+  ): void {
+    this.clearAttackPreview();
+
+    // Determine color based on flank status
+    let colorHex = 0xee3333; // Normal: Crimson
+    let pulseColor = 0xff6666;
+    if (flankStatus === HexFlankStatus.BACKSTAB) {
+      colorHex = 0xff6600; // Backstab: Vibrant Orange-Gold
+      pulseColor = 0xffaa22;
+    } else if (flankStatus === HexFlankStatus.FLANK) {
+      colorHex = 0xffbb00; // Flank: Yellow-Amber
+      pulseColor = 0xffee44;
+    }
+
+    // 1. Highlight target enemy hex
+    const targetWorld = this.hexToWorld(targetCoords.x, targetCoords.y);
+    const targetElev = this.getHexElevation(targetCoords.x, targetCoords.y);
+
+    if (!originCoords) {
+      // Ranged Target Reticle: Double ring with targeting brackets
+      const targetRing = this.createRingMesh(0xee2222);
+      targetRing.position.set(targetWorld.x, targetWorld.y + targetElev + 0.03, targetWorld.z);
+      this.attackPreviewGroup.add(targetRing);
+
+      const innerRingGeo = new THREE.RingGeometry(this.hexRadius * 0.35, this.hexRadius * 0.45, 16);
+      innerRingGeo.rotateX(-Math.PI * 0.5);
+      const innerRingMat = new THREE.MeshBasicMaterial({ color: 0xff4444, side: THREE.DoubleSide });
+      const innerRingMesh = new THREE.Mesh(innerRingGeo, innerRingMat);
+      innerRingMesh.position.set(targetWorld.x, targetWorld.y + targetElev + 0.035, targetWorld.z);
+      this.attackPreviewGroup.add(innerRingMesh);
+    } else {
+      // Melee Target Ring
+      const targetRing = this.createRingMesh(colorHex);
+      targetRing.position.set(targetWorld.x, targetWorld.y + targetElev + 0.025, targetWorld.z);
+      this.attackPreviewGroup.add(targetRing);
+
+      // 2. Highlight the origin approach tile and draw a 3D arrow towards target
+      const originWorld = this.hexToWorld(originCoords.x, originCoords.y);
+      const originElev = this.getHexElevation(originCoords.x, originCoords.y);
+
+      // Origin hex highlight
+      const originHexMesh = this.createHighlightHexMesh(colorHex, 0.45);
+      originHexMesh.position.set(originWorld.x, originWorld.y + originElev + 0.02, originWorld.z);
+      this.attackPreviewGroup.add(originHexMesh);
+
+      // Directional 3D Arrow pointing from origin to target
+      const dirX = targetWorld.x - originWorld.x;
+      const dirZ = targetWorld.z - originWorld.z;
+      const angle = Math.atan2(dirZ, dirX);
+
+      const arrowGroup = new THREE.Group();
+
+      // Arrow cone head pointing along +X initially
+      const coneGeo = new THREE.ConeGeometry(0.24, 0.48, 8);
+      coneGeo.rotateZ(-Math.PI * 0.5);
+      const coneMat = new THREE.MeshBasicMaterial({ color: pulseColor });
+      const coneMesh = new THREE.Mesh(coneGeo, coneMat);
+      coneMesh.position.set(this.hexRadius * 0.42, 0, 0);
+      arrowGroup.add(coneMesh);
+
+      // Arrow shaft
+      const shaftGeo = new THREE.BoxGeometry(0.38, 0.05, 0.14);
+      const shaftMat = new THREE.MeshBasicMaterial({ color: colorHex });
+      const shaftMesh = new THREE.Mesh(shaftGeo, shaftMat);
+      shaftMesh.position.set(this.hexRadius * 0.15, 0, 0);
+      arrowGroup.add(shaftMesh);
+
+      arrowGroup.rotation.y = -angle;
+      arrowGroup.position.set(originWorld.x, originWorld.y + originElev + 0.04, originWorld.z);
+      this.attackPreviewGroup.add(arrowGroup);
+    }
+
+    this.attackPreviewGroup.visible = true;
+  }
+
+  public clearAttackPreview(): void {
+    while (this.attackPreviewGroup.children.length > 0) {
+      const child = this.attackPreviewGroup.children[0] as THREE.Mesh;
+      this.attackPreviewGroup.remove(child);
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) {
+        if (Array.isArray(child.material)) child.material.forEach((m) => m.dispose());
+        else (child.material as THREE.Material).dispose();
+      }
+    }
+    this.attackPreviewGroup.visible = false;
+  }
+
+  public setPathPreview(path: Coords[]): void {
+    this.clearPathPreview();
+    if (!path || path.length <= 1) return;
+
+    const linePoints: THREE.Vector3[] = [];
+
+    for (let i = 0; i < path.length; i++) {
+      const pt = path[i];
+      const pos = this.hexToWorld(pt.x, pt.y);
+      const elev = this.getHexElevation(pt.x, pt.y);
+      const nodePos = new THREE.Vector3(pos.x, pos.y + elev + 0.04, pos.z);
+      linePoints.push(nodePos);
+
+      // Waypoint markers for intermediate & destination tiles (after start)
+      if (i > 0) {
+        const isEnd = i === path.length - 1;
+        const radius = isEnd ? 0.26 : 0.18;
+        const colorHex = isEnd ? 0x00ffcc : 0x00d4ff;
+
+        // Waypoint disc
+        const discGeo = new THREE.CylinderGeometry(radius, radius, 0.05, 12);
+        const discMat = new THREE.MeshBasicMaterial({
+          color: colorHex,
+          transparent: true,
+          opacity: 0.9,
+        });
+        const discMesh = new THREE.Mesh(discGeo, discMat);
+        discMesh.position.copy(nodePos);
+        this.pathPreviewGroup.add(discMesh);
+
+        // Glowing core dot
+        const coreGeo = new THREE.SphereGeometry(radius * 0.45, 8, 8);
+        const coreMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+        coreMesh.position.set(nodePos.x, nodePos.y + 0.03, nodePos.z);
+        this.pathPreviewGroup.add(coreMesh);
+
+        // Destination ring
+        if (isEnd) {
+          const endRingGeo = new THREE.RingGeometry(this.hexRadius * 0.45, this.hexRadius * 0.65, 16);
+          endRingGeo.rotateX(-Math.PI * 0.5);
+          const endRingMat = new THREE.MeshBasicMaterial({
+            color: 0x00ffcc,
+            transparent: true,
+            opacity: 0.85,
+            side: THREE.DoubleSide,
+          });
+          const endRingMesh = new THREE.Mesh(endRingGeo, endRingMat);
+          endRingMesh.position.set(nodePos.x, nodePos.y + 0.01, nodePos.z);
+          this.pathPreviewGroup.add(endRingMesh);
+        }
+      }
+    }
+
+    // Connecting Trail Line
+    if (linePoints.length >= 2) {
+      const lineGeo = new THREE.BufferGeometry().setFromPoints(linePoints);
+      const lineMat = new THREE.LineBasicMaterial({
+        color: 0x00ffff,
+        transparent: true,
+        opacity: 0.95,
+      });
+      const lineMesh = new THREE.Line(lineGeo, lineMat);
+      this.pathPreviewGroup.add(lineMesh);
+    }
+
+    this.pathPreviewGroup.visible = true;
+  }
+
+  public clearPathPreview(): void {
+    while (this.pathPreviewGroup.children.length > 0) {
+      const child = this.pathPreviewGroup.children[0] as THREE.Mesh;
+      this.pathPreviewGroup.remove(child);
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) {
+        if (Array.isArray(child.material)) child.material.forEach((m) => m.dispose());
+        else (child.material as THREE.Material).dispose();
+      }
+    }
+    this.pathPreviewGroup.visible = false;
+  }
+
   public dispose(): void {
     this.tileMeshes.forEach((m) => {
       this.group.remove(m);
@@ -586,5 +793,7 @@ export class HexBoard3D {
       }
     }
     this.clearReachOverlays();
+    this.clearAttackPreview();
+    this.clearPathPreview();
   }
 }

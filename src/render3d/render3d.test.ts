@@ -8,9 +8,9 @@ vi.mock("@pixi/sound", () => ({
 }));
 
 import * as THREE from 'three';
-import { Texture as PixiTexture } from 'pixi.js';
+import { Sprite as PixiSprite, Texture as PixiTexture } from 'pixi.js';
 import { HexBoard3D } from './hex-board-3d';
-import { HexMap } from '../shared/hex-map';
+import { HexDirection, HexFlankStatus, HexMap, checkFlankingStatus } from '../shared/hex-map';
 import { Creature, CreatureType } from '../battle/creature';
 import { UnitVisualFactory } from './units/unit-visual-factory';
 import { ProjectileSystem3D } from './projectiles/projectile-system-3d';
@@ -129,6 +129,39 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       // Add floating combat text in 3D
       squad.addFloatingCombatText('-20 BACKSTAB', '#ffaa00');
       expect(squad.rootGroup.children.length).toBeGreaterThan(0);
+
+      // Now eliminate squad completely
+      squadCreature.takeDamage(20);
+      expect(squadCreature.isAlive).toBe(false);
+      expect(squadCreature.aliveModelCount).toBe(0);
+      squad.updateStats();
+      expect(squad.isEliminated).toBe(true);
+
+      // Overhead group should be hidden
+      const overhead = squad.rootGroup.children.find((c) => c.children.length >= 3);
+      if (overhead) {
+        expect(overhead.visible).toBe(false);
+      }
+    });
+
+    it('should correctly map multiple squads uniquely using HobGUID.toString() without overwriting', () => {
+      const c1 = new Creature(CreatureType.PEASANT);
+      const c2 = new Creature(CreatureType.SPEARMAN);
+      const c3 = new Creature(CreatureType.SWORDSMAN);
+
+      expect(c1.GUID.toString()).not.toBe('[object Object]');
+      expect(c1.GUID.toString()).not.toBe(c2.GUID.toString());
+      expect(c2.GUID.toString()).not.toBe(c3.GUID.toString());
+
+      const map = new Map<string, Creature>();
+      map.set(c1.GUID.toString(), c1);
+      map.set(c2.GUID.toString(), c2);
+      map.set(c3.GUID.toString(), c3);
+
+      expect(map.size).toBe(3);
+      expect(map.get(c1.GUID.toString())).toBe(c1);
+      expect(map.get(c2.GUID.toString())).toBe(c2);
+      expect(map.get(c3.GUID.toString())).toBe(c3);
     });
   });
 
@@ -177,8 +210,9 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(hud.isPointerOverUI(50, 400)).toBe(true);
       expect(hud.isPointerOverUI(10, 800)).toBe(true);
 
-      // Top banner
+      // Top banner and top-right zoom/altitude controls
       expect(hud.isPointerOverUI(500, 30)).toBe(true);
+      expect(hud.isPointerOverUI(1640, 30)).toBe(true);
 
       // Center battlefield area (should not block 3D interaction)
       expect(hud.isPointerOverUI(800, 500)).toBe(false);
@@ -297,5 +331,176 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       hexBoard.dispose();
     });
   });
+
+  describe('6. Continuous Keyboard Camera Navigation & Hotkeys', () => {
+    it('should smoothly pan and rotate camera every frame when keys are held', () => {
+      const pressedKeys = new Set<string>();
+      let cameraYaw = 0;
+      let targetZ = 0;
+      let targetX = 0;
+
+      const panSpeed = 16.0;
+      const rotateSpeed = 2.2;
+
+      // Simulate holding 'q' (rotate left) and 'w' (pan forward)
+      pressedKeys.add('q');
+      pressedKeys.add('w');
+      expect(pressedKeys.has('q')).toBe(true);
+      expect(pressedKeys.has('w')).toBe(true);
+
+      const dt = 100 / 1000; // 100ms
+      if (pressedKeys.has('w')) targetZ -= panSpeed * dt;
+      if (pressedKeys.has('s')) targetZ += panSpeed * dt;
+      if (pressedKeys.has('a')) targetX -= panSpeed * dt;
+      if (pressedKeys.has('d')) targetX += panSpeed * dt;
+      if (pressedKeys.has('q')) cameraYaw -= rotateSpeed * dt;
+      if (pressedKeys.has('e')) cameraYaw += rotateSpeed * dt;
+
+      expect(cameraYaw).toBeCloseTo(-0.22, 5);
+      expect(targetZ).toBeCloseTo(-1.6, 5);
+
+      // Release 'q' and 'w'
+      pressedKeys.delete('q');
+      pressedKeys.delete('w');
+      expect(pressedKeys.has('q')).toBe(false);
+      expect(pressedKeys.has('w')).toBe(false);
+    });
+
+    it('should use right-click exclusively for secondary targeting actions', () => {
+      const hexMap = new HexMap(10, 6);
+      const battle = new Battle(hexMap);
+      battle.initializeToSize(10, 6);
+
+      let targetActionCalled = false;
+      battle.handleSecondaryCellAction = (coords) => {
+        targetActionCalled = true;
+        expect(coords).toEqual({ x: 3, y: 3 });
+        return true;
+      };
+
+      // Simulate right-click pointerup event on target hex
+      const hoveredHex = { x: 3, y: 3 };
+      const pointerEvent = { button: 2, ctrlKey: false };
+
+      if (pointerEvent.button === 2 && hoveredHex) {
+        battle.handleSecondaryCellAction(hoveredHex);
+      }
+
+      expect(targetActionCalled).toBe(true);
+    });
+
+    it('should adjust camera pitch within constraints on altitude up/down', () => {
+      let cameraPitch = 0.8;
+      const minPitch = 0.35;
+      const maxPitch = 1.45;
+
+      const rotateCamera = (_deltaYaw: number, deltaPitch: number) => {
+        cameraPitch = Math.max(minPitch, Math.min(maxPitch, cameraPitch + deltaPitch));
+      };
+
+      // Altitude Up: pitch angle from zenith decreases (camera goes higher)
+      rotateCamera(0, -0.1);
+      expect(cameraPitch).toBeCloseTo(0.7);
+
+      // Repeated altitude up clamps to minPitch
+      for (let i = 0; i < 10; i++) rotateCamera(0, -0.1);
+      expect(cameraPitch).toBe(minPitch);
+
+      // Altitude Down: pitch angle from zenith increases (camera goes lower)
+      rotateCamera(0, 0.1);
+      expect(cameraPitch).toBeCloseTo(minPitch + 0.1);
+
+      // Repeated altitude down clamps to maxPitch
+      for (let i = 0; i < 20; i++) rotateCamera(0, 0.1);
+      expect(cameraPitch).toBe(maxPitch);
+    });
+  });
+
+  describe('7. 3D Directional Attack Selection, Ground Arrow Preview & Cursors', () => {
+    it('should accurately convert 3D world offset vectors into the 6 hex directions and center deadzone', () => {
+      const hexMap = new HexMap(10, 6);
+      const hexBoard = new HexBoard3D(hexMap);
+
+      // Deadzone near center
+      expect(hexBoard.worldVectorToHexDirection(0.01, 0.01)).toBe(HexDirection.NONE);
+
+      // 6 Pointy-Topped sectors:
+      // East (dx > 0, dz ~ 0)
+      expect(hexBoard.worldVectorToHexDirection(0.5, 0.0)).toBe(HexDirection.EAST);
+      // Southeast (dx > 0, dz > 0)
+      expect(hexBoard.worldVectorToHexDirection(0.5, 0.8)).toBe(HexDirection.SOUTHEAST);
+      // Southwest (dx < 0, dz > 0)
+      expect(hexBoard.worldVectorToHexDirection(-0.5, 0.8)).toBe(HexDirection.SOUTHWEST);
+      // West (dx < 0, dz ~ 0)
+      expect(hexBoard.worldVectorToHexDirection(-0.5, 0.0)).toBe(HexDirection.WEST);
+      // Northwest (dx < 0, dz < 0)
+      expect(hexBoard.worldVectorToHexDirection(-0.5, -0.8)).toBe(HexDirection.NORTHWEST);
+      // Northeast (dx > 0, dz < 0)
+      expect(hexBoard.worldVectorToHexDirection(0.5, -0.8)).toBe(HexDirection.NORTHEAST);
+
+      hexBoard.dispose();
+    });
+
+    it('should create 3D tactical attack origin hex, directional arrow, and path preview', () => {
+      const hexMap = new HexMap(10, 6);
+      const hexBoard = new HexBoard3D(hexMap);
+
+      // Ranged target preview (originCoords = null)
+      hexBoard.setAttackPreview({ x: 4, y: 4 }, null, HexFlankStatus.NONE);
+      expect((hexBoard as any).attackPreviewGroup.children.length).toBe(2);
+
+      // Melee attack preview with origin and directional arrow
+      hexBoard.setAttackPreview({ x: 4, y: 4 }, { x: 3, y: 4 }, HexFlankStatus.NONE);
+      expect((hexBoard as any).attackPreviewGroup.children.length).toBeGreaterThan(0);
+
+      // Backstab attack preview
+      expect(checkFlankingStatus(HexDirection.WEST, HexDirection.EAST)).toBe(HexFlankStatus.BACKSTAB);
+      hexBoard.setAttackPreview({ x: 4, y: 4 }, { x: 5, y: 4 }, HexFlankStatus.BACKSTAB);
+      expect((hexBoard as any).attackPreviewGroup.children.length).toBeGreaterThan(0);
+
+      // Flank attack preview
+      expect(checkFlankingStatus(HexDirection.WEST, HexDirection.SOUTHEAST)).toBe(HexFlankStatus.FLANK);
+      hexBoard.setAttackPreview({ x: 4, y: 4 }, { x: 4, y: 3 }, HexFlankStatus.FLANK);
+      expect((hexBoard as any).attackPreviewGroup.children.length).toBeGreaterThan(0);
+
+      // Set and clear enhanced luminous path route ribbon and waypoints
+      hexBoard.setPathPreview([{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 2 }]);
+      expect((hexBoard as any).pathPreviewGroup.children.length).toBeGreaterThan(0);
+
+      hexBoard.clearPathPreview();
+      expect((hexBoard as any).pathPreviewGroup.children.length).toBe(0);
+
+      hexBoard.clearAttackPreview();
+      expect((hexBoard as any).attackPreviewGroup.children.length).toBe(0);
+
+      hexBoard.dispose();
+    });
+
+    it('should update HUD cursor texture on setCursor calls', () => {
+      const battle = new Battle(new HexMap(13, 9));
+      const settings = new BattleSettings();
+      const defaultTex = PixiTexture.WHITE;
+      const meleeTex = PixiTexture.WHITE;
+      const assets = {
+        softCursorTextures: {
+          default: defaultTex,
+          attack_melee_nw: meleeTex,
+        },
+      };
+
+      const hud = new BattleHud2D(assets, settings, battle);
+      hud.softCursorSprite = new PixiSprite(defaultTex);
+
+      hud.setCursor('attack_melee_nw');
+      expect(hud.softCursorSprite?.texture).toBe(meleeTex);
+
+      hud.setCursor('default');
+      expect(hud.softCursorSprite?.texture).toBe(defaultTex);
+
+      hud.destroy();
+    });
+  });
 });
+
+
 

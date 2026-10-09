@@ -12,6 +12,10 @@ export class HobGUID {
   public getData(): string {
     return this.data;
   }
+
+  public toString(): string {
+    return this.data;
+  }
 }
 
 export class GuidMaker {

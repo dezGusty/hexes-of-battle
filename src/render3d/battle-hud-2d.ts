@@ -18,6 +18,8 @@ export interface BattleHud2DEvents {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onZoomSliderUpdate: (value: number) => void;
+  onAltitudeUp?: () => void;
+  onAltitudeDown?: () => void;
   onNextTurn: () => void;
   onNextUnit: () => void;
   onReset: () => void;
@@ -194,6 +196,12 @@ export class BattleHud2D {
     this.commonControls.zoomInButton?.onPress.connect(() => events.onZoomIn());
     this.commonControls.zoomOutButton?.onPress.connect(() => events.onZoomOut());
     this.commonControls.zoomSlider?.onUpdate.connect((val) => events.onZoomSliderUpdate(val));
+    if (events.onAltitudeUp) {
+      this.commonControls.altitudeUpButton?.onPress.connect(() => events.onAltitudeUp!());
+    }
+    if (events.onAltitudeDown) {
+      this.commonControls.altitudeDownButton?.onPress.connect(() => events.onAltitudeDown!());
+    }
 
     this.commonControls.nextTurnButton?.onPress.connect(() => events.onNextTurn());
     this.commonControls.nextUnitButton?.onPress.connect(() => events.onNextUnit());
@@ -292,10 +300,10 @@ export class BattleHud2D {
     }
   }
 
-  public updateActiveUnitAbility(creature: Creature): void {
+  public updateActiveUnitAbility(creature?: Creature): void {
     let description = '';
     let visible = false;
-    if (creature.abilities.length > 0) {
+    if (creature && creature.abilities.length > 0) {
       description = creature.abilities[0].name;
       visible = true;
     }
@@ -303,10 +311,14 @@ export class BattleHud2D {
       this.commonControls.activeAbility1Button.text = description;
       this.commonControls.activeAbility1Button.visible = visible;
     }
+    if (this.commonControls?.restButton) {
+      const canRest = creature ? creature.canRest() : false;
+      this.commonControls.restButton.alpha = canRest ? 1.0 : 0.4;
+    }
   }
 
-  public updateUnitStats(creature: Creature): void {
-    if (!this.unitStats) return;
+  public updateUnitStats(creature?: Creature): void {
+    if (!this.unitStats || !creature) return;
     const bannerTexture = this.getBannerTextureForArmyIndex(creature.armyAlignment);
     this.unitStats.setBannerTexture(bannerTexture);
     this.unitStats.setCreature(creature);
@@ -353,6 +365,15 @@ export class BattleHud2D {
     }
   }
 
+  public setCursor(cursorHint?: string): void {
+    if (!this.softCursorSprite) return;
+    const hint = cursorHint || 'default';
+    const tex = this.assets.softCursorTextures[hint] || this.assets.softCursorTextures['default'];
+    if (tex && this.softCursorSprite.texture !== tex) {
+      this.softCursorSprite.texture = tex;
+    }
+  }
+
   public isPointerOverUI(stageX: number, stageY: number): boolean {
     if (this.isMenuBlockingInput()) return true;
 
@@ -368,8 +389,8 @@ export class BattleHud2D {
       return true;
     }
 
-    // Zoom controls on top right
-    if (stageX >= 1370 && stageX <= 1620 && stageY >= 15 && stageY <= 65) {
+    // Zoom and altitude controls on top right
+    if (stageX >= 1370 && stageX <= 1665 && stageY >= 15 && stageY <= 65) {
       return true;
     }
 

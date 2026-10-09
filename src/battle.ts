@@ -115,8 +115,8 @@ export class Battle {
   public cached_occupation_tiles: number[][] = [];
   public terrain_tiles: number[][] = [];
 
-  private nextRenderUpdate: MapRenderUpdate = new MapRenderUpdate();
-  private prevRenderUpdate: MapRenderUpdate = new MapRenderUpdate();
+  public nextRenderUpdate: MapRenderUpdate = new MapRenderUpdate();
+  public prevRenderUpdate: MapRenderUpdate = new MapRenderUpdate();
   private unitReachData: ReachData[] = [];
   private unitRangeData: ReachData[] = [];
 
@@ -395,7 +395,9 @@ export class Battle {
     if (this.activeCreatureIndex < 0) return false;
     const creature = this.creatures[this.activeCreatureIndex];
     if (creature.armyAlignment !== this.currentArmyIndex) return false;
+    if (!creature.canRest()) return false;
 
+    creature.stats.has_rested = true;
     creature.rest(this.combatConfig.stamina.restRecovery);
     creature.stats.remaining_movement = 0;
     creature.stats.remaining_attacks = 0;
@@ -772,6 +774,14 @@ export class Battle {
     if (unitIndex >= 0 && unitIndex < this.creatures.length) {
       this.setSelectedArmyAndCreatureIndex(armyIndex, unitIndex);
       this.showReachableCellsForCreature(this.creatures[unitIndex]);
+    } else {
+      this.setSelectedArmyAndCreatureIndex(armyIndex, -1);
+      this.unitReachData = [];
+      this.unitRangeData = [];
+      NumMatrix.resetToZero(this.pathfinding_tiles);
+      NumMatrix.resetToZero(this.rangereach_tiles);
+      NumMatrix.resetToZero(this.rangereach_targets);
+      this.hookActiveUnitChanged(null as any);
     }
     this.nextRenderUpdate.hoverPath = [];
     this.nextRenderUpdate.setUnitRenderUpdate();

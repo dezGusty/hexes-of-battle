@@ -190,9 +190,30 @@ export class SquadVisual3D {
     this.overheadGroup.add(this.countSprite);
   }
 
+  public get isEliminated(): boolean {
+    return !this.creature.isAlive || this.aliveCount <= 0;
+  }
+
+  public get hasActiveEffects(): boolean {
+    return this.floatingTexts.length > 0;
+  }
+
   public updateStats(): void {
     const prevAlive = this.aliveCount;
-    this.aliveCount = this.creature.aliveModelCount;
+    this.aliveCount = this.creature.isAlive ? this.creature.aliveModelCount : 0;
+
+    const isDead = !this.creature.isAlive || this.aliveCount <= 0;
+
+    if (isDead) {
+      this.overheadGroup.visible = false;
+      this.models.forEach((model) => {
+        model.object3D.visible = false;
+        model.setCasualtyFade(0.0);
+      });
+      return;
+    }
+
+    this.overheadGroup.visible = true;
 
     // Health ratio
     const maxHp = Math.max(1, this.creature.stats.health);
@@ -212,12 +233,14 @@ export class SquadVisual3D {
     else if (hpRatio < 0.5) hpMat.color.setHex(0xddaa22);
     else hpMat.color.setHex(0x22cc44);
 
-    // Fade out casualty models
+    // Hide casualty models in the squad
     this.models.forEach((model, idx) => {
       if (idx < this.aliveCount) {
+        model.object3D.visible = true;
         model.setCasualtyFade(1.0);
       } else {
-        model.setCasualtyFade(0.2);
+        model.object3D.visible = false;
+        model.setCasualtyFade(0.0);
       }
     });
 
@@ -231,6 +254,7 @@ export class SquadVisual3D {
   }
 
   public playAnimation(state: UnitAnimationState, durationMs: number = 500): void {
+    if (this.isEliminated) return;
     this.models.forEach((m, idx) => {
       if (idx < this.aliveCount) {
         m.playAnimation(state, durationMs);
@@ -283,11 +307,13 @@ export class SquadVisual3D {
   }
 
   public update(deltaMs: number, camera: THREE.Camera): void {
-    // Update individual models
-    this.models.forEach((m) => m.update(deltaMs));
+    if (!this.isEliminated) {
+      // Update individual models
+      this.models.forEach((m) => m.update(deltaMs));
 
-    // Make overhead bars face camera (billboard effect)
-    this.overheadGroup.quaternion.copy(camera.quaternion);
+      // Make overhead bars face camera (billboard effect)
+      this.overheadGroup.quaternion.copy(camera.quaternion);
+    }
 
     // Process floating combat texts
     for (let i = this.floatingTexts.length - 1; i >= 0; i--) {

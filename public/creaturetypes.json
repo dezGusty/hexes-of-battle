@@ -17,7 +17,7 @@
       "initiative": 3,
       "is_ranged": false,
       "num_attacks": 1,
-      "num_counterattacks": 1,
+      "num_counterattacks": 2,
       "num_moves": 3,
       "range": 1,
       "stamina": 12,
@@ -45,7 +45,7 @@
       "initiative": 2,
       "is_ranged": false,
       "num_attacks": 1,
-      "num_counterattacks": 1,
+      "num_counterattacks": 2,
       "num_moves": 2,
       "range": 1,
       "stamina": 14,
@@ -73,14 +73,16 @@
       "initiative": 5,
       "is_ranged": false,
       "num_attacks": 1,
-      "num_counterattacks": 1,
+      "num_counterattacks": 2,
       "num_moves": 3,
       "range": 1,
       "stamina": 14,
       "morale": 55,
       "flying": false
     },
-    "traits": ["CloseQuartersCounter"],
+    "traits": [
+      "CloseQuartersCounter"
+    ],
     "ability_ids": [
       "jav-01"
     ]
@@ -222,7 +224,9 @@
       "morale": 90,
       "flying": false
     },
-    "traits": ["CloseQuartersCounter"],
+    "traits": [
+      "CloseQuartersCounter"
+    ],
     "ability_ids": []
   },
   {
@@ -251,7 +255,10 @@
       "morale": 95,
       "flying": false
     },
-    "traits": ["HeroPresence", "BodyguardRetinue"],
+    "traits": [
+      "HeroPresence",
+      "BodyguardRetinue"
+    ],
     "ability_ids": []
   }
 ]

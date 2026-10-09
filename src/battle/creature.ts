@@ -38,6 +38,7 @@ export class CreatureStats {
   tier: number = 1;
   traits: string[] = [];
   flying: boolean = false;
+  has_rested: boolean = false;
 
   static EMPTY: CreatureStats = {
     ammo: 0,
@@ -72,6 +73,7 @@ export class CreatureStats {
     tier: 1,
     traits: [],
     flying: false,
+    has_rested: false,
   };
 }
 
@@ -160,6 +162,7 @@ export class Creature {
     tier: 1,
     traits: [],
     flying: false,
+    has_rested: false,
   };
 
   public position: Coords = { x: 0, y: 0 };
@@ -346,6 +349,15 @@ export class Creature {
     return this.stats.stamina;
   }
 
+  public canRest(): boolean {
+    if (!this.isAlive) return false;
+    if (this.stats.has_rested) return false;
+    if (this.stats.stamina >= this.stats.max_stamina) return false;
+    if (this.stats.remaining_movement < this.stats.num_moves) return false;
+    if (this.stats.remaining_attacks < this.stats.num_attacks) return false;
+    return true;
+  }
+
   public rest(amount: number = 5): number {
     return this.recoverStamina(amount);
   }
@@ -355,6 +367,7 @@ export class Creature {
     this.stats.remaining_attacks = this.stats.num_attacks;
     this.stats.remaining_counterattacks = this.stats.num_counterattacks;
     this.stats.retaliations_done = 0;
+    this.stats.has_rested = false;
     this.updateExhaustionState();
   }
 
