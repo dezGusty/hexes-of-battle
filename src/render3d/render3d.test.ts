@@ -18,6 +18,7 @@ import { BattleHud2D } from './battle-hud-2d';
 import { Battle } from '../battle';
 import { BattleSettings } from '../battle/settings';
 import { UnitStatsPanel } from '../ui/unit-stats-panel';
+import { ThreeSceneDebugger } from './debug/three-scene-debugger';
 
 describe('3D Graphics Engine & Rendering Systems', () => {
   describe('1. 3D Hex Board & Coordinates', () => {
@@ -498,6 +499,281 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(hud.softCursorSprite?.texture).toBe(defaultTex);
 
       hud.destroy();
+    });
+  });
+
+  describe('8. 3D Scene Debugger & Entity Inspector', () => {
+    it('should initialize debugger with lil-gui and list scene entities', () => {
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(40, 1.77, 0.1, 200);
+      const hexBoardGroup = new THREE.Group();
+      hexBoardGroup.name = 'HexBoard';
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+      mesh.name = 'TestMesh';
+      hexBoardGroup.add(mesh);
+      scene.add(hexBoardGroup);
+
+      const mockSceneManager = {
+        scene,
+        camera,
+        getCameraConfig: () => ({ minDistance: 8, maxDistance: 32, minPitch: 0.1, maxPitch: 1.5 }),
+        getCameraDistance: () => 18,
+        setCameraDistance: vi.fn(),
+        getCameraYaw: () => 0,
+        setCameraYaw: vi.fn(),
+        getCameraPitch: () => 0.5,
+        setCameraPitch: vi.fn(),
+        setCameraTarget: vi.fn(),
+        resetCamera: vi.fn(),
+        getDirLight: () => null,
+        getAmbientLight: () => null,
+        getHemiLight: () => null,
+      } as any;
+
+      const mockBattleView = {
+        battle: {
+          getActiveCreature: () => null,
+          nextTurn: vi.fn(),
+          selectNextUnitAndGetIndex: vi.fn(),
+          restActiveCreature: vi.fn(),
+        },
+        squadVisuals: new Map(),
+        setGridVisible: vi.fn(),
+        setCoordsVisible: vi.fn(),
+      } as any;
+
+      const dbg = new ThreeSceneDebugger(mockSceneManager, mockBattleView, { autoOpen: false });
+      expect(dbg.gui).toBeDefined();
+
+      dbg.refreshEntityList();
+      dbg.updateStats();
+
+      dbg.selectObject(mesh);
+      expect((dbg as any).selectedObject).toBe(mesh);
+      expect((dbg as any).highlightHelper).toBeDefined();
+
+      dbg.focusCameraOnObject(mesh);
+      expect(mockSceneManager.setCameraTarget).toHaveBeenCalled();
+
+      dbg.clearHighlight();
+      expect((dbg as any).highlightHelper).toBeNull();
+
+      dbg.toggle();
+      dbg.dispose();
+    });
+
+    it('should list path preview waypoints and tactical previews in Entity Inspector', () => {
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(40, 1.77, 0.1, 200);
+      const hexMap = new HexMap(10, 6);
+      const hexBoard = new HexBoard3D(hexMap);
+      scene.add(hexBoard.group);
+
+      // Set path preview with 3 waypoints
+      hexBoard.setPathPreview([{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 2 }]);
+      hexBoard.setAttackPreview({ x: 3, y: 3 }, { x: 3, y: 2 }, HexFlankStatus.NONE);
+
+      const mockSceneManager = {
+        scene,
+        camera,
+        getCameraConfig: () => ({ minDistance: 8, maxDistance: 32, minPitch: 0.1, maxPitch: 1.5 }),
+        getCameraDistance: () => 18,
+        setCameraDistance: vi.fn(),
+        getCameraYaw: () => 0,
+        setCameraYaw: vi.fn(),
+        getCameraPitch: () => 0.5,
+        setCameraPitch: vi.fn(),
+        setCameraTarget: vi.fn(),
+        resetCamera: vi.fn(),
+        getDirLight: () => null,
+        getAmbientLight: () => null,
+        getHemiLight: () => null,
+      } as any;
+
+      const mockBattleView = {
+        battle: {
+          getActiveCreature: () => null,
+          nextTurn: vi.fn(),
+          selectNextUnitAndGetIndex: vi.fn(),
+          restActiveCreature: vi.fn(),
+        },
+        squadVisuals: new Map(),
+        setGridVisible: vi.fn(),
+        setCoordsVisible: vi.fn(),
+      } as any;
+
+      const dbg = new ThreeSceneDebugger(mockSceneManager, mockBattleView, { autoOpen: false });
+
+      // Filter by Tactical & Path Previews
+      (dbg as any).inspectorState.filterCategory = 'Tactical & Path Previews';
+      dbg.refreshEntityList();
+
+      const entityKeys = Array.from((dbg as any).entityMap.keys()) as string[];
+      expect(entityKeys.some((k) => k.includes('Waypoint_1[2,1]'))).toBe(true);
+      expect(entityKeys.some((k) => k.includes('Waypoint_Destination[3,2]'))).toBe(true);
+      expect(entityKeys.some((k) => k.includes('Path_Trail_Line'))).toBe(true);
+      expect(entityKeys.some((k) => k.includes('Attack_Target_Ring[3,3]'))).toBe(true);
+      expect(entityKeys.some((k) => k.includes('Attack_Origin_Hex[3,2]'))).toBe(true);
+      expect(entityKeys.some((k) => k.includes('Attack_Arrow_ConeHead'))).toBe(true);
+
+      dbg.dispose();
+      hexBoard.dispose();
+    });
+
+    it('should safely switch between selected objects and handle cleared PathPreview without DOMException', () => {
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(40, 1.77, 0.1, 200);
+      const hexMap = new HexMap(10, 6);
+      const hexBoard = new HexBoard3D(hexMap);
+      scene.add(hexBoard.group);
+
+      const mockSceneManager = {
+        scene,
+        camera,
+        getCameraConfig: () => ({ minDistance: 8, maxDistance: 32, minPitch: 0.1, maxPitch: 1.5 }),
+        getCameraDistance: () => 18,
+        setCameraDistance: vi.fn(),
+        getCameraYaw: () => 0,
+        setCameraYaw: vi.fn(),
+        getCameraPitch: () => 0.5,
+        setCameraPitch: vi.fn(),
+        setCameraTarget: vi.fn(),
+        resetCamera: vi.fn(),
+        getDirLight: () => null,
+        getAmbientLight: () => null,
+        getHemiLight: () => null,
+      } as any;
+
+      const mockBattleView = {
+        battle: {
+          getActiveCreature: () => null,
+          nextTurn: vi.fn(),
+          selectNextUnitAndGetIndex: vi.fn(),
+          restActiveCreature: vi.fn(),
+        },
+        squadVisuals: new Map(),
+        setGridVisible: vi.fn(),
+        setCoordsVisible: vi.fn(),
+      } as any;
+
+      const dbg = new ThreeSceneDebugger(mockSceneManager, mockBattleView, { autoOpen: false });
+
+      // Create preview, refresh list, select a mesh, then clear preview, then select PathPreview group
+      hexBoard.setPathPreview([{ x: 0, y: 0 }, { x: 1, y: 0 }]);
+      dbg.refreshEntityList();
+
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+      scene.add(mesh);
+
+      // Multiple selection switches must cleanly destroy folders without DOMException
+      expect(() => {
+        dbg.selectObject(mesh);
+        dbg.selectObject((hexBoard as any).pathPreviewGroup);
+        hexBoard.clearPathPreview(); // clears children
+        dbg.selectObject((hexBoard as any).pathPreviewGroup);
+        dbg.selectObject(null);
+        dbg.selectObject(mesh);
+      }).not.toThrow();
+
+      dbg.dispose();
+      hexBoard.dispose();
+    });
+  });
+
+  describe('9. Path Preview Diagnostics & Configurable Hotkeys', () => {
+    it('should format and print hoverPath and attackPath arrays upon invoking printPathPreview', () => {
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      const mockBattleView = {
+        battle: {
+          nextRenderUpdate: {
+            hoverPath: [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 2 }],
+          },
+          getActiveCreature: () => ({
+            position: { x: 1, y: 1 },
+            armyAlignment: 0,
+            stats: { name: 'Peasant' },
+          }),
+          getCreatureAtPosition: (coords: { x: number; y: number }) => {
+            if (coords.x === 3 && coords.y === 2) {
+              return {
+                indexOFArmy: 1,
+                creature: {
+                  position: { x: 3, y: 2 },
+                  stats: { name: 'Swordsman' },
+                },
+              };
+            }
+            return null;
+          },
+        },
+        hoveredHex: { x: 3, y: 2 },
+        hoveredDirection: HexDirection.EAST,
+        printPathPreview: function() {
+          const hoverPath = this.battle.nextRenderUpdate.hoverPath ? [...this.battle.nextRenderUpdate.hoverPath] : [];
+          const activeCreature = this.battle.getActiveCreature();
+          const targetCreature = this.hoveredHex ? this.battle.getCreatureAtPosition(this.hoveredHex) : null;
+
+          let attackPath: any[] = [];
+          if (activeCreature && targetCreature && targetCreature.indexOFArmy !== activeCreature.armyAlignment) {
+            if (hoverPath.length > 0) {
+              attackPath = [...hoverPath];
+            } else if (this.hoveredHex) {
+              attackPath = [activeCreature.position, this.hoveredHex];
+            }
+          }
+
+          const report = {
+            hoverPath,
+            attackPath,
+            hoveredHex: this.hoveredHex ? { ...this.hoveredHex } : null,
+            hoveredDirection: this.hoveredDirection,
+            selectedUnit: activeCreature ? { name: activeCreature.stats.name, position: { ...activeCreature.position } } : null,
+            targetEnemy: targetCreature ? { name: targetCreature.creature.stats.name, position: { ...targetCreature.creature.position } } : null,
+          };
+
+          console.log('[Path Preview Array]', report);
+          return { hoverPath, attackPath };
+        },
+      };
+
+      const result = mockBattleView.printPathPreview();
+      expect(result.hoverPath).toHaveLength(3);
+      expect(result.attackPath).toHaveLength(3);
+      expect(consoleSpy).toHaveBeenCalledWith(
+        '[Path Preview Array]',
+        expect.objectContaining({
+          hoverPath: [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 2 }],
+          attackPath: [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 2 }],
+          hoveredDirection: HexDirection.EAST,
+        })
+      );
+
+      consoleSpy.mockRestore();
+    });
+
+    it('should load configurable hotkey bindings from settings and JSON config', () => {
+      const settings = new BattleSettings();
+      expect(settings.hotkeys.printPathPreview).toBe('p');
+      expect(settings.hotkeys.rest).toBe('r');
+
+      // Custom JSON configuration
+      const customConfig = {
+        hotkeys: {
+          printPathPreview: 'x',
+          rest: 'z',
+        },
+      };
+
+      if (customConfig.hotkeys.printPathPreview) {
+        settings.hotkeys.printPathPreview = customConfig.hotkeys.printPathPreview;
+      }
+      if (customConfig.hotkeys.rest) {
+        settings.hotkeys.rest = customConfig.hotkeys.rest;
+      }
+
+      expect(settings.hotkeys.printPathPreview).toBe('x');
+      expect(settings.hotkeys.rest).toBe('z');
     });
   });
 });

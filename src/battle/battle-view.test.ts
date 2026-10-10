@@ -7,7 +7,7 @@ vi.mock("@pixi/sound", () => ({
   },
 }));
 
-import { Container, Texture, Spritesheet } from "pixi.js";
+import { Container, Texture, Spritesheet, Assets } from "pixi.js";
 import { Battle, ArmyControlType } from "../battle";
 import { HexMap } from "../shared/hex-map";
 import { BattleView } from "./battle-view";
@@ -16,6 +16,7 @@ import { AggressiveCPUPlayer } from "./aggressive-cpu-player";
 import { DefensiveCPUPlayer } from "./defensive-cpu-player";
 import { DumbCPUPlayer } from "./dumb-cpu-player";
 import { UnitStatsPanel } from "../ui/unit-stats-panel";
+import { BattleMenuPanel } from "../ui/battle-menu";
 
 describe("BattleView Army Names Formatting", () => {
   const dummyAssets: any = { softCursorTextures: {} };
@@ -181,6 +182,131 @@ describe("UnitStatsPanel Visibility", () => {
     const reloadedSettings = new BattleSettings();
     reloadedSettings.load();
     expect(reloadedSettings.sound.musicOn).toBe(false);
+  });
+
+  it("should persist and load showSceneInspector in hob.debug in localStorage", () => {
+    const storage: Record<string, string> = {};
+    (globalThis as any).localStorage = {
+      getItem: (key: string) => storage[key] ?? null,
+      setItem: (key: string, value: string) => {
+        storage[key] = value;
+      },
+      removeItem: (key: string) => {
+        delete storage[key];
+      },
+      clear: () => {
+        Object.keys(storage).forEach((k) => delete storage[k]);
+      },
+    };
+
+    const settings = new BattleSettings();
+    expect(settings.debug.showSceneInspector).toBe(false);
+
+    // Toggle inspector on and save
+    settings.debug.showSceneInspector = true;
+    settings.save();
+
+    const storedDebug = JSON.parse(storage['hob.debug'] || '{}');
+    expect(storedDebug.showSceneInspector).toBe(true);
+
+    // Load in fresh settings instance
+    const loadedSettings = new BattleSettings();
+    loadedSettings.load();
+    expect(loadedSettings.debug.showSceneInspector).toBe(true);
+
+    // Toggle inspector off and save
+    loadedSettings.debug.showSceneInspector = false;
+    loadedSettings.save();
+
+    const reloadedSettings = new BattleSettings();
+    reloadedSettings.load();
+    expect(reloadedSettings.debug.showSceneInspector).toBe(false);
+  });
+});
+
+describe("BattleMenuPanel 2-Column Layout & Scene Inspector Toggle", () => {
+  it("should create widened 2-column panel with 3D Scene Inspector button in column 2", () => {
+    if (typeof (globalThis as any).CanvasRenderingContext2D === 'undefined') {
+      (globalThis as any).CanvasRenderingContext2D = class {};
+    }
+
+    if (typeof document === 'undefined') {
+      const mockCanvas = {
+        getContext: () => ({
+          measureText: () => ({ width: 40, actualBoundingBoxAscent: 10, actualBoundingBoxDescent: 2 }),
+          fillText: () => {},
+          strokeText: () => {},
+          clearRect: () => {},
+        }),
+      };
+      (globalThis as any).document = {
+        createElement: (tag: string) => {
+          if (tag === 'canvas') return mockCanvas;
+          return {
+            style: {},
+            classList: { add: () => {}, remove: () => {}, contains: () => false },
+            appendChild: (c: any) => c,
+            removeChild: (c: any) => c,
+          };
+        },
+      };
+    }
+
+    const textureNames = [
+      'thin_button_2_normal.png',
+      'thin_button_2_hover.png',
+      'btn_simple.png',
+      'btn_simple_hover.png',
+      'btn_simple_click.png',
+      'glyph_fullscreen.png',
+      'glyph_xy.png',
+      'glyph_grid.png',
+      'glyph_toggle_healthbars.png',
+      'glyph_toggle_music.png',
+      'glyph_toggle_perf_stats.png',
+      'glyph_plus.png',
+      'glyph_next_turn.png',
+      'panel.png',
+    ];
+    textureNames.forEach((name) => {
+      try {
+        Assets.cache.set(name, Texture.EMPTY);
+      } catch {
+        // ignore
+      }
+    });
+
+    const container = new Container();
+    const dummyUiSheet = {
+      textures: new Proxy({}, {
+        get: () => Texture.EMPTY,
+      }),
+    } as unknown as Spritesheet;
+
+    const menu = new BattleMenuPanel(container, dummyUiSheet);
+
+    expect(menu.window.width).toBeGreaterThanOrEqual(900);
+    expect(menu.fullscreenToggleButton).toBeDefined();
+    expect(menu.toggleCoordsButton).toBeDefined();
+    expect(menu.toggleGridButton).toBeDefined();
+    expect(menu.showHealthbarsButton).toBeDefined();
+    expect(menu.toggleMusicButton).toBeDefined();
+    expect(menu.toggleSceneInspectorButton).toBeDefined();
+    expect(menu.saveButton).toBeDefined();
+    expect(menu.loadButton).toBeDefined();
+
+    // Verify column 2 X coordinates are greater than column 1 X coordinates
+    expect(menu.toggleSceneInspectorButton!.position.x).toBeGreaterThan(menu.fullscreenToggleButton!.position.x);
+    expect(menu.saveButton!.position.x).toBeGreaterThan(menu.toggleCoordsButton!.position.x);
+
+    let inspectorToggled = false;
+    menu.onToggleSceneInspector = () => {
+      inspectorToggled = true;
+    };
+    menu.toggleSceneInspectorButton!.onPress.emit();
+    expect(inspectorToggled).toBe(true);
+
+    menu.destroy();
   });
 });
 

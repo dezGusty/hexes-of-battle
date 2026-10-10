@@ -1,4 +1,4 @@
-import { Application, Container, Graphics, Assets } from 'pixi.js';
+import { Application, Container, Assets } from 'pixi.js';
 import { sound } from '@pixi/sound';
 import pkg from '../../package.json';
 import { EventBus } from './event-bus';
@@ -19,9 +19,6 @@ export class HexesEngine {
   public readonly sceneManager: SceneManager;
 
   public readonly renderContainer: Container = new Container();
-  public readonly outerBoundsContainer: Container = new Container();
-  private outerRenderBoundsRect1: Graphics = new Graphics();
-  private outerRenderBoundsRect2: Graphics = new Graphics();
 
   private assets: GameAssets = {
     softCursorTextures: {},
@@ -83,7 +80,6 @@ export class HexesEngine {
     });
 
     this.app.stage.addChild(this.renderContainer);
-    this.app.stage.addChild(this.outerBoundsContainer);
 
     await this.loadTemplates();
     await this.loadAssets();
@@ -159,6 +155,15 @@ export class HexesEngine {
         } else if (this.templates.hudConfig.showFps !== undefined) {
           this.settings.debug.showFps = this.templates.hudConfig.showFps;
         }
+
+        const hotkeysCfg = this.templates.hudConfig.hotkeys ?? this.templates.hudConfig.keybindings;
+        if (hotkeysCfg) {
+          if (hotkeysCfg.printPathPreview !== undefined) this.settings.hotkeys.printPathPreview = hotkeysCfg.printPathPreview;
+          if (hotkeysCfg.rest !== undefined) this.settings.hotkeys.rest = hotkeysCfg.rest;
+          if (hotkeysCfg.nextTurn !== undefined) this.settings.hotkeys.nextTurn = hotkeysCfg.nextTurn;
+          if (hotkeysCfg.nextUnit !== undefined) this.settings.hotkeys.nextUnit = hotkeysCfg.nextUnit;
+          if (hotkeysCfg.resetCamera !== undefined) this.settings.hotkeys.resetCamera = hotkeysCfg.resetCamera;
+        }
       }
     } catch {
       // Use defaults if not found
@@ -213,32 +218,5 @@ export class HexesEngine {
       y: Math.max(delta.y + verticalShift, 0),
     };
     this.renderContainer.position.set(this.renderContainerOffset.x, this.renderContainerOffset.y);
-
-    const blackColor = 0x000000;
-    if (this.renderContainerOffset.x > 0) {
-      this.outerRenderBoundsRect1.clear();
-      this.outerRenderBoundsRect1.rect(0, 0, delta.x, originalWindowSize.height);
-      this.outerRenderBoundsRect1.fill(blackColor);
-      this.outerBoundsContainer.removeChild(this.outerRenderBoundsRect1);
-      this.outerBoundsContainer.addChild(this.outerRenderBoundsRect1);
-
-      this.outerRenderBoundsRect2.clear();
-      this.outerRenderBoundsRect2.rect(width - delta.x, 0, delta.x, originalWindowSize.height);
-      this.outerRenderBoundsRect2.fill(blackColor);
-      this.outerBoundsContainer.removeChild(this.outerRenderBoundsRect2);
-      this.outerBoundsContainer.addChild(this.outerRenderBoundsRect2);
-    } else if (this.renderContainerOffset.y > 0) {
-      this.outerRenderBoundsRect1.clear();
-      this.outerRenderBoundsRect1.rect(0, 0, originalWindowSize.width, delta.y + verticalShift);
-      this.outerRenderBoundsRect1.fill(blackColor);
-      this.outerBoundsContainer.removeChild(this.outerRenderBoundsRect1);
-      this.outerBoundsContainer.addChild(this.outerRenderBoundsRect1);
-
-      this.outerRenderBoundsRect2.clear();
-      this.outerRenderBoundsRect2.rect(0, height - delta.y + verticalShift, originalWindowSize.width, delta.y - verticalShift);
-      this.outerRenderBoundsRect2.fill(blackColor);
-      this.outerBoundsContainer.removeChild(this.outerRenderBoundsRect2);
-      this.outerBoundsContainer.addChild(this.outerRenderBoundsRect2);
-    }
   }
 }

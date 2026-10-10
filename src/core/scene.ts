@@ -44,6 +44,20 @@ export interface HudConfig {
     y?: number;
   };
   showFps?: boolean;
+  hotkeys?: {
+    printPathPreview?: string;
+    rest?: string;
+    nextTurn?: string;
+    nextUnit?: string;
+    resetCamera?: string;
+  };
+  keybindings?: {
+    printPathPreview?: string;
+    rest?: string;
+    nextTurn?: string;
+    nextUnit?: string;
+    resetCamera?: string;
+  };
   healthbars?: {
     showHealthbars?: boolean;
   };

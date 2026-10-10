@@ -81,14 +81,17 @@ export class ThreeSceneManager {
   private setupLighting(): void {
     // Ambient light
     this.ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
+    this.ambientLight.name = 'AmbientLight';
     this.scene.add(this.ambientLight);
 
     // Hemisphere light (sky vs ground bounce)
     this.hemiLight = new THREE.HemisphereLight(0xddeeff, 0x223322, 0.45);
+    this.hemiLight.name = 'HemisphereLight';
     this.scene.add(this.hemiLight);
 
     // Directional Sunlight with soft shadows
     this.dirLight = new THREE.DirectionalLight(0xfff5e6, 1.2);
+    this.dirLight.name = 'DirectionalLight';
     this.dirLight.position.set(12, 22, 10);
     this.dirLight.castShadow = true;
     this.dirLight.shadow.mapSize.width = 2048;
@@ -107,6 +110,59 @@ export class ThreeSceneManager {
   private setupSkyBackground(): void {
     // Soft atmospheric background fog
     this.scene.fog = new THREE.FogExp2(0x0f1c26, 0.018);
+  }
+
+  public getCameraConfig(): Camera3DConfig {
+    return this.cameraConfig;
+  }
+
+  public getCameraDistance(): number {
+    return this.cameraDistance;
+  }
+
+  public setCameraDistance(distance: number): void {
+    this.cameraDistance = Math.max(
+      this.cameraConfig.minDistance,
+      Math.min(this.cameraConfig.maxDistance, distance)
+    );
+    this.updateCameraPosition();
+  }
+
+  public getCameraYaw(): number {
+    return this.cameraYaw;
+  }
+
+  public setCameraYaw(yaw: number): void {
+    this.cameraYaw = yaw;
+    this.updateCameraPosition();
+  }
+
+  public getCameraPitch(): number {
+    return this.cameraPitch;
+  }
+
+  public setCameraPitch(pitch: number): void {
+    this.cameraPitch = Math.max(
+      this.cameraConfig.minPitch,
+      Math.min(this.cameraConfig.maxPitch, pitch)
+    );
+    this.updateCameraPosition();
+  }
+
+  public getCameraTarget(): THREE.Vector3 {
+    return this.cameraTarget;
+  }
+
+  public getDirLight(): THREE.DirectionalLight {
+    return this.dirLight;
+  }
+
+  public getAmbientLight(): THREE.AmbientLight {
+    return this.ambientLight;
+  }
+
+  public getHemiLight(): THREE.HemisphereLight {
+    return this.hemiLight;
   }
 
   public updateCameraPosition(): void {

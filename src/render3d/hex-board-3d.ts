@@ -46,6 +46,7 @@ export class HexBoard3D {
   private coordsStrokeWidth: number = 3;
 
   private getTerrain?: (x: number, y: number) => TerrainType;
+  public freezePreviews: boolean = false;
 
   private materials: Record<string, THREE.Material> = {};
   private sideMaterial: THREE.Material = new THREE.MeshStandardMaterial({
@@ -73,11 +74,20 @@ export class HexBoard3D {
 
     this.initMaterials();
 
+    this.group.name = 'HexBoard';
+    this.facingIndicatorGroup.name = 'FacingIndicator';
+    this.attackPreviewGroup.name = 'AttackPreview';
+    this.pathPreviewGroup.name = 'PathPreview';
+    this.gridBordersGroup.name = 'GridBorders';
+    this.coordsGroup.name = 'CoordsLabels';
+
     this.hoverMesh = this.createHighlightHexMesh(0xffffff, 0.4);
+    this.hoverMesh.name = 'TileHoverMesh';
     this.hoverMesh.visible = false;
     this.group.add(this.hoverMesh);
 
     this.selectedRingMesh = this.createRingMesh(0xffcc00);
+    this.selectedRingMesh.name = 'TileSelectedRing';
     this.selectedRingMesh.visible = false;
     this.group.add(this.selectedRingMesh);
 
@@ -355,7 +365,7 @@ export class HexBoard3D {
         const canvas = document.createElement('canvas');
         canvas.width = 128;
         canvas.height = 64;
-        const ctx = canvas.getContext('2d');
+        const ctx = typeof canvas.getContext === 'function' ? canvas.getContext('2d') : null;
         if (ctx) {
           ctx.clearRect(0, 0, 128, 64);
           ctx.font = `bold ${this.coordsFontSize * 2}px ${this.coordsFontFamily}`;
@@ -542,6 +552,7 @@ export class HexBoard3D {
     walkableCells.forEach((c) => {
       const key = `${c.x},${c.y}`;
       const mesh = this.createHighlightHexMesh(0x33aacc, 0.28);
+      mesh.name = `Reach_Walkable[${c.x},${c.y}]`;
       const pos = this.hexToWorld(c.x, c.y);
       mesh.position.set(pos.x, 0.015, pos.z);
       this.group.add(mesh);
@@ -552,6 +563,7 @@ export class HexBoard3D {
     attackableCells.forEach((c) => {
       const key = `atk_${c.x},${c.y}`;
       const mesh = this.createHighlightHexMesh(0xee4433, 0.38);
+      mesh.name = `Reach_Attackable[${c.x},${c.y}]`;
       const pos = this.hexToWorld(c.x, c.y);
       mesh.position.set(pos.x, 0.02, pos.z);
       this.group.add(mesh);
@@ -617,6 +629,7 @@ export class HexBoard3D {
     if (!originCoords) {
       // Ranged Target Reticle: Double ring with targeting brackets
       const targetRing = this.createRingMesh(0xee2222);
+      targetRing.name = `Ranged_Target_OuterRing[${targetCoords.x},${targetCoords.y}]`;
       targetRing.position.set(targetWorld.x, targetWorld.y + targetElev + 0.03, targetWorld.z);
       this.attackPreviewGroup.add(targetRing);
 
@@ -624,11 +637,13 @@ export class HexBoard3D {
       innerRingGeo.rotateX(-Math.PI * 0.5);
       const innerRingMat = new THREE.MeshBasicMaterial({ color: 0xff4444, side: THREE.DoubleSide });
       const innerRingMesh = new THREE.Mesh(innerRingGeo, innerRingMat);
+      innerRingMesh.name = `Ranged_Target_InnerRing[${targetCoords.x},${targetCoords.y}]`;
       innerRingMesh.position.set(targetWorld.x, targetWorld.y + targetElev + 0.035, targetWorld.z);
       this.attackPreviewGroup.add(innerRingMesh);
     } else {
       // Melee Target Ring
       const targetRing = this.createRingMesh(colorHex);
+      targetRing.name = `Attack_Target_Ring[${targetCoords.x},${targetCoords.y}]`;
       targetRing.position.set(targetWorld.x, targetWorld.y + targetElev + 0.025, targetWorld.z);
       this.attackPreviewGroup.add(targetRing);
 
@@ -638,6 +653,7 @@ export class HexBoard3D {
 
       // Origin hex highlight
       const originHexMesh = this.createHighlightHexMesh(colorHex, 0.45);
+      originHexMesh.name = `Attack_Origin_Hex[${originCoords.x},${originCoords.y}]`;
       originHexMesh.position.set(originWorld.x, originWorld.y + originElev + 0.02, originWorld.z);
       this.attackPreviewGroup.add(originHexMesh);
 
@@ -647,12 +663,14 @@ export class HexBoard3D {
       const angle = Math.atan2(dirZ, dirX);
 
       const arrowGroup = new THREE.Group();
+      arrowGroup.name = 'Attack_Directional_Arrow';
 
       // Arrow cone head pointing along +X initially
       const coneGeo = new THREE.ConeGeometry(0.24, 0.48, 8);
       coneGeo.rotateZ(-Math.PI * 0.5);
       const coneMat = new THREE.MeshBasicMaterial({ color: pulseColor });
       const coneMesh = new THREE.Mesh(coneGeo, coneMat);
+      coneMesh.name = 'Attack_Arrow_ConeHead';
       coneMesh.position.set(this.hexRadius * 0.42, 0, 0);
       arrowGroup.add(coneMesh);
 
@@ -660,6 +678,7 @@ export class HexBoard3D {
       const shaftGeo = new THREE.BoxGeometry(0.38, 0.05, 0.14);
       const shaftMat = new THREE.MeshBasicMaterial({ color: colorHex });
       const shaftMesh = new THREE.Mesh(shaftGeo, shaftMat);
+      shaftMesh.name = 'Attack_Arrow_Shaft';
       shaftMesh.position.set(this.hexRadius * 0.15, 0, 0);
       arrowGroup.add(shaftMesh);
 
@@ -672,6 +691,7 @@ export class HexBoard3D {
   }
 
   public clearAttackPreview(): void {
+    if (this.freezePreviews) return;
     while (this.attackPreviewGroup.children.length > 0) {
       const child = this.attackPreviewGroup.children[0] as THREE.Mesh;
       this.attackPreviewGroup.remove(child);
@@ -685,7 +705,9 @@ export class HexBoard3D {
   }
 
   public setPathPreview(path: Coords[]): void {
-    this.clearPathPreview();
+    if (!this.freezePreviews) {
+      this.clearPathPreview();
+    }
     if (!path || path.length <= 1) return;
 
     const linePoints: THREE.Vector3[] = [];
@@ -701,7 +723,7 @@ export class HexBoard3D {
       if (i > 0) {
         const isEnd = i === path.length - 1;
         const radius = isEnd ? 0.26 : 0.18;
-        const colorHex = isEnd ? 0x00ffcc : 0x00d4ff;
+        const colorHex = isEnd ? 0xffea00 : 0xffaa00;
 
         // Waypoint disc
         const discGeo = new THREE.CylinderGeometry(radius, radius, 0.05, 12);
@@ -711,6 +733,7 @@ export class HexBoard3D {
           opacity: 0.9,
         });
         const discMesh = new THREE.Mesh(discGeo, discMat);
+        discMesh.name = isEnd ? `Waypoint_Destination[${pt.x},${pt.y}]` : `Waypoint_${i}[${pt.x},${pt.y}]`;
         discMesh.position.copy(nodePos);
         this.pathPreviewGroup.add(discMesh);
 
@@ -718,6 +741,7 @@ export class HexBoard3D {
         const coreGeo = new THREE.SphereGeometry(radius * 0.45, 8, 8);
         const coreMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
         const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+        coreMesh.name = `Waypoint_Core_${i}[${pt.x},${pt.y}]`;
         coreMesh.position.set(nodePos.x, nodePos.y + 0.03, nodePos.z);
         this.pathPreviewGroup.add(coreMesh);
 
@@ -726,12 +750,13 @@ export class HexBoard3D {
           const endRingGeo = new THREE.RingGeometry(this.hexRadius * 0.45, this.hexRadius * 0.65, 16);
           endRingGeo.rotateX(-Math.PI * 0.5);
           const endRingMat = new THREE.MeshBasicMaterial({
-            color: 0x00ffcc,
+            color: 0xffea00,
             transparent: true,
             opacity: 0.85,
             side: THREE.DoubleSide,
           });
           const endRingMesh = new THREE.Mesh(endRingGeo, endRingMat);
+          endRingMesh.name = `Waypoint_Destination_Ring[${pt.x},${pt.y}]`;
           endRingMesh.position.set(nodePos.x, nodePos.y + 0.01, nodePos.z);
           this.pathPreviewGroup.add(endRingMesh);
         }
@@ -742,11 +767,12 @@ export class HexBoard3D {
     if (linePoints.length >= 2) {
       const lineGeo = new THREE.BufferGeometry().setFromPoints(linePoints);
       const lineMat = new THREE.LineBasicMaterial({
-        color: 0x00ffff,
+        color: 0xffd700,
         transparent: true,
         opacity: 0.95,
       });
       const lineMesh = new THREE.Line(lineGeo, lineMat);
+      lineMesh.name = 'Path_Trail_Line';
       this.pathPreviewGroup.add(lineMesh);
     }
 

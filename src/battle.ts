@@ -696,6 +696,15 @@ export class Battle {
   public nextTurn() {
     if (this.finished) return;
 
+    // Apply rest-by-default for all units of the army whose turn is ending if they performed no action
+    for (let i = 0; i < this.creatures.length; i++) {
+      const creature = this.creatures[i];
+      if (creature.armyAlignment === this.currentArmyIndex && creature.canRest()) {
+        creature.stats.has_rested = true;
+        creature.rest(this.combatConfig.stamina.restRecovery);
+      }
+    }
+
     this.currentArmyIndex = (this.currentArmyIndex + 1) % 2;
     if (this.currentArmyIndex === 0) {
       this.turnNumber++;

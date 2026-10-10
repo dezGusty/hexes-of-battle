@@ -225,6 +225,49 @@ describe("Tactical Systems Validation", () => {
       unit.stats.remaining_attacks = 0;
       expect(unit.canRest()).toBe(false);
     });
+
+    it("should automatically apply rest-by-default benefits on end-turn for units that performed no actions", () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const idleUnit = new Creature(CreatureType.SWORDSMAN);
+      idleUnit.position = { x: 2, y: 2 };
+      idleUnit.armyAlignment = 0;
+      idleUnit.stats.stamina = 4;
+      idleUnit.stats.max_stamina = 14;
+
+      const activeUnit = new Creature(CreatureType.SPEARMAN);
+      activeUnit.position = { x: 0, y: 0 };
+      activeUnit.armyAlignment = 0;
+      activeUnit.stats.stamina = 6;
+      activeUnit.stats.max_stamina = 14;
+      activeUnit.stats.remaining_movement = 1; // has moved
+
+      const enemyUnit = new Creature(CreatureType.PEASANT);
+      enemyUnit.position = { x: 8, y: 8 };
+      enemyUnit.armyAlignment = 1;
+      enemyUnit.stats.stamina = 5;
+      enemyUnit.stats.max_stamina = 12;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        creatures: [idleUnit, activeUnit, enemyUnit],
+      });
+
+      // End Army 0's turn
+      battle.nextTurn();
+
+      // idleUnit performed no actions -> recovered 5 stamina (4 + 5 = 9)
+      expect(idleUnit.stats.stamina).toBe(9);
+      expect(idleUnit.stats.has_rested).toBe(true);
+
+      // activeUnit moved -> did not get rest recovery
+      expect(activeUnit.stats.stamina).toBe(6);
+
+      // enemyUnit was not in active turn -> unchanged
+      expect(enemyUnit.stats.stamina).toBe(5);
+    });
   });
 
   describe("4. Diminishing-Returns Retaliation", () => {

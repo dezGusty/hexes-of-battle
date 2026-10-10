@@ -14,6 +14,8 @@ import { UnitStatsPanel } from "../ui/unit-stats-panel";
 import { PerfDisplayPanel } from "../ui/perf-display-panel";
 import { TurnChangeCollection } from "../ui/turn-change-display";
 
+import { BattleSaveEntry, SaveManager } from "../battle/save-manager";
+
 export interface BattleHud2DEvents {
   onZoomIn: () => void;
   onZoomOut: () => void;
@@ -29,6 +31,9 @@ export interface BattleHud2DEvents {
   onToggleGrid?: (showGrid: boolean) => void;
   onToggleCoords?: (showCoords: boolean) => void;
   onToggleMusic?: (musicOn: boolean) => void;
+  onToggleSceneInspector?: (showInspector: boolean) => void;
+  onSaveBattle?: (name: string) => boolean;
+  onLoadSave?: (entry: BattleSaveEntry) => void;
 }
 
 /**
@@ -149,6 +154,21 @@ export class BattleHud2D {
 
     if (this.assets.uiSheet) {
       this.battleMenuPanel = new BattleMenuPanel(this.uiPlusRenderGroup, this.assets.uiSheet);
+      this.battleMenuPanel.battle = this.battle;
+      this.battleMenuPanel.onSaveBattle = (name) => {
+        if (events.onSaveBattle) {
+          return events.onSaveBattle(name);
+        }
+        SaveManager.saveBattle(this.battle, name);
+        return true;
+      };
+      this.battleMenuPanel.onLoadSave = (entry) => {
+        if (events.onLoadSave) {
+          events.onLoadSave(entry);
+        } else {
+          SaveManager.loadBattle(entry, this.battle);
+        }
+      };
       this.battleMenuPanel.hide();
     }
 
@@ -190,6 +210,14 @@ export class BattleHud2D {
       }
       if (events.onToggleMusic) {
         events.onToggleMusic(this.settings.sound.musicOn);
+      }
+    });
+
+    this.battleMenuPanel?.toggleSceneInspectorButton?.onPress.connect(() => {
+      this.settings.debug.showSceneInspector = !this.settings.debug.showSceneInspector;
+      this.settings.save();
+      if (events.onToggleSceneInspector) {
+        events.onToggleSceneInspector(this.settings.debug.showSceneInspector);
       }
     });
 
@@ -429,6 +457,7 @@ export class BattleHud2D {
   }
 
   public destroy(): void {
+    this.battleMenuPanel?.destroy();
     this.container.removeChildren();
   }
 }

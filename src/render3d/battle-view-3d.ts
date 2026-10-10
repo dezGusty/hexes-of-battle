@@ -12,6 +12,7 @@ import { SquadVisual3D } from './units/squad-visual-3d';
 import { UnitVisualFactory } from './units/unit-visual-factory';
 import { ProjectileSystem3D } from './projectiles/projectile-system-3d';
 import { BattleHexMapPath } from '../battle/battle-hex-map-path';
+import { ThreeSceneDebugger } from './debug/three-scene-debugger';
 
 export interface BattleView3DEvents {
   onNextTurn: () => void;
@@ -26,10 +27,11 @@ export class BattleView3D {
   public readonly hexBoard: HexBoard3D;
   public readonly projectileSystem: ProjectileSystem3D = new ProjectileSystem3D();
   public readonly visualFactory: UnitVisualFactory;
+  public readonly sceneDebugger?: ThreeSceneDebugger;
 
-  private squadVisuals: Map<string, SquadVisual3D> = new Map();
+  public readonly squadVisuals: Map<string, SquadVisual3D> = new Map();
+  public readonly battle: Battle;
   private hexMap: HexMap;
-  private battle: Battle;
   private settings: BattleSettings;
 
   // Interaction & Input State
@@ -98,6 +100,16 @@ export class BattleView3D {
     this.setupPointerEvents(container);
     this.setupKeyboardControls();
     this.syncAllSquads();
+
+    // Initialize 3D Scene Debugger
+    this.sceneDebugger = new ThreeSceneDebugger(this.sceneManager, this, {
+      autoOpen: settings.debug.showSceneInspector,
+      hotkey: 'F2',
+      onToggle: (visible) => {
+        this.settings.debug.showSceneInspector = visible;
+        this.settings.save();
+      },
+    });
   }
 
   public setHud(hud: any, getStageInfo: () => { offset: Coords; scale: Coords }): void {
@@ -115,6 +127,15 @@ export class BattleView3D {
 
   public setCoordsVisible(visible: boolean): void {
     this.hexBoard.setCoordsVisible(visible);
+  }
+
+  public setSceneInspectorVisible(visible: boolean): void {
+    this.sceneDebugger?.setVisible(visible);
+  }
+
+  public toggleSceneInspector(): boolean {
+    this.sceneDebugger?.toggle();
+    return this.sceneDebugger?.isVisible() ?? false;
   }
 
   public setZoomLevel(normalized: number): void {
@@ -159,6 +180,8 @@ export class BattleView3D {
     });
 
     this.updateActiveUnitSelection();
+    this.sceneDebugger?.refreshEntityList();
+    this.sceneDebugger?.updateStats();
   }
 
   public updateActiveUnitSelection(): void {
@@ -325,6 +348,9 @@ export class BattleView3D {
 
     // 3. Update 3D projectiles
     this.projectileSystem.update(deltaMS);
+
+    // 3.5 Update scene debugger
+    this.sceneDebugger?.update(deltaMS);
 
     // 4. Render 3D scene
     this.sceneManager.render();
@@ -605,6 +631,33 @@ export class BattleView3D {
     }
   }
 
+  public printPathPreview(): { hoverPath: Coords[]; attackPath: Coords[] } {
+    const hoverPath = this.battle.nextRenderUpdate.hoverPath ? [...this.battle.nextRenderUpdate.hoverPath] : [];
+    const activeCreature = this.battle.getActiveCreature();
+    const targetCreature = this.hoveredHex ? this.battle.getCreatureAtPosition(this.hoveredHex) : null;
+
+    let attackPath: Coords[] = [];
+    if (activeCreature && targetCreature && targetCreature.indexOFArmy !== activeCreature.armyAlignment) {
+      if (hoverPath.length > 0) {
+        attackPath = [...hoverPath];
+      } else if (this.hoveredHex) {
+        attackPath = [activeCreature.position, this.hoveredHex];
+      }
+    }
+
+    const report = {
+      hoverPath,
+      attackPath,
+      hoveredHex: this.hoveredHex ? { ...this.hoveredHex } : null,
+      hoveredDirection: this.hoveredDirection,
+      selectedUnit: activeCreature ? { name: Creature.CREATURE_NAMES[activeCreature.creatureType] ?? `Type${activeCreature.creatureType}`, position: { ...activeCreature.position } } : null,
+      targetEnemy: targetCreature ? { name: Creature.CREATURE_NAMES[targetCreature.creature.creatureType] ?? `Type${targetCreature.creature.creatureType}`, position: { ...targetCreature.creature.position } } : null,
+    };
+
+    console.log('[Path Preview Array]', report);
+    return { hoverPath, attackPath };
+  }
+
   private setupKeyboardControls(): void {
     this.boundKeyDown = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
@@ -626,21 +679,23 @@ export class BattleView3D {
       // Single-input hotkeys (only trigger once on initial keydown, ignore OS auto-repeat)
       if (e.repeat) return;
 
-      switch (key) {
-        case 'r':
-          if (this.events?.onRest) this.events.onRest();
-          break;
-        case ' ':
-        case 'enter':
-          if (this.events?.onNextTurn) this.events.onNextTurn();
-          break;
-        case 'tab':
-          e.preventDefault();
-          if (this.events?.onNextUnit) this.events.onNextUnit();
-          break;
-        case 'home':
-          this.sceneManager.resetCamera();
-          break;
+      const printKey = (this.settings?.hotkeys?.printPathPreview ?? 'p').toLowerCase();
+      const restKey = (this.settings?.hotkeys?.rest ?? 'r').toLowerCase();
+      const nextTurnKey = (this.settings?.hotkeys?.nextTurn ?? ' ').toLowerCase();
+      const nextUnitKey = (this.settings?.hotkeys?.nextUnit ?? 'tab').toLowerCase();
+      const resetCamKey = (this.settings?.hotkeys?.resetCamera ?? 'home').toLowerCase();
+
+      if (key === printKey) {
+        this.printPathPreview();
+      } else if (key === restKey) {
+        if (this.events?.onRest) this.events.onRest();
+      } else if (key === nextTurnKey || (nextTurnKey === ' ' && (key === ' ' || key === 'enter'))) {
+        if (this.events?.onNextTurn) this.events.onNextTurn();
+      } else if (key === nextUnitKey) {
+        e.preventDefault();
+        if (this.events?.onNextUnit) this.events.onNextUnit();
+      } else if (key === resetCamKey) {
+        this.sceneManager.resetCamera();
       }
     };
 
@@ -682,6 +737,7 @@ export class BattleView3D {
     this.squadVisuals.forEach((s) => s.dispose());
     this.hexBoard.dispose();
     this.projectileSystem.dispose();
+    this.sceneDebugger?.dispose();
     this.sceneManager.dispose();
   }
 }

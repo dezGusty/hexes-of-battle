@@ -18,6 +18,7 @@ export class DebugSettings {
   public showCoords: boolean = true;
   public showPerfStats: boolean = false;
   public showFps: boolean = true;
+  public showSceneInspector: boolean = false;
   public fpsFontSize: number = 14;
   public fpsFontFamily: string = 'GustysSerpents';
   public fpsColor: string = '#ffffff';
@@ -30,11 +31,20 @@ export class DebugSettings {
   public coordsStrokeWidth: number = 3;
 }
 
+export class HotkeysSettings {
+  public printPathPreview: string = 'p';
+  public rest: string = 'r';
+  public nextTurn: string = ' ';
+  public nextUnit: string = 'tab';
+  public resetCamera: string = 'home';
+}
+
 export class BattleSettings {
 
   public sound: SoundSettings = new SoundSettings();
   public hex: HexDisplaySettings = new HexDisplaySettings();
   public debug: DebugSettings = new DebugSettings();
+  public hotkeys: HotkeysSettings = new HotkeysSettings();
 
   public load() {
     if (typeof localStorage === 'undefined') return;
@@ -66,6 +76,15 @@ export class BattleSettings {
         // Fall back to default
       }
     }
+
+    const hotkeys = localStorage.getItem('hob.hotkeys');
+    if (hotkeys) {
+      try {
+        Object.assign(this.hotkeys, JSON.parse(hotkeys));
+      } catch {
+        // Fall back to default
+      }
+    }
   }
 
   public save() {
@@ -77,5 +96,7 @@ export class BattleSettings {
     localStorage.setItem('hob.hex', JSON.stringify(this.hex));
     // Save the debug settings to the browser's local storage
     localStorage.setItem('hob.debug', JSON.stringify(this.debug));
+    // Save the hotkeys settings to the browser's local storage
+    localStorage.setItem('hob.hotkeys', JSON.stringify(this.hotkeys));
   }
 }

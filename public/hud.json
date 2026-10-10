@@ -22,6 +22,13 @@
     "x": 136,
     "y": 2
   },
+  "hotkeys": {
+    "printPathPreview": "p",
+    "rest": "r",
+    "nextTurn": " ",
+    "nextUnit": "Tab",
+    "resetCamera": "Home"
+  },
   "healthbars": {
     "showHealthbars": true
   },

@@ -11,6 +11,7 @@ import { CreatureRepository } from "../battle/creature-repository";
 import { BattleView } from "../battle/battle-view";
 import { BattleInputController } from "../battle/battle-input-controller";
 import { BattleConfig } from "../battle/battle-types";
+import { SaveManager } from "../battle/save-manager";
 
 export class BattleScene implements Scene {
   public readonly name = "battle";
@@ -81,6 +82,24 @@ export class BattleScene implements Scene {
       onReset: () => this.resetBattle(),
       onActiveAbility1: () => this.battle.selectActiveAbilityForCurrentUnit(0),
       onRest: () => this.battle.restActiveCreature(),
+      onSaveBattle: (name) => {
+        SaveManager.saveBattle(this.battle, name);
+        return true;
+      },
+      onLoadSave: (entry) => {
+        const ok = SaveManager.loadBattle(entry, this.battle, this.context.templates.abilityTypes);
+        if (ok) {
+          this.cpuPlayer = CPUPlayerFactory.create(this.currentConfig?.aiPersonality, this.battle);
+          this.view.setCpuPlayer(this.cpuPlayer);
+          this.view.resetGridAndTerrain();
+          this.view.showTurnBanner(this.battle.turnNumber, this.battle.currentArmyIndex);
+          const active = this.battle.getActiveCreature();
+          if (active) {
+            this.view.updateActiveUnitAbility(active);
+            this.view.showStatsForUnit(active);
+          }
+        }
+      },
     });
 
     this.hookBattleEvents();

@@ -1,5 +1,7 @@
 import { ButtonOptions, FancyButton } from "@pixi/ui";
 import { Container, NineSliceSprite, Spritesheet, Text, TextOptions } from "pixi.js";
+import { BattleSaveEntry, SaveManager } from "../battle/save-manager";
+import { Battle } from "../battle";
 
 export class BattleMenuPanel {
     static DEFAULT_FONT_STYLE: TextOptions = { style: { fill: { color: '#ffffff', alpha: 1 }, fontSize: 16, align: 'left' } };
@@ -17,25 +19,49 @@ export class BattleMenuPanel {
         pressedView: 'thin_button_2_hover.png',
         nineSliceSprite: [4, 4, 4, 4],
         padding: 2,
-      };
+    };
 
     private isFullScreen: boolean = false;
 
-    private window = new Container();
+    public window = new Container();
+    private mainContainer = new Container();
+    private saveDialogContainer = new Container();
+    private loadDialogContainer = new Container();
 
     public fullscreenToggleButton?: FancyButton;
     public toggleCoordsButton?: FancyButton;
     public toggleGridButton?: FancyButton;
     public showHealthbarsButton?: FancyButton;
     public toggleMusicButton?: FancyButton;
+    public toggleSceneInspectorButton?: FancyButton;
+    public saveButton?: FancyButton;
+    public loadButton?: FancyButton;
 
     private closeButton: FancyButton = new FancyButton({
         ...this.THIN_BUTTON_STYLE
     });
 
+    // Save dialog controls
+    private saveInputText?: Text;
+    private currentSaveName: string = '';
+    private saveStatusText?: Text;
+    private boundSaveKeyHandler?: (e: KeyboardEvent) => void;
+    private saveTimeoutId?: ReturnType<typeof setTimeout>;
+
+    // Load dialog controls
+    private loadEntriesContainer = new Container();
+    private loadPageInfoText?: Text;
+    private currentSavesList: BattleSaveEntry[] = [];
+    private loadScrollIndex: number = 0;
+    private readonly LOAD_PAGE_SIZE: number = 4;
+    private boundLoadWheelHandler?: (e: WheelEvent) => void;
+
+    public battle?: Battle;
+    public onSaveBattle?: (name: string) => boolean;
+    public onLoadSave?: (entry: BattleSaveEntry) => void;
+    public onToggleSceneInspector?: () => void;
 
     public constructor(private view: Container, private uiSheet: Spritesheet) {
-
         const windowBg = new NineSliceSprite({
             texture: this.uiSheet.textures['panel.png'],
             leftWidth: 15,
@@ -44,118 +70,580 @@ export class BattleMenuPanel {
             bottomHeight: 15,
         });
 
-        windowBg.width = 600;
-        windowBg.height = 640;
-        windowBg.alpha = 0.9;
+        windowBg.width = 920;
+        windowBg.height = 490;
+        windowBg.alpha = 0.95;
 
+        this.window.addChild(windowBg);
+        this.window.position = { x: (1920 - windowBg.width) / 2, y: (1080 - windowBg.height) / 2 };
+
+        this.window.addChild(this.mainContainer);
+        this.window.addChild(this.saveDialogContainer);
+        this.window.addChild(this.loadDialogContainer);
+
+        this.saveDialogContainer.visible = false;
+        this.loadDialogContainer.visible = false;
+
+        this.initializeMainContainer(windowBg.width);
+        this.initializeSaveDialog(windowBg.width);
+        this.initializeLoadDialog(windowBg.width);
+
+        this.view.addChild(this.window);
+    }
+
+    private initializeMainContainer(panelWidth: number): void {
         const title = new Text({
             text: `Battle Menu`,
             style: { fill: 0xffffff, fontSize: 24 },
         });
-
         title.anchor.set(0.5);
-        title.x = windowBg.width / 2;
+        title.x = panelWidth / 2;
         title.y = 25;
+        this.mainContainer.addChild(title);
 
-        this.window.addChild(windowBg);
-        this.window.addChild(title);
-        this.window.position = { x: 350, y: 110 };
+        const addMenuOption = (x: number, y: number, text: string): void => {
+            const textObj = new Text({
+                ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+                text,
+            });
+            textObj.position = { x, y: y + 8 };
+            this.mainContainer.addChild(textObj);
+        };
 
-        let textObjs = new Text(
-            { ...BattleMenuPanel.DEFAULT_FONT_STYLE, text: 'Toggle Full screen mode.\nUses the browser API.' }
-        );
-        textObjs.position = { x: 110, y: 60 };
-        this.window.addChild(textObjs);
+        const col1BtnX = 35;
+        const col1TextX = 115;
+        const col2BtnX = 490;
+        const col2TextX = 570;
 
-        textObjs = new Text(
-            { ...BattleMenuPanel.DEFAULT_FONT_STYLE, text: 'Toggle coordinates display.' }
-        );
-        textObjs.position = { x: 110, y: 140 };
-        this.window.addChild(textObjs);
+        // Column 1 Options
+        addMenuOption(col1TextX, 65, 'Toggle Full screen mode.\nUses the browser API.');
+        addMenuOption(col1TextX, 145, 'Toggle coordinates display.');
+        addMenuOption(col1TextX, 225, 'Toggle grid display.\nThe grid will be fairly visible anyway.');
+        addMenuOption(col1TextX, 305, 'Toggle healthbars display.');
 
-        textObjs = new Text(
-            { ...BattleMenuPanel.DEFAULT_FONT_STYLE, text: 'Toggle grid display.\nThe grid will be fairly visible anyway,\nso use this only for extra contrast.' }
-        );
-        textObjs.position = { x: 110, y: 200 };
-        this.window.addChild(textObjs);
+        // Column 2 Options
+        addMenuOption(col2TextX, 65, 'Toggle music on/off.');
+        addMenuOption(col2TextX, 145, 'Toggle 3D Scene Inspector.\n(Same effect as pressing F2)');
+        addMenuOption(col2TextX, 225, 'Save Battle State\nSave snapshot to local storage.');
+        addMenuOption(col2TextX, 305, 'Load Saved Battle\nSelect and restore a saved state.');
 
-        textObjs = new Text(
-            { ...BattleMenuPanel.DEFAULT_FONT_STYLE, text: 'Toggle healthbars display.' }
-        );
-        textObjs.position = { x: 110, y: 300 };
-        this.window.addChild(textObjs);
-
-        textObjs = new Text(
-            { ...BattleMenuPanel.DEFAULT_FONT_STYLE, text: 'Toggle music on/off.' }
-        );
-        textObjs.position = { x: 110, y: 380 };
-        this.window.addChild(textObjs);
-
-        this.view.addChild(this.window);
-        this.initializeButtons();
-    }
-
-    public initializeButtons() {
-        // Create the fullscreen toggle button reusing the DEFAULT_BUTTON_STYLE property
+        // Column 1 Buttons
         this.fullscreenToggleButton = new FancyButton({
-            ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_fullscreen.png'
-        })
-        this.fullscreenToggleButton.position.set(20, 40);
+            ...this.DEFAULT_BUTTON_STYLE,
+            icon: 'glyph_fullscreen.png',
+        });
+        this.fullscreenToggleButton.position.set(col1BtnX, 65);
         this.fullscreenToggleButton.width = 64;
-        this.fullscreenToggleButton.height = 64;
+        this.fullscreenToggleButton.height = 60;
 
         this.toggleCoordsButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_xy.png' });
-        this.toggleCoordsButton.position.set(20, 120);
+        this.toggleCoordsButton.position.set(col1BtnX, 145);
         this.toggleCoordsButton.width = 64;
-        this.toggleCoordsButton.height = 64;
+        this.toggleCoordsButton.height = 60;
 
         this.toggleGridButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_grid.png' });
-        this.toggleGridButton.position.set(20, 200);
+        this.toggleGridButton.position.set(col1BtnX, 225);
         this.toggleGridButton.width = 64;
-        this.toggleGridButton.height = 64;
+        this.toggleGridButton.height = 60;
 
         this.showHealthbarsButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_toggle_healthbars.png' });
-        this.showHealthbarsButton.position.set(20, 280);
+        this.showHealthbarsButton.position.set(col1BtnX, 305);
         this.showHealthbarsButton.width = 64;
-        this.showHealthbarsButton.height = 64;
+        this.showHealthbarsButton.height = 60;
 
+        // Column 2 Buttons
         this.toggleMusicButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_toggle_music.png' });
-        this.toggleMusicButton.position.set(20, 360);
+        this.toggleMusicButton.position.set(col2BtnX, 65);
         this.toggleMusicButton.width = 64;
-        this.toggleMusicButton.height = 64;
+        this.toggleMusicButton.height = 60;
 
-        this.closeButton.position.set(250, 590);
-        this.closeButton.width = 130;
-        this.closeButton.height = 32;
-        this.closeButton.text = new Text(
-            { ...BattleMenuPanel.DEFAULT_FONT_STYLE, text: 'Close', style: { fontSize: 16, fill: "#DDFFFF" } });
+        this.toggleSceneInspectorButton = new FancyButton({
+            ...this.DEFAULT_BUTTON_STYLE,
+            icon: 'glyph_toggle_perf_stats.png',
+        });
+        this.toggleSceneInspectorButton.position.set(col2BtnX, 145);
+        this.toggleSceneInspectorButton.width = 64;
+        this.toggleSceneInspectorButton.height = 60;
 
-        this.window.addChild(this.fullscreenToggleButton);
-        this.window.addChild(this.toggleCoordsButton);
-        this.window.addChild(this.toggleGridButton);
-        this.window.addChild(this.showHealthbarsButton);
-        this.window.addChild(this.toggleMusicButton);
+        this.saveButton = new FancyButton({
+            ...this.DEFAULT_BUTTON_STYLE,
+            icon: 'glyph_plus.png',
+        });
+        this.saveButton.position.set(col2BtnX, 225);
+        this.saveButton.width = 64;
+        this.saveButton.height = 60;
 
-        this.window.addChild(this.closeButton);
+        this.loadButton = new FancyButton({
+            ...this.DEFAULT_BUTTON_STYLE,
+            icon: 'glyph_next_turn.png',
+        });
+        this.loadButton.position.set(col2BtnX, 305);
+        this.loadButton.width = 64;
+        this.loadButton.height = 60;
 
-        // this.window.interactive = true;
+        this.closeButton.position.set((panelWidth - 140) / 2, 405);
+        this.closeButton.width = 140;
+        this.closeButton.height = 36;
+        this.closeButton.text = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: 'Close',
+            style: { fontSize: 16, fill: '#DDFFFF' },
+        });
 
-        this.connectEventHandlers();
+        this.mainContainer.addChild(this.fullscreenToggleButton);
+        this.mainContainer.addChild(this.toggleCoordsButton);
+        this.mainContainer.addChild(this.toggleGridButton);
+        this.mainContainer.addChild(this.showHealthbarsButton);
+        this.mainContainer.addChild(this.toggleMusicButton);
+        this.mainContainer.addChild(this.toggleSceneInspectorButton);
+        this.mainContainer.addChild(this.saveButton);
+        this.mainContainer.addChild(this.loadButton);
+        this.mainContainer.addChild(this.closeButton);
+
+        this.connectMainEventHandlers();
     }
 
-    public connectEventHandlers() {
+    private initializeSaveDialog(panelWidth: number): void {
+        const title = new Text({
+            text: `Save Battle State`,
+            style: { fill: 0xffffff, fontSize: 24 },
+        });
+        title.anchor.set(0.5);
+        title.x = panelWidth / 2;
+        title.y = 25;
+        this.saveDialogContainer.addChild(title);
+
+        const promptText = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: 'Enter a name for this save entry:',
+            style: { fontSize: 16, fill: '#E0E8FF' },
+        });
+        promptText.position.set(60, 80);
+        this.saveDialogContainer.addChild(promptText);
+
+        const inputBg = new NineSliceSprite({
+            texture: this.uiSheet.textures['thin_button_2_normal.png'] || this.uiSheet.textures['panel.png'],
+            leftWidth: 6,
+            topHeight: 6,
+            rightWidth: 6,
+            bottomHeight: 6,
+        });
+        inputBg.width = 800;
+        inputBg.height = 46;
+        inputBg.position.set(60, 115);
+        inputBg.eventMode = 'static';
+        inputBg.cursor = 'text';
+        this.saveDialogContainer.addChild(inputBg);
+
+        this.saveInputText = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: '',
+            style: { fontSize: 16, fill: '#FFFF88' },
+        });
+        this.saveInputText.position.set(75, 127);
+        this.saveDialogContainer.addChild(this.saveInputText);
+
+        const helperText = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: '(Type on your keyboard to edit name. Press Enter to Save, Esc to Cancel)',
+            style: { fontSize: 12, fill: '#88AACC' },
+        });
+        helperText.position.set(60, 175);
+        this.saveDialogContainer.addChild(helperText);
+
+        this.saveStatusText = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: '',
+            style: { fontSize: 15, fill: '#66FF66' },
+        });
+        this.saveStatusText.position.set(60, 205);
+        this.saveDialogContainer.addChild(this.saveStatusText);
+
+        const confirmSaveBtn = new FancyButton({
+            ...this.THIN_BUTTON_STYLE,
+        });
+        confirmSaveBtn.position.set((panelWidth - 320) / 2, 255);
+        confirmSaveBtn.width = 150;
+        confirmSaveBtn.height = 40;
+        confirmSaveBtn.text = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: 'Save Game',
+            style: { fontSize: 16, fill: '#CCFFCC' },
+        });
+        confirmSaveBtn.onPress.connect(() => this.executeSave());
+        this.saveDialogContainer.addChild(confirmSaveBtn);
+
+        const cancelSaveBtn = new FancyButton({
+            ...this.THIN_BUTTON_STYLE,
+        });
+        cancelSaveBtn.position.set((panelWidth - 320) / 2 + 170, 255);
+        cancelSaveBtn.width = 150;
+        cancelSaveBtn.height = 40;
+        cancelSaveBtn.text = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: 'Cancel',
+            style: { fontSize: 16, fill: '#FFDDDD' },
+        });
+        cancelSaveBtn.onPress.connect(() => this.showMainMenu());
+        this.saveDialogContainer.addChild(cancelSaveBtn);
+    }
+
+    private initializeLoadDialog(panelWidth: number): void {
+        const title = new Text({
+            text: `Load Saved Battle`,
+            style: { fill: 0xffffff, fontSize: 24 },
+        });
+        title.anchor.set(0.5);
+        title.x = panelWidth / 2;
+        title.y = 25;
+        this.loadDialogContainer.addChild(title);
+
+        this.loadPageInfoText = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: 'Saved Battles:',
+            style: { fontSize: 14, fill: '#AACCFF' },
+        });
+        this.loadPageInfoText.position.set(60, 65);
+        this.loadDialogContainer.addChild(this.loadPageInfoText);
+
+        // Scroll Up button
+        const upBtn = new FancyButton({
+            ...this.THIN_BUTTON_STYLE,
+        });
+        upBtn.position.set(panelWidth - 165, 55);
+        upBtn.width = 44;
+        upBtn.height = 32;
+        upBtn.text = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: '▲',
+            style: { fontSize: 16, fill: '#FFFFCC' },
+        });
+        upBtn.onPress.connect(() => {
+            if (this.loadScrollIndex > 0) {
+                this.loadScrollIndex--;
+                this.renderLoadEntries();
+            }
+        });
+        this.loadDialogContainer.addChild(upBtn);
+
+        // Scroll Down button
+        const downBtn = new FancyButton({
+            ...this.THIN_BUTTON_STYLE,
+        });
+        downBtn.position.set(panelWidth - 110, 55);
+        downBtn.width = 44;
+        downBtn.height = 32;
+        downBtn.text = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: '▼',
+            style: { fontSize: 16, fill: '#FFFFCC' },
+        });
+        downBtn.onPress.connect(() => {
+            if (this.loadScrollIndex + this.LOAD_PAGE_SIZE < this.currentSavesList.length) {
+                this.loadScrollIndex++;
+                this.renderLoadEntries();
+            }
+        });
+        this.loadDialogContainer.addChild(downBtn);
+
+        this.loadEntriesContainer.position.set(60, 95);
+        this.loadDialogContainer.addChild(this.loadEntriesContainer);
+
+        const backBtn = new FancyButton({
+            ...this.THIN_BUTTON_STYLE,
+        });
+        backBtn.position.set((panelWidth - 150) / 2, 420);
+        backBtn.width = 150;
+        backBtn.height = 36;
+        backBtn.text = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: 'Back to Menu',
+            style: { fontSize: 16, fill: '#DDFFFF' },
+        });
+        backBtn.onPress.connect(() => this.showMainMenu());
+        this.loadDialogContainer.addChild(backBtn);
+    }
+
+    private connectMainEventHandlers(): void {
         this.fullscreenToggleButton?.onPress.connect(() => {
             if (this.isFullScreen) {
                 this.exitFullscreen();
-            }
-            else {
+            } else {
                 this.enterFullscreen();
             }
+        });
+
+        this.toggleSceneInspectorButton?.onPress.connect(() => {
+            if (this.onToggleSceneInspector) {
+                this.onToggleSceneInspector();
+            }
+        });
+
+        this.saveButton?.onPress.connect(() => {
+            this.showSaveDialog();
+        });
+
+        this.loadButton?.onPress.connect(() => {
+            this.showLoadDialog();
         });
 
         this.closeButton.onPress.connect(() => {
             this.hide();
         });
+    }
+
+    public showMainMenu(): void {
+        this.detachKeyListeners();
+        if (this.saveTimeoutId) {
+            clearTimeout(this.saveTimeoutId);
+            this.saveTimeoutId = undefined;
+        }
+        this.saveDialogContainer.visible = false;
+        this.loadDialogContainer.visible = false;
+        this.mainContainer.visible = true;
+    }
+
+    public showSaveDialog(): void {
+        this.mainContainer.visible = false;
+        this.loadDialogContainer.visible = false;
+        this.saveDialogContainer.visible = true;
+
+        this.currentSaveName = SaveManager.getDefaultSaveName();
+        if (this.saveInputText) {
+            this.saveInputText.text = this.currentSaveName;
+        }
+        if (this.saveStatusText) {
+            this.saveStatusText.text = '';
+        }
+
+        this.attachSaveKeyListeners();
+    }
+
+    public showLoadDialog(): void {
+        this.mainContainer.visible = false;
+        this.saveDialogContainer.visible = false;
+        this.loadDialogContainer.visible = true;
+
+        this.loadScrollIndex = 0;
+        this.refreshSavesList();
+        this.attachLoadWheelListener();
+    }
+
+    private refreshSavesList(): void {
+        this.currentSavesList = SaveManager.listSaves();
+        if (this.loadScrollIndex >= this.currentSavesList.length) {
+            this.loadScrollIndex = Math.max(0, this.currentSavesList.length - this.LOAD_PAGE_SIZE);
+        }
+        this.renderLoadEntries();
+    }
+
+    private renderLoadEntries(): void {
+        this.loadEntriesContainer.removeChildren();
+
+        const total = this.currentSavesList.length;
+        if (total === 0) {
+            if (this.loadPageInfoText) {
+                this.loadPageInfoText.text = 'No saved battles found in local storage.';
+            }
+            const emptyText = new Text({
+                ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+                text: 'There are currently no saved games.\nUse the "Save Battle" option to store your progress.',
+                style: { fontSize: 16, fill: '#8899AA' },
+            });
+            emptyText.position.set(20, 60);
+            this.loadEntriesContainer.addChild(emptyText);
+            return;
+        }
+
+        const start = this.loadScrollIndex;
+        const end = Math.min(start + this.LOAD_PAGE_SIZE, total);
+        if (this.loadPageInfoText) {
+            this.loadPageInfoText.text = `Saved Battles (${start + 1}-${end} of ${total}) • Scroll or use ▲ ▼:`;
+        }
+
+        const visibleEntries = this.currentSavesList.slice(start, end);
+
+        visibleEntries.forEach((entry, idx) => {
+            const itemContainer = new Container();
+            itemContainer.position.set(0, idx * 76);
+
+            const rowBg = new NineSliceSprite({
+                texture: this.uiSheet.textures['thin_button_2_normal.png'] || this.uiSheet.textures['panel.png'],
+                leftWidth: 6,
+                topHeight: 6,
+                rightWidth: 6,
+                bottomHeight: 6,
+            });
+            rowBg.width = 800;
+            rowBg.height = 70;
+            rowBg.alpha = 0.85;
+            itemContainer.addChild(rowBg);
+
+            const nameText = new Text({
+                ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+                text: entry.name.length > 45 ? `${entry.name.substring(0, 42)}...` : entry.name,
+                style: { fontSize: 15, fill: '#FFFFFF', fontWeight: 'bold' },
+            });
+            nameText.position.set(16, 8);
+            itemContainer.addChild(nameText);
+
+            const turnInfo = `Turn ${entry.turnNumber + 1} • Turn: Army ${entry.currentArmyIndex === 0 ? '0 (Player)' : '1 (AI)'} • Squads: ${entry.army0UnitsAlive} vs ${entry.army1UnitsAlive}`;
+            const detailsText = new Text({
+                ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+                text: `${turnInfo}\n${entry.dateFormatted}`,
+                style: { fontSize: 11, fill: '#88CCFF' },
+            });
+            detailsText.position.set(16, 30);
+            itemContainer.addChild(detailsText);
+
+            // Load button
+            const loadBtn = new FancyButton({
+                ...this.THIN_BUTTON_STYLE,
+            });
+            loadBtn.position.set(655, 17);
+            loadBtn.width = 62;
+            loadBtn.height = 36;
+            loadBtn.text = new Text({
+                ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+                text: 'Load',
+                style: { fontSize: 14, fill: '#DDFFFF' },
+            });
+            loadBtn.onPress.connect(() => {
+                this.executeLoad(entry);
+            });
+            itemContainer.addChild(loadBtn);
+
+            // Delete button
+            const delBtn = new FancyButton({
+                ...this.THIN_BUTTON_STYLE,
+            });
+            delBtn.position.set(725, 17);
+            delBtn.width = 54;
+            delBtn.height = 36;
+            delBtn.text = new Text({
+                ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+                text: 'Del',
+                style: { fontSize: 14, fill: '#FFAAAA' },
+            });
+            delBtn.onPress.connect(() => {
+                SaveManager.deleteSave(entry.id);
+                this.refreshSavesList();
+            });
+            itemContainer.addChild(delBtn);
+
+            this.loadEntriesContainer.addChild(itemContainer);
+        });
+    }
+
+    private executeSave(): void {
+        const nameToSave = this.currentSaveName.trim().length > 0 ? this.currentSaveName.trim() : SaveManager.getDefaultSaveName();
+        if (this.saveTimeoutId) {
+            clearTimeout(this.saveTimeoutId);
+            this.saveTimeoutId = undefined;
+        }
+
+        if (this.onSaveBattle) {
+            const ok = this.onSaveBattle(nameToSave);
+            if (ok) {
+                if (this.saveStatusText) {
+                    this.saveStatusText.text = `✓ "${nameToSave}" saved successfully!`;
+                    this.saveStatusText.style.fill = '#66FF66';
+                }
+                this.saveTimeoutId = setTimeout(() => this.showMainMenu(), 800);
+            }
+        } else if (this.battle) {
+            SaveManager.saveBattle(this.battle, nameToSave);
+            if (this.saveStatusText) {
+                this.saveStatusText.text = `✓ "${nameToSave}" saved successfully!`;
+                this.saveStatusText.style.fill = '#66FF66';
+            }
+            this.saveTimeoutId = setTimeout(() => this.showMainMenu(), 800);
+        }
+    }
+
+    private executeLoad(entry: BattleSaveEntry): void {
+        if (this.onLoadSave) {
+            this.onLoadSave(entry);
+        } else if (this.battle) {
+            SaveManager.loadBattle(entry, this.battle);
+        }
+        this.hide();
+    }
+
+    private attachSaveKeyListeners(): void {
+        this.detachKeyListeners();
+
+        this.boundSaveKeyHandler = (e: KeyboardEvent) => {
+            if (!this.saveDialogContainer.visible || !this.isVisible()) return;
+
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                this.showMainMenu();
+                return;
+            }
+
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                this.executeSave();
+                return;
+            }
+
+            if (e.key === 'Backspace') {
+                e.preventDefault();
+                this.currentSaveName = this.currentSaveName.slice(0, -1);
+                if (this.saveInputText) {
+                    this.saveInputText.text = this.currentSaveName;
+                }
+                return;
+            }
+
+            if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                if (this.currentSaveName.length < 45) {
+                    this.currentSaveName += e.key;
+                    if (this.saveInputText) {
+                        this.saveInputText.text = this.currentSaveName;
+                    }
+                }
+            }
+        };
+
+        window.addEventListener('keydown', this.boundSaveKeyHandler);
+    }
+
+    private attachLoadWheelListener(): void {
+        this.detachKeyListeners();
+
+        this.boundLoadWheelHandler = (e: WheelEvent) => {
+            if (!this.loadDialogContainer.visible || !this.isVisible()) return;
+            e.preventDefault();
+
+            if (e.deltaY > 0) {
+                // Scroll down
+                if (this.loadScrollIndex + this.LOAD_PAGE_SIZE < this.currentSavesList.length) {
+                    this.loadScrollIndex++;
+                    this.renderLoadEntries();
+                }
+            } else if (e.deltaY < 0) {
+                // Scroll up
+                if (this.loadScrollIndex > 0) {
+                    this.loadScrollIndex--;
+                    this.renderLoadEntries();
+                }
+            }
+        };
+
+        window.addEventListener('wheel', this.boundLoadWheelHandler, { passive: false });
+    }
+
+    private detachKeyListeners(): void {
+        if (this.boundSaveKeyHandler) {
+            window.removeEventListener('keydown', this.boundSaveKeyHandler);
+            this.boundSaveKeyHandler = undefined;
+        }
+        if (this.boundLoadWheelHandler) {
+            window.removeEventListener('wheel', this.boundLoadWheelHandler);
+            this.boundLoadWheelHandler = undefined;
+        }
     }
 
     private async enterFullscreen() {
@@ -167,32 +655,48 @@ export class BattleMenuPanel {
             return;
         }
         await containingElement.requestFullscreen();
-        console.log('Entered fullscreen mode');
         this.isFullScreen = true;
     }
 
     private async exitFullscreen() {
-        console.log('Exiting fullscreen mode');
         if (!this.isFullScreen) return;
 
         await document.exitFullscreen();
-        console.log('Exited fullscreen mode');
         this.isFullScreen = false;
     }
 
     public toggleVisibility() {
-        this.window.visible = !this.window.visible;
+        if (this.window.visible) {
+            this.hide();
+        } else {
+            this.show();
+        }
     }
 
     public show() {
+        this.showMainMenu();
         this.window.visible = true;
     }
 
     public hide() {
+        this.detachKeyListeners();
+        if (this.saveTimeoutId) {
+            clearTimeout(this.saveTimeoutId);
+            this.saveTimeoutId = undefined;
+        }
         this.window.visible = false;
     }
 
     public isVisible() {
         return this.window.visible;
+    }
+
+    public destroy(): void {
+        this.detachKeyListeners();
+        if (this.saveTimeoutId) {
+            clearTimeout(this.saveTimeoutId);
+            this.saveTimeoutId = undefined;
+        }
+        this.window.destroy({ children: true });
     }
 }

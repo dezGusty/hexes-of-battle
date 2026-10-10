@@ -12,6 +12,7 @@ import { BattleView3D } from "../render3d/battle-view-3d";
 import { BattleHud2D } from "../render3d/battle-hud-2d";
 import { BattleConfig } from "../battle/battle-types";
 import { TerrainType } from "../battle/terrain-types";
+import { SaveManager } from "../battle/save-manager";
 
 export class BattleScene3D implements Scene {
   public readonly name = "battle";
@@ -108,6 +109,30 @@ export class BattleScene3D implements Scene {
       },
       onToggleCoords: (showCoords) => {
         this.view.setCoordsVisible(showCoords);
+      },
+      onToggleSceneInspector: (showInspector) => {
+        this.view.setSceneInspectorVisible(showInspector);
+      },
+      onSaveBattle: (name) => {
+        SaveManager.saveBattle(this.battle, name);
+        return true;
+      },
+      onLoadSave: (entry) => {
+        const ok = SaveManager.loadBattle(entry, this.battle, this.context.templates.abilityTypes);
+        if (ok) {
+          this.cpuPlayer = CPUPlayerFactory.create(this.currentConfig?.aiPersonality, this.battle);
+          this.view.setCpuPlayer(this.cpuPlayer);
+          this.hud.setCpuPlayer(this.cpuPlayer);
+          this.view.resetGridAndTerrain();
+          this.hud.showTurnBanner(this.battle.turnNumber, this.battle.currentArmyIndex);
+          this.view.showTurnBanner(this.battle.turnNumber, this.battle.currentArmyIndex);
+          const active = this.battle.getActiveCreature();
+          if (active) {
+            this.hud.updateActiveUnitAbility(active);
+            this.hud.updateUnitStats(active);
+            this.view.updateActiveUnitSelection();
+          }
+        }
       },
     });
 

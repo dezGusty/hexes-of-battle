@@ -49,6 +49,10 @@ export class SquadVisual3D {
     this.maxCount = Math.max(1, creature.stats.model_count);
     this.aliveCount = creature.aliveModelCount;
 
+    const typeName = Creature.CREATURE_NAMES[creature.creatureType] || `Type${creature.creatureType}`;
+    this.rootGroup.name = `Squad_${typeName}_Army${creature.armyAlignment}`;
+    this.overheadGroup.name = `OverheadUI_${typeName}`;
+
     this.calculateFormationOffsets();
     this.setupModels();
     this.setupOverheadBars();

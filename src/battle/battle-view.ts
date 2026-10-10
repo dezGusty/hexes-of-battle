@@ -21,6 +21,8 @@ import { PerfDisplayPanel } from '../ui/perf-display-panel';
 
 import { ExhaustionState } from './combat-rules';
 
+import { BattleSaveEntry, SaveManager } from './save-manager';
+
 export interface BattleViewEvents {
   onZoomIn: () => void;
   onZoomOut: () => void;
@@ -32,6 +34,8 @@ export interface BattleViewEvents {
   onReset: () => void;
   onActiveAbility1: () => void;
   onRest?: () => void;
+  onSaveBattle?: (name: string) => boolean;
+  onLoadSave?: (entry: BattleSaveEntry) => void;
 }
 
 export class BattleView {
@@ -337,6 +341,21 @@ export class BattleView {
 
     if (this.assets.uiSheet) {
       this.battleMenuPanel = new BattleMenuPanel(this.uiPlusRenderGroup, this.assets.uiSheet);
+      this.battleMenuPanel.battle = this.battle;
+      this.battleMenuPanel.onSaveBattle = (name) => {
+        if (events.onSaveBattle) {
+          return events.onSaveBattle(name);
+        }
+        SaveManager.saveBattle(this.battle, name);
+        return true;
+      };
+      this.battleMenuPanel.onLoadSave = (entry) => {
+        if (events.onLoadSave) {
+          events.onLoadSave(entry);
+        } else {
+          SaveManager.loadBattle(entry, this.battle);
+        }
+      };
       this.battleMenuPanel.hide();
     }
 
@@ -380,6 +399,11 @@ export class BattleView {
     this.battleMenuPanel?.showHealthbarsButton?.onPress.connect(() => {
       this.showHealthbars = !this.showHealthbars;
       this.battle.reselectCurrentUnit();
+    });
+
+    this.battleMenuPanel?.toggleSceneInspectorButton?.onPress.connect(() => {
+      this.settings.debug.showSceneInspector = !this.settings.debug.showSceneInspector;
+      this.settings.save();
     });
 
     this.commonControls.toggleStatsButton?.onPress.connect(() => {
@@ -910,7 +934,7 @@ export class BattleView {
         mapUpdate.hoverPath.forEach((cell) => {
           const sprite = new Sprite(this.assets.hexagonSheet?.textures['hex_usable_yellow.png']);
           sprite.x = this.hexMap.hexToPixel(cell.x, cell.y).x - this.hexMap.cellSize().x / 2;
-          sprite.y = this.hexMap.hexToPixel(cell.y, cell.y).y - this.hexMap.cellSize().y / 2;
+          sprite.y = this.hexMap.hexToPixel(cell.x, cell.y).y - this.hexMap.cellSize().y / 2;
           this.hexPathSprites.push(sprite);
         });
         this.hexPathSprites.forEach((sprite) => this.hexCellsContainer.addChild(sprite));
