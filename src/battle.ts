@@ -24,6 +24,20 @@ export class AnimationAtCoords {
   constructor(public type: AnimationType, public coords: Coords) {}
 }
 
+export interface RangedProjectileData {
+  targetHex: Coords;
+  hitCreature: Creature | null;
+  isScatter: boolean;
+}
+
+export interface RangedAttackData {
+  attacker: Creature;
+  intendedTarget: Creature | null;
+  intendedHex: Coords;
+  projectiles: RangedProjectileData[];
+  targetDamages: Array<{ target: Creature; damage: number; flankStatus: HexFlankStatus }>;
+}
+
 export interface BattleHooks {
   hookMovingUnit: (creature: Creature, position: Coords) => void;
   hookNextTurn: (turnNumber: number, currentArmyIndex: number) => void;
@@ -37,6 +51,7 @@ export interface BattleHooks {
     flankStatus: HexFlankStatus,
     isRetaliation?: boolean
   ) => void;
+  hookDoingAttackRanged?: (data: RangedAttackData) => void;
   hookUnitDied?: (creature: Creature) => void;
   hookActiveUnitChanged?: (creature: Creature) => void;
   hookRangedScatter?: (attacker: Creature, originalTarget: Coords, scatterTarget: Coords, hitCreature: Creature | null) => void;
@@ -329,7 +344,7 @@ export class Battle {
     NumMatrix.resetToZero(this.rangereach_tiles);
     NumMatrix.resetToZero(this.rangereach_targets);
 
-    if (creature.live_stats.is_ranged && creature.exhaustionState !== ExhaustionState.DEPLETED && !creature.isPanickedOrRouting) {
+    if (creature.live_stats.is_ranged && creature.live_stats.remaining_ammo > 0 && creature.exhaustionState !== ExhaustionState.DEPLETED && !creature.isPanickedOrRouting) {
       const otherArmyIndex = this.currentArmyIndex === 0 ? 1 : 0;
       this.unitRangeData = BattleHexMapPath.cacheRangedReachableCells(
         this.hexMap,
@@ -462,7 +477,7 @@ export class Battle {
       return;
     }
 
-    if (creature.live_stats.is_ranged && !creature.isPanickedOrRouting) {
+    if (creature.live_stats.is_ranged && creature.live_stats.remaining_ammo > 0 && !creature.isPanickedOrRouting) {
       if (!meleePreference) {
         if (this.rangereach_tiles[coords.x]?.[coords.y] > 0 || this.rangereach_targets[coords.x]?.[coords.y] > 0) {
           const isAdjacent = this.hexMap.getNeighbours(creature.pos).some((n) => n.x === coords.x && n.y === coords.y);
@@ -634,7 +649,7 @@ export class Battle {
     );
 
     NumMatrix.resetToZero(this.enemy_range_tiles);
-    if (targetCreature.creature.live_stats.is_ranged) {
+    if (targetCreature.creature.live_stats.is_ranged && targetCreature.creature.live_stats.remaining_ammo > 0) {
       const otherArmyIndex = targetCreature.indexOFArmy === 0 ? 1 : 0;
       BattleHexMapPath.cacheRangedReachableCells(
         this.hexMap,
@@ -655,7 +670,7 @@ export class Battle {
       return;
     }
 
-    if (activeCreature.live_stats.is_ranged && !meleePreference) {
+    if (activeCreature.live_stats.is_ranged && activeCreature.live_stats.remaining_ammo > 0 && !meleePreference) {
       const target = this.unitRangeData.find((element) => element.coords.x === coords.x && element.coords.y === coords.y);
       if (target) {
         const isAdjacent = this.hexMap.getNeighbours(activeCreature.position).some((n) => n.x === coords.x && n.y === coords.y);
@@ -1038,25 +1053,116 @@ export class Battle {
     attacker.consumeStamina(attackStamina);
     this.totalStaminaSpent[attacker.armyAlignment] += attackStamina;
 
-    let targetCoords = originalTargetCoords;
-    let hitCreatureInBattle = this.getCreatureAtPosition(targetCoords);
-
-    // Ranged Scatter & Friendly Fire logic
+    // Ranged attack with per-projectile hit/scatter and proportional damage
     if (currentAction.type === BattleActionType.ATTACK_RANGED) {
       attacker.stats.remaining_ammo = Math.max(0, attacker.stats.remaining_ammo - 1);
-      const isScattered = this.rng.chance(this.combatConfig.ranged.scatterChance);
-      if (isScattered) {
-        const neighbours = this.hexMap.getNeighbours(originalTargetCoords);
-        if (neighbours.length > 0) {
-          targetCoords = this.rng.choice(neighbours) ?? originalTargetCoords;
-          hitCreatureInBattle = this.getCreatureAtPosition(targetCoords);
-          this.hookRangedScatter?.(attacker, originalTargetCoords, targetCoords, hitCreatureInBattle?.creature ?? null);
-          if (hitCreatureInBattle && hitCreatureInBattle.indexOFArmy === attacker.armyAlignment) {
+
+      const totalArrows = Math.max(1, attacker.aliveModelCount);
+      const intendedHitInBattle = this.getCreatureAtPosition(originalTargetCoords);
+      const intendedTarget = intendedHitInBattle?.creature ?? null;
+      const projectiles: RangedProjectileData[] = [];
+      const targetHitCounts = new Map<Creature, number>();
+
+      for (let i = 0; i < totalArrows; i++) {
+        const isScattered = this.rng.chance(this.combatConfig.ranged.scatterChance);
+        let targetCoords = originalTargetCoords;
+        if (isScattered) {
+          const neighbours = this.hexMap.getNeighbours(originalTargetCoords);
+          if (neighbours.length > 0) {
+            targetCoords = this.rng.choice(neighbours) ?? originalTargetCoords;
+          }
+        }
+
+        const hitInBattle = this.getCreatureAtPosition(targetCoords);
+        const hitCreature = hitInBattle?.creature ?? null;
+
+        if (isScattered) {
+          this.hookRangedScatter?.(attacker, originalTargetCoords, targetCoords, hitCreature);
+          if (hitInBattle && hitInBattle.indexOFArmy === attacker.armyAlignment) {
             this.friendlyFireEvents++;
           }
         }
+
+        projectiles.push({
+          targetHex: targetCoords,
+          hitCreature,
+          isScatter: isScattered,
+        });
+
+        if (hitCreature) {
+          targetHitCounts.set(hitCreature, (targetHitCounts.get(hitCreature) ?? 0) + 1);
+        }
       }
+
+      const totalBaseDamage = attacker.getRandomAttackDamageRanged(this.rng);
+      const targetDamages: Array<{ target: Creature; damage: number; flankStatus: HexFlankStatus }> = [];
+
+      for (const [defender, count] of targetHitCounts.entries()) {
+        const proportion = count / totalArrows;
+        const attackFromDir = reverseDirection(attacker.facingDirection);
+        const flankStatus = checkFlankingStatus(defender.facingDirection, attackFromDir);
+        let facingBonus = 0;
+        if (flankStatus === HexFlankStatus.BACKSTAB) {
+          facingBonus = this.combatConfig.facing.rear.damageBonus;
+        } else if (flankStatus === HexFlankStatus.FLANK) {
+          facingBonus = this.combatConfig.facing.flank.damageBonus;
+        }
+        const targetArmor = defender.live_stats.defense_ranged;
+        let damage = Math.max(0, Math.round((totalBaseDamage + facingBonus - targetArmor) * proportion));
+
+        targetDamages.push({ target: defender, damage, flankStatus });
+        this.hookDoingAttack(attacker, defender, damage, BattleActionType.ATTACK_RANGED, flankStatus, false);
+        const { modelsLost } = defender.takeDamage(damage);
+        this.totalDamageDealt[attacker.armyAlignment] += damage;
+
+        const casualtyThreshold = Math.max(1, Math.floor(defender.stats.model_count * this.combatConfig.morale.casualtyThresholdRatio));
+        if (modelsLost >= casualtyThreshold || defender.stats.stamina <= 0) {
+          this.checkMorale(defender);
+        }
+      }
+
+      this.hookDoingAttackRanged?.({
+        attacker,
+        intendedTarget,
+        intendedHex: originalTargetCoords,
+        projectiles,
+        targetDamages,
+      });
+
+      // Process casualties
+      for (const { target: defender } of targetDamages) {
+        if (!defender.isAlive) {
+          this.casualties.push(defender);
+          this.hookUnitDied(defender);
+          const idx = this.creatures.findIndex((c) => c === defender);
+          if (idx >= 0) this.creatures.splice(idx, 1);
+          this.checkVictoryConditionsAndState();
+          this.tryToSelectUnitAtLocation(attacker.pos);
+        }
+      }
+
+      // Check retaliation if intended target survived and has close quarters counter trait
+      if (intendedTarget && intendedTarget.isAlive) {
+        const canRetaliate =
+          intendedTarget.hasTrait(this.combatConfig.retaliation.closeQuartersCounterTrait) &&
+          intendedTarget.stats.stamina >= this.combatConfig.retaliation.minStamina &&
+          intendedTarget.stats.retaliations_done < this.combatConfig.retaliation.maxRetaliationsPerTurn &&
+          intendedTarget.live_stats.remaining_counterattacks > 0 &&
+          !intendedTarget.isExhausted &&
+          !intendedTarget.isPanickedOrRouting;
+
+        if (canRetaliate) {
+          counterattacking = this.queueCounterattack(intendedTarget, attacker);
+        }
+      }
+
+      attacker.stats.remaining_attacks = Math.max(0, attacker.stats.remaining_attacks - 1);
+      attacker.stats.remaining_movement = 0;
+      return counterattacking;
     }
+
+    let targetCoords = originalTargetCoords;
+    let hitCreatureInBattle = this.getCreatureAtPosition(targetCoords);
 
     if (hitCreatureInBattle === null) {
       attacker.stats.remaining_attacks = Math.max(0, attacker.stats.remaining_attacks - 1);
@@ -1462,6 +1568,7 @@ export class Battle {
 
   // Hook callbacks
   hookDoingAttack(_attacker: Creature, _defender: Creature, _damage: number, _type: BattleActionType, _flank: HexFlankStatus, _isRetaliation?: boolean) {}
+  hookDoingAttackRanged?(_data: RangedAttackData) {}
   hookNextTurn(_turnNumber: number, _armyIndex: number) {}
   hookMovingUnit(_creature: Creature, _nextStep: Coords) {}
   hookUnitDied(_creature: Creature) {}

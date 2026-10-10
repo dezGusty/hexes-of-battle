@@ -997,12 +997,48 @@ export class BattleView {
 
     let faceName = 'peasant_face.png';
     switch (creature.creatureType) {
-      case CreatureType.PEASANT: faceName = 'peasant_face.png'; break;
-      case CreatureType.PEASANT_ARCHER: faceName = 'peasant_archer_face.png'; break;
-      case CreatureType.SPEARMAN: faceName = 'spearman_face.png'; break;
-      case CreatureType.SWORDSMAN: faceName = 'swordman_face.png'; break;
-      case CreatureType.BARBARIAN: faceName = 'barbarian_face.png'; break;
-      case CreatureType.CROSSBOWMAN: faceName = 'crossbowman_face.png'; break;
+      case CreatureType.PEASANT:
+      case 'peasant' as any:
+        faceName = 'peasant_face.png';
+        break;
+      case CreatureType.PEASANT_ARCHER:
+      case 'peasant_archer' as any:
+        faceName = 'peasant_archer_face.png';
+        break;
+      case CreatureType.SWORDSMAN:
+      case 'swordsman' as any:
+      case 'swordman' as any:
+        faceName = 'swordman_face.png';
+        break;
+      case CreatureType.SPEARMAN:
+      case 'spearman' as any:
+        faceName = 'spearman_face.png';
+        break;
+      case CreatureType.CROSSBOWMAN:
+      case 'crossbowman' as any:
+        faceName = 'crossbowman_face.png';
+        break;
+      case CreatureType.ARCHER:
+      case 'archer' as any:
+        faceName = 'peasant_archer_face.png';
+        break;
+      case CreatureType.BARBARIAN:
+      case 'barbarian' as any:
+        faceName = 'barbarian_face.png';
+        break;
+      case CreatureType.HEAVY_KNIGHTS:
+      case 'heavy_knights' as any:
+      case CreatureType.HERO_COMMANDER:
+      case 'hero_commander' as any:
+        faceName = 'swordman_face.png';
+        break;
+      case CreatureType.BEHEMOTH:
+      case 'behemoth' as any:
+        faceName = 'barbarian_face.png';
+        break;
+      default:
+        faceName = 'peasant_face.png';
+        break;
     }
 
     const faceTexture = this.assets.unitsSheet?.textures[faceName];

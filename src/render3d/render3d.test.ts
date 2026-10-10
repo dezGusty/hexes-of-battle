@@ -200,6 +200,38 @@ describe('3D Graphics Engine & Rendering Systems', () => {
 
       projectileSys.dispose();
     });
+
+    it('should support array of individual projectile trajectories with distinct target destinations', () => {
+      const projectileSys = new ProjectileSystem3D();
+      let impactsTriggered = 0;
+
+      const source = new THREE.Vector3(0, 0.5, 0);
+      const targetMain = new THREE.Vector3(10, 0, 0);
+      const targetScatter1 = new THREE.Vector3(9, 0, 2);
+      const targetScatter2 = new THREE.Vector3(11, 0, -2);
+
+      projectileSys.spawnVolley({
+        sourcePos: source,
+        projectiles: [
+          { targetPos: targetMain, onImpact: () => impactsTriggered++ },
+          { targetPos: targetScatter1, onImpact: () => impactsTriggered++ },
+          { targetPos: targetScatter2, onImpact: () => impactsTriggered++ },
+        ],
+        projectileType: 'arrow',
+        durationMs: 250,
+        apexHeight: 2.5,
+      });
+
+      expect(projectileSys.group.children.length).toBeGreaterThan(0);
+
+      projectileSys.update(100);
+      expect(impactsTriggered).toBe(0);
+
+      projectileSys.update(300);
+      expect(impactsTriggered).toBe(3);
+
+      projectileSys.dispose();
+    });
   });
 
   describe('4. 2D Tactical HUD Overlay for 3D Battle Arena', () => {
@@ -343,6 +375,62 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       hud.hideEnemyStats();
       expect(hud.enemyStats.isVisible()).toBe(false);
       expect(hud.isPointerOverUI(panelX + 20, panelY + 20)).toBe(false);
+
+      hud.destroy();
+    });
+
+    it('should correctly retrieve faction banner textures for army indices from bannersSheet', () => {
+      const settings = new BattleSettings();
+      const battle = new Battle(new HexMap(13, 9));
+      const dummyBanners: Record<string, PixiTexture> = {
+        'banner1.png': { uid: 'banner1' } as any,
+        'banner2.png': { uid: 'banner2' } as any,
+      };
+      const assets = {
+        uiSheet: { textures: {} } as any,
+        bannersSheet: { textures: dummyBanners } as any,
+        softCursorTextures: {},
+      };
+
+      const hud = new BattleHud2D(assets, settings, battle);
+      expect(hud.getBannerTextureForArmyIndex(0)).toBe(dummyBanners['banner1.png']);
+      expect(hud.getBannerTextureForArmyIndex(1)).toBe(dummyBanners['banner2.png']);
+
+      hud.destroy();
+    });
+
+    it('should correctly map each CreatureType to its matching portrait texture', () => {
+      const settings = new BattleSettings();
+      const battle = new Battle(new HexMap(13, 9));
+      const dummyFaces: Record<string, PixiTexture> = {
+        'peasant_face.png': { uid: 'peasant' } as any,
+        'peasant_archer_face.png': { uid: 'peasant_archer' } as any,
+        'swordman_face.png': { uid: 'swordsman' } as any,
+        'spearman_face.png': { uid: 'spearman' } as any,
+        'crossbowman_face.png': { uid: 'crossbowman' } as any,
+        'barbarian_face.png': { uid: 'barbarian' } as any,
+      };
+      const assets = {
+        uiSheet: { textures: {} } as any,
+        unitsSheet: { textures: dummyFaces } as any,
+        softCursorTextures: {},
+      };
+
+      const hud = new BattleHud2D(assets, settings, battle);
+
+      const peasant = new Creature(CreatureType.PEASANT);
+      const peasantArcher = new Creature(CreatureType.PEASANT_ARCHER);
+      const swordsman = new Creature(CreatureType.SWORDSMAN);
+      const spearman = new Creature(CreatureType.SPEARMAN);
+      const crossbowman = new Creature(CreatureType.CROSSBOWMAN);
+      const barbarian = new Creature(CreatureType.BARBARIAN);
+
+      expect(hud.getFaceTextureForCreature(peasant)).toBe(dummyFaces['peasant_face.png']);
+      expect(hud.getFaceTextureForCreature(peasantArcher)).toBe(dummyFaces['peasant_archer_face.png']);
+      expect(hud.getFaceTextureForCreature(swordsman)).toBe(dummyFaces['swordman_face.png']);
+      expect(hud.getFaceTextureForCreature(spearman)).toBe(dummyFaces['spearman_face.png']);
+      expect(hud.getFaceTextureForCreature(crossbowman)).toBe(dummyFaces['crossbowman_face.png']);
+      expect(hud.getFaceTextureForCreature(barbarian)).toBe(dummyFaces['barbarian_face.png']);
 
       hud.destroy();
     });

@@ -4,6 +4,7 @@ import { GameContext, Scene } from "../core/scene";
 import { HexDirection, HexMap } from "../shared/hex-map";
 import { Coords } from "../shared";
 import { Battle } from "../battle";
+import { BattleActionType } from "../battle/battle-action";
 import { CreatureType } from "../battle/creature";
 import { CPUPersonalityType, CPUPlayer } from "../battle/cpu-player";
 import { CPUPlayerFactory } from "../battle/cpu-player-factory";
@@ -213,8 +214,14 @@ export class BattleScene3D implements Scene {
   }
 
   private hookBattleEvents(): void {
+    this.battle.hookDoingAttackRanged = (data) => {
+      this.view.showRangedAttackVisuals(data);
+    };
+
     this.battle.hookDoingAttack = (attacker, defender, damage, attackType, flankStatus) => {
-      this.view.showAttackVisuals(attacker, defender, damage, attackType, flankStatus);
+      if (attackType !== BattleActionType.ATTACK_RANGED) {
+        this.view.showAttackVisuals(attacker, defender, damage, attackType, flankStatus);
+      }
     };
 
     this.battle.hookNextTurn = (turnNum, armyIdx) => {
@@ -268,12 +275,12 @@ export class BattleScene3D implements Scene {
     addUnit(CreatureType.PEASANT, { x: 3, y: 4 }, 0);
     addUnit(CreatureType.SPEARMAN, { x: 0, y: 0 }, 0, HexDirection.EAST, 10);
     addUnit(CreatureType.PEASANT_ARCHER, { x: 1, y: 5 }, 0);
-    // addUnit(CreatureType.CROSSBOWMAN, { x: 0, y: 4 }, 0);
+    addUnit(CreatureType.CROSSBOWMAN, { x: 0, y: 4 }, 0);
     // addUnit(CreatureType.SPEARMAN, { x: 3, y: 5 }, 0);
 
     addUnit(CreatureType.SPEARMAN, { x: 5, y: 6 }, 1, HexDirection.WEST);
     addUnit(CreatureType.SWORDSMAN, { x: 4, y: 4 }, 1, HexDirection.WEST);
-    // addUnit(CreatureType.BARBARIAN, { x: 4, y: 6 }, 1, HexDirection.WEST);
+    addUnit(CreatureType.BARBARIAN, { x: 4, y: 6 }, 1, HexDirection.WEST);
     // addUnit(CreatureType.PEASANT, { x: 4, y: 3 }, 1, HexDirection.WEST);
     // addUnit(CreatureType.PEASANT_ARCHER, { x: 7, y: 4 }, 1, HexDirection.WEST);
 

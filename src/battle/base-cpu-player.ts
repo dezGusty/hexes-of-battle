@@ -126,7 +126,7 @@ export abstract class BaseCPUPlayer implements CPUPlayer {
     }
 
     // 1. Ranged Attack Decision
-    if (selectedCreature.live_stats.is_ranged && selectedCreature.live_stats.remaining_attacks > 0) {
+    if (selectedCreature.live_stats.is_ranged && selectedCreature.live_stats.remaining_ammo > 0 && selectedCreature.live_stats.remaining_attacks > 0) {
       const rangedTargets = this.findRangedTargets(selectedCreature);
       if (rangedTargets.length > 0) {
         const target = this.chooseRangedTarget(selectedCreature, rangedTargets);

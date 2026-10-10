@@ -34,9 +34,18 @@ export interface UnitVisualConfig {
   shadows?: boolean;
 }
 
+export interface SingleProjectileTrajectory {
+  targetPos: THREE.Vector3;
+  sourcePos?: THREE.Vector3;
+  apexHeight?: number;
+  durationMs?: number;
+  onImpact?: () => void;
+}
+
 export interface ProjectileTrajectoryParams {
   sourcePos: THREE.Vector3;
-  targetPos: THREE.Vector3;
+  targetPos?: THREE.Vector3;
+  projectiles?: SingleProjectileTrajectory[];
   durationMs: number;
   apexHeight: number;
   projectileType: 'arrow' | 'bolt' | 'spear' | 'magic' | 'stone';

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Battle } from "../battle";
+import { BattleActionType } from "./battle-action";
 import { HexDirection, HexFlankStatus, HexMap, checkFlankingStatus } from "../shared/hex-map";
 import { Creature, CreatureType } from "./creature";
 import { ExhaustionState, getExhaustionState, getRetaliationDamageMultiplier } from "./combat-rules";
@@ -384,6 +385,97 @@ describe("Tactical Systems Validation", () => {
 
       expect(scatterDetected).toBe(true);
       expect(archer.stats.remaining_ammo).toBe(9);
+    });
+
+    it("should prevent ranged units from performing ranged attacks when remaining_ammo is 0", () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const archer = new Creature(CreatureType.PEASANT_ARCHER);
+      archer.position = { x: 0, y: 0 };
+      archer.armyAlignment = 0;
+      archer.stats.is_ranged = true;
+      archer.stats.range = 6;
+      archer.stats.remaining_ammo = 0; // Out of ammo!
+
+      const enemy = new Creature(CreatureType.SWORDSMAN);
+      enemy.position = { x: 4, y: 0 };
+      enemy.armyAlignment = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        creatures: [archer, enemy],
+      });
+
+      // Select archer
+      battle.handlePrimaryCellAction({ x: 0, y: 0 });
+
+      // Ranged reach targets matrix should be 0 because ammo is 0
+      expect(battle.rangereach_targets[4]?.[0] ?? 0).toBe(0);
+
+      // Attempting to target distant enemy should NOT create a ranged attack
+      battle.handleSecondaryCellAction({ x: 4, y: 0 });
+      expect((battle as any).currentActions.some((a: any) => a.type === BattleActionType.ATTACK_RANGED)).toBe(false);
+      expect(archer.stats.remaining_ammo).toBe(0);
+    });
+
+    it("should calculate individual arrow scatter and apply proportional damage per target", () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const archer = new Creature(CreatureType.PEASANT_ARCHER);
+      archer.position = { x: 0, y: 0 };
+      archer.armyAlignment = 0;
+      archer.stats.is_ranged = true;
+      archer.stats.range = 6;
+      archer.stats.remaining_ammo = 10;
+      archer.stats.model_count = 8;
+      archer.stats.health = 40;
+      archer.stats.remaining_health = 40;
+      archer.stats.attack_ranged_low = 10;
+      archer.stats.attack_ranged_high = 10;
+
+      const ally = new Creature(CreatureType.PEASANT);
+      ally.position = { x: 4, y: 1 };
+      ally.armyAlignment = 0;
+      ally.stats.health = 40;
+      ally.stats.remaining_health = 40;
+      ally.stats.defense_ranged = 0;
+
+      const enemy = new Creature(CreatureType.SWORDSMAN);
+      enemy.position = { x: 4, y: 0 };
+      enemy.facingDirection = HexDirection.WEST;
+      enemy.armyAlignment = 1;
+      enemy.stats.health = 40;
+      enemy.stats.remaining_health = 40;
+      enemy.stats.defense_ranged = 0;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        creatures: [archer, ally, enemy],
+      });
+
+      let rangedDataCaptured: any = null;
+      battle.hookDoingAttackRanged = (data) => {
+        rangedDataCaptured = data;
+      };
+
+      // 0% scatter chance: all 8 arrows hit enemy
+      battle.combatConfig.ranged.scatterChance = 0.0;
+      battle.handlePrimaryCellAction({ x: 0, y: 0 });
+      battle.handleSecondaryCellAction({ x: 4, y: 0 });
+      battle.stepInstant();
+
+      expect(rangedDataCaptured).not.toBeNull();
+      expect(rangedDataCaptured.projectiles.length).toBe(8);
+      expect(rangedDataCaptured.projectiles.every((p: any) => !p.isScatter)).toBe(true);
+      expect(rangedDataCaptured.targetDamages.length).toBe(1);
+      expect(rangedDataCaptured.targetDamages[0].target).toBe(enemy);
+      expect(rangedDataCaptured.targetDamages[0].damage).toBe(10);
+      expect(ally.stats.remaining_health).toBe(40); // Ally was not hit
+      expect(enemy.stats.remaining_health).toBe(30); // Enemy took full 10 damage
     });
   });
 

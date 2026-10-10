@@ -5,7 +5,7 @@ import { GameAssets } from "../core/scene";
 import { BattleSettings } from "../battle/settings";
 import { Battle, ArmyControlType } from "../battle";
 import { CPUPlayer } from "../battle/cpu-player";
-import { Creature } from "../battle/creature";
+import { Creature, CreatureType } from "../battle/creature";
 import { Coords } from "../shared";
 import { CommonControls } from "../ui/common-controls";
 import { TopSidePanel } from "../ui/top-side-panel";
@@ -294,8 +294,8 @@ export class BattleHud2D {
 
   public getBannerTextureForArmyIndex(armyIndex: number): Texture | undefined {
     if (!this.assets.bannersSheet) return undefined;
-    const name = armyIndex === 0 ? "banner_green.png" : "banner_blue.png";
-    return this.assets.bannersSheet.textures[name];
+    const name = `banner${(armyIndex % 16) + 1}.png`;
+    return this.assets.bannersSheet.textures[name] || this.assets.bannersSheet.textures['banner1.png'];
   }
 
   public showTurnBanner(turnNum: number, armyIdx: number): void {
@@ -353,29 +353,47 @@ export class BattleHud2D {
     if (!this.assets.unitsSheet) return undefined;
     let faceName = 'peasant_face.png';
     switch (creature.creatureType) {
+      case CreatureType.PEASANT:
       case 'peasant' as any:
-      case 0:
         faceName = 'peasant_face.png';
         break;
+      case CreatureType.PEASANT_ARCHER:
       case 'peasant_archer' as any:
-      case 1:
         faceName = 'peasant_archer_face.png';
         break;
-      case 'spearman' as any:
-      case 2:
-        faceName = 'spearman_face.png';
-        break;
+      case CreatureType.SWORDSMAN:
       case 'swordsman' as any:
-      case 3:
+      case 'swordman' as any:
         faceName = 'swordman_face.png';
         break;
+      case CreatureType.SPEARMAN:
+      case 'spearman' as any:
+        faceName = 'spearman_face.png';
+        break;
+      case CreatureType.CROSSBOWMAN:
+      case 'crossbowman' as any:
+        faceName = 'crossbowman_face.png';
+        break;
+      case CreatureType.ARCHER:
+      case 'archer' as any:
+        faceName = 'peasant_archer_face.png';
+        break;
+      case CreatureType.BARBARIAN:
       case 'barbarian' as any:
-      case 4:
         faceName = 'barbarian_face.png';
         break;
-      case 'crossbowman' as any:
-      case 5:
-        faceName = 'crossbowman_face.png';
+      case CreatureType.HEAVY_KNIGHTS:
+      case 'heavy_knights' as any:
+      case CreatureType.HERO_COMMANDER:
+      case 'hero_commander' as any:
+        faceName = 'swordman_face.png';
+        break;
+      case CreatureType.BEHEMOTH:
+      case 'behemoth' as any:
+        faceName = 'barbarian_face.png';
+        break;
+      default:
+        faceName = 'peasant_face.png';
         break;
     }
     return this.assets.unitsSheet.textures[faceName];

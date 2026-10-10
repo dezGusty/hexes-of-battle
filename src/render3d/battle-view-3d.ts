@@ -1,5 +1,5 @@
 import { sound } from '@pixi/sound';
-import { Battle, MapRenderUpdate } from '../battle';
+import { Battle, MapRenderUpdate, RangedAttackData } from '../battle';
 import { HexDirection, HexFlankStatus, HexMap, checkFlankingStatus } from '../shared/hex-map';
 import { Coords } from '../shared';
 import { Creature } from '../battle/creature';
@@ -213,6 +213,53 @@ export class BattleView3D {
     }
   }
 
+  public showRangedAttackVisuals(data: RangedAttackData): void {
+    const attackerSquad = this.squadVisuals.get(data.attacker.GUID.toString());
+    const sourcePos = attackerSquad
+      ? attackerSquad.rootGroup.position.clone()
+      : this.hexBoard.hexToWorld(data.attacker.position.x, data.attacker.position.y);
+
+    if (attackerSquad) {
+      attackerSquad.playAnimation('attack_ranged', 400);
+    }
+
+    if (this.settings.sound.soundOn) {
+      sound.play('arrow', { volume: this.settings.sound.soundVolume });
+    }
+
+    // Build array of individual projectile trajectories with distinct destination hexes
+    const projectiles = data.projectiles.map((p) => {
+      const hitSquad = p.hitCreature ? this.squadVisuals.get(p.hitCreature.GUID.toString()) : undefined;
+      const targetPos = hitSquad
+        ? hitSquad.rootGroup.position.clone()
+        : this.hexBoard.hexToWorld(p.targetHex.x, p.targetHex.y);
+
+      return {
+        targetPos,
+        sourcePos,
+      };
+    });
+
+    const onImpact = () => {
+      data.targetDamages.forEach(({ target, damage, flankStatus }) => {
+        const targetSquad = this.squadVisuals.get(target.GUID.toString());
+        this.applyDamageVisuals(targetSquad, damage, flankStatus);
+      });
+    };
+
+    const avgTargetPos = projectiles.length > 0 ? projectiles[0].targetPos : sourcePos;
+    const dist = sourcePos.distanceTo(avgTargetPos);
+
+    this.projectileSystem.spawnVolley({
+      sourcePos,
+      projectiles,
+      projectileType: 'arrow',
+      durationMs: 480,
+      apexHeight: Math.max(1.8, dist * 0.38),
+      onImpact,
+    });
+  }
+
   public showAttackVisuals(
     attacker: Creature,
     defender: Creature,
@@ -224,7 +271,7 @@ export class BattleView3D {
     const defenderSquad = this.squadVisuals.get(defender.GUID.toString());
 
     if (attackType === BattleActionType.ATTACK_RANGED) {
-      // 3D Parabolic Ballistic Projectile Volley!
+      // Single-target fallback or legacy call
       const sourcePos = attackerSquad
         ? attackerSquad.rootGroup.position.clone()
         : this.hexBoard.hexToWorld(attacker.position.x, attacker.position.y);

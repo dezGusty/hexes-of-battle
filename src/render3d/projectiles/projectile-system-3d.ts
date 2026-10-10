@@ -62,10 +62,77 @@ export class ProjectileSystem3D {
 
   /**
    * Spawns a multi-projectile volley travelling along 3D parabolic arcs.
+   * Supports either an array of individual projectile targets (e.g. per-arrow scatter)
+   * or a volley count flying towards a single target destination.
    */
   public spawnVolley(params: ProjectileTrajectoryParams): void {
+    if (params.projectiles && params.projectiles.length > 0) {
+      params.projectiles.forEach((proj, idx) => {
+        const isPrimary = idx === 0;
+        const delayMs = idx * 40 + Math.random() * 25;
+        const start = (proj.sourcePos ?? params.sourcePos).clone().add(new THREE.Vector3(
+          (Math.random() - 0.5) * 0.4,
+          0.6,
+          (Math.random() - 0.5) * 0.4
+        ));
+        const end = proj.targetPos.clone().add(new THREE.Vector3(
+          (Math.random() - 0.5) * 0.3,
+          0.2,
+          (Math.random() - 0.5) * 0.3
+        ));
+
+        const dist = start.distanceTo(end);
+        const apex = proj.apexHeight ?? (params.apexHeight > 0 ? params.apexHeight : Math.max(1.5, dist * 0.35));
+        const duration = proj.durationMs ?? (params.durationMs > 0 ? params.durationMs : Math.max(400, dist * 120));
+
+        const mesh = this.createArrowMesh(params.projectileType);
+        mesh.position.copy(start);
+        mesh.visible = isPrimary;
+        this.group.add(mesh);
+
+        // Trail line
+        const maxTrailPoints = 8;
+        const trailPositions = new Float32Array(maxTrailPoints * 3);
+        for (let j = 0; j < maxTrailPoints; j++) {
+          trailPositions[j * 3 + 0] = start.x;
+          trailPositions[j * 3 + 1] = start.y;
+          trailPositions[j * 3 + 2] = start.z;
+        }
+        const trailGeo = new THREE.BufferGeometry();
+        trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3));
+        trailGeo.setDrawRange(0, 1);
+
+        const trailMat = new THREE.LineBasicMaterial({
+          color: params.projectileType === 'magic' ? 0x88ddff : 0xffffff,
+          transparent: true,
+          opacity: 0.5,
+        });
+        const trailLine = new THREE.Line(trailGeo, trailMat);
+        this.group.add(trailLine);
+
+        this.activeProjectiles.push({
+          mesh,
+          trailLine,
+          trailPoints: [start.clone()],
+          sourcePos: start,
+          targetPos: end,
+          apexHeight: apex + (Math.random() - 0.5) * 0.2,
+          durationMs: duration + (Math.random() - 0.5) * 40,
+          elapsedMs: 0,
+          delayMs,
+          onImpact: () => {
+            if (proj.onImpact) proj.onImpact();
+            if (isPrimary && params.onImpact) params.onImpact();
+          },
+          impactTriggered: false,
+        });
+      });
+      return;
+    }
+
+    const fallbackTarget = params.targetPos ?? params.sourcePos;
     const volleyCount = params.volleyCount ?? 5;
-    const dist = params.sourcePos.distanceTo(params.targetPos);
+    const dist = params.sourcePos.distanceTo(fallbackTarget);
     const apex = params.apexHeight > 0 ? params.apexHeight : Math.max(1.5, dist * 0.35);
     const baseDuration = params.durationMs > 0 ? params.durationMs : Math.max(400, dist * 120);
 
@@ -80,7 +147,7 @@ export class ProjectileSystem3D {
 
       const targetJitterX = isPrimary ? 0 : (Math.random() - 0.5) * 0.5;
       const targetJitterZ = isPrimary ? 0 : (Math.random() - 0.5) * 0.5;
-      const end = params.targetPos.clone().add(new THREE.Vector3(targetJitterX, 0.2, targetJitterZ));
+      const end = fallbackTarget.clone().add(new THREE.Vector3(targetJitterX, 0.2, targetJitterZ));
 
       if (params.scatterOffset) {
         end.add(params.scatterOffset);
