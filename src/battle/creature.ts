@@ -196,6 +196,18 @@ export class Creature {
     public buffs: Buff[] = []
   ) {
     this.guid = GuidMaker.generateGuid();
+    this.stats.num_attacks = this.stats.num_attacks ?? 1;
+    this.stats.num_counterattacks = this.stats.num_counterattacks ?? 1;
+    this.stats.num_moves = this.stats.num_moves ?? 3;
+    this.stats.health = this.stats.health ?? 40;
+    this.stats.remaining_health = this.stats.remaining_health ?? this.stats.health;
+    this.stats.remaining_attacks = this.stats.remaining_attacks ?? this.stats.num_attacks;
+    this.stats.remaining_counterattacks = this.stats.remaining_counterattacks ?? this.stats.num_counterattacks;
+    this.stats.remaining_movement = this.stats.remaining_movement ?? this.stats.num_moves;
+    this.stats.remaining_ammo = this.stats.remaining_ammo ?? this.stats.ammo ?? 0;
+    this.stats.retaliations_done = this.stats.retaliations_done ?? 0;
+    this.stats.has_rested = this.stats.has_rested ?? false;
+
     if (this.stats.max_stamina <= 0) {
       this.stats.max_stamina = this.stats.stamina || 12;
     }

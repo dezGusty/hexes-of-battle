@@ -42,13 +42,15 @@ export class CreatureRepository {
     result.stats.flying = creatureTemplate.flying ?? creatureTemplate.stats.flying ?? false;
     result.stats.traits = creatureTemplate.traits ? [...creatureTemplate.traits] : [];
 
-    result.stats.remaining_ammo = result.stats.ammo;
-    result.stats.remaining_attacks = result.stats.num_attacks;
-    result.stats.remaining_counterattacks = result.stats.num_counterattacks;
+    result.stats.remaining_ammo = result.stats.ammo ?? 0;
+    result.stats.remaining_attacks = result.stats.num_attacks ?? 1;
+    result.stats.remaining_counterattacks = result.stats.num_counterattacks ?? 1;
     result.stats.remaining_health = result.stats.health;
     result.stats.remaining_movement = result.stats.num_moves;
     result.stats.max_stamina = result.stats.stamina;
     result.stats.base_morale = result.stats.morale;
+    result.stats.retaliations_done = 0;
+    result.stats.has_rested = false;
 
     result.abilities = (creatureTemplate.ability_ids || [])
       .map((abilityId) => {

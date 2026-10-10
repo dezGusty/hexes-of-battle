@@ -310,6 +310,38 @@ describe("Tactical Systems Validation", () => {
 
       expect(retaliationTriggered).toBe(false);
     });
+
+    it("should successfully retaliate against melee attack on Turn 1 with fresh defender", () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+      battle.setSeed(42);
+
+      const attacker = new Creature(CreatureType.SWORDSMAN);
+      attacker.position = { x: 2, y: 2 };
+      attacker.armyAlignment = 0;
+
+      const defender = new Creature(CreatureType.SWORDSMAN);
+      defender.position = { x: 3, y: 2 };
+      defender.armyAlignment = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        creatures: [attacker, defender],
+      });
+
+      let retaliationCount = 0;
+      battle.hookDoingAttack = (_a, _d, _dmg, _type, _flank, isRetaliation) => {
+        if (isRetaliation) retaliationCount++;
+      };
+
+      battle.handlePrimaryCellAction({ x: 2, y: 2 });
+      battle.handleSecondaryCellAction({ x: 3, y: 2 });
+      battle.stepInstant();
+
+      expect(retaliationCount).toBe(1);
+      expect(defender.stats.retaliations_done).toBe(1);
+    });
   });
 
   describe("5. Ranged Combat, Scatter & Friendly Fire", () => {

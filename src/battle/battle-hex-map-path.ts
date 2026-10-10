@@ -52,6 +52,12 @@ export class BattleHexMapPath {
     let reachData: ReachData[] = [];
     NumMatrix.resetToZero(pathfindingMatrix);
 
+    // Initial node (start position)
+    reachData.push({ coords: startCoords, reach, cameFrom: startCoords });
+    if (pathfindingMatrix[startCoords.x] && pathfindingMatrix[startCoords.x][startCoords.y] !== undefined) {
+      pathfindingMatrix[startCoords.x][startCoords.y] = reach + BattleHexMapPath.CELL_PATH_OFFSET;
+    }
+
     let frontier: ReachData[] = [{ coords: startCoords, reach, cameFrom: startCoords }];
 
     while (frontier.length > 0) {
@@ -87,7 +93,6 @@ export class BattleHexMapPath {
         }
 
         // Check presence of enemies. For occupied tiles, don't pass through units (friendly or enemies)
-        // (TODO: add option to pass through at some point?)
         if (mapData.occupation_tiles[neighbour.coords.x][neighbour.coords.y] > 0) {
           if (options.markUnitsInArmies.length > 0) {
             if (BattleHexMapPath.isCreatureAtOccupationTileInArmies(
@@ -154,46 +159,53 @@ export class BattleHexMapPath {
   }
 
   /**
-   * Find the path to a cell from the list of allin the reach data.
-   * @param coords The coordinates to find the path to (end position). This is useful when hovering with the mouse over a hex and
-   * we want to show the path to that hex.
-   * @param reachData The full set of ReachData entries for the current creature. This will contain all reachable cells.
-   * @returns An array containing the path to the cell.
+   * Find the path to a cell from the list of all in the reach data.
+   * @param coords The coordinates to find the path to (end position).
+   * @param reachData The full set of ReachData entries for the current creature.
+   * @returns An array containing the complete path from the source unit's position to the destination hex.
    */
   public static findPathToCellInReachData(coords: Coords, reachData: ReachData[]): Coords[] {
-    let path: Coords[] = [];
-    // Get all reach data entries that have the same final coordinates.
-    let finalElements = reachData.filter((element) => element.coords.x === coords.x && element.coords.y === coords.y);
-    // If there are no such elements, return an empty path.
-    if (finalElements.length === 0) {
-      return path;
+    if (!reachData || reachData.length === 0) {
+      return [];
     }
 
-    // If there are multiple elements, choose the one with the smallest cost / largest reach
-    let finalElement = finalElements.reduce((prev, current) => prev.reach > current.reach ? prev : current);
+    const reachMap = new Map<string, ReachData>();
+    for (const rd of reachData) {
+      const key = `${rd.coords.x},${rd.coords.y}`;
+      const existing = reachMap.get(key);
+      if (!existing || rd.reach > existing.reach) {
+        reachMap.set(key, rd);
+      }
+    }
+
+    const destKey = `${coords.x},${coords.y}`;
+    let current = reachMap.get(destKey);
+    if (!current) {
+      return [];
+    }
+
+    const path: Coords[] = [];
     const visited = new Set<string>();
 
-    while (finalElements.length > 0 && finalElement) {
-      const key = `${finalElement.coords.x},${finalElement.coords.y}`;
+    while (current) {
+      const key = `${current.coords.x},${current.coords.y}`;
       if (visited.has(key)) {
         break;
       }
       visited.add(key);
+      path.push({ x: current.coords.x, y: current.coords.y });
 
-      path.push(finalElement.coords);
-
-      if (finalElement.cameFrom.x === finalElement.coords.x && finalElement.cameFrom.y === finalElement.coords.y) {
+      if (current.cameFrom.x === current.coords.x && current.cameFrom.y === current.coords.y) {
         break;
       }
 
-      finalElements = reachData.filter((element) =>
-        element.coords.x === finalElement?.cameFrom.x
-        && element.coords.y === finalElement?.cameFrom.y);
-
-      if (finalElements.length === 0) {
+      const parentKey = `${current.cameFrom.x},${current.cameFrom.y}`;
+      const parent = reachMap.get(parentKey);
+      if (!parent) {
+        path.push({ x: current.cameFrom.x, y: current.cameFrom.y });
         break;
       }
-      finalElement = finalElements.reduce((prev, current) => prev.reach > current.reach ? prev : current);
+      current = parent;
     }
 
     path.reverse();

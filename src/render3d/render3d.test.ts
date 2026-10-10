@@ -18,7 +18,10 @@ import { BattleHud2D } from './battle-hud-2d';
 import { Battle } from '../battle';
 import { BattleSettings } from '../battle/settings';
 import { UnitStatsPanel } from '../ui/unit-stats-panel';
+import { EnemyStatsPanel } from '../ui/enemy-stats-panel';
 import { ThreeSceneDebugger } from './debug/three-scene-debugger';
+import { BattleHexMapPath } from '../battle/battle-hex-map-path';
+import { NumMatrix } from '../shared/num-matrix';
 
 describe('3D Graphics Engine & Rendering Systems', () => {
   describe('1. 3D Hex Board & Coordinates', () => {
@@ -278,6 +281,68 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       hud.unitStats.toggleVisibility();
       settings.hex.showStats = hud.unitStats.isVisible();
       expect(settings.hex.showStats).toBe(false);
+
+      hud.destroy();
+    });
+
+    it('should create compact EnemyStatsPanel with all 11 stats and handle open/close and hit tests', () => {
+      const settings = new BattleSettings();
+      const battle = new Battle(new HexMap(13, 9));
+      const dummyUiSheet = {
+        textures: new Proxy({}, {
+          get: () => PixiTexture.EMPTY,
+        }),
+      };
+      const assets = {
+        uiSheet: dummyUiSheet as any,
+        unitsSheet: dummyUiSheet as any,
+        bannersSheet: dummyUiSheet as any,
+        softCursorTextures: {},
+      };
+
+      const hud = new BattleHud2D(assets, settings, battle);
+      hud.enemyStats = new EnemyStatsPanel(hud.uiPlusRenderGroup, dummyUiSheet as unknown as any);
+
+      // Initially hidden
+      expect(hud.enemyStats.isVisible()).toBe(false);
+
+      const enemyCreature = new Creature(CreatureType.SPEARMAN);
+      enemyCreature.armyAlignment = 1;
+      enemyCreature.position = { x: 5, y: 5 };
+      enemyCreature.stats.remaining_health = 12;
+      enemyCreature.stats.health = 15;
+      enemyCreature.stats.attack_melee_low = 4;
+      enemyCreature.stats.attack_melee_high = 7;
+      enemyCreature.stats.defense_melee = 3;
+      enemyCreature.stats.defense_ranged = 2;
+      enemyCreature.stats.remaining_movement = 4;
+      enemyCreature.stats.num_moves = 4;
+      enemyCreature.stats.remaining_attacks = 1;
+      enemyCreature.stats.num_attacks = 1;
+      enemyCreature.stats.remaining_counterattacks = 1;
+      enemyCreature.stats.num_counterattacks = 1;
+      enemyCreature.stats.stamina = 8;
+
+      // Show enemy stats
+      hud.showEnemyStats(enemyCreature);
+      expect(hud.enemyStats.isVisible()).toBe(true);
+
+      // Panel hit testing: inside panel bounds
+      const panelX = hud.enemyStats.window.x;
+      const panelY = hud.enemyStats.window.y;
+      expect(hud.enemyStats.containsPoint(panelX + 10, panelY + 10)).toBe(true);
+      expect(hud.enemyStats.containsPoint(100, 100)).toBe(false);
+
+      // isPointerOverUI respects enemy stats panel when visible
+      expect(hud.isPointerOverUI(panelX + 20, panelY + 20)).toBe(true);
+
+      // Mousemove updates tooltip
+      hud.updateCursorPosition({ x: panelX + 90, y: panelY + 30 });
+
+      // Hide enemy stats (e.g. clicking outside)
+      hud.hideEnemyStats();
+      expect(hud.enemyStats.isVisible()).toBe(false);
+      expect(hud.isPointerOverUI(panelX + 20, panelY + 20)).toBe(false);
 
       hud.destroy();
     });
@@ -681,18 +746,43 @@ describe('3D Graphics Engine & Rendering Systems', () => {
   });
 
   describe('9. Path Preview Diagnostics & Configurable Hotkeys', () => {
+    it('should compute complete path with source, intermediate, and destination hexes', () => {
+      const hexMap = new HexMap(10, 8);
+      const pathMatrix = NumMatrix.createZeroMatrix(10, 8);
+      const occupationTiles = NumMatrix.createZeroMatrix(10, 8);
+      const terrainTiles = NumMatrix.createZeroMatrix(10, 8);
+
+      const reachData = BattleHexMapPath.cacheWalkableAndMeleeReachableCells(
+        hexMap,
+        { x: 1, y: 1 },
+        4,
+        pathMatrix,
+        { 0: 1 },
+        { occupation_tiles: occupationTiles, terrain_tiles: terrainTiles, creatures: [] },
+        { markUnitsInArmies: [] }
+      );
+
+      // Path to adjacent hex (1 step)
+      const path1 = BattleHexMapPath.findPathToCellInReachData({ x: 2, y: 1 }, reachData);
+      expect(path1).toEqual([{ x: 1, y: 1 }, { x: 2, y: 1 }]);
+
+      // Path to distant hex (3 steps)
+      const path3 = BattleHexMapPath.findPathToCellInReachData({ x: 4, y: 1 }, reachData);
+      expect(path3.length).toBe(4);
+      expect(path3[0]).toEqual({ x: 1, y: 1 });
+      expect(path3[path3.length - 1]).toEqual({ x: 4, y: 1 });
+    });
+
     it('should format and print hoverPath and attackPath arrays upon invoking printPathPreview', () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
       const mockBattleView = {
         battle: {
-          nextRenderUpdate: {
-            hoverPath: [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 2 }],
-          },
           getActiveCreature: () => ({
             position: { x: 1, y: 1 },
             armyAlignment: 0,
-            stats: { name: 'Peasant' },
+            creatureType: CreatureType.PEASANT,
+            live_stats: { is_ranged: false, remaining_attacks: 1, remaining_ammo: 0 },
           }),
           getCreatureAtPosition: (coords: { x: number; y: number }) => {
             if (coords.x === 3 && coords.y === 2) {
@@ -700,36 +790,44 @@ describe('3D Graphics Engine & Rendering Systems', () => {
                 indexOFArmy: 1,
                 creature: {
                   position: { x: 3, y: 2 },
-                  stats: { name: 'Swordsman' },
+                  creatureType: CreatureType.SWORDSMAN,
+                  facingDirection: HexDirection.WEST,
                 },
               };
             }
             return null;
           },
+          findPathFromSelectedUnitToCell: (coords: { x: number; y: number }) => {
+            if (coords.x === 2 && coords.y === 2) {
+              return [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 2, y: 2 }];
+            }
+            return [{ x: 1, y: 1 }, coords];
+          },
         },
+        hexMap: new HexMap(10, 8),
         hoveredHex: { x: 3, y: 2 },
-        hoveredDirection: HexDirection.EAST,
+        hoveredDirection: HexDirection.WEST,
+        isCtrlPressed: false,
+        computeAttackAndHoverPaths: function() {
+          return {
+            hoverPath: [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 2, y: 2 }],
+            attackPath: [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 2, y: 2 }, { x: 3, y: 2 }],
+            originHex: { x: 2, y: 2 },
+            isRanged: false,
+          };
+        },
         printPathPreview: function() {
-          const hoverPath = this.battle.nextRenderUpdate.hoverPath ? [...this.battle.nextRenderUpdate.hoverPath] : [];
+          const { hoverPath, attackPath } = this.computeAttackAndHoverPaths();
           const activeCreature = this.battle.getActiveCreature();
           const targetCreature = this.hoveredHex ? this.battle.getCreatureAtPosition(this.hoveredHex) : null;
-
-          let attackPath: any[] = [];
-          if (activeCreature && targetCreature && targetCreature.indexOFArmy !== activeCreature.armyAlignment) {
-            if (hoverPath.length > 0) {
-              attackPath = [...hoverPath];
-            } else if (this.hoveredHex) {
-              attackPath = [activeCreature.position, this.hoveredHex];
-            }
-          }
 
           const report = {
             hoverPath,
             attackPath,
             hoveredHex: this.hoveredHex ? { ...this.hoveredHex } : null,
             hoveredDirection: this.hoveredDirection,
-            selectedUnit: activeCreature ? { name: activeCreature.stats.name, position: { ...activeCreature.position } } : null,
-            targetEnemy: targetCreature ? { name: targetCreature.creature.stats.name, position: { ...targetCreature.creature.position } } : null,
+            selectedUnit: activeCreature ? { name: Creature.CREATURE_NAMES[activeCreature.creatureType] ?? `Type${activeCreature.creatureType}`, position: { ...activeCreature.position } } : null,
+            targetEnemy: targetCreature ? { name: Creature.CREATURE_NAMES[targetCreature.creature.creatureType] ?? `Type${targetCreature.creature.creatureType}`, position: { ...targetCreature.creature.position } } : null,
           };
 
           console.log('[Path Preview Array]', report);
@@ -739,13 +837,13 @@ describe('3D Graphics Engine & Rendering Systems', () => {
 
       const result = mockBattleView.printPathPreview();
       expect(result.hoverPath).toHaveLength(3);
-      expect(result.attackPath).toHaveLength(3);
+      expect(result.attackPath).toHaveLength(4);
       expect(consoleSpy).toHaveBeenCalledWith(
         '[Path Preview Array]',
         expect.objectContaining({
-          hoverPath: [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 2 }],
-          attackPath: [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 2 }],
-          hoveredDirection: HexDirection.EAST,
+          hoverPath: [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 2, y: 2 }],
+          attackPath: [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 2, y: 2 }, { x: 3, y: 2 }],
+          hoveredDirection: HexDirection.WEST,
         })
       );
 

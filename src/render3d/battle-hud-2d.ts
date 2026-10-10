@@ -11,6 +11,7 @@ import { CommonControls } from "../ui/common-controls";
 import { TopSidePanel } from "../ui/top-side-panel";
 import { BattleMenuPanel } from "../ui/battle-menu";
 import { UnitStatsPanel } from "../ui/unit-stats-panel";
+import { EnemyStatsPanel } from "../ui/enemy-stats-panel";
 import { PerfDisplayPanel } from "../ui/perf-display-panel";
 import { TurnChangeCollection } from "../ui/turn-change-display";
 
@@ -39,7 +40,7 @@ export interface BattleHud2DEvents {
 /**
  * 2D PixiJS UI overlay for the 3D Battle Arena.
  * Contains TopSidePanel, CommonControls (Rest, End Turn, Next Unit, Zoom, Menu),
- * UnitStatsPanel, BattleMenuPanel, and TurnChangeDisplay banners.
+ * UnitStatsPanel, EnemyStatsPanel, BattleMenuPanel, and TurnChangeDisplay banners.
  */
 export class BattleHud2D {
   public readonly container: Container = new Container();
@@ -52,6 +53,7 @@ export class BattleHud2D {
   public topSidePanel?: TopSidePanel;
   public battleMenuPanel?: BattleMenuPanel;
   public unitStats?: UnitStatsPanel;
+  public enemyStats?: EnemyStatsPanel;
   public perfDisplayPanel: PerfDisplayPanel = new PerfDisplayPanel();
   public fpsText?: BitmapText;
   public turnChangeDisplay: TurnChangeCollection = new TurnChangeCollection();
@@ -101,6 +103,8 @@ export class BattleHud2D {
       } else {
         this.unitStats.hide();
       }
+      this.enemyStats = new EnemyStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet);
+      this.enemyStats.hide();
     }
 
     this.initializeCommonControls(events);
@@ -345,12 +349,8 @@ export class BattleHud2D {
     }
   }
 
-  public updateUnitStats(creature?: Creature): void {
-    if (!this.unitStats || !creature) return;
-    const bannerTexture = this.getBannerTextureForArmyIndex(creature.armyAlignment);
-    this.unitStats.setBannerTexture(bannerTexture);
-    this.unitStats.setCreature(creature);
-
+  public getFaceTextureForCreature(creature: Creature): Texture | undefined {
+    if (!this.assets.unitsSheet) return undefined;
     let faceName = 'peasant_face.png';
     switch (creature.creatureType) {
       case 'peasant' as any:
@@ -378,10 +378,34 @@ export class BattleHud2D {
         faceName = 'crossbowman_face.png';
         break;
     }
+    return this.assets.unitsSheet.textures[faceName];
+  }
 
-    const faceTexture = this.assets.unitsSheet?.textures[faceName];
+  public updateUnitStats(creature?: Creature): void {
+    if (!this.unitStats || !creature) return;
+    const bannerTexture = this.getBannerTextureForArmyIndex(creature.armyAlignment);
+    this.unitStats.setBannerTexture(bannerTexture);
+    this.unitStats.setCreature(creature);
+
+    const faceTexture = this.getFaceTextureForCreature(creature);
     this.unitStats.setFaceTexture(faceTexture);
     this.unitStats.update();
+  }
+
+  public showEnemyStats(creature: Creature): void {
+    if (!this.enemyStats || !creature) return;
+    const bannerTexture = this.getBannerTextureForArmyIndex(creature.armyAlignment);
+    this.enemyStats.setBannerTexture(bannerTexture);
+    this.enemyStats.setCreature(creature);
+
+    const faceTexture = this.getFaceTextureForCreature(creature);
+    this.enemyStats.setFaceTexture(faceTexture);
+    this.enemyStats.update();
+    this.enemyStats.show();
+  }
+
+  public hideEnemyStats(): void {
+    this.enemyStats?.hide();
   }
 
   public updateCursorPosition(coords: Coords): void {
@@ -390,6 +414,9 @@ export class BattleHud2D {
     }
     if (this.unitStats?.isVisible()) {
       this.unitStats.mousemove(coords);
+    }
+    if (this.enemyStats?.isVisible()) {
+      this.enemyStats.mousemove(coords);
     }
   }
 
@@ -404,6 +431,11 @@ export class BattleHud2D {
 
   public isPointerOverUI(stageX: number, stageY: number): boolean {
     if (this.isMenuBlockingInput()) return true;
+
+    // Enemy stats panel
+    if (this.enemyStats?.isVisible() && this.enemyStats.containsPoint(stageX, stageY)) {
+      return true;
+    }
 
     // Left sidebar controls (Menu at top, toggle buttons, Rest, Next Unit, End Turn)
     if (stageX >= 0 && stageX <= 165) {

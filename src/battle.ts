@@ -117,6 +117,9 @@ export class Battle {
 
   public nextRenderUpdate: MapRenderUpdate = new MapRenderUpdate();
   public prevRenderUpdate: MapRenderUpdate = new MapRenderUpdate();
+  public currentHoverCell: Coords | null = null;
+  public currentHoverDirection: HexDirection = HexDirection.NONE;
+  public currentHoverPath: Coords[] = [];
   private unitReachData: ReachData[] = [];
   private unitRangeData: ReachData[] = [];
 
@@ -441,9 +444,13 @@ export class Battle {
       creature.consumeStamina(staminaCost);
       this.totalStaminaSpent[this.currentArmyIndex] += staminaCost;
 
-      this.currentActions.push(new BattleAction(BattleActionType.MOVE, path, 0, 50, 50, creature));
+      const moveSteps = (path.length > 1 && path[0].x === creature.position.x && path[0].y === creature.position.y) ? path.slice(1) : path;
+      if (moveSteps.length > 0) {
+        this.currentActions.push(new BattleAction(BattleActionType.MOVE, moveSteps, 0, 50, 50, creature));
+      }
       this.nextRenderUpdate.hoverOverCell = null;
       this.nextRenderUpdate.hoverPath = [];
+      this.currentHoverPath = [];
       return;
     }
 
@@ -483,19 +490,25 @@ export class Battle {
 
     if (path.length === 0) {
       path = this.findPathFromSelectedUnitToCell(coords);
-      path.pop();
+      if (path.length > 1) {
+        path.pop(); // Approach hex is the one before target
+      }
     }
 
     const terrainCostsRecord: Record<number, number> = {};
     for (let t = 0; t <= 5; t++) terrainCostsRecord[t] = this.getMoveCostForTerrain(t, creature);
 
-    if (path.length > 0) {
+    const moveSteps = (path.length > 1 && path[0].x === creature.position.x && path[0].y === creature.position.y)
+      ? path.slice(1)
+      : (path.length === 1 && path[0].x === creature.position.x && path[0].y === creature.position.y ? [] : path);
+
+    if (moveSteps.length > 0) {
       const moveCost = this.getMovementCostForPath(path, creature, terrainCostsRecord);
       const staminaCost = this.getStaminaCostForPath(path, creature);
       creature.stats.remaining_movement = Math.max(0, creature.stats.remaining_movement - moveCost);
       creature.consumeStamina(staminaCost);
       this.totalStaminaSpent[this.currentArmyIndex] += staminaCost;
-      this.currentActions.push(new BattleAction(BattleActionType.MOVE, path, 0, 50, 50, creature, creatureAtTarget.creature));
+      this.currentActions.push(new BattleAction(BattleActionType.MOVE, moveSteps, 0, 50, 50, creature, creatureAtTarget.creature));
     }
 
     this.currentActions.push(BattleAction.CreateAttackMelee(creature, creatureAtTarget.creature));
@@ -568,15 +581,20 @@ export class Battle {
       this.nextRenderUpdate.hoverOverCell &&
       this.nextRenderUpdate.hoverOverCell.x === coords.x &&
       this.nextRenderUpdate.hoverOverCell.y === coords.y &&
+      this.nextRenderUpdate.hoverDirection === optionalDirection &&
       this.onMouseOverCellPrevPrefMelee === meleePreference
     ) {
       return;
     }
 
+    this.onMouseOverCellPrevPrefMelee = meleePreference;
+    this.currentHoverCell = coords;
+    this.currentHoverDirection = optionalDirection;
     this.nextRenderUpdate.hoverOverCell = coords;
     this.nextRenderUpdate.hoverDirection = optionalDirection;
     if (this.activeCreatureIndex <= -1) {
       this.nextRenderUpdate.hoverPath = [];
+      this.currentHoverPath = [];
       this.nextRenderUpdate.somethingChanged = true;
       return;
     }
@@ -586,6 +604,7 @@ export class Battle {
 
     if (targetCreature === null || targetCreature.indexOFArmy === this.currentArmyIndex) {
       this.nextRenderUpdate.hoverPath = this.findPathFromSelectedUnitToCell(coords);
+      this.currentHoverPath = [...this.nextRenderUpdate.hoverPath];
       this.nextRenderUpdate.somethingChanged = true;
       this.nextRenderUpdate.setCursorHint("default");
       this.nextRenderUpdate.enemyReachableCells = true;
@@ -642,6 +661,7 @@ export class Battle {
         const isAdjacent = this.hexMap.getNeighbours(activeCreature.position).some((n) => n.x === coords.x && n.y === coords.y);
         if (!isAdjacent) {
           this.nextRenderUpdate.hoverPath = [];
+          this.currentHoverPath = [];
           this.nextRenderUpdate.hoverOverCell = coords;
           this.nextRenderUpdate.setCursorHint("attack_ranged");
           this.nextRenderUpdate.somethingChanged = true;
@@ -660,12 +680,16 @@ export class Battle {
     if (!neighbourInUnitReachData) {
       if (neighbour.x === activeCreature.position.x && neighbour.y === activeCreature.position.y) {
         this.nextRenderUpdate.setCursorHint(Battle.DIRECTION_TO_ATTACK_CURSOR[reverseDirection(optionalDirection)]);
+        this.nextRenderUpdate.hoverPath = [activeCreature.position];
+        this.currentHoverPath = [activeCreature.position];
+        this.nextRenderUpdate.somethingChanged = true;
         return;
       }
       const target = this.unitReachData.find((e) => e.coords.x === coords.x && e.coords.y === coords.y);
       if (target) {
         this.nextRenderUpdate.cursorHint = "attack_melee";
         this.nextRenderUpdate.hoverPath = this.findPathFromSelectedUnitToCell(coords);
+        this.currentHoverPath = [...this.nextRenderUpdate.hoverPath];
         if (this.nextRenderUpdate.hoverPath.length >= 2) {
           optionalDirection = this.hexMap.getDirectionForNeighbour(coords, this.nextRenderUpdate.hoverPath[this.nextRenderUpdate.hoverPath.length - 2]);
           this.nextRenderUpdate.setCursorHint(Battle.DIRECTION_TO_ATTACK_CURSOR[reverseDirection(optionalDirection)]);
@@ -681,12 +705,23 @@ export class Battle {
     }
 
     this.nextRenderUpdate.hoverPath = this.findPathFromSelectedUnitToCell(neighbour);
+    this.currentHoverPath = [...this.nextRenderUpdate.hoverPath];
     this.nextRenderUpdate.cursorHint = Battle.DIRECTION_TO_ATTACK_CURSOR[reverseDirection(optionalDirection)];
     this.nextRenderUpdate.somethingChanged = true;
   }
 
   public findPathFromSelectedUnitToCell(coords: Coords): Coords[] {
     return BattleHexMapPath.findPathToCellInReachData(coords, this.unitReachData);
+  }
+
+  public getHoverPath(): Coords[] {
+    if (this.currentHoverPath && this.currentHoverPath.length > 0) {
+      return [...this.currentHoverPath];
+    }
+    if (this.nextRenderUpdate.hoverPath && this.nextRenderUpdate.hoverPath.length > 0) {
+      return [...this.nextRenderUpdate.hoverPath];
+    }
+    return [];
   }
 
   public isFinished(): boolean {
@@ -1348,6 +1383,21 @@ export class Battle {
   }
 
   public start() {
+    for (const creature of this.creatures) {
+      if (creature.stats.retaliations_done === undefined) {
+        creature.stats.retaliations_done = 0;
+      }
+      if (creature.stats.remaining_counterattacks === undefined) {
+        creature.stats.remaining_counterattacks = creature.stats.num_counterattacks ?? 1;
+      }
+      if (creature.stats.remaining_attacks === undefined) {
+        creature.stats.remaining_attacks = creature.stats.num_attacks ?? 1;
+      }
+      if (creature.stats.remaining_movement === undefined) {
+        creature.stats.remaining_movement = creature.stats.num_moves ?? 3;
+      }
+      creature.updateExhaustionState();
+    }
     this.recomputeAllPositionBuffs();
   }
 
@@ -1388,11 +1438,12 @@ export class Battle {
   }
 
   private getMovementCostForPath(path: Coords[], creature: Creature, terrainMoveCost: Record<number, number>): number {
+    const startIndex = (path.length > 1 && path[0].x === creature.position.x && path[0].y === creature.position.y) ? 1 : 0;
     if (creature?.isFlying) {
-      return path.length;
+      return Math.max(0, path.length - startIndex);
     }
     let cost = 0;
-    for (let i = 0; i < path.length; i++) {
+    for (let i = startIndex; i < path.length; i++) {
       const terrain = this.getTerrainAt(path[i]);
       cost += terrainMoveCost[terrain] ?? 1;
     }
@@ -1400,8 +1451,9 @@ export class Battle {
   }
 
   private getStaminaCostForPath(path: Coords[], _creature: Creature): number {
+    const startIndex = (path.length > 1 && path[0].x === _creature.position.x && path[0].y === _creature.position.y) ? 1 : 0;
     let stamina = 0;
-    for (let i = 0; i < path.length; i++) {
+    for (let i = startIndex; i < path.length; i++) {
       const terrain = this.getTerrainAt(path[i]);
       stamina += this.getStaminaCostForTerrain(terrain);
     }

@@ -379,6 +379,84 @@ export class BattleView3D {
     this.hud?.setCursor('default');
   }
 
+  public computeAttackAndHoverPaths(): { hoverPath: Coords[]; attackPath: Coords[]; originHex: Coords | null; isRanged: boolean } {
+    const activeCreature = this.battle.getActiveCreature();
+    if (!this.hoveredHex || !activeCreature) {
+      return { hoverPath: [], attackPath: [], originHex: null, isRanged: false };
+    }
+
+    const targetCreature = this.battle.getCreatureAtPosition(this.hoveredHex);
+
+    if (targetCreature && targetCreature.indexOFArmy !== activeCreature.armyAlignment) {
+      // Targeting an enemy unit
+      const isRanged = activeCreature.live_stats.is_ranged && activeCreature.stats.remaining_ammo > 0 && !this.isCtrlPressed;
+      if (isRanged) {
+        return {
+          hoverPath: [],
+          attackPath: [activeCreature.position, this.hoveredHex],
+          originHex: null,
+          isRanged: true,
+        };
+      }
+
+      // Melee attack: find approach hex
+      let originHex: Coords | null = null;
+      let movePath: Coords[] = [];
+
+      // Check if user specified direction is reachable
+      if (this.hoveredDirection !== HexDirection.NONE) {
+        const neighbour = this.hexMap.getNeighbourInDirection(this.hoveredHex, this.hoveredDirection);
+        if (neighbour) {
+          if (neighbour.x === activeCreature.position.x && neighbour.y === activeCreature.position.y) {
+            originHex = activeCreature.position;
+            movePath = [activeCreature.position];
+          } else {
+            const path = this.battle.findPathFromSelectedUnitToCell(neighbour);
+            if (path.length > 0 && !this.battle.getCreatureAtPosition(neighbour)) {
+              originHex = neighbour;
+              movePath = path;
+            }
+          }
+        }
+      }
+
+      // If not determined via direction, look for closest / best reachable adjacent neighbour
+      if (!originHex) {
+        const isAdjacent = this.hexMap.getNeighbours(activeCreature.position).some(
+          (n) => n.x === this.hoveredHex!.x && n.y === this.hoveredHex!.y
+        );
+        if (isAdjacent) {
+          originHex = activeCreature.position;
+          movePath = [activeCreature.position];
+        } else {
+          // Check all reachable neighbours of hoveredHex
+          const neighbours = this.hexMap.getNeighbours(this.hoveredHex);
+          let bestPath: Coords[] = [];
+          for (const n of neighbours) {
+            if (this.battle.getCreatureAtPosition(n)) continue;
+            const path = this.battle.findPathFromSelectedUnitToCell(n);
+            if (path.length > 0 && (bestPath.length === 0 || path.length < bestPath.length)) {
+              bestPath = path;
+              originHex = n;
+            }
+          }
+          movePath = bestPath;
+        }
+      }
+
+      if (originHex) {
+        const attackPath = [...movePath, this.hoveredHex];
+        return { hoverPath: movePath, attackPath, originHex, isRanged: false };
+      } else {
+        return { hoverPath: [], attackPath: [], originHex: null, isRanged: false };
+      }
+    } else {
+      // Hovering over empty or friendly cell
+      const hoverPath = this.battle.findPathFromSelectedUnitToCell(this.hoveredHex);
+      return { hoverPath, attackPath: [], originHex: null, isRanged: false };
+    }
+  }
+
   private updateHoverVisuals(): void {
     if (!this.hoveredHex) {
       this.clearHoverState();
@@ -398,6 +476,8 @@ export class BattleView3D {
       this.hud?.setCursor('default');
     }
 
+    const { hoverPath, originHex, isRanged } = this.computeAttackAndHoverPaths();
+
     // 2. Attack Preview & Flank Calculation
     if (
       activeCreature &&
@@ -405,10 +485,7 @@ export class BattleView3D {
       targetCreature.indexOFArmy !== activeCreature.armyAlignment &&
       activeCreature.live_stats.remaining_attacks > 0
     ) {
-      const isRanged = activeCreature.live_stats.is_ranged && activeCreature.stats.remaining_ammo > 0;
-      const isMeleeForced = this.isCtrlPressed;
-
-      if (isRanged && !isMeleeForced) {
+      if (isRanged) {
         // Standard Ranged Attack Preview: target ring only, no origin hex or melee ground arrow
         const inRangedReach =
           (this.battle.rangereach_tiles[this.hoveredHex.x]?.[this.hoveredHex.y] ?? 0) > 0 ||
@@ -426,56 +503,25 @@ export class BattleView3D {
         return;
       }
 
-      // Melee Attack Preview (or forced melee with CTRL)
-      let originHex: Coords | null = null;
-
-      if (renderUpdate.hoverPath && renderUpdate.hoverPath.length > 0) {
-        const lastNode = renderUpdate.hoverPath[renderUpdate.hoverPath.length - 1];
-        if (lastNode.x === this.hoveredHex.x && lastNode.y === this.hoveredHex.y) {
-          if (renderUpdate.hoverPath.length >= 2) {
-            originHex = renderUpdate.hoverPath[renderUpdate.hoverPath.length - 2];
-          } else {
-            originHex = activeCreature.position;
-          }
-        } else {
-          // Destination approach hex where the unit steps to attack
-          originHex = lastNode;
-        }
-      } else {
-        const isAdjacent = this.hexMap.getNeighbours(activeCreature.position).some(
-          (n) => n.x === this.hoveredHex!.x && n.y === this.hoveredHex!.y
-        );
-        if (this.hoveredDirection !== HexDirection.NONE) {
-          const hoveredNeighbour = this.hexMap.getNeighbourInDirection(this.hoveredHex, this.hoveredDirection);
-          if (hoveredNeighbour && hoveredNeighbour.x === activeCreature.position.x && hoveredNeighbour.y === activeCreature.position.y) {
-            originHex = activeCreature.position;
-          } else if (isAdjacent) {
-            originHex = activeCreature.position;
-          } else if (hoveredNeighbour) {
-            originHex = hoveredNeighbour;
-          }
-        } else if (isAdjacent) {
-          originHex = activeCreature.position;
-        }
-      }
-
-      let flankStatus = HexFlankStatus.NONE;
+      // Melee Attack Preview
       if (originHex) {
         const attackFromDir = this.hexMap.getDirectionForNeighbour(originHex, this.hoveredHex);
-        flankStatus = checkFlankingStatus(targetCreature.creature.facingDirection, attackFromDir);
-      }
-
-      this.hexBoard.setAttackPreview(this.hoveredHex, originHex, flankStatus);
-      if (renderUpdate.hoverPath && renderUpdate.hoverPath.length > 0) {
-        this.hexBoard.setPathPreview(renderUpdate.hoverPath);
+        const flankStatus = checkFlankingStatus(targetCreature.creature.facingDirection, attackFromDir);
+        this.hexBoard.setAttackPreview(this.hoveredHex, originHex, flankStatus);
+        if (hoverPath.length > 1) {
+          this.hexBoard.setPathPreview(hoverPath);
+        } else {
+          this.hexBoard.clearPathPreview();
+        }
       } else {
+        this.hexBoard.clearAttackPreview();
         this.hexBoard.clearPathPreview();
       }
     } else {
       this.hexBoard.clearAttackPreview();
 
-      if (renderUpdate.hoverPath && renderUpdate.hoverPath.length > 0) {
-        this.hexBoard.setPathPreview(renderUpdate.hoverPath);
+      if (hoverPath.length > 1) {
+        this.hexBoard.setPathPreview(hoverPath);
       } else {
         this.hexBoard.clearPathPreview();
       }
@@ -578,8 +624,21 @@ export class BattleView3D {
       }
       if (this.battle.isCurrentTurnAI()) return;
 
-      if (e.button === 0 && this.hoveredHex) {
-        this.battle.handlePrimaryCellAction(this.hoveredHex, this.hoveredDirection);
+      if (e.button === 0) {
+        if (this.hoveredHex) {
+          const creatureInBattle = this.battle.getCreatureAtPosition(this.hoveredHex);
+          if (creatureInBattle && creatureInBattle.indexOFArmy !== this.battle.currentArmyIndex) {
+            // Clicked an enemy squad: show secondary enemy stats panel
+            this.hud?.showEnemyStats(creatureInBattle.creature);
+          } else {
+            // Clicked own squad or empty hex: close enemy stats panel
+            this.hud?.hideEnemyStats();
+            this.battle.handlePrimaryCellAction(this.hoveredHex, this.hoveredDirection);
+          }
+        } else {
+          // Clicked outside of board
+          this.hud?.hideEnemyStats();
+        }
         this.updateHoverVisuals();
       }
     };
@@ -632,18 +691,9 @@ export class BattleView3D {
   }
 
   public printPathPreview(): { hoverPath: Coords[]; attackPath: Coords[] } {
-    const hoverPath = this.battle.nextRenderUpdate.hoverPath ? [...this.battle.nextRenderUpdate.hoverPath] : [];
+    const { hoverPath, attackPath } = this.computeAttackAndHoverPaths();
     const activeCreature = this.battle.getActiveCreature();
     const targetCreature = this.hoveredHex ? this.battle.getCreatureAtPosition(this.hoveredHex) : null;
-
-    let attackPath: Coords[] = [];
-    if (activeCreature && targetCreature && targetCreature.indexOFArmy !== activeCreature.armyAlignment) {
-      if (hoverPath.length > 0) {
-        attackPath = [...hoverPath];
-      } else if (this.hoveredHex) {
-        attackPath = [activeCreature.position, this.hoveredHex];
-      }
-    }
 
     const report = {
       hoverPath,

@@ -62,7 +62,7 @@ export class CommonControls {
       zoomStep: number;
       zoomValue?: number;
     } = { zoomMin: 0, zoomMax: 100, zoomStep: 5 }
-  ) {}
+  ) { }
 
   public initializeButtons() {
     this.zoomOutButton = new FancyButton({ ...this.SMALL_BUTTON_STYLE, icon: 'glyph_minus.png' });
@@ -143,13 +143,13 @@ export class CommonControls {
     this.nextUnitButton.position.set(10, 695);
     this.nextUnitButton.width = 130;
     this.nextUnitButton.height = 75;
-    this.nextUnitButton.text = new Text({ ...CommonControls.DEFAULT_FONT_STYLE, text: '\n[N]ext Unit' });
+    this.nextUnitButton.text = new Text({ ...CommonControls.DEFAULT_FONT_STYLE, text: '\nNext Unit\n[Tab]' });
 
     this.nextTurnButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_next_turn.png' });
     this.nextTurnButton.position.set(10, 790);
     this.nextTurnButton.width = 130;
-    this.nextTurnButton.height = 75;
-    this.nextTurnButton.text = new Text({ ...CommonControls.DEFAULT_FONT_STYLE, text: '\n[E]nd Turn' });
+    this.nextTurnButton.height = 95;
+    this.nextTurnButton.text = new Text({ ...CommonControls.DEFAULT_FONT_STYLE, text: '\nEnd Turn\n[Enter]' });
 
     this.menuButton = new FancyButton({ ...this.CRYSTAL_BUTTON_STYLE, icon: 'glyph_menu.png' });
     this.menuButton.position.set(4, 4);
