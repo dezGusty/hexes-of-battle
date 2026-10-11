@@ -9,6 +9,7 @@ import { Ability } from '../battle/ability';
 import { CreatureTemplate } from '../battle/creature';
 import { JsonLoader } from '../shared/jsonloader';
 import { Coords } from '../shared';
+import { PixiSoundSystem } from './sound-system';
 
 export class HexesEngine {
   public readonly version: string = pkg.version;
@@ -16,6 +17,7 @@ export class HexesEngine {
 
   public readonly eventBus: EventBus = new EventBus();
   public readonly settings: BattleSettings = new BattleSettings();
+  public readonly soundSystem: PixiSoundSystem;
   public readonly sceneManager: SceneManager;
 
   public readonly renderContainer: Container = new Container();
@@ -33,6 +35,7 @@ export class HexesEngine {
 
   constructor(public app: Application) {
     this.settings.load();
+    this.soundSystem = new PixiSoundSystem(this.settings);
 
     this.sceneManager = new SceneManager(this.renderContainer, () => this.createGameContext());
   }
@@ -45,6 +48,7 @@ export class HexesEngine {
       assets: this.assets,
       templates: this.templates,
       settings: this.settings,
+      soundSystem: this.soundSystem,
       nativeResolution: this.nativeResolution,
       switchToScene: (sceneName: string, params?: any) => this.sceneManager.switchTo(sceneName, params),
     };

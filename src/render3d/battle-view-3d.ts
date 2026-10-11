@@ -1,4 +1,3 @@
-import { sound } from '@pixi/sound';
 import { Battle, MapRenderUpdate, RangedAttackData } from '../battle';
 import { HexDirection, HexFlankStatus, HexMap, checkFlankingStatus } from '../shared/hex-map';
 import { Coords } from '../shared';
@@ -14,6 +13,7 @@ import { ProjectileSystem3D } from './projectiles/projectile-system-3d';
 import { BattleHexMapPath } from '../battle/battle-hex-map-path';
 import { ThreeSceneDebugger } from './debug/three-scene-debugger';
 import { ExhaustionState } from '../battle/combat-rules';
+import { ISoundSystem, SoundCategory, SoundType } from '../battle/sound-system';
 
 export interface BattleView3DEvents {
   onNextTurn: () => void;
@@ -64,6 +64,11 @@ export class BattleView3D {
   private pressedKeys: Set<string> = new Set();
   public cameraPanSpeed: number = 16.0; // world units per second
   public cameraRotateSpeed: number = 2.2; // radians per second
+  public soundSystem?: ISoundSystem;
+
+  public setSoundSystem(soundSystem: ISoundSystem): void {
+    this.soundSystem = soundSystem;
+  }
 
   constructor(
     container: HTMLElement,
@@ -225,8 +230,8 @@ export class BattleView3D {
       attackerSquad.playAnimation('attack_ranged', 400);
     }
 
-    if (this.settings.sound.soundOn !== false && this.settings.sound.soundVolume > 0) {
-      sound.play('arrow', { speed: 0.9 + Math.random() * 0.2, volume: this.settings.sound.soundVolume });
+    if (this.soundSystem) {
+      this.soundSystem.play(SoundCategory.SOUND, SoundType.ARROW, true);
     }
 
     // Build array of individual projectile trajectories with distinct destination hexes
@@ -285,8 +290,8 @@ export class BattleView3D {
         attackerSquad.playAnimation('attack_ranged', 400);
       }
 
-      if (this.settings.sound.soundOn !== false && this.settings.sound.soundVolume > 0) {
-        sound.play('arrow', { speed: 0.9 + Math.random() * 0.2, volume: this.settings.sound.soundVolume });
+      if (this.soundSystem) {
+        this.soundSystem.play(SoundCategory.SOUND, SoundType.ARROW, true);
       }
 
       this.projectileSystem.spawnVolley({
@@ -306,8 +311,8 @@ export class BattleView3D {
         attackerSquad.playAnimation('attack_melee', 450);
       }
 
-      if (this.settings.sound.soundOn !== false && this.settings.sound.soundVolume > 0) {
-        sound.play('sword', { speed: 0.9 + Math.random() * 0.2, volume: this.settings.sound.soundVolume });
+      if (this.soundSystem) {
+        this.soundSystem.play(SoundCategory.SOUND, SoundType.SWORD, true);
       }
 
       setTimeout(() => {
@@ -336,8 +341,10 @@ export class BattleView3D {
 
       defenderSquad.addFloatingCombatText(label, color, 1300);
 
-      if (this.settings.sound.soundOn !== false && this.settings.sound.soundVolume > 0 && !defenderSquad.creature.isAlive) {
-        sound.play('die', { speed: 0.9 + Math.random() * 0.2, volume: this.settings.sound.soundVolume });
+      if (!defenderSquad.creature.isAlive) {
+        if (this.soundSystem) {
+          this.soundSystem.play(SoundCategory.SOUND, SoundType.DIE, true);
+        }
       }
     } else {
       defenderSquad.addFloatingCombatText('BLOCKED', '#88bbff', 1000);

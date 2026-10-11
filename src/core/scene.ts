@@ -4,6 +4,7 @@ import { BattleSettings } from '../battle/settings';
 import { Ability } from '../battle/ability';
 import { CreatureTemplate } from '../battle/creature';
 import { CombatConfig } from '../battle/combat-rules';
+import { ISoundSystem } from './sound-system';
 
 export interface GameAssets {
   terrainTexture?: Texture;
@@ -83,6 +84,7 @@ export interface GameContext {
   assets: GameAssets;
   templates: GameTemplates;
   settings: BattleSettings;
+  soundSystem?: ISoundSystem;
   nativeResolution: { width: number; height: number };
   switchToScene: (sceneName: string, params?: any) => Promise<void>;
 }

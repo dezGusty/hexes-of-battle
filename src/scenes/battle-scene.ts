@@ -1,7 +1,7 @@
 import { Container } from "pixi.js";
-import { sound } from "@pixi/sound";
 import { GameContext, Scene } from "../core/scene";
 import { HexDirection, HexMap } from "../shared/hex-map";
+import { ISoundSystem, PixiSoundSystem, SoundCategory, SoundType } from "../battle/sound-system";
 import { Coords } from "../shared";
 import { Battle } from "../battle";
 import { CreatureType } from "../battle/creature";
@@ -25,12 +25,14 @@ export class BattleScene implements Scene {
   private view!: BattleView;
   private inputController!: BattleInputController;
   private currentConfig?: BattleConfig;
+  private soundSystem!: ISoundSystem;
 
   private creatureRepository: CreatureRepository = new CreatureRepository();
 
-  public async enter(context: GameContext, params?: { config?: BattleConfig }): Promise<void> {
+  public async enter(context: GameContext, params?: { config?: BattleConfig; soundSystem?: ISoundSystem }): Promise<void> {
     this.context = context;
     this.currentConfig = params?.config;
+    this.soundSystem = params?.soundSystem ?? context.soundSystem ?? new PixiSoundSystem(context.settings);
 
     console.log("Entering BattleScene with params:", params);
 
@@ -135,9 +137,17 @@ export class BattleScene implements Scene {
 
   public exit(): void {
     this.inputController.detach();
-    sound.stop("track_dark_whispers");
+    this.soundSystem.stop(SoundCategory.MUSIC);
     this.view.destroy();
     this.container.removeChildren();
+  }
+
+  public getSoundSystem(): ISoundSystem {
+    return this.soundSystem;
+  }
+
+  public setSoundSystem(soundSystem: ISoundSystem): void {
+    this.soundSystem = soundSystem;
   }
 
   private startBattle(): void {
@@ -150,10 +160,8 @@ export class BattleScene implements Scene {
       this.view.showStatsForUnit(active);
     }
 
-    sound.stop("track_dark_whispers");
-    if (this.context.settings.sound.musicOn) {
-      sound.play("track_dark_whispers", { loop: true, volume: this.context.settings.sound.musicVolume });
-    }
+    this.soundSystem.stop(SoundCategory.MUSIC);
+    this.soundSystem.play(SoundCategory.MUSIC, SoundType.BATTLE_MUSIC);
   }
 
   private resetBattle(): void {
@@ -177,11 +185,11 @@ export class BattleScene implements Scene {
     };
 
     this.battle.hookMovingUnit = (_creature, _nextStep) => {
-      sound.play("move", { speed: 0.9 + Math.random() * 0.2, volume: this.context.settings.sound.soundVolume });
+      this.soundSystem.play(SoundCategory.SOUND, SoundType.MOVE, true);
     };
 
     this.battle.hookUnitDied = (_creature) => {
-      sound.play("die", { speed: 0.9 + Math.random() * 0.2, volume: this.context.settings.sound.soundVolume });
+      this.soundSystem.play(SoundCategory.SOUND, SoundType.DIE, true);
     };
 
     this.battle.hookBattleFinished = (victor) => {

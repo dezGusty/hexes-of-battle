@@ -1,7 +1,7 @@
 import { Container } from "pixi.js";
-import { sound } from "@pixi/sound";
 import { GameContext, Scene } from "../core/scene";
 import { HexDirection, HexMap } from "../shared/hex-map";
+import { ISoundSystem, PixiSoundSystem, SoundCategory, SoundType } from "../battle/sound-system";
 import { Coords } from "../shared";
 import { Battle } from "../battle";
 import { BattleActionType } from "../battle/battle-action";
@@ -26,12 +26,14 @@ export class BattleScene3D implements Scene {
   private view!: BattleView3D;
   private hud!: BattleHud2D;
   private currentConfig?: BattleConfig;
+  private soundSystem!: ISoundSystem;
 
   private creatureRepository: CreatureRepository = new CreatureRepository();
 
-  public async enter(context: GameContext, params?: { config?: BattleConfig }): Promise<void> {
+  public async enter(context: GameContext, params?: { config?: BattleConfig; soundSystem?: ISoundSystem }): Promise<void> {
     this.context = context;
     this.currentConfig = params?.config;
+    this.soundSystem = params?.soundSystem ?? context.soundSystem ?? new PixiSoundSystem(context.settings);
 
     this.creatureRepository.setAbilities(context.templates.abilityTypes);
     this.creatureRepository.setCreatureTemplates(context.templates.creatureTemplates);
@@ -68,6 +70,7 @@ export class BattleScene3D implements Scene {
       context.settings,
       this.cpuPlayer
     );
+    this.view.setSoundSystem(this.soundSystem);
 
     // Initialize 2D Tactical HUD overlay
     this.hud = new BattleHud2D(
@@ -184,10 +187,21 @@ export class BattleScene3D implements Scene {
   }
 
   public exit(): void {
-    sound.stop("track_dark_whispers");
+    this.soundSystem.stop(SoundCategory.MUSIC);
     this.view.destroy();
     this.hud.destroy();
     this.container.removeChildren();
+  }
+
+  public getSoundSystem(): ISoundSystem {
+    return this.soundSystem;
+  }
+
+  public setSoundSystem(soundSystem: ISoundSystem): void {
+    this.soundSystem = soundSystem;
+    if (this.view) {
+      this.view.setSoundSystem(soundSystem);
+    }
   }
 
   private startBattle(): void {
@@ -201,10 +215,8 @@ export class BattleScene3D implements Scene {
       this.hud.updateUnitStats(active);
     }
 
-    sound.stop("track_dark_whispers");
-    if (this.context.settings.sound.musicOn) {
-      sound.play("track_dark_whispers", { loop: true, volume: this.context.settings.sound.musicVolume });
-    }
+    this.soundSystem.stop(SoundCategory.MUSIC);
+    this.soundSystem.play(SoundCategory.MUSIC, SoundType.BATTLE_MUSIC);
   }
 
   private resetBattle(): void {
@@ -236,11 +248,11 @@ export class BattleScene3D implements Scene {
     };
 
     this.battle.hookMovingUnit = (_creature, _nextStep) => {
-      sound.play("move", { speed: 0.9 + Math.random() * 0.2, volume: this.context.settings.sound.soundVolume });
+      this.soundSystem.play(SoundCategory.SOUND, SoundType.MOVE, true);
     };
 
     this.battle.hookUnitDied = (_creature) => {
-      sound.play("die", { speed: 0.9 + Math.random() * 0.2, volume: this.context.settings.sound.soundVolume });
+      this.soundSystem.play(SoundCategory.SOUND, SoundType.DIE, true);
     };
 
     this.battle.hookBattleFinished = (victor) => {
