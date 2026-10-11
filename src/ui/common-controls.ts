@@ -19,8 +19,6 @@ export class CommonControls {
   public nextTurnButton?: FancyButton;
   public nextUnitButton?: FancyButton;
   public restButton?: FancyButton;
-  public toggleStatsButton?: FancyButton;
-  public togglePerfStatsButton?: FancyButton;
   public resetButton?: FancyButton;
 
   public activeAbility1Button?: FancyButton;
@@ -41,12 +39,6 @@ export class CommonControls {
     padding: 2,
   };
 
-  private CRYSTAL_BUTTON_STYLE: ButtonOptions = {
-    defaultView: 'btn_gray_crystal_normal.png',
-    hoverView: 'btn_gray_crystal_hover.png',
-    pressedView: 'btn_gray_crystal_hover.png',
-    nineSliceSprite: [13, 13, 13, 13],
-  };
 
   private SMALL_BUTTON_STYLE: ButtonOptions = {
     defaultView: 'thin_button_2_normal.png',
@@ -119,14 +111,8 @@ export class CommonControls {
       style: { fontSize: 12, fill: '#DDFFFF', align: 'center' },
     });
 
-    this.toggleStatsButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_toggle_stats.png' });
-    this.toggleStatsButton.position.set(10, 310);
-
-    this.togglePerfStatsButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_toggle_perf_stats.png' });
-    this.togglePerfStatsButton.position.set(10, 360);
-
     this.resetButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_reset.png' });
-    this.resetButton.position.set(10, 460);
+    this.resetButton.position.set(4, 460);
 
     this.activeAbility1Button = new FancyButton({ ...this.THIN_BUTTON_STYLE, icon: 'glyph_ability1.png' });
     this.activeAbility1Button.position.set(820, 810);
@@ -134,28 +120,27 @@ export class CommonControls {
     this.activeAbility1Button.height = 48;
 
     this.restButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_stamina' });
-    this.restButton.position.set(10, 600);
+    this.restButton.position.set(4, 600);
     this.restButton.width = 130;
     this.restButton.height = 75;
     this.restButton.text = new Text({ ...CommonControls.DEFAULT_FONT_STYLE, text: '\n[R]est (+5)' });
 
     this.nextUnitButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_next_unit.png' });
-    this.nextUnitButton.position.set(10, 695);
+    this.nextUnitButton.position.set(4, 695);
     this.nextUnitButton.width = 130;
     this.nextUnitButton.height = 75;
     this.nextUnitButton.text = new Text({ ...CommonControls.DEFAULT_FONT_STYLE, text: '\nNext Unit\n[Tab]' });
 
     this.nextTurnButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_next_turn.png' });
-    this.nextTurnButton.position.set(10, 790);
+    this.nextTurnButton.position.set(4, 790);
     this.nextTurnButton.width = 130;
     this.nextTurnButton.height = 95;
     this.nextTurnButton.text = new Text({ ...CommonControls.DEFAULT_FONT_STYLE, text: '\nEnd Turn\n[Enter]' });
 
-    this.menuButton = new FancyButton({ ...this.CRYSTAL_BUTTON_STYLE, icon: 'glyph_menu.png' });
+    this.menuButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE });
     this.menuButton.position.set(4, 4);
     this.menuButton.width = 130;
     this.menuButton.height = 48;
-    this.menuButton.tint = 0xff9988;
     this.menuButton.text = new Text({
       ...CommonControls.DEFAULT_FONT_STYLE,
       text: 'Menu',
@@ -173,8 +158,6 @@ export class CommonControls {
     if (this.restButton) results.push(this.restButton);
     if (this.nextTurnButton) results.push(this.nextTurnButton);
     if (this.nextUnitButton) results.push(this.nextUnitButton);
-    if (this.toggleStatsButton) results.push(this.toggleStatsButton);
-    if (this.togglePerfStatsButton) results.push(this.togglePerfStatsButton);
     if (this.resetButton) results.push(this.resetButton);
     if (this.menuButton) results.push(this.menuButton);
     if (this.activeAbility1Button) results.push(this.activeAbility1Button);

@@ -16,7 +16,6 @@ export class HexDisplaySettings {
 
 export class DebugSettings {
   public showCoords: boolean = true;
-  public showPerfStats: boolean = false;
   public showFps: boolean = true;
   public showSceneInspector: boolean = false;
   public fpsFontSize: number = 14;
@@ -37,6 +36,7 @@ export class HotkeysSettings {
   public nextTurn: string = ' ';
   public nextUnit: string = 'tab';
   public resetCamera: string = 'home';
+  public toggleStats: string = 'f4';
 }
 
 export class BattleSettings {
@@ -77,6 +77,11 @@ export class BattleSettings {
       }
     }
 
+    const showFps = localStorage.getItem('hob.debug.showFps');
+    if (showFps !== null) {
+      this.debug.showFps = showFps === 'true';
+    }
+
     const hotkeys = localStorage.getItem('hob.hotkeys');
     if (hotkeys) {
       try {
@@ -96,6 +101,7 @@ export class BattleSettings {
     localStorage.setItem('hob.hex', JSON.stringify(this.hex));
     // Save the debug settings to the browser's local storage
     localStorage.setItem('hob.debug', JSON.stringify(this.debug));
+    localStorage.setItem('hob.debug.showFps', String(this.debug.showFps));
     // Save the hotkeys settings to the browser's local storage
     localStorage.setItem('hob.hotkeys', JSON.stringify(this.hotkeys));
   }

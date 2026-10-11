@@ -17,7 +17,6 @@ import { UnitStatsPanel } from '../ui/unit-stats-panel';
 import { TopSidePanel } from '../ui/top-side-panel';
 import { DamageValueCollection } from '../ui/damage-value-display';
 import { TurnChangeCollection } from '../ui/turn-change-display';
-import { PerfDisplayPanel } from '../ui/perf-display-panel';
 
 import { ExhaustionState } from './combat-rules';
 
@@ -68,7 +67,6 @@ export class BattleView {
   private showFacingDirections: boolean = true;
   private damageValueDisplay: DamageValueCollection = new DamageValueCollection();
   private turnChangeDisplay: TurnChangeCollection = new TurnChangeCollection();
-  private perfDisplayPanel: PerfDisplayPanel = new PerfDisplayPanel();
 
   // Render containers
   private terrainRenderGroup: Container = new Container({ isRenderGroup: true });
@@ -224,21 +222,17 @@ export class BattleView {
   public update(deltaMS: number, fps: number): void {
     if (this.fpsText) {
       this.fpsText.text = `FPS: ${Math.round(fps)}`;
+      this.fpsText.visible = this.settings.debug.showFps;
     }
 
-    this.perfDisplayPanel.startMeasure('battle.update');
     const mapUpdate: MapRenderUpdate = this.battle.update(deltaMS);
-    this.perfDisplayPanel.stopMeasure('battle.update');
 
     if (mapUpdate.somethingChanged) {
-      this.perfDisplayPanel.startMeasure('map.render');
       this.updateMapRendering(mapUpdate);
-      this.perfDisplayPanel.stopMeasure('map.render');
     }
 
     this.damageValueDisplay.update(deltaMS);
     this.turnChangeDisplay.update(deltaMS);
-    this.perfDisplayPanel.update();
   }
 
   public showAttackVisuals(
@@ -407,23 +401,16 @@ export class BattleView {
       this.settings.save();
     });
 
-    this.commonControls.toggleStatsButton?.onPress.connect(() => {
-      if (!this.assets.uiSheet) return;
-      if (!this.unitStats) {
-        this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet);
-      }
-      this.unitStats.toggleVisibility();
-      this.settings.hex.showStats = this.unitStats.isVisible();
-      this.settings.save();
-      if (this.unitStats && this.battle.activeCreatureIndex >= 0) {
-        this.unitStats.setCreature(this.battle.creatures[this.battle.activeCreatureIndex]);
-        this.unitStats.update();
-      }
+    this.battleMenuPanel?.toggleStatsButton?.onPress.connect(() => {
+      this.toggleUnitStats();
     });
 
-    this.commonControls.togglePerfStatsButton?.onPress.connect(() => {
-      if (!this.assets.uiSheet) return;
-      this.perfDisplayPanel.toggleVisibility(this.uiRenderGroup, this.assets.uiSheet);
+    this.battleMenuPanel?.toggleFpsButton?.onPress.connect(() => {
+      this.settings.debug.showFps = !this.settings.debug.showFps;
+      this.settings.save();
+      if (this.fpsText) {
+        this.fpsText.visible = this.settings.debug.showFps;
+      }
     });
 
     this.battleMenuPanel?.toggleMusicButton?.onPress.connect(() => {
@@ -1098,6 +1085,20 @@ export class BattleView {
 
   private getBannerTextureNameForArmyIndex(armyIndex: number): string {
     return armyIndex === 0 ? 'banner1.png' : 'banner2.png';
+  }
+
+  public toggleUnitStats(): void {
+    if (!this.assets.uiSheet) return;
+    if (!this.unitStats) {
+      this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet);
+    }
+    this.unitStats.toggleVisibility();
+    this.settings.hex.showStats = this.unitStats.isVisible();
+    this.settings.save();
+    if (this.unitStats && this.battle.activeCreatureIndex >= 0) {
+      this.unitStats.setCreature(this.battle.creatures[this.battle.activeCreatureIndex]);
+      this.unitStats.update();
+    }
   }
 
   public destroy(): void {

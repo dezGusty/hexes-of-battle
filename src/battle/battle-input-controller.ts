@@ -10,6 +10,7 @@ export interface BattleInputDelegate {
   getCamera: () => HexViewportCamera;
   getStageOffsetAndScale: () => { offset: Coords; scale: Coords };
   getScreenSize: () => { width: number; height: number };
+  onToggleStats?: () => void;
 }
 
 export class BattleInputController {
@@ -48,6 +49,9 @@ export class BattleInputController {
         camera.zoomBy(-camera.zoomStep);
       } else if (event.code === 'ControlLeft' || event.code === 'ControlRight') {
         this.controlPressed = true;
+      } else if (event.key === 'F4' || event.code === 'F4' || event.key?.toLowerCase() === 'f4') {
+        event.preventDefault();
+        this.delegate.onToggleStats?.();
       }
     };
 

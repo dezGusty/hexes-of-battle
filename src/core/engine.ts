@@ -163,6 +163,7 @@ export class HexesEngine {
           if (hotkeysCfg.nextTurn !== undefined) this.settings.hotkeys.nextTurn = hotkeysCfg.nextTurn;
           if (hotkeysCfg.nextUnit !== undefined) this.settings.hotkeys.nextUnit = hotkeysCfg.nextUnit;
           if (hotkeysCfg.resetCamera !== undefined) this.settings.hotkeys.resetCamera = hotkeysCfg.resetCamera;
+          if (hotkeysCfg.toggleStats !== undefined) this.settings.hotkeys.toggleStats = hotkeysCfg.toggleStats;
         }
       }
     } catch {

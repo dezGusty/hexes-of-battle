@@ -117,6 +117,7 @@ export class BattleScene implements Scene {
         width: this.context.app.screen.width,
         height: this.context.app.screen.height,
       }),
+      onToggleStats: () => this.view.toggleUnitStats(),
     });
     this.inputController.attach();
 

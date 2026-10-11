@@ -12,7 +12,6 @@ import { TopSidePanel } from "../ui/top-side-panel";
 import { BattleMenuPanel } from "../ui/battle-menu";
 import { UnitStatsPanel } from "../ui/unit-stats-panel";
 import { EnemyStatsPanel } from "../ui/enemy-stats-panel";
-import { PerfDisplayPanel } from "../ui/perf-display-panel";
 import { TurnChangeCollection } from "../ui/turn-change-display";
 
 import { BattleSaveEntry, SaveManager } from "../battle/save-manager";
@@ -29,6 +28,7 @@ export interface BattleHud2DEvents {
   onRest: () => void;
   onActiveAbility1?: () => void;
   onToggleStats?: () => void;
+  onToggleFps?: (showFps: boolean) => void;
   onToggleGrid?: (showGrid: boolean) => void;
   onToggleCoords?: (showCoords: boolean) => void;
   onToggleMusic?: (musicOn: boolean) => void;
@@ -54,7 +54,6 @@ export class BattleHud2D {
   public battleMenuPanel?: BattleMenuPanel;
   public unitStats?: UnitStatsPanel;
   public enemyStats?: EnemyStatsPanel;
-  public perfDisplayPanel: PerfDisplayPanel = new PerfDisplayPanel();
   public fpsText?: BitmapText;
   public turnChangeDisplay: TurnChangeCollection = new TurnChangeCollection();
   public softCursorSprite?: Sprite;
@@ -244,6 +243,21 @@ export class BattleHud2D {
       }
     });
 
+    this.battleMenuPanel?.toggleStatsButton?.onPress.connect(() => {
+      this.toggleUnitStats();
+      if (events.onToggleStats) {
+        events.onToggleStats();
+      }
+    });
+
+    this.battleMenuPanel?.toggleFpsButton?.onPress.connect(() => {
+      this.setFpsVisible(!this.settings.debug.showFps);
+      this.settings.save();
+      if (events.onToggleFps) {
+        events.onToggleFps(this.settings.debug.showFps);
+      }
+    });
+
     this.commonControls.zoomInButton?.onPress.connect(() => events.onZoomIn());
     this.commonControls.zoomOutButton?.onPress.connect(() => events.onZoomOut());
     this.commonControls.zoomSlider?.onUpdate.connect((val) => events.onZoomSliderUpdate(val));
@@ -262,22 +276,6 @@ export class BattleHud2D {
     if (events.onActiveAbility1) {
       this.commonControls.activeAbility1Button?.onPress.connect(() => events.onActiveAbility1!());
     }
-
-    this.commonControls.toggleStatsButton?.onPress.connect(() => {
-      if (!this.assets.uiSheet) return;
-      if (!this.unitStats) {
-        this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet);
-      }
-      this.unitStats.toggleVisibility();
-      this.settings.hex.showStats = this.unitStats.isVisible();
-      this.settings.save();
-      if (events.onToggleStats) events.onToggleStats();
-    });
-
-    this.commonControls.togglePerfStatsButton?.onPress.connect(() => {
-      if (!this.assets.uiSheet) return;
-      this.perfDisplayPanel.toggleVisibility(this.uiRenderGroup, this.assets.uiSheet);
-    });
   }
 
   private initializeFpsIndicator(): void {
@@ -429,6 +427,20 @@ export class BattleHud2D {
     this.unitStats.update();
   }
 
+  public toggleUnitStats(): void {
+    if (!this.assets.uiSheet) return;
+    if (!this.unitStats) {
+      this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet);
+    }
+    this.unitStats.toggleVisibility();
+    this.settings.hex.showStats = this.unitStats.isVisible();
+    this.settings.save();
+    const active = this.battle.getActiveCreature();
+    if (active) {
+      this.updateUnitStats(active);
+    }
+  }
+
   public showEnemyStats(creature: Creature): void {
     if (!this.enemyStats || !creature) return;
     const bannerTexture = this.getBannerTextureForArmyIndex(creature.armyAlignment);
@@ -503,7 +515,6 @@ export class BattleHud2D {
 
   public update(deltaMS: number, fps?: number): void {
     this.turnChangeDisplay.update(deltaMS);
-    this.perfDisplayPanel.update();
     if (this.fpsText && fps !== undefined) {
       this.fpsText.text = `FPS: ${Math.round(fps)}`;
       this.fpsText.visible = this.settings.debug.showFps;

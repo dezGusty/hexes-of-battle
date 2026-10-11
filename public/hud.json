@@ -27,7 +27,8 @@
     "rest": "r",
     "nextTurn": " ",
     "nextUnit": "Tab",
-    "resetCamera": "Home"
+    "resetCamera": "Home",
+    "toggleStats": "F4"
   },
   "healthbars": {
     "showHealthbars": true

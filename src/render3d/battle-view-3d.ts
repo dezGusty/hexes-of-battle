@@ -21,6 +21,7 @@ export interface BattleView3DEvents {
   onReset: () => void;
   onRest: () => void;
   onActiveAbility1?: () => void;
+  onToggleStats?: () => void;
 }
 
 export class BattleView3D {
@@ -792,6 +793,7 @@ export class BattleView3D {
       const nextTurnKey = (this.settings?.hotkeys?.nextTurn ?? ' ').toLowerCase();
       const nextUnitKey = (this.settings?.hotkeys?.nextUnit ?? 'tab').toLowerCase();
       const resetCamKey = (this.settings?.hotkeys?.resetCamera ?? 'home').toLowerCase();
+      const toggleStatsKey = (this.settings?.hotkeys?.toggleStats ?? 'f4').toLowerCase();
 
       if (key === printKey) {
         this.printPathPreview();
@@ -804,6 +806,13 @@ export class BattleView3D {
         if (this.events?.onNextUnit) this.events.onNextUnit();
       } else if (key === resetCamKey) {
         this.sceneManager.resetCamera();
+      } else if (key === toggleStatsKey || key === 'f4') {
+        e.preventDefault();
+        if (this.events?.onToggleStats) {
+          this.events.onToggleStats();
+        } else if (this.hud?.toggleUnitStats) {
+          this.hud.toggleUnitStats();
+        }
       }
     };
 

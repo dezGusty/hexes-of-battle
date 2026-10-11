@@ -164,6 +164,9 @@ export class BattleScene3D implements Scene {
           }
         }
       },
+      onToggleStats: () => {
+        this.hud.toggleUnitStats();
+      },
     });
 
     this.hookBattleEvents();

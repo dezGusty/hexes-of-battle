@@ -32,6 +32,7 @@ export class BattleMenuPanel {
     public toggleCoordsButton?: FancyButton;
     public toggleGridButton?: FancyButton;
     public showHealthbarsButton?: FancyButton;
+    public toggleFpsButton?: FancyButton;
     public toggleMusicButton?: FancyButton;
     public musicVolumeSlider?: Slider;
     public musicVolumeValueText?: Text;
@@ -39,6 +40,7 @@ export class BattleMenuPanel {
     public soundVolumeSlider?: Slider;
     public soundVolumeValueText?: Text;
     public toggleSceneInspectorButton?: FancyButton;
+    public toggleStatsButton?: FancyButton;
     public saveButton?: FancyButton;
     public loadButton?: FancyButton;
 
@@ -65,6 +67,8 @@ export class BattleMenuPanel {
     public onSaveBattle?: (name: string) => boolean;
     public onLoadSave?: (entry: BattleSaveEntry) => void;
     public onToggleSceneInspector?: () => void;
+    public onToggleStats?: () => void;
+    public onToggleFps?: (showFps: boolean) => void;
 
     public constructor(private view: Container, private uiSheet: Spritesheet) {
         const windowBg = new NineSliceSprite({
@@ -76,7 +80,7 @@ export class BattleMenuPanel {
         });
 
         windowBg.width = 920;
-        windowBg.height = 510;
+        windowBg.height = 570;
         windowBg.alpha = 0.95;
 
         this.window.addChild(windowBg);
@@ -143,12 +147,14 @@ export class BattleMenuPanel {
         addMenuOption(col1TextX, 205, 'Toggle grid display.\nThe grid will be fairly visible anyway.');
         addMenuOption(col1TextX, 280, 'Toggle healthbars display.');
         addMenuOption(col1TextX, 355, 'Toggle 3D Scene Inspector.\n(Same effect as pressing F2)');
+        addMenuOption(col1TextX, 430, 'Show FPS\nToggle frames per second counter.');
 
         // Column 2 Options
         addMenuOption(col2TextX, 55, 'Toggle music on/off.');
         addMenuOption(col2TextX, 130, 'Toggle sound on/off.');
         addMenuOption(col2TextX, 205, 'Save Battle State\nSave snapshot to local storage.');
         addMenuOption(col2TextX, 280, 'Load Saved Battle\nSelect and restore a saved state.');
+        addMenuOption(col2TextX, 355, 'Toggle Unit Stats display.\n(Same effect as pressing F4)');
 
         // Column 1 Buttons
         this.fullscreenToggleButton = new FancyButton({
@@ -181,6 +187,14 @@ export class BattleMenuPanel {
         this.toggleSceneInspectorButton.position.set(col1BtnX, 355);
         this.toggleSceneInspectorButton.width = 64;
         this.toggleSceneInspectorButton.height = 60;
+
+        this.toggleFpsButton = new FancyButton({
+            ...this.DEFAULT_BUTTON_STYLE,
+            icon: 'glyph_toggle_perf_stats.png',
+        });
+        this.toggleFpsButton.position.set(col1BtnX, 430);
+        this.toggleFpsButton.width = 64;
+        this.toggleFpsButton.height = 60;
 
         // Column 2 Buttons & Sliders
         this.toggleMusicButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_toggle_music.png' });
@@ -287,7 +301,15 @@ export class BattleMenuPanel {
         this.loadButton.width = 64;
         this.loadButton.height = 60;
 
-        this.closeButton.position.set((panelWidth - 140) / 2, 445);
+        this.toggleStatsButton = new FancyButton({
+            ...this.DEFAULT_BUTTON_STYLE,
+            icon: 'glyph_toggle_stats.png',
+        });
+        this.toggleStatsButton.position.set(col2BtnX, 355);
+        this.toggleStatsButton.width = 64;
+        this.toggleStatsButton.height = 60;
+
+        this.closeButton.position.set((panelWidth - 140) / 2, 510);
         this.closeButton.width = 140;
         this.closeButton.height = 36;
         this.closeButton.text = new Text({
@@ -301,6 +323,7 @@ export class BattleMenuPanel {
         this.mainContainer.addChild(this.toggleGridButton);
         this.mainContainer.addChild(this.showHealthbarsButton);
         this.mainContainer.addChild(this.toggleSceneInspectorButton);
+        this.mainContainer.addChild(this.toggleFpsButton);
         this.mainContainer.addChild(this.toggleMusicButton);
         this.mainContainer.addChild(this.musicVolumeSlider);
         this.mainContainer.addChild(this.musicVolumeValueText);
@@ -309,6 +332,7 @@ export class BattleMenuPanel {
         this.mainContainer.addChild(this.soundVolumeValueText);
         this.mainContainer.addChild(this.saveButton);
         this.mainContainer.addChild(this.loadButton);
+        this.mainContainer.addChild(this.toggleStatsButton);
         this.mainContainer.addChild(this.closeButton);
 
         this.connectMainEventHandlers();
@@ -487,6 +511,18 @@ export class BattleMenuPanel {
         this.toggleSceneInspectorButton?.onPress.connect(() => {
             if (this.onToggleSceneInspector) {
                 this.onToggleSceneInspector();
+            }
+        });
+
+        this.toggleFpsButton?.onPress.connect(() => {
+            if (this.onToggleFps) {
+                this.onToggleFps(true);
+            }
+        });
+
+        this.toggleStatsButton?.onPress.connect(() => {
+            if (this.onToggleStats) {
+                this.onToggleStats();
             }
         });
 

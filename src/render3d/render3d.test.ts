@@ -8,7 +8,7 @@ vi.mock("@pixi/sound", () => ({
 }));
 
 import * as THREE from 'three';
-import { Sprite as PixiSprite, Texture as PixiTexture } from 'pixi.js';
+import { Sprite as PixiSprite, Texture as PixiTexture, Assets as PixiAssets } from 'pixi.js';
 import { HexBoard3D } from './hex-board-3d';
 import { HexDirection, HexFlankStatus, HexMap, checkFlankingStatus } from '../shared/hex-map';
 import { Creature, CreatureType } from '../battle/creature';
@@ -22,6 +22,7 @@ import { EnemyStatsPanel } from '../ui/enemy-stats-panel';
 import { ThreeSceneDebugger } from './debug/three-scene-debugger';
 import { BattleHexMapPath } from '../battle/battle-hex-map-path';
 import { NumMatrix } from '../shared/num-matrix';
+import { CommonControls } from '../ui/common-controls';
 
 describe('3D Graphics Engine & Rendering Systems', () => {
   describe('1. 3D Hex Board & Coordinates', () => {
@@ -285,6 +286,118 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       hud.destroy();
     });
 
+    it('should toggle FPS indicator via battleMenuPanel.toggleFpsButton in BattleHud2D', () => {
+      const prevDoc = (globalThis as any).document;
+      const prevContext = (globalThis as any).CanvasRenderingContext2D;
+
+      if (typeof (globalThis as any).CanvasRenderingContext2D === 'undefined') {
+        (globalThis as any).CanvasRenderingContext2D = class {};
+      }
+
+      if (typeof document === 'undefined') {
+        const mockCanvas = {
+          getContext: () => ({
+            measureText: () => ({ width: 40, actualBoundingBoxAscent: 10, actualBoundingBoxDescent: 2 }),
+            fillText: () => {},
+            strokeText: () => {},
+            clearRect: () => {},
+          }),
+        };
+        (globalThis as any).document = {
+          createElement: (tag: string) => {
+            if (tag === 'canvas') return mockCanvas;
+            return {
+              style: {},
+              classList: { add: () => {}, remove: () => {}, contains: () => false },
+              appendChild: (c: any) => c,
+              removeChild: (c: any) => c,
+            };
+          },
+        };
+      }
+
+      const textureNames = [
+        'thin_button_normal.png',
+        'thin_button_hover.png',
+        'thin_button_2_normal.png',
+        'thin_button_2_hover.png',
+        'btn_simple.png',
+        'btn_simple_hover.png',
+        'btn_simple_click.png',
+        'glyph_fullscreen.png',
+        'glyph_xy.png',
+        'glyph_grid.png',
+        'glyph_toggle_healthbars.png',
+        'glyph_toggle_music.png',
+        'glyph_toggle_perf_stats.png',
+        'glyph_toggle_stats.png',
+        'glyph_plus.png',
+        'glyph_minus.png',
+        'glyph_next_turn.png',
+        'glyph_next_unit.png',
+        'glyph_reset.png',
+        'glyph_ability1.png',
+        'glyph_stamina',
+        'panel.png',
+      ];
+      textureNames.forEach((name) => {
+        try {
+          PixiAssets.cache.set(name, PixiTexture.EMPTY);
+        } catch {
+          // ignore
+        }
+      });
+
+      try {
+        const battle = new Battle(new HexMap(13, 9));
+        const settings = new BattleSettings();
+        settings.debug.showFps = true;
+
+        const dummyUiSheet = {
+          textures: new Proxy({}, {
+            get: () => PixiTexture.EMPTY,
+          }),
+        };
+        const assets = {
+          uiSheet: dummyUiSheet as any,
+          softCursorTextures: {},
+        };
+
+        const hud = new BattleHud2D(assets, settings, battle);
+        let eventToggledValue: boolean | undefined;
+        hud.initialize({
+          onZoomIn: () => {},
+          onZoomOut: () => {},
+          onZoomSliderUpdate: () => {},
+          onNextTurn: () => {},
+          onNextUnit: () => {},
+          onReset: () => {},
+          onRest: () => {},
+          onToggleFps: (val) => {
+            eventToggledValue = val;
+          },
+        });
+
+        expect(hud.isFpsVisible()).toBe(true);
+        expect(hud.battleMenuPanel?.toggleFpsButton).toBeDefined();
+
+        hud.battleMenuPanel!.toggleFpsButton!.onPress.emit();
+        expect(hud.isFpsVisible()).toBe(false);
+        expect(settings.debug.showFps).toBe(false);
+        expect(eventToggledValue).toBe(false);
+
+        hud.battleMenuPanel!.toggleFpsButton!.onPress.emit();
+        expect(hud.isFpsVisible()).toBe(true);
+        expect(settings.debug.showFps).toBe(true);
+        expect(eventToggledValue).toBe(true);
+
+        hud.destroy();
+      } finally {
+        (globalThis as any).document = prevDoc;
+        (globalThis as any).CanvasRenderingContext2D = prevContext;
+      }
+    });
+
     it('should respect settings.hex.showStats in BattleHud2D', () => {
       const battle = new Battle(new HexMap(13, 9));
       const settings = new BattleSettings();
@@ -312,6 +425,39 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       // Toggling stats updates settings
       hud.unitStats.toggleVisibility();
       settings.hex.showStats = hud.unitStats.isVisible();
+      expect(settings.hex.showStats).toBe(false);
+
+      hud.destroy();
+    });
+
+    it('should toggle unit stats via BattleHud2D.toggleUnitStats', () => {
+      const battle = new Battle(new HexMap(13, 9));
+      const settings = new BattleSettings();
+      settings.hex.showStats = false;
+
+      const dummyUiSheet = {
+        textures: new Proxy({}, {
+          get: () => PixiTexture.EMPTY,
+        }),
+      };
+
+      const assets = {
+        uiSheet: dummyUiSheet as any,
+        softCursorTextures: {},
+      };
+
+      const hud = new BattleHud2D(assets, settings, battle);
+      hud.unitStats = new UnitStatsPanel(hud.uiPlusRenderGroup, dummyUiSheet as unknown as any);
+
+      hud.commonControls = new CommonControls();
+      expect((hud.commonControls as any).toggleStatsButton).toBeUndefined();
+      expect(hud.unitStats.isVisible()).toBe(false);
+      hud.toggleUnitStats();
+      expect(hud.unitStats.isVisible()).toBe(true);
+      expect(settings.hex.showStats).toBe(true);
+
+      hud.toggleUnitStats();
+      expect(hud.unitStats.isVisible()).toBe(false);
       expect(settings.hex.showStats).toBe(false);
 
       hud.destroy();

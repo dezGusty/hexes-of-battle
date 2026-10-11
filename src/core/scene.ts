@@ -50,6 +50,7 @@ export interface HudConfig {
     nextTurn?: string;
     nextUnit?: string;
     resetCamera?: string;
+    toggleStats?: string;
   };
   keybindings?: {
     printPathPreview?: string;
@@ -57,6 +58,7 @@ export interface HudConfig {
     nextTurn?: string;
     nextUnit?: string;
     resetCamera?: string;
+    toggleStats?: string;
   };
   healthbars?: {
     showHealthbars?: boolean;

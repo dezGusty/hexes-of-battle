@@ -233,6 +233,47 @@ describe("UnitStatsPanel Visibility", () => {
     reloadedSettings.load();
     expect(reloadedSettings.debug.showSceneInspector).toBe(false);
   });
+
+  it("should persist and load showFps in hob.debug and hob.debug.showFps in localStorage", () => {
+    const storage: Record<string, string> = {};
+    (globalThis as any).localStorage = {
+      getItem: (key: string) => storage[key] ?? null,
+      setItem: (key: string, value: string) => {
+        storage[key] = value;
+      },
+      removeItem: (key: string) => {
+        delete storage[key];
+      },
+      clear: () => {
+        Object.keys(storage).forEach((k) => delete storage[k]);
+      },
+    };
+
+    const settings = new BattleSettings();
+    expect(settings.debug.showFps).toBe(true);
+
+    // Toggle FPS off and save
+    settings.debug.showFps = false;
+    settings.save();
+
+    const storedDebug = JSON.parse(storage['hob.debug'] || '{}');
+    expect(storedDebug.showFps).toBe(false);
+    expect(storage['hob.debug.showFps']).toBe('false');
+
+    // Load in fresh settings instance
+    const loadedSettings = new BattleSettings();
+    loadedSettings.load();
+    expect(loadedSettings.debug.showFps).toBe(false);
+
+    // Toggle FPS on and save
+    loadedSettings.debug.showFps = true;
+    loadedSettings.save();
+
+    const reloadedSettings = new BattleSettings();
+    reloadedSettings.load();
+    expect(reloadedSettings.debug.showFps).toBe(true);
+    expect(storage['hob.debug.showFps']).toBe('true');
+  });
 });
 
 describe("BattleMenuPanel 2-Column Layout & Scene Inspector Toggle", () => {
@@ -275,6 +316,7 @@ describe("BattleMenuPanel 2-Column Layout & Scene Inspector Toggle", () => {
       'glyph_toggle_healthbars.png',
       'glyph_toggle_music.png',
       'glyph_toggle_perf_stats.png',
+      'glyph_toggle_stats.png',
       'glyph_plus.png',
       'glyph_next_turn.png',
       'panel.png',
@@ -301,6 +343,7 @@ describe("BattleMenuPanel 2-Column Layout & Scene Inspector Toggle", () => {
     expect(menu.toggleCoordsButton).toBeDefined();
     expect(menu.toggleGridButton).toBeDefined();
     expect(menu.showHealthbarsButton).toBeDefined();
+    expect(menu.toggleFpsButton).toBeDefined();
     expect(menu.toggleMusicButton).toBeDefined();
     expect(menu.musicVolumeSlider).toBeDefined();
     expect(menu.toggleSoundButton).toBeDefined();
@@ -308,12 +351,14 @@ describe("BattleMenuPanel 2-Column Layout & Scene Inspector Toggle", () => {
     expect(menu.toggleSceneInspectorButton).toBeDefined();
     expect(menu.saveButton).toBeDefined();
     expect(menu.loadButton).toBeDefined();
+    expect(menu.toggleStatsButton).toBeDefined();
 
     // Verify column 2 X coordinates are greater than column 1 X coordinates
     expect(menu.toggleMusicButton!.position.x).toBeGreaterThan(menu.fullscreenToggleButton!.position.x);
     expect(menu.toggleSoundButton!.position.x).toBeGreaterThan(menu.toggleCoordsButton!.position.x);
     expect(menu.saveButton!.position.x).toBeGreaterThan(menu.toggleGridButton!.position.x);
     expect(menu.loadButton!.position.x).toBeGreaterThan(menu.showHealthbarsButton!.position.x);
+    expect(menu.toggleStatsButton!.position.x).toBeGreaterThan(menu.toggleSceneInspectorButton!.position.x);
 
     let inspectorToggled = false;
     menu.onToggleSceneInspector = () => {
@@ -321,6 +366,20 @@ describe("BattleMenuPanel 2-Column Layout & Scene Inspector Toggle", () => {
     };
     menu.toggleSceneInspectorButton!.onPress.emit();
     expect(inspectorToggled).toBe(true);
+
+    let fpsToggled = false;
+    menu.onToggleFps = () => {
+      fpsToggled = true;
+    };
+    menu.toggleFpsButton!.onPress.emit();
+    expect(fpsToggled).toBe(true);
+
+    let statsToggled = false;
+    menu.onToggleStats = () => {
+      statsToggled = true;
+    };
+    menu.toggleStatsButton!.onPress.emit();
+    expect(statsToggled).toBe(true);
 
     menu.destroy();
   });
