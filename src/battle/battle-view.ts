@@ -342,6 +342,7 @@ export class BattleView {
     if (this.assets.uiSheet) {
       this.battleMenuPanel = new BattleMenuPanel(this.uiPlusRenderGroup, this.assets.uiSheet);
       this.battleMenuPanel.battle = this.battle;
+      this.battleMenuPanel.setSoundValues(this.settings.sound.musicVolume, this.settings.sound.soundVolume);
       this.battleMenuPanel.onSaveBattle = (name) => {
         if (events.onSaveBattle) {
           return events.onSaveBattle(name);
@@ -432,6 +433,24 @@ export class BattleView {
       if (this.settings.sound.musicOn) {
         sound.play('track_dark_whispers', { loop: true, volume: this.settings.sound.musicVolume });
       }
+    });
+
+    this.battleMenuPanel?.musicVolumeSlider?.onUpdate.connect((val) => {
+      this.settings.sound.musicVolume = Math.max(0, Math.min(1, val / 100));
+      this.settings.save();
+      try {
+        sound.volume('track_dark_whispers', this.settings.sound.musicVolume);
+      } catch {}
+    });
+
+    this.battleMenuPanel?.toggleSoundButton?.onPress.connect(() => {
+      this.settings.sound.soundOn = !this.settings.sound.soundOn;
+      this.settings.save();
+    });
+
+    this.battleMenuPanel?.soundVolumeSlider?.onUpdate.connect((val) => {
+      this.settings.sound.soundVolume = Math.max(0, Math.min(1, val / 100));
+      this.settings.save();
     });
 
     this.commonControls.resetButton?.onPress.connect(() => events.onReset());

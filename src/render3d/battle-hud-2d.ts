@@ -159,6 +159,7 @@ export class BattleHud2D {
     if (this.assets.uiSheet) {
       this.battleMenuPanel = new BattleMenuPanel(this.uiPlusRenderGroup, this.assets.uiSheet);
       this.battleMenuPanel.battle = this.battle;
+      this.battleMenuPanel.setSoundValues(this.settings.sound.musicVolume, this.settings.sound.soundVolume);
       this.battleMenuPanel.onSaveBattle = (name) => {
         if (events.onSaveBattle) {
           return events.onSaveBattle(name);
@@ -215,6 +216,24 @@ export class BattleHud2D {
       if (events.onToggleMusic) {
         events.onToggleMusic(this.settings.sound.musicOn);
       }
+    });
+
+    this.battleMenuPanel?.musicVolumeSlider?.onUpdate.connect((val) => {
+      this.settings.sound.musicVolume = Math.max(0, Math.min(1, val / 100));
+      this.settings.save();
+      try {
+        sound.volume('track_dark_whispers', this.settings.sound.musicVolume);
+      } catch {}
+    });
+
+    this.battleMenuPanel?.toggleSoundButton?.onPress.connect(() => {
+      this.settings.sound.soundOn = !this.settings.sound.soundOn;
+      this.settings.save();
+    });
+
+    this.battleMenuPanel?.soundVolumeSlider?.onUpdate.connect((val) => {
+      this.settings.sound.soundVolume = Math.max(0, Math.min(1, val / 100));
+      this.settings.save();
     });
 
     this.battleMenuPanel?.toggleSceneInspectorButton?.onPress.connect(() => {

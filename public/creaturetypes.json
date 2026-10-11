@@ -21,7 +21,7 @@
       "num_moves": 3,
       "range": 1,
       "stamina": 12,
-      "morale": 40,
+      "morale": 10,
       "flying": false
     },
     "traits": [],
@@ -49,7 +49,7 @@
       "num_moves": 2,
       "range": 1,
       "stamina": 14,
-      "morale": 60,
+      "morale": 10,
       "flying": false
     },
     "traits": [],
@@ -77,7 +77,7 @@
       "num_moves": 3,
       "range": 1,
       "stamina": 18,
-      "morale": 55,
+      "morale": 10,
       "flying": false
     },
     "traits": [
@@ -109,7 +109,7 @@
       "num_moves": 3,
       "range": 1,
       "stamina": 16,
-      "morale": 70,
+      "morale": 10,
       "flying": false
     },
     "traits": [],
@@ -137,7 +137,7 @@
       "num_moves": 3,
       "range": 6,
       "stamina": 12,
-      "morale": 45,
+      "morale": 10,
       "flying": false
     },
     "traits": [],
@@ -165,7 +165,7 @@
       "num_moves": 2,
       "range": 4,
       "stamina": 12,
-      "morale": 55,
+      "morale": 10,
       "flying": false
     },
     "traits": [],
@@ -193,7 +193,7 @@
       "num_moves": 4,
       "range": 1,
       "stamina": 16,
-      "morale": 80,
+      "morale": 10,
       "flying": false
     },
     "traits": [],
@@ -221,7 +221,7 @@
       "num_moves": 2,
       "range": 1,
       "stamina": 20,
-      "morale": 90,
+      "morale": 10,
       "flying": false
     },
     "traits": [
@@ -252,7 +252,7 @@
       "num_moves": 3,
       "range": 1,
       "stamina": 18,
-      "morale": 95,
+      "morale": 10,
       "flying": false
     },
     "traits": [

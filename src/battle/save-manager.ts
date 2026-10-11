@@ -138,6 +138,17 @@ export class SaveManager {
       creature.buffs = data.buffs.map((b) => new Buff({ ...CreatureStats.EMPTY, ...b.stats }, b.source));
     }
 
+    if (creature.stats.morale == null || Number.isNaN(creature.stats.morale)) {
+      creature.stats.morale = 10;
+    }
+    if (creature.stats.max_morale == null || Number.isNaN(creature.stats.max_morale) || creature.stats.max_morale <= 0) {
+      creature.stats.max_morale = 30;
+    }
+    if (creature.stats.base_morale == null || Number.isNaN(creature.stats.base_morale) || creature.stats.base_morale <= 0) {
+      creature.stats.base_morale = creature.stats.morale;
+    }
+
+    creature.updateMoraleState();
     creature.updateExhaustionState();
     return creature;
   }

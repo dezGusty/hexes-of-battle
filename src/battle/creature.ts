@@ -2,7 +2,7 @@ import { HexDirection } from "../shared/hex-map";
 import { Coords, getRandomValueBetween } from "../shared";
 import { Ability } from "./ability";
 import { GuidMaker, HobGUID } from "./guid";
-import { ExhaustionState, MoraleState, getExhaustionState } from "./combat-rules";
+import { ExhaustionState, MoraleState, getExhaustionState, getMoraleState } from "./combat-rules";
 import { SeedableRNG } from "../shared/prng";
 
 export class CreatureStats {
@@ -27,13 +27,15 @@ export class CreatureStats {
   num_moves: number = 3;
   stamina: number = 10;
   max_stamina: number = 10;
-  morale: number = 50;
-  base_morale: number = 50;
+  morale: number = 10;
+  max_morale: number = 30;
+  base_morale: number = 10;
   model_count: number = 8;
   model_hp: number = 5;
   retaliations_done: number = 0;
   exhaustion_state: ExhaustionState = ExhaustionState.FRESH;
   morale_state: MoraleState = MoraleState.STEADY;
+  took_damage_this_turn: boolean = false;
   is_hero: boolean = false;
   tier: number = 1;
   traits: string[] = [];
@@ -63,12 +65,14 @@ export class CreatureStats {
     stamina: 0,
     max_stamina: 0,
     morale: 0,
+    max_morale: 30,
     base_morale: 0,
     model_count: 0,
     model_hp: 0,
     retaliations_done: 0,
     exhaustion_state: ExhaustionState.FRESH,
     morale_state: MoraleState.STEADY,
+    took_damage_this_turn: false,
     is_hero: false,
     tier: 1,
     traits: [],
@@ -151,13 +155,15 @@ export class Creature {
     num_moves: 4,
     stamina: 12,
     max_stamina: 12,
-    morale: 50,
-    base_morale: 50,
+    morale: 10,
+    max_morale: 30,
+    base_morale: 10,
     model_count: 8,
     model_hp: 5,
     retaliations_done: 0,
     exhaustion_state: ExhaustionState.FRESH,
     morale_state: MoraleState.STEADY,
+    took_damage_this_turn: false,
     is_hero: false,
     tier: 1,
     traits: [],
@@ -208,50 +214,81 @@ export class Creature {
     this.stats.retaliations_done = this.stats.retaliations_done ?? 0;
     this.stats.has_rested = this.stats.has_rested ?? false;
 
-    if (this.stats.max_stamina <= 0) {
+    if (this.stats.max_stamina <= 0 || Number.isNaN(this.stats.max_stamina)) {
       this.stats.max_stamina = this.stats.stamina || 12;
     }
-    if (this.stats.base_morale <= 0) {
-      this.stats.base_morale = this.stats.morale || 50;
+    if (this.stats.max_morale <= 0 || Number.isNaN(this.stats.max_morale)) {
+      this.stats.max_morale = 30;
     }
+    if (this.stats.morale == null || Number.isNaN(this.stats.morale)) {
+      this.stats.morale = 10;
+    }
+    if (this.stats.morale > 30) {
+      this.stats.morale = Math.round(this.stats.morale * 0.3);
+    }
+    this.stats.morale = Math.max(0, Math.min(this.stats.max_morale, this.stats.morale));
+    if (this.stats.base_morale == null || Number.isNaN(this.stats.base_morale) || this.stats.base_morale <= 0) {
+      this.stats.base_morale = this.stats.morale;
+    }
+    this.stats.took_damage_this_turn = false;
     if (this.stats.model_hp <= 0 && this.stats.model_count > 0) {
       this.stats.model_hp = Math.max(1, Math.floor(this.stats.health / this.stats.model_count));
     }
+    this.updateMoraleState();
     this.updateExhaustionState();
   }
 
   public get live_stats(): CreatureStats {
     let base = { ...this.stats };
+    if (base.morale == null || Number.isNaN(base.morale)) {
+      base.morale = 10;
+    }
     this.buffs.forEach((element) => {
       base = {
         ...base,
-        ammo: base.ammo + element.stats.ammo,
-        attack_melee_low: base.attack_melee_low + element.stats.attack_melee_low,
-        attack_melee_high: base.attack_melee_high + element.stats.attack_melee_high,
-        attack_ranged_low: base.attack_ranged_low + element.stats.attack_ranged_low,
-        attack_ranged_high: base.attack_ranged_high + element.stats.attack_ranged_high,
+        ammo: (base.ammo ?? 0) + (element.stats?.ammo ?? 0),
+        attack_melee_low: (base.attack_melee_low ?? 0) + (element.stats?.attack_melee_low ?? 0),
+        attack_melee_high: (base.attack_melee_high ?? 0) + (element.stats?.attack_melee_high ?? 0),
+        attack_ranged_low: (base.attack_ranged_low ?? 0) + (element.stats?.attack_ranged_low ?? 0),
+        attack_ranged_high: (base.attack_ranged_high ?? 0) + (element.stats?.attack_ranged_high ?? 0),
 
-        defense_melee: base.defense_melee + element.stats.defense_melee,
-        defense_ranged: base.defense_ranged + element.stats.defense_ranged,
-        initiative: base.initiative + element.stats.initiative,
+        defense_melee: (base.defense_melee ?? 0) + (element.stats?.defense_melee ?? 0),
+        defense_ranged: (base.defense_ranged ?? 0) + (element.stats?.defense_ranged ?? 0),
+        initiative: (base.initiative ?? 0) + (element.stats?.initiative ?? 0),
         is_ranged: base.is_ranged,
 
-        health: base.health + element.stats.health,
-        num_attacks: base.num_attacks + element.stats.num_attacks,
-        num_counterattacks: base.num_counterattacks + element.stats.num_counterattacks,
-        range: base.range + element.stats.range,
+        health: (base.health ?? 0) + (element.stats?.health ?? 0),
+        num_attacks: (base.num_attacks ?? 0) + (element.stats?.num_attacks ?? 0),
+        num_counterattacks: (base.num_counterattacks ?? 0) + (element.stats?.num_counterattacks ?? 0),
+        range: (base.range ?? 0) + (element.stats?.range ?? 0),
 
-        remaining_ammo: base.remaining_ammo + element.stats.remaining_ammo,
-        remaining_attacks: base.remaining_attacks + element.stats.remaining_attacks,
-        remaining_counterattacks: base.remaining_counterattacks + element.stats.remaining_counterattacks,
-        remaining_health: base.remaining_health + element.stats.remaining_health,
-        remaining_movement: base.remaining_movement + element.stats.remaining_movement,
+        remaining_ammo: (base.remaining_ammo ?? 0) + (element.stats?.remaining_ammo ?? 0),
+        remaining_attacks: (base.remaining_attacks ?? 0) + (element.stats?.remaining_attacks ?? 0),
+        remaining_counterattacks: (base.remaining_counterattacks ?? 0) + (element.stats?.remaining_counterattacks ?? 0),
+        remaining_health: (base.remaining_health ?? 0) + (element.stats?.remaining_health ?? 0),
+        remaining_movement: (base.remaining_movement ?? 0) + (element.stats?.remaining_movement ?? 0),
 
-        num_moves: base.num_moves + element.stats.num_moves,
-        stamina: base.stamina + element.stats.stamina,
-        morale: base.morale + element.stats.morale,
+        num_moves: (base.num_moves ?? 0) + (element.stats?.num_moves ?? 0),
+        stamina: (base.stamina ?? 0) + (element.stats?.stamina ?? 0),
+        morale: (base.morale ?? 10) + (element.stats?.morale ?? 0),
       };
     });
+
+    if (base.morale == null || Number.isNaN(base.morale)) {
+      base.morale = 10;
+    }
+
+    // Apply morale state to live_stats
+    const moraleState = this.moraleState;
+    base.morale_state = moraleState;
+    if (moraleState === MoraleState.ROUTING) {
+      base.remaining_movement = 0;
+      base.remaining_attacks = 0;
+      base.remaining_counterattacks = 0;
+    } else if (moraleState === MoraleState.PANICKED) {
+      base.remaining_attacks = 0;
+      base.remaining_counterattacks = 0;
+    }
 
     // Apply exhaustion state to live_stats
     const exhaustion = this.exhaustionState;
@@ -310,13 +347,23 @@ export class Creature {
     return state === ExhaustionState.EXHAUSTED || state === ExhaustionState.DEPLETED;
   }
 
+  public get moraleState(): MoraleState {
+    return getMoraleState(this.stats.morale);
+  }
+
   public get isPanickedOrRouting(): boolean {
-    return this.stats.morale_state === MoraleState.PANICKED || this.stats.morale_state === MoraleState.ROUTING;
+    const state = this.moraleState;
+    return state === MoraleState.PANICKED || state === MoraleState.ROUTING;
   }
 
   public updateExhaustionState(): ExhaustionState {
     this.stats.exhaustion_state = this.exhaustionState;
     return this.stats.exhaustion_state;
+  }
+
+  public updateMoraleState(): MoraleState {
+    this.stats.morale_state = this.moraleState;
+    return this.stats.morale_state;
   }
 
   public hasTrait(traitName: string): boolean {
@@ -344,6 +391,10 @@ export class Creature {
   public takeDamage(damage: number): { modelsLost: number; remainingHp: number } {
     const prevModels = this.aliveModelCount;
     this.stats.remaining_health = Math.max(0, this.stats.remaining_health - damage);
+    if (damage > 0) {
+      this.stats.took_damage_this_turn = true;
+      this.consumeMorale(1);
+    }
     const nextModels = this.aliveModelCount;
     const modelsLost = Math.max(0, prevModels - nextModels);
     return { modelsLost, remainingHp: this.stats.remaining_health };
@@ -361,6 +412,24 @@ export class Creature {
     return this.stats.stamina;
   }
 
+  public consumeMorale(amount: number): number {
+    if (this.stats.morale == null || Number.isNaN(this.stats.morale)) {
+      this.stats.morale = 10;
+    }
+    this.stats.morale = Math.max(0, Math.min(this.stats.max_morale || 30, this.stats.morale - amount));
+    this.updateMoraleState();
+    return this.stats.morale;
+  }
+
+  public recoverMorale(amount: number = 1): number {
+    if (this.stats.morale == null || Number.isNaN(this.stats.morale)) {
+      this.stats.morale = 10;
+    }
+    this.stats.morale = Math.max(0, Math.min(this.stats.max_morale || 30, this.stats.morale + amount));
+    this.updateMoraleState();
+    return this.stats.morale;
+  }
+
   public canRest(): boolean {
     if (!this.isAlive) return false;
     if (this.stats.has_rested) return false;
@@ -371,15 +440,21 @@ export class Creature {
   }
 
   public rest(amount: number = 5): number {
+    this.recoverMorale(1);
     return this.recoverStamina(amount);
   }
 
   public resetTurn(): void {
+    if (!this.stats.took_damage_this_turn) {
+      this.recoverMorale(1);
+    }
+    this.stats.took_damage_this_turn = false;
     this.stats.remaining_movement = this.stats.num_moves;
     this.stats.remaining_attacks = this.stats.num_attacks;
     this.stats.remaining_counterattacks = this.stats.num_counterattacks;
     this.stats.retaliations_done = 0;
     this.stats.has_rested = false;
+    this.updateMoraleState();
     this.updateExhaustionState();
   }
 

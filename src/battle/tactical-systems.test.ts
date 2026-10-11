@@ -3,7 +3,7 @@ import { Battle } from "../battle";
 import { BattleActionType } from "./battle-action";
 import { HexDirection, HexFlankStatus, HexMap, checkFlankingStatus } from "../shared/hex-map";
 import { Creature, CreatureType } from "./creature";
-import { ExhaustionState, getExhaustionState, getRetaliationDamageMultiplier } from "./combat-rules";
+import { ExhaustionState, MoraleState, getExhaustionState, getMoraleState, getRetaliationDamageMultiplier } from "./combat-rules";
 import { BatchSimulationRunner } from "../headless/batch-runner";
 
 describe("Tactical Systems Validation", () => {
@@ -343,6 +343,47 @@ describe("Tactical Systems Validation", () => {
       expect(retaliationCount).toBe(1);
       expect(defender.stats.retaliations_done).toBe(1);
     });
+
+    it("should not allow melee defenders to retaliate against ranged attacks", () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const archer = new Creature(CreatureType.PEASANT_ARCHER);
+      archer.position = { x: 1, y: 1 };
+      archer.armyAlignment = 0;
+      archer.stats.is_ranged = true;
+      archer.stats.range = 6;
+      archer.stats.remaining_ammo = 10;
+      archer.stats.remaining_health = 40;
+      archer.stats.health = 40;
+
+      const defender = new Creature(CreatureType.SWORDSMAN);
+      defender.position = { x: 5, y: 1 };
+      defender.armyAlignment = 1;
+      defender.stats.stamina = 12;
+      defender.stats.remaining_counterattacks = 2;
+      defender.stats.num_counterattacks = 2;
+      defender.stats.retaliations_done = 0;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        creatures: [archer, defender],
+      });
+
+      let retaliationCount = 0;
+      battle.hookDoingAttack = (_a, _d, _dmg, _type, _flank, isRetaliation) => {
+        if (isRetaliation) retaliationCount++;
+      };
+
+      battle.handlePrimaryCellAction({ x: 1, y: 1 });
+      battle.handleSecondaryCellAction({ x: 5, y: 1 });
+      battle.stepInstant();
+
+      expect(retaliationCount).toBe(0);
+      expect(defender.stats.retaliations_done).toBe(0);
+      expect(archer.stats.remaining_health).toBe(40); // Archer took no damage from retaliation
+    });
   });
 
   describe("5. Ranged Combat, Scatter & Friendly Fire", () => {
@@ -435,6 +476,8 @@ describe("Tactical Systems Validation", () => {
       archer.stats.remaining_health = 40;
       archer.stats.attack_ranged_low = 10;
       archer.stats.attack_ranged_high = 10;
+      archer.stats.stamina = 20;
+      archer.stats.max_stamina = 20;
 
       const ally = new Creature(CreatureType.PEASANT);
       ally.position = { x: 4, y: 1 };
@@ -454,6 +497,7 @@ describe("Tactical Systems Validation", () => {
       battle.initializeFromConfig({
         mapWidth: 10,
         mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
         creatures: [archer, ally, enemy],
       });
 
@@ -540,6 +584,140 @@ describe("Tactical Systems Validation", () => {
 
       // (2, 2) was Mountain (4), but because groundUnit was placed on it, it must be changed to Hill (2)
       expect(battle.getTerrainAt({ x: 2, y: 2 })).toBe(2);
+    });
+  });
+
+  describe("8. Morale System, 0-30 Scale & Turn Recovery", () => {
+    it("should map numeric morale values correctly to breakpoints (0: Routing, 1-2: Panicked, 3-5: Wavering, >5: Steady)", () => {
+      expect(getMoraleState(0)).toBe(MoraleState.ROUTING);
+      expect(getMoraleState(-1)).toBe(MoraleState.ROUTING);
+      expect(getMoraleState(1)).toBe(MoraleState.PANICKED);
+      expect(getMoraleState(2)).toBe(MoraleState.PANICKED);
+      expect(getMoraleState(3)).toBe(MoraleState.WAVERING);
+      expect(getMoraleState(4)).toBe(MoraleState.WAVERING);
+      expect(getMoraleState(5)).toBe(MoraleState.WAVERING);
+      expect(getMoraleState(6)).toBe(MoraleState.STEADY);
+      expect(getMoraleState(15)).toBe(MoraleState.STEADY);
+      expect(getMoraleState(30)).toBe(MoraleState.STEADY);
+    });
+
+    it("should not automatically reset morale to STEADY, but increase by 1 after a turn without taking damage", () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const peasant = new Creature(CreatureType.PEASANT);
+      peasant.position = { x: 3, y: 3 };
+      peasant.armyAlignment = 0;
+      peasant.stats.morale = 2; // Panicked state
+      peasant.stats.max_morale = 30;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        creatures: [peasant],
+      });
+
+      expect(peasant.stats.morale_state).toBe(MoraleState.PANICKED);
+      expect(peasant.isPanickedOrRouting).toBe(true);
+
+      // Turn 1 ends (Army 0 -> Army 1)
+      battle.nextTurn();
+      // Peasant took no damage during Army 1's turn
+      // Turn 2 begins for Army 0 -> resetTurn runs
+      battle.nextTurn();
+
+      // Morale increases from 2 to 3 (transitioning from Panicked to Wavering)
+      expect(peasant.stats.morale).toBe(3);
+      expect(peasant.stats.morale_state).toBe(MoraleState.WAVERING);
+      expect(peasant.isPanickedOrRouting).toBe(false);
+
+      // Turn 3: Peasant goes another turn undamaged -> increases from 3 to 4
+      battle.nextTurn(); // Army 1 turn
+      battle.nextTurn(); // Army 0 turn
+      expect(peasant.stats.morale).toBe(4);
+      expect(peasant.stats.morale_state).toBe(MoraleState.WAVERING);
+    });
+
+    it("should decrease morale by 1 whenever a unit takes damage", () => {
+      const unit = new Creature(CreatureType.SWORDSMAN);
+      unit.stats.morale = 10;
+      unit.stats.max_morale = 30;
+
+      unit.takeDamage(5);
+      expect(unit.stats.morale).toBe(9);
+
+      unit.takeDamage(12);
+      expect(unit.stats.morale).toBe(8);
+
+      // Taking 0 damage does not decrease morale
+      unit.takeDamage(0);
+      expect(unit.stats.morale).toBe(8);
+    });
+
+    it("should not increase morale on turn reset if the unit took damage during the round", () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const unit = new Creature(CreatureType.SWORDSMAN);
+      unit.position = { x: 2, y: 2 };
+      unit.armyAlignment = 0;
+      unit.stats.morale = 10;
+      unit.stats.max_morale = 30;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        creatures: [unit],
+      });
+
+      // Unit takes damage (morale drops to 9) and has acted (so it does not trigger idle rest-by-default)
+      unit.takeDamage(5);
+      expect(unit.stats.morale).toBe(9);
+      unit.stats.remaining_movement = 1;
+      expect(unit.stats.took_damage_this_turn).toBe(true);
+
+      // Pass turns to next Army 0 turn
+      battle.nextTurn(); // Army 1
+      battle.nextTurn(); // Army 0 resetTurn()
+
+      // Because it took damage, morale did NOT increase (remained 9)
+      expect(unit.stats.morale).toBe(9);
+      expect(unit.stats.took_damage_this_turn).toBe(false);
+
+      // Now go another turn without taking damage (acted, so no rest-by-default)
+      unit.stats.remaining_movement = 1;
+      battle.nextTurn(); // Army 1
+      battle.nextTurn(); // Army 0 resetTurn()
+
+      // Now it increases by +1 back to 10
+      expect(unit.stats.morale).toBe(10);
+    });
+
+    it("should increase morale by +1 when performing a Rest action", () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const unit = new Creature(CreatureType.SWORDSMAN);
+      unit.position = { x: 2, y: 2 };
+      unit.armyAlignment = 0;
+      unit.stats.stamina = 4;
+      unit.stats.max_stamina = 14;
+      unit.stats.morale = 8;
+      unit.stats.max_morale = 30;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        creatures: [unit],
+      });
+
+      battle.handlePrimaryCellAction({ x: 2, y: 2 });
+      const rested = battle.restActiveCreature();
+      expect(rested).toBe(true);
+      battle.stepInstant();
+
+      expect(unit.stats.stamina).toBe(9); // 4 + 5 = 9
+      expect(unit.stats.morale).toBe(9);   // 8 + 1 = 9
     });
   });
 });

@@ -163,25 +163,36 @@ describe("UnitStatsPanel Visibility", () => {
     const settings = new BattleSettings();
     expect(settings.sound.musicOn).toBe(false);
 
-    // Toggle music on and save
+    // Toggle music on, change volume, change sound settings, and save
     settings.sound.musicOn = true;
+    settings.sound.musicVolume = 0.45;
+    settings.sound.soundOn = false;
+    settings.sound.soundVolume = 0.85;
     settings.save();
 
     const storedSound = JSON.parse(storage['hob.sound'] || '{}');
     expect(storedSound.musicOn).toBe(true);
+    expect(storedSound.musicVolume).toBe(0.45);
+    expect(storedSound.soundOn).toBe(false);
+    expect(storedSound.soundVolume).toBe(0.85);
 
     // Load in fresh settings
     const loadedSettings = new BattleSettings();
     loadedSettings.load();
     expect(loadedSettings.sound.musicOn).toBe(true);
+    expect(loadedSettings.sound.musicVolume).toBe(0.45);
+    expect(loadedSettings.sound.soundOn).toBe(false);
+    expect(loadedSettings.sound.soundVolume).toBe(0.85);
 
-    // Toggle music off and save
+    // Toggle soundOn back on, music off, and save
     loadedSettings.sound.musicOn = false;
+    loadedSettings.sound.soundOn = true;
     loadedSettings.save();
 
     const reloadedSettings = new BattleSettings();
     reloadedSettings.load();
     expect(reloadedSettings.sound.musicOn).toBe(false);
+    expect(reloadedSettings.sound.soundOn).toBe(true);
   });
 
   it("should persist and load showSceneInspector in hob.debug in localStorage", () => {
@@ -291,13 +302,18 @@ describe("BattleMenuPanel 2-Column Layout & Scene Inspector Toggle", () => {
     expect(menu.toggleGridButton).toBeDefined();
     expect(menu.showHealthbarsButton).toBeDefined();
     expect(menu.toggleMusicButton).toBeDefined();
+    expect(menu.musicVolumeSlider).toBeDefined();
+    expect(menu.toggleSoundButton).toBeDefined();
+    expect(menu.soundVolumeSlider).toBeDefined();
     expect(menu.toggleSceneInspectorButton).toBeDefined();
     expect(menu.saveButton).toBeDefined();
     expect(menu.loadButton).toBeDefined();
 
     // Verify column 2 X coordinates are greater than column 1 X coordinates
-    expect(menu.toggleSceneInspectorButton!.position.x).toBeGreaterThan(menu.fullscreenToggleButton!.position.x);
-    expect(menu.saveButton!.position.x).toBeGreaterThan(menu.toggleCoordsButton!.position.x);
+    expect(menu.toggleMusicButton!.position.x).toBeGreaterThan(menu.fullscreenToggleButton!.position.x);
+    expect(menu.toggleSoundButton!.position.x).toBeGreaterThan(menu.toggleCoordsButton!.position.x);
+    expect(menu.saveButton!.position.x).toBeGreaterThan(menu.toggleGridButton!.position.x);
+    expect(menu.loadButton!.position.x).toBeGreaterThan(menu.showHealthbarsButton!.position.x);
 
     let inspectorToggled = false;
     menu.onToggleSceneInspector = () => {

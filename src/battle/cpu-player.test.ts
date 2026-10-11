@@ -87,6 +87,8 @@ describe("AggressiveCPUPlayer", () => {
     aiArcher.stats.range = 5;
     aiArcher.stats.attack_ranged_low = 6;
     aiArcher.stats.attack_ranged_high = 8;
+    aiArcher.stats.ammo = 10;
+    aiArcher.stats.remaining_ammo = 10;
 
     const meleePlayer = new Creature(CreatureType.SWORDSMAN);
     meleePlayer.position = { x: 5, y: 3 };

@@ -29,6 +29,7 @@ export class EnemyStatsPanel {
     [DisplayedStat.COUNTER_ATTACKS]: 'glyph_counterattacks',
     [DisplayedStat.STAMINA]: 'glyph_stamina',
     [DisplayedStat.AMMO]: 'glyph_ammo',
+    [DisplayedStat.MORALE]: 'glyph_morale',
   };
 
   private statDescriptions: Record<number, string> = {
@@ -43,6 +44,7 @@ export class EnemyStatsPanel {
     [DisplayedStat.COUNTER_ATTACKS]: 'The number of counterattacks the unit can\nmake in a single turn.',
     [DisplayedStat.STAMINA]: "The unit's energy to perform physical activities such as\nmoving and attacking.",
     [DisplayedStat.AMMO]: 'The number of ranged attacks the unit can\nmake before running out of ammo',
+    [DisplayedStat.MORALE]: 'Morale (0-30). Dictates the squad\'s courage and discipline.\nRouting: 0, Panicked: 1-2, Wavering: 3-5, Steady: >5.\n+1 if undamaged for a full turn or upon resting.',
   };
 
   private statBuffDescriptions: Record<number, string> = {};
@@ -264,6 +266,10 @@ export class EnemyStatsPanel {
       buffDescriptions[DisplayedStat.AMMO] = `${buff.stats.remaining_ammo} / ${buff.stats.ammo} from ${buff.source}`;
     }
 
+    if (buff.stats.morale !== 0) {
+      buffDescriptions[DisplayedStat.MORALE] = `${buff.stats.morale} from ${buff.source}`;
+    }
+
     return buffDescriptions;
   }
 
@@ -284,6 +290,8 @@ export class EnemyStatsPanel {
     this.statValues[DisplayedStat.COUNTER_ATTACKS].text = `${this.stats.remaining_counterattacks}/${this.stats.num_counterattacks}`;
     this.statValues[DisplayedStat.STAMINA].text = `${this.stats.stamina}`;
     this.statValues[DisplayedStat.AMMO].text = `${this.stats.remaining_ammo}/${this.stats.ammo}`;
+    const moraleVal = (this.stats.morale !== undefined && !Number.isNaN(this.stats.morale)) ? this.stats.morale : 10;
+    this.statValues[DisplayedStat.MORALE].text = `${moraleVal}`;
 
     for (let i = 0; i < DisplayedStat.NUM_STATS; i++) {
       if (this.statValues[i].text === '') {

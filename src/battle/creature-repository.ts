@@ -48,6 +48,8 @@ export class CreatureRepository {
     result.stats.remaining_health = result.stats.health;
     result.stats.remaining_movement = result.stats.num_moves;
     result.stats.max_stamina = result.stats.stamina;
+    result.stats.max_morale = creatureTemplate.stats?.max_morale ?? 30;
+    result.stats.morale = (creatureTemplate.stats?.morale !== undefined && !Number.isNaN(creatureTemplate.stats.morale)) ? creatureTemplate.stats.morale : 10;
     result.stats.base_morale = result.stats.morale;
     result.stats.retaliations_done = 0;
     result.stats.has_rested = false;
@@ -59,6 +61,7 @@ export class CreatureRepository {
       })
       .filter((a): a is Ability => a !== null);
 
+    result.updateMoraleState();
     result.updateExhaustionState();
     return result;
   }

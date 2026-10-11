@@ -198,14 +198,19 @@ export class ProjectileSystem3D {
     // 1. Update flying projectiles
     for (let i = this.activeProjectiles.length - 1; i >= 0; i--) {
       const p = this.activeProjectiles[i];
-
       if (p.delayMs > 0) {
-        p.delayMs -= deltaMs;
-        continue;
+        const consumed = Math.min(p.delayMs, deltaMs);
+        p.delayMs -= consumed;
+        const remainingDelta = deltaMs - consumed;
+        if (remainingDelta <= 0) {
+          continue;
+        }
+        p.elapsedMs += remainingDelta;
+      } else {
+        p.elapsedMs += deltaMs;
       }
 
       p.mesh.visible = true;
-      p.elapsedMs += deltaMs;
       const t = Math.min(1.0, p.elapsedMs / p.durationMs);
 
       // Calculate 3D Parabolic position:

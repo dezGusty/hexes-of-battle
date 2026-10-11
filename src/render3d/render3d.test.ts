@@ -227,7 +227,7 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       projectileSys.update(100);
       expect(impactsTriggered).toBe(0);
 
-      projectileSys.update(300);
+      projectileSys.update(500);
       expect(impactsTriggered).toBe(3);
 
       projectileSys.dispose();

@@ -1,5 +1,5 @@
-import { ButtonOptions, FancyButton } from "@pixi/ui";
-import { Container, NineSliceSprite, Spritesheet, Text, TextOptions } from "pixi.js";
+import { ButtonOptions, FancyButton, Slider } from "@pixi/ui";
+import { Container, NineSliceSprite, Sprite, Spritesheet, Text, TextOptions, Texture } from "pixi.js";
 import { BattleSaveEntry, SaveManager } from "../battle/save-manager";
 import { Battle } from "../battle";
 
@@ -33,6 +33,11 @@ export class BattleMenuPanel {
     public toggleGridButton?: FancyButton;
     public showHealthbarsButton?: FancyButton;
     public toggleMusicButton?: FancyButton;
+    public musicVolumeSlider?: Slider;
+    public musicVolumeValueText?: Text;
+    public toggleSoundButton?: FancyButton;
+    public soundVolumeSlider?: Slider;
+    public soundVolumeValueText?: Text;
     public toggleSceneInspectorButton?: FancyButton;
     public saveButton?: FancyButton;
     public loadButton?: FancyButton;
@@ -71,7 +76,7 @@ export class BattleMenuPanel {
         });
 
         windowBg.width = 920;
-        windowBg.height = 490;
+        windowBg.height = 510;
         windowBg.alpha = 0.95;
 
         this.window.addChild(windowBg);
@@ -89,6 +94,23 @@ export class BattleMenuPanel {
         this.initializeLoadDialog(windowBg.width);
 
         this.view.addChild(this.window);
+    }
+
+    public setSoundValues(musicVolume: number, soundVolume: number): void {
+        const mPercent = Math.max(0, Math.min(100, Math.round(musicVolume * 100)));
+        const sPercent = Math.max(0, Math.min(100, Math.round(soundVolume * 100)));
+        if (this.musicVolumeSlider) {
+            this.musicVolumeSlider.value = mPercent;
+        }
+        if (this.musicVolumeValueText) {
+            this.musicVolumeValueText.text = `${mPercent}%`;
+        }
+        if (this.soundVolumeSlider) {
+            this.soundVolumeSlider.value = sPercent;
+        }
+        if (this.soundVolumeValueText) {
+            this.soundVolumeValueText.text = `${sPercent}%`;
+        }
     }
 
     private initializeMainContainer(panelWidth: number): void {
@@ -116,60 +138,144 @@ export class BattleMenuPanel {
         const col2TextX = 570;
 
         // Column 1 Options
-        addMenuOption(col1TextX, 65, 'Toggle Full screen mode.\nUses the browser API.');
-        addMenuOption(col1TextX, 145, 'Toggle coordinates display.');
-        addMenuOption(col1TextX, 225, 'Toggle grid display.\nThe grid will be fairly visible anyway.');
-        addMenuOption(col1TextX, 305, 'Toggle healthbars display.');
+        addMenuOption(col1TextX, 55, 'Toggle Full screen mode.\nUses the browser API.');
+        addMenuOption(col1TextX, 130, 'Toggle coordinates display.');
+        addMenuOption(col1TextX, 205, 'Toggle grid display.\nThe grid will be fairly visible anyway.');
+        addMenuOption(col1TextX, 280, 'Toggle healthbars display.');
+        addMenuOption(col1TextX, 355, 'Toggle 3D Scene Inspector.\n(Same effect as pressing F2)');
 
         // Column 2 Options
-        addMenuOption(col2TextX, 65, 'Toggle music on/off.');
-        addMenuOption(col2TextX, 145, 'Toggle 3D Scene Inspector.\n(Same effect as pressing F2)');
-        addMenuOption(col2TextX, 225, 'Save Battle State\nSave snapshot to local storage.');
-        addMenuOption(col2TextX, 305, 'Load Saved Battle\nSelect and restore a saved state.');
+        addMenuOption(col2TextX, 55, 'Toggle music on/off.');
+        addMenuOption(col2TextX, 130, 'Toggle sound on/off.');
+        addMenuOption(col2TextX, 205, 'Save Battle State\nSave snapshot to local storage.');
+        addMenuOption(col2TextX, 280, 'Load Saved Battle\nSelect and restore a saved state.');
 
         // Column 1 Buttons
         this.fullscreenToggleButton = new FancyButton({
             ...this.DEFAULT_BUTTON_STYLE,
             icon: 'glyph_fullscreen.png',
         });
-        this.fullscreenToggleButton.position.set(col1BtnX, 65);
+        this.fullscreenToggleButton.position.set(col1BtnX, 55);
         this.fullscreenToggleButton.width = 64;
         this.fullscreenToggleButton.height = 60;
 
         this.toggleCoordsButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_xy.png' });
-        this.toggleCoordsButton.position.set(col1BtnX, 145);
+        this.toggleCoordsButton.position.set(col1BtnX, 130);
         this.toggleCoordsButton.width = 64;
         this.toggleCoordsButton.height = 60;
 
         this.toggleGridButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_grid.png' });
-        this.toggleGridButton.position.set(col1BtnX, 225);
+        this.toggleGridButton.position.set(col1BtnX, 205);
         this.toggleGridButton.width = 64;
         this.toggleGridButton.height = 60;
 
         this.showHealthbarsButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_toggle_healthbars.png' });
-        this.showHealthbarsButton.position.set(col1BtnX, 305);
+        this.showHealthbarsButton.position.set(col1BtnX, 280);
         this.showHealthbarsButton.width = 64;
         this.showHealthbarsButton.height = 60;
-
-        // Column 2 Buttons
-        this.toggleMusicButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_toggle_music.png' });
-        this.toggleMusicButton.position.set(col2BtnX, 65);
-        this.toggleMusicButton.width = 64;
-        this.toggleMusicButton.height = 60;
 
         this.toggleSceneInspectorButton = new FancyButton({
             ...this.DEFAULT_BUTTON_STYLE,
             icon: 'glyph_toggle_perf_stats.png',
         });
-        this.toggleSceneInspectorButton.position.set(col2BtnX, 145);
+        this.toggleSceneInspectorButton.position.set(col1BtnX, 355);
         this.toggleSceneInspectorButton.width = 64;
         this.toggleSceneInspectorButton.height = 60;
+
+        // Column 2 Buttons & Sliders
+        this.toggleMusicButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_toggle_music.png' });
+        this.toggleMusicButton.position.set(col2BtnX, 55);
+        this.toggleMusicButton.width = 64;
+        this.toggleMusicButton.height = 60;
+
+        const sliderBg = this.uiSheet.textures['thin_button_2_normal.png'] || this.uiSheet.textures['panel.png'] || Texture.EMPTY;
+        const sliderFill = this.uiSheet.textures['thin_button_2_normal.png'] || this.uiSheet.textures['panel.png'] || Texture.EMPTY;
+        const sliderHandle = this.uiSheet.textures['thin_button_2_hover.png'] || this.uiSheet.textures['btn_simple.png'] || Texture.EMPTY;
+
+        this.musicVolumeSlider = new Slider({
+            bg: sliderBg,
+            fill: sliderFill,
+            slider: new Sprite(sliderHandle),
+            nineSliceSprite: {
+                bg: [4, 4, 4, 4],
+                fill: [4, 4, 4, 4],
+            },
+            fillPaddings: {
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+            },
+            min: 0,
+            max: 100,
+            step: 1,
+            value: 15,
+            showValue: false,
+        });
+        this.musicVolumeSlider.position.set(col2TextX, 55 + 34);
+        this.musicVolumeSlider.width = 200;
+        this.musicVolumeSlider.height = 14;
+
+        this.musicVolumeValueText = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: '15%',
+            style: { fontSize: 13, fill: '#AACCFF' },
+        });
+        this.musicVolumeValueText.position.set(col2TextX + 210, 55 + 31);
+
+        this.musicVolumeSlider.onUpdate.connect((val) => {
+            if (this.musicVolumeValueText) {
+                this.musicVolumeValueText.text = `${Math.round(val)}%`;
+            }
+        });
+
+        this.toggleSoundButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_toggle_music.png' });
+        this.toggleSoundButton.position.set(col2BtnX, 130);
+        this.toggleSoundButton.width = 64;
+        this.toggleSoundButton.height = 60;
+
+        this.soundVolumeSlider = new Slider({
+            bg: sliderBg,
+            fill: sliderFill,
+            slider: new Sprite(sliderHandle),
+            nineSliceSprite: {
+                bg: [4, 4, 4, 4],
+                fill: [4, 4, 4, 4],
+            },
+            fillPaddings: {
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+            },
+            min: 0,
+            max: 100,
+            step: 1,
+            value: 75,
+            showValue: false,
+        });
+        this.soundVolumeSlider.position.set(col2TextX, 130 + 34);
+        this.soundVolumeSlider.width = 200;
+        this.soundVolumeSlider.height = 14;
+
+        this.soundVolumeValueText = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: '75%',
+            style: { fontSize: 13, fill: '#AACCFF' },
+        });
+        this.soundVolumeValueText.position.set(col2TextX + 210, 130 + 31);
+
+        this.soundVolumeSlider.onUpdate.connect((val) => {
+            if (this.soundVolumeValueText) {
+                this.soundVolumeValueText.text = `${Math.round(val)}%`;
+            }
+        });
 
         this.saveButton = new FancyButton({
             ...this.DEFAULT_BUTTON_STYLE,
             icon: 'glyph_plus.png',
         });
-        this.saveButton.position.set(col2BtnX, 225);
+        this.saveButton.position.set(col2BtnX, 205);
         this.saveButton.width = 64;
         this.saveButton.height = 60;
 
@@ -177,11 +283,11 @@ export class BattleMenuPanel {
             ...this.DEFAULT_BUTTON_STYLE,
             icon: 'glyph_next_turn.png',
         });
-        this.loadButton.position.set(col2BtnX, 305);
+        this.loadButton.position.set(col2BtnX, 280);
         this.loadButton.width = 64;
         this.loadButton.height = 60;
 
-        this.closeButton.position.set((panelWidth - 140) / 2, 405);
+        this.closeButton.position.set((panelWidth - 140) / 2, 445);
         this.closeButton.width = 140;
         this.closeButton.height = 36;
         this.closeButton.text = new Text({
@@ -194,8 +300,13 @@ export class BattleMenuPanel {
         this.mainContainer.addChild(this.toggleCoordsButton);
         this.mainContainer.addChild(this.toggleGridButton);
         this.mainContainer.addChild(this.showHealthbarsButton);
-        this.mainContainer.addChild(this.toggleMusicButton);
         this.mainContainer.addChild(this.toggleSceneInspectorButton);
+        this.mainContainer.addChild(this.toggleMusicButton);
+        this.mainContainer.addChild(this.musicVolumeSlider);
+        this.mainContainer.addChild(this.musicVolumeValueText);
+        this.mainContainer.addChild(this.toggleSoundButton);
+        this.mainContainer.addChild(this.soundVolumeSlider);
+        this.mainContainer.addChild(this.soundVolumeValueText);
         this.mainContainer.addChild(this.saveButton);
         this.mainContainer.addChild(this.loadButton);
         this.mainContainer.addChild(this.closeButton);

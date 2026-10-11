@@ -78,12 +78,15 @@ export interface RangedConfig {
 }
 
 export interface MoraleConfig {
+  maxMorale: number;
   casualtyThresholdRatio: number;
   panicBaseChance: number;
   exhaustionMoraleCheckPenalty: number;
   heroAuraBonus: number;
   heroAuraRadius: number;
   routingTurnLoss: boolean;
+  undamagedTurnRecovery: number;
+  restRecovery: number;
 }
 
 export interface HeroConfig {
@@ -186,18 +189,38 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
     meleeEngagedPenalty: true,
   },
   morale: {
+    maxMorale: 30,
     casualtyThresholdRatio: 0.25,
     panicBaseChance: 0.30,
     exhaustionMoraleCheckPenalty: 0.20,
-    heroAuraBonus: 25,
+    heroAuraBonus: 5,
     heroAuraRadius: 2,
     routingTurnLoss: true,
+    undamagedTurnRecovery: 1,
+    restRecovery: 1,
   },
   hero: {
     bodyguardRetinueAbsorption: 1.0,
-    presenceMoraleBonus: 15,
+    presenceMoraleBonus: 5,
   },
 };
+
+export const MIN_MORALE = 0;
+export const MAX_MORALE = 30;
+
+/**
+ * Maps a numeric morale value (0 to 30) to its corresponding MoraleState:
+ * - Routing: 0 (or <= 0)
+ * - Panicked: 1 or 2
+ * - Wavering: 3, 4, 5
+ * - Steady: anything above 5 (6 to 30)
+ */
+export function getMoraleState(morale: number): MoraleState {
+  if (morale <= 0) return MoraleState.ROUTING;
+  if (morale <= 2) return MoraleState.PANICKED;
+  if (morale <= 5) return MoraleState.WAVERING;
+  return MoraleState.STEADY;
+}
 
 export function getExhaustionState(currentStamina: number, maxStamina: number, config: CombatConfig = DEFAULT_COMBAT_CONFIG): ExhaustionState {
   if (maxStamina <= 0) return ExhaustionState.DEPLETED;

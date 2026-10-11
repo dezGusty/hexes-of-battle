@@ -130,3 +130,7 @@ dist
 .pnp.*
 .firebase/hosting.*
 TODO_*.png
+
+.agents/skills/
+
+skills-lock.json

@@ -225,6 +225,7 @@ export class Battle {
     }
 
     this.creatures = config.creatures.map((c) => {
+      c.updateMoraleState();
       c.updateExhaustionState();
       return c;
     });
@@ -492,6 +493,10 @@ export class Battle {
     }
 
     // Melee attack
+    if (creature.live_stats.remaining_attacks <= 0 || creature.isPanickedOrRouting || creature.exhaustionState === ExhaustionState.DEPLETED) {
+      return;
+    }
+
     let path: Coords[] = [];
     if (optionalDirection !== HexDirection.NONE) {
       let neighbour = this.hexMap.getNeighbourInDirection(coords, optionalDirection);
@@ -1117,7 +1122,7 @@ export class Battle {
 
         const casualtyThreshold = Math.max(1, Math.floor(defender.stats.model_count * this.combatConfig.morale.casualtyThresholdRatio));
         if (modelsLost >= casualtyThreshold || defender.stats.stamina <= 0) {
-          this.checkMorale(defender);
+          this.checkMorale(defender, modelsLost);
         }
       }
 
@@ -1141,24 +1146,9 @@ export class Battle {
         }
       }
 
-      // Check retaliation if intended target survived and has close quarters counter trait
-      if (intendedTarget && intendedTarget.isAlive) {
-        const canRetaliate =
-          intendedTarget.hasTrait(this.combatConfig.retaliation.closeQuartersCounterTrait) &&
-          intendedTarget.stats.stamina >= this.combatConfig.retaliation.minStamina &&
-          intendedTarget.stats.retaliations_done < this.combatConfig.retaliation.maxRetaliationsPerTurn &&
-          intendedTarget.live_stats.remaining_counterattacks > 0 &&
-          !intendedTarget.isExhausted &&
-          !intendedTarget.isPanickedOrRouting;
-
-        if (canRetaliate) {
-          counterattacking = this.queueCounterattack(intendedTarget, attacker);
-        }
-      }
-
       attacker.stats.remaining_attacks = Math.max(0, attacker.stats.remaining_attacks - 1);
       attacker.stats.remaining_movement = 0;
-      return counterattacking;
+      return false;
     }
 
     let targetCoords = originalTargetCoords;
@@ -1181,9 +1171,11 @@ export class Battle {
       this.checkVictoryConditionsAndState();
       this.tryToSelectUnitAtLocation(attacker.pos);
     } else {
-      // Check retaliation eligibility
+      // Check retaliation eligibility for melee attacks
+      const isAdjacent = this.hexMap.getNeighbours(attacker.pos).some((n) => n.x === defender.pos.x && n.y === defender.pos.y);
       const canRetaliate =
-        (currentAction.type === BattleActionType.ATTACK_MELEE || defender.hasTrait(this.combatConfig.retaliation.closeQuartersCounterTrait)) &&
+        isAdjacent &&
+        currentAction.type === BattleActionType.ATTACK_MELEE &&
         defender.stats.stamina >= this.combatConfig.retaliation.minStamina &&
         defender.stats.retaliations_done < this.combatConfig.retaliation.maxRetaliationsPerTurn &&
         defender.live_stats.remaining_counterattacks > 0 &&
@@ -1287,11 +1279,11 @@ export class Battle {
     // Morale dynamics check on casualties / stamina exhaustion
     const casualtyThreshold = Math.max(1, Math.floor(target.stats.model_count * this.combatConfig.morale.casualtyThresholdRatio));
     if (modelsLost >= casualtyThreshold || target.stats.stamina <= 0) {
-      this.checkMorale(target);
+      this.checkMorale(target, modelsLost);
     }
   }
 
-  private checkMorale(creature: Creature): void {
+  private checkMorale(creature: Creature, modelsLost: number = 0): void {
     if (!creature.isAlive) return;
 
     let heroBonus = 0;
@@ -1307,14 +1299,18 @@ export class Battle {
     }
 
     const effectiveMorale = creature.stats.morale + heroBonus;
-    const failRoll = this.rng.range(1, 100);
+    const failRoll = this.rng.range(1, 30);
 
     if (failRoll > effectiveMorale) {
-      creature.stats.morale_state = MoraleState.PANICKED;
-      creature.stats.remaining_movement = 0;
-      creature.stats.remaining_attacks = 0;
-      this.moraleBreaks[creature.armyAlignment]++;
-      this.hookMoraleBreak?.(creature, MoraleState.PANICKED);
+      const drop = Math.max(1, modelsLost > 0 ? modelsLost * 2 : 2);
+      creature.consumeMorale(drop);
+      const state = creature.stats.morale_state;
+      if (state === MoraleState.PANICKED || state === MoraleState.ROUTING) {
+        creature.stats.remaining_movement = 0;
+        creature.stats.remaining_attacks = 0;
+        this.moraleBreaks[creature.armyAlignment]++;
+        this.hookMoraleBreak?.(creature, state);
+      }
     }
   }
 

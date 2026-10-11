@@ -13,6 +13,7 @@ import { UnitVisualFactory } from './units/unit-visual-factory';
 import { ProjectileSystem3D } from './projectiles/projectile-system-3d';
 import { BattleHexMapPath } from '../battle/battle-hex-map-path';
 import { ThreeSceneDebugger } from './debug/three-scene-debugger';
+import { ExhaustionState } from '../battle/combat-rules';
 
 export interface BattleView3DEvents {
   onNextTurn: () => void;
@@ -223,8 +224,8 @@ export class BattleView3D {
       attackerSquad.playAnimation('attack_ranged', 400);
     }
 
-    if (this.settings.sound.soundOn) {
-      sound.play('arrow', { volume: this.settings.sound.soundVolume });
+    if (this.settings.sound.soundOn !== false && this.settings.sound.soundVolume > 0) {
+      sound.play('arrow', { speed: 0.9 + Math.random() * 0.2, volume: this.settings.sound.soundVolume });
     }
 
     // Build array of individual projectile trajectories with distinct destination hexes
@@ -283,8 +284,8 @@ export class BattleView3D {
         attackerSquad.playAnimation('attack_ranged', 400);
       }
 
-      if (this.settings.sound.soundOn) {
-        sound.play('arrow', { volume: this.settings.sound.soundVolume });
+      if (this.settings.sound.soundOn !== false && this.settings.sound.soundVolume > 0) {
+        sound.play('arrow', { speed: 0.9 + Math.random() * 0.2, volume: this.settings.sound.soundVolume });
       }
 
       this.projectileSystem.spawnVolley({
@@ -304,8 +305,8 @@ export class BattleView3D {
         attackerSquad.playAnimation('attack_melee', 450);
       }
 
-      if (this.settings.sound.soundOn) {
-        sound.play('sword', { volume: this.settings.sound.soundVolume });
+      if (this.settings.sound.soundOn !== false && this.settings.sound.soundVolume > 0) {
+        sound.play('sword', { speed: 0.9 + Math.random() * 0.2, volume: this.settings.sound.soundVolume });
       }
 
       setTimeout(() => {
@@ -334,8 +335,8 @@ export class BattleView3D {
 
       defenderSquad.addFloatingCombatText(label, color, 1300);
 
-      if (this.settings.sound.soundOn && !defenderSquad.creature.isAlive) {
-        sound.play('die', { volume: this.settings.sound.soundVolume });
+      if (this.settings.sound.soundOn !== false && this.settings.sound.soundVolume > 0 && !defenderSquad.creature.isAlive) {
+        sound.play('die', { speed: 0.9 + Math.random() * 0.2, volume: this.settings.sound.soundVolume });
       }
     } else {
       defenderSquad.addFloatingCombatText('BLOCKED', '#88bbff', 1000);
@@ -435,6 +436,14 @@ export class BattleView3D {
     const targetCreature = this.battle.getCreatureAtPosition(this.hoveredHex);
 
     if (targetCreature && targetCreature.indexOFArmy !== activeCreature.armyAlignment) {
+      if (
+        activeCreature.live_stats.remaining_attacks <= 0 ||
+        activeCreature.isPanickedOrRouting ||
+        activeCreature.exhaustionState === ExhaustionState.DEPLETED
+      ) {
+        return { hoverPath: [], attackPath: [], originHex: null, isRanged: false };
+      }
+
       // Targeting an enemy unit
       const isRanged = activeCreature.live_stats.is_ranged && activeCreature.stats.remaining_ammo > 0 && !this.isCtrlPressed;
       if (isRanged) {
@@ -530,7 +539,9 @@ export class BattleView3D {
       activeCreature &&
       targetCreature &&
       targetCreature.indexOFArmy !== activeCreature.armyAlignment &&
-      activeCreature.live_stats.remaining_attacks > 0
+      activeCreature.live_stats.remaining_attacks > 0 &&
+      !activeCreature.isPanickedOrRouting &&
+      activeCreature.exhaustionState !== ExhaustionState.DEPLETED
     ) {
       if (isRanged) {
         // Standard Ranged Attack Preview: target ring only, no origin hex or melee ground arrow
