@@ -212,15 +212,9 @@ export class HexesEngine {
 
     this.renderContainer.scale.set(minScale, minScale);
 
-    const delta = {
-      x: Math.abs(width - originalWindowSize.width * minScale) / 2,
-      y: Math.abs(height - originalWindowSize.height * minScale) / 2,
-    };
-    const verticalShift = -30;
-
     this.renderContainerOffset = {
-      x: delta.x,
-      y: Math.max(delta.y + verticalShift, 0),
+      x: 0,
+      y: 0,
     };
     this.renderContainer.position.set(this.renderContainerOffset.x, this.renderContainerOffset.y);
   }

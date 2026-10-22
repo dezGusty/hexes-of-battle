@@ -16,10 +16,6 @@ body {
   user-select: none;
 }
 
-.centered {
-  display: block;
-  align-content: center;
-}
 
 @media screen and (min-height: 331px) and (max-height: 373px) and (min-width: 801px) and (max-width: 860px) {
   body {
