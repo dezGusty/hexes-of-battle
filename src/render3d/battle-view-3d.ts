@@ -178,7 +178,7 @@ export class BattleView3D {
       if (!creature.isAlive) return;
 
       const squad = this.visualFactory.createSquadVisual(creature);
-      const worldPos = this.hexBoard.hexToWorld(creature.position.x, creature.position.y);
+      const worldPos = this.hexBoard.hexToWorldWithElevation(creature.position.x, creature.position.y);
       squad.rootGroup.position.copy(worldPos);
       squad.setFacing(creature.facingDirection);
 
@@ -224,7 +224,7 @@ export class BattleView3D {
     const attackerSquad = this.squadVisuals.get(data.attacker.GUID.toString());
     const sourcePos = attackerSquad
       ? attackerSquad.rootGroup.position.clone()
-      : this.hexBoard.hexToWorld(data.attacker.position.x, data.attacker.position.y);
+      : this.hexBoard.hexToWorldWithElevation(data.attacker.position.x, data.attacker.position.y);
 
     if (attackerSquad) {
       attackerSquad.playAnimation('attack_ranged', 400);
@@ -239,7 +239,7 @@ export class BattleView3D {
       const hitSquad = p.hitCreature ? this.squadVisuals.get(p.hitCreature.GUID.toString()) : undefined;
       const targetPos = hitSquad
         ? hitSquad.rootGroup.position.clone()
-        : this.hexBoard.hexToWorld(p.targetHex.x, p.targetHex.y);
+        : this.hexBoard.hexToWorldWithElevation(p.targetHex.x, p.targetHex.y);
 
       return {
         targetPos,
@@ -281,10 +281,10 @@ export class BattleView3D {
       // Single-target fallback or legacy call
       const sourcePos = attackerSquad
         ? attackerSquad.rootGroup.position.clone()
-        : this.hexBoard.hexToWorld(attacker.position.x, attacker.position.y);
+        : this.hexBoard.hexToWorldWithElevation(attacker.position.x, attacker.position.y);
       const targetPos = defenderSquad
         ? defenderSquad.rootGroup.position.clone()
-        : this.hexBoard.hexToWorld(defender.position.x, defender.position.y);
+        : this.hexBoard.hexToWorldWithElevation(defender.position.x, defender.position.y);
 
       if (attackerSquad) {
         attackerSquad.playAnimation('attack_ranged', 400);
@@ -372,7 +372,7 @@ export class BattleView3D {
       this.squadVisuals.forEach((squad, guidStr) => {
         const creature = this.battle.creatures.find((c) => c.GUID.toString() === guidStr);
         if (creature && creature.isAlive && creature.aliveModelCount > 0) {
-          const worldPos = this.hexBoard.hexToWorld(creature.position.x, creature.position.y);
+          const worldPos = this.hexBoard.hexToWorldWithElevation(creature.position.x, creature.position.y);
           squad.rootGroup.position.copy(worldPos);
           squad.setFacing(creature.facingDirection);
           squad.updateStats();

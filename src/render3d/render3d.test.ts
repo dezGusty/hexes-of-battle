@@ -23,6 +23,7 @@ import { ThreeSceneDebugger } from './debug/three-scene-debugger';
 import { BattleHexMapPath } from '../battle/battle-hex-map-path';
 import { NumMatrix } from '../shared/num-matrix';
 import { CommonControls } from '../ui/common-controls';
+import { TerrainType } from '../battle/terrain-types';
 
 describe('3D Graphics Engine & Rendering Systems', () => {
   describe('1. 3D Hex Board & Coordinates', () => {
@@ -64,14 +65,90 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       const hexMap = new HexMap(4, 4);
       const hexBoard = new HexBoard3D(hexMap, {
         getTerrain: (x, y) => {
-          if (x === 0 && y === 0) return 2; // Hill
-          if (x === 1 && y === 0) return 5; // Water
-          if (x === 2 && y === 0) return 1; // Forest
-          return 0; // Plain
+          if (x === 0 && y === 0) return TerrainType.HILL;
+          if (x === 1 && y === 0) return TerrainType.WATER;
+          if (x === 2 && y === 0) return TerrainType.FOREST;
+          return TerrainType.PLAIN;
         },
       });
 
       expect(hexBoard.group.children.length).toBeGreaterThan(0);
+      hexBoard.dispose();
+    });
+
+    it('should generate mesa hill geometry with flat plateau top and smoothed normals', () => {
+      const hexMap = new HexMap(6, 6);
+      const hexBoard = new HexBoard3D(hexMap, {
+        getTerrain: (x, y) => {
+          if (x === 2 && y === 2) return TerrainType.HILL;
+          return TerrainType.PLAIN;
+        },
+      });
+
+      expect(hexBoard.isHill(2, 2)).toBe(true);
+      expect(hexBoard.isHill(0, 0)).toBe(false);
+
+      const elev = hexBoard.getHexElevation(2, 2);
+      expect(elev).toBeGreaterThanOrEqual(0.28);
+      expect(elev).toBeLessThanOrEqual(0.36);
+
+      const mesaRadius = hexBoard.getHillMesaRadius(2, 2);
+      expect(mesaRadius).toBeLessThan(hexBoard.hexRadius);
+      expect(mesaRadius).toBeGreaterThan(hexBoard.hexRadius * 0.70);
+
+      const tileMesh = (hexBoard as any).tileMeshes.get('2,2') as THREE.Mesh;
+      expect(tileMesh).toBeDefined();
+      expect(tileMesh.geometry).toBeInstanceOf(THREE.BufferGeometry);
+      expect(tileMesh.geometry.attributes.position).toBeDefined();
+      expect(tileMesh.geometry.attributes.normal).toBeDefined();
+
+      hexBoard.dispose();
+    });
+
+    it('should ensure adjacent hills share identical elevation with seamless ridge connection', () => {
+      const hexMap = new HexMap(6, 6);
+      const hexBoard = new HexBoard3D(hexMap, {
+        getTerrain: (x, y) => {
+          // Connected hill cluster 1: (1, 1) and (2, 1)
+          if ((x === 1 && y === 1) || (x === 2 && y === 1)) return TerrainType.HILL;
+          // Disconnected hill cluster 2: (4, 4)
+          if (x === 4 && y === 4) return TerrainType.HILL;
+          return TerrainType.PLAIN;
+        },
+      });
+
+      const elev1 = hexBoard.getHexElevation(1, 1);
+      const elev2 = hexBoard.getHexElevation(2, 1);
+      const elevIsolated = hexBoard.getHexElevation(4, 4);
+
+      // Connected hills must have identical elevation
+      expect(elev1).toBe(elev2);
+      expect(elev1).toBeGreaterThanOrEqual(0.28);
+
+      // Isolated hill should be defined and elevated
+      expect(elevIsolated).toBeGreaterThanOrEqual(0.28);
+
+      hexBoard.dispose();
+    });
+
+    it('should scale selection and hover overlays to fit mesa top on hill hexes', () => {
+      const hexMap = new HexMap(6, 6);
+      const hexBoard = new HexBoard3D(hexMap, {
+        getTerrain: (x, y) => (x === 2 && y === 2 ? TerrainType.HILL : TerrainType.PLAIN),
+      });
+
+      // Hover on hill
+      hexBoard.setHoverHex({ x: 2, y: 2 });
+      const hoverMesh = (hexBoard as any).hoverMesh as THREE.Mesh;
+      expect(hoverMesh.position.y).toBeCloseTo(hexBoard.getHexElevation(2, 2) + 0.03, 3);
+      expect(hoverMesh.scale.x).toBeLessThan(1.0);
+
+      // Select hill
+      hexBoard.setSelectedUnitHex({ x: 2, y: 2 }, HexDirection.EAST);
+      const selectedMesh = (hexBoard as any).selectedRingMesh as THREE.Mesh;
+      expect(selectedMesh.position.y).toBeCloseTo(hexBoard.getHexElevation(2, 2) + 0.02, 3);
+      expect(selectedMesh.scale.x).toBeLessThan(1.0);
+
       hexBoard.dispose();
     });
   });

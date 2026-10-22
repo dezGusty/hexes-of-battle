@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { HexDirection, HexFlankStatus, HexMap } from '../shared/hex-map';
+import { HexDirection, HexFlankStatus, HexMap, HexMapHelpers } from '../shared/hex-map';
 import { Coords } from '../shared';
 import { TerrainType } from '../battle/terrain-types';
 
@@ -48,11 +48,16 @@ export class HexBoard3D {
   private getTerrain?: (x: number, y: number) => TerrainType;
   public freezePreviews: boolean = false;
 
+  private hillClusters: Map<string, number> = new Map();
+  private clusterElevations: Map<number, number> = new Map();
+  private hillMesaRadii: Map<string, number> = new Map();
+
   private materials: Record<string, THREE.Material> = {};
   private sideMaterial: THREE.Material = new THREE.MeshStandardMaterial({
     color: 0x33281e,
     roughness: 0.9,
     metalness: 0.1,
+    side: THREE.DoubleSide,
   });
 
   constructor(
@@ -115,6 +120,7 @@ export class HexBoard3D {
       color: 0x8a6d45,
       roughness: 0.9,
       metalness: 0.05,
+      side: THREE.DoubleSide,
     });
     this.materials['water'] = new THREE.MeshStandardMaterial({
       color: 0x2266aa,
@@ -162,7 +168,7 @@ export class HexBoard3D {
 
       this.materials['grass'] = new THREE.MeshStandardMaterial({ map: grassTex, roughness: 0.8 });
       this.materials['forest'] = new THREE.MeshStandardMaterial({ map: forestTex, roughness: 0.85 });
-      this.materials['dirt'] = new THREE.MeshStandardMaterial({ map: dirtTex, roughness: 0.9 });
+      this.materials['dirt'] = new THREE.MeshStandardMaterial({ map: dirtTex, roughness: 0.9, side: THREE.DoubleSide });
       this.materials['swamp'] = new THREE.MeshStandardMaterial({ map: swampTex, roughness: 0.85, metalness: 0.05 });
       this.materials['water'] = new THREE.MeshStandardMaterial({
         map: waterTex,
@@ -238,7 +244,276 @@ export class HexBoard3D {
     return [this.sideMaterial, topMat, this.sideMaterial];
   }
 
+  public isHill(x: number, y: number): boolean {
+    let terrain: TerrainType = TerrainType.PLAIN;
+    if (this.getTerrain) {
+      terrain = this.getTerrain(x, y);
+    } else if (typeof (this.hexMap as any).getTerrain === 'function') {
+      terrain = (this.hexMap as any).getTerrain(x, y);
+    }
+    return terrain === TerrainType.HILL;
+  }
+
+  public getHillMesaRadius(x: number, y: number): number {
+    return this.hillMesaRadii.get(`${x},${y}`) ?? this.hexRadius * 0.77;
+  }
+
+  /**
+   * Clusters connected adjacent hills together via BFS and assigns
+   * uniform elevation across each connected hill cluster to ensure
+   * continuous ridge elevation with no downward/upward dip.
+   */
+  private computeHillClusters(): void {
+    this.hillClusters.clear();
+    this.clusterElevations.clear();
+    this.hillMesaRadii.clear();
+
+    let nextClusterId = 1;
+    const visited = new Set<string>();
+
+    for (let x = 0; x < this.hexMap.width; x++) {
+      for (let y = 0; y < this.hexMap.height; y++) {
+        const key = `${x},${y}`;
+        if (visited.has(key)) continue;
+
+        if (this.isHill(x, y)) {
+          const clusterId = nextClusterId++;
+          const queue: Coords[] = [{ x, y }];
+          visited.add(key);
+          this.hillClusters.set(key, clusterId);
+
+          while (queue.length > 0) {
+            const curr = queue.shift()!;
+            for (let d = 1; d <= 6; d++) {
+              const nextCoord = HexMapHelpers.directionCoordsMap[d as HexDirection]?.(curr);
+              if (!nextCoord) continue;
+              if (
+                nextCoord.x >= 0 &&
+                nextCoord.x < this.hexMap.width &&
+                nextCoord.y >= 0 &&
+                nextCoord.y < this.hexMap.height
+              ) {
+                const nKey = `${nextCoord.x},${nextCoord.y}`;
+                if (!visited.has(nKey) && this.isHill(nextCoord.x, nextCoord.y)) {
+                  visited.add(nKey);
+                  this.hillClusters.set(nKey, clusterId);
+                  queue.push(nextCoord);
+                }
+              }
+            }
+          }
+
+          // Deterministic uniform elevation for all hills in this connected cluster (0.28 to 0.35)
+          const clusterHash = ((clusterId * 2654435761) >>> 0) % 1000;
+          const elevation = 0.29 + (clusterHash / 1000) * 0.06;
+          this.clusterElevations.set(clusterId, elevation);
+        }
+      }
+    }
+
+    // Precompute mesa plateau radius per hill tile with subtle variation (20% larger: ~0.744 to 0.804 * hexRadius)
+    for (let x = 0; x < this.hexMap.width; x++) {
+      for (let y = 0; y < this.hexMap.height; y++) {
+        if (this.isHill(x, y)) {
+          const tileHash = (((x * 374761393 + y * 668265263) >>> 0) % 1000) / 1000;
+          const rTop = this.hexRadius * (0.744 + tileHash * 0.06);
+          this.hillMesaRadii.set(`${x},${y}`, rTop);
+        }
+      }
+    }
+  }
+
+  /**
+   * Generates a procedural mesa hill geometry with:
+   * 1. Flat top mesa plateau of radius rTop at cluster elevation for unit placement.
+   * 2. Full plateau extension along shared boundaries with adjacent hills (seamless ridge).
+   * 3. Multi-tier organic slopes descending to y = 0 on non-hill edges.
+   * 4. Vertical bluff/cliff sealing quads at transition corners.
+   * 5. Subterranean foundation skirts below y = 0 to match neighboring tile skirts.
+   * 6. Computed smooth vertex normals for natural hill lighting.
+   */
+  private createHillTileGeometry(x: number, y: number): THREE.BufferGeometry {
+    const elevation = this.getHexElevation(x, y);
+    const rTop = this.getHillMesaRadius(x, y);
+    const R = this.hexRadius;
+    const skirtBottom = -this.hexHeight;
+
+    // Check which of the 6 edges border another hill
+    const isHillNeighbor: boolean[] = [];
+    const edgeDirections: HexDirection[] = [
+      HexDirection.EAST,       // Edge 0: Corner 5 (330°) to Corner 0 (30°)
+      HexDirection.SOUTHEAST,  // Edge 1: Corner 0 (30°) to Corner 1 (90°)
+      HexDirection.SOUTHWEST,  // Edge 2: Corner 1 (90°) to Corner 2 (150°)
+      HexDirection.WEST,       // Edge 3: Corner 2 (150°) to Corner 3 (210°)
+      HexDirection.NORTHWEST,  // Edge 4: Corner 3 (210°) to Corner 4 (270°)
+      HexDirection.NORTHEAST,  // Edge 5: Corner 4 (270°) to Corner 5 (330°)
+    ];
+
+    for (let e = 0; e < 6; e++) {
+      const dir = edgeDirections[e];
+      const neighborCoord = HexMapHelpers.directionCoordsMap[dir]?.({ x, y });
+      let neighborIsHill = false;
+      if (
+        neighborCoord &&
+        neighborCoord.x >= 0 &&
+        neighborCoord.x < this.hexMap.width &&
+        neighborCoord.y >= 0 &&
+        neighborCoord.y < this.hexMap.height
+      ) {
+        neighborIsHill = this.isHill(neighborCoord.x, neighborCoord.y);
+      }
+      isHillNeighbor.push(neighborIsHill);
+    }
+
+    // Corner angles for pointy-topped hex: 30°, 90°, 150°, 210°, 270°, 330°
+    const cosK: number[] = [];
+    const sinK: number[] = [];
+    for (let k = 0; k < 6; k++) {
+      const angle = ((k * 60 + 30) * Math.PI) / 180;
+      cosK.push(Math.cos(angle));
+      sinK.push(Math.sin(angle));
+    }
+
+    const topIndices: number[] = [];
+    const skirtIndices: number[] = [];
+    const positions: number[] = [];
+    const uvs: number[] = [];
+
+    const addVertex = (px: number, py: number, pz: number, u?: number, v?: number): number => {
+      const idx = positions.length / 3;
+      positions.push(px, py, pz);
+      if (u !== undefined && v !== undefined) {
+        uvs.push(u, v);
+      } else {
+        uvs.push(px / (2 * R) + 0.5, pz / (2 * R) + 0.5);
+      }
+      return idx;
+    };
+
+    const addTopTriangle = (i1: number, i2: number, i3: number) => {
+      topIndices.push(i1, i2, i3);
+    };
+
+    const addSkirtTriangle = (i1: number, i2: number, i3: number) => {
+      skirtIndices.push(i1, i2, i3);
+    };
+
+    // 1. Center of the mesa top plateau
+    const vCenter = addVertex(0, elevation, 0);
+
+    // 2. Inner mesa hexagon vertices (at rTop, height = elevation)
+    const topK: number[] = [];
+    for (let k = 0; k < 6; k++) {
+      topK.push(addVertex(cosK[k] * rTop, elevation, sinK[k] * rTop));
+    }
+
+    // Mesa top center fan (6 triangles, upward facing normals)
+    for (let k = 0; k < 6; k++) {
+      addTopTriangle(vCenter, topK[(k + 1) % 6], topK[k]);
+    }
+
+    // 3. For each edge e = 0..5:
+    // Start corner c1 = (e + 5) % 6, end corner c2 = e
+    for (let e = 0; e < 6; e++) {
+      const c1 = (e + 5) % 6;
+      const c2 = e;
+      const isHill = isHillNeighbor[e];
+
+      if (isHill) {
+        // Connected to an adjacent hill: flat plateau extends to hex boundary at elevation
+        const b1High = addVertex(cosK[c1] * R, elevation, sinK[c1] * R);
+        const b2High = addVertex(cosK[c2] * R, elevation, sinK[c2] * R);
+
+        // Quad between [topK[c1], topK[c2]] and [b1High, b2High]
+        addTopTriangle(topK[c1], topK[c2], b2High);
+        addTopTriangle(topK[c1], b2High, b1High);
+      } else {
+        // Bordering non-hill: natural slope descending to y = 0 at hex boundary
+        const rMid = (rTop + R) * 0.5;
+        const yMid = elevation * 0.44;
+
+        // Subtle deterministic organic variation on mid-tier slope points
+        const seed1 = (((x * 127 + y * 311 + e * 73) * 16807) >>> 0) % 1000;
+        const seed2 = (((x * 241 + y * 563 + e * 97) * 16807) >>> 0) % 1000;
+        const var1 = (seed1 / 1000 - 0.5) * 0.03;
+        const var2 = (seed2 / 1000 - 0.5) * 0.03;
+
+        const m1 = addVertex(
+          cosK[c1] * rMid * (1 + var1),
+          yMid + var1 * 0.2 * elevation,
+          sinK[c1] * rMid * (1 + var1)
+        );
+        const m2 = addVertex(
+          cosK[c2] * rMid * (1 + var2),
+          yMid + var2 * 0.2 * elevation,
+          sinK[c2] * rMid * (1 + var2)
+        );
+
+        const b1Low = addVertex(cosK[c1] * R, 0, sinK[c1] * R);
+        const b2Low = addVertex(cosK[c2] * R, 0, sinK[c2] * R);
+
+        // Upper slope tier (from topK to m)
+        addTopTriangle(topK[c1], topK[c2], m2);
+        addTopTriangle(topK[c1], m2, m1);
+
+        // Lower slope tier (from m to bLow)
+        addTopTriangle(m1, m2, b2Low);
+        addTopTriangle(m1, b2Low, b1Low);
+
+        // Subterranean foundation skirt below y = 0 down to skirtBottom
+        const s1 = addVertex(cosK[c1] * R * 0.97, skirtBottom, sinK[c1] * R * 0.97);
+        const s2 = addVertex(cosK[c2] * R * 0.97, skirtBottom, sinK[c2] * R * 0.97);
+
+        addSkirtTriangle(b1Low, b2Low, s2);
+        addSkirtTriangle(b1Low, s2, s1);
+      }
+    }
+
+    // 4. Transitions at corners where hill-neighbor edge meets non-hill-neighbor edge
+    for (let k = 0; k < 6; k++) {
+      const ePrev = k;
+      const eNext = (k + 1) % 6;
+      const prevIsHill = isHillNeighbor[ePrev];
+      const nextIsHill = isHillNeighbor[eNext];
+
+      if (prevIsHill && !nextIsHill) {
+        // Corner k: ePrev is high plateau, eNext is sloping down
+        const bHigh = addVertex(cosK[k] * R, elevation, sinK[k] * R);
+        const bLow = addVertex(cosK[k] * R, 0, sinK[k] * R);
+        // Cliff face sealing the transition
+        addTopTriangle(topK[k], bLow, bHigh);
+      } else if (!prevIsHill && nextIsHill) {
+        // Corner k: ePrev is sloping down, eNext is high plateau
+        const bLow = addVertex(cosK[k] * R, 0, sinK[k] * R);
+        const bHigh = addVertex(cosK[k] * R, elevation, sinK[k] * R);
+        // Cliff face sealing the transition
+        addTopTriangle(topK[k], bHigh, bLow);
+      }
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+
+    const combinedIndices = [...topIndices, ...skirtIndices];
+    geometry.setIndex(combinedIndices);
+
+    // Group 1: Plateau top, slopes, and cliffs using materialIndex = 1 (dirt terrain material)
+    geometry.addGroup(0, topIndices.length, 1);
+    // Group 0: Foundation skirt below y=0 using materialIndex = 0 (side material)
+    if (skirtIndices.length > 0) {
+      geometry.addGroup(topIndices.length, skirtIndices.length, 0);
+    }
+
+    // Compute smooth normals across terrain slopes
+    geometry.computeVertexNormals();
+
+    return geometry;
+  }
+
   private buildBoard(): void {
+    this.computeHillClusters();
+
     const hexGeometry = new THREE.CylinderGeometry(
       this.hexRadius,
       this.hexRadius * 0.96,
@@ -255,29 +530,45 @@ export class HexBoard3D {
           terrain = (this.hexMap as any).getTerrain(x, y);
         }
 
-        let elevation = 0;
-        if (terrain === TerrainType.WATER) {
-          elevation = -0.08;
-        } else if (terrain === TerrainType.HILL) {
-          elevation = 0.25;
-        } else if (terrain === TerrainType.SWAMP) {
-          elevation = -0.04;
-        }
-
         const tileMaterials = this.getTileMaterials(terrain);
-        const mesh = new THREE.Mesh(hexGeometry, tileMaterials);
         const pos = this.hexToWorld(x, y);
-        mesh.position.set(pos.x, pos.y + elevation - this.hexHeight * 0.5, pos.z);
-        mesh.receiveShadow = true;
-        mesh.userData = { hexX: x, hexY: y, isHexTile: true };
 
-        // Subtle edge wireframe
-        const edges = new THREE.EdgesGeometry(hexGeometry);
-        const line = new THREE.LineSegments(
-          edges,
-          new THREE.LineBasicMaterial({ color: 0x182a20, transparent: true, opacity: 0.6 })
-        );
-        mesh.add(line);
+        let mesh: THREE.Mesh;
+        if (terrain === TerrainType.HILL) {
+          const hillGeometry = this.createHillTileGeometry(x, y);
+          mesh = new THREE.Mesh(hillGeometry, tileMaterials);
+          mesh.position.set(pos.x, pos.y, pos.z);
+          mesh.receiveShadow = true;
+          mesh.userData = { hexX: x, hexY: y, isHexTile: true };
+
+          // Crease wireframe outlining the mesa plateau rim
+          const edges = new THREE.EdgesGeometry(hillGeometry, 25);
+          const line = new THREE.LineSegments(
+            edges,
+            new THREE.LineBasicMaterial({ color: 0x182a20, transparent: true, opacity: 0.6 })
+          );
+          mesh.add(line);
+        } else {
+          let elevation = 0;
+          if (terrain === TerrainType.WATER) {
+            elevation = -0.08;
+          } else if (terrain === TerrainType.SWAMP) {
+            elevation = -0.04;
+          }
+
+          mesh = new THREE.Mesh(hexGeometry, tileMaterials);
+          mesh.position.set(pos.x, pos.y + elevation - this.hexHeight * 0.5, pos.z);
+          mesh.receiveShadow = true;
+          mesh.userData = { hexX: x, hexY: y, isHexTile: true };
+
+          // Subtle edge wireframe
+          const edges = new THREE.EdgesGeometry(hexGeometry);
+          const line = new THREE.LineSegments(
+            edges,
+            new THREE.LineBasicMaterial({ color: 0x182a20, transparent: true, opacity: 0.6 })
+          );
+          mesh.add(line);
+        }
 
         this.group.add(mesh);
         this.tileMeshes.set(`${x},${y}`, mesh);
@@ -338,17 +629,7 @@ export class HexBoard3D {
 
     for (let x = 0; x < this.hexMap.width; x++) {
       for (let y = 0; y < this.hexMap.height; y++) {
-        let terrain: TerrainType = TerrainType.PLAIN;
-        if (this.getTerrain) {
-          terrain = this.getTerrain(x, y);
-        } else if (typeof (this.hexMap as any).getTerrain === 'function') {
-          terrain = (this.hexMap as any).getTerrain(x, y);
-        }
-
-        let elevation = 0;
-        if (terrain === TerrainType.WATER) elevation = -0.08;
-        else if (terrain === TerrainType.HILL) elevation = 0.25;
-        else if (terrain === TerrainType.SWAMP) elevation = -0.04;
+        const elevation = this.getHexElevation(x, y);
 
         const canvas = document.createElement('canvas');
         canvas.width = 128;
@@ -419,22 +700,26 @@ export class HexBoard3D {
 
     for (let x = 0; x < this.hexMap.width; x++) {
       for (let y = 0; y < this.hexMap.height; y++) {
-        let terrain: TerrainType = TerrainType.PLAIN;
-        if (this.getTerrain) {
-          terrain = this.getTerrain(x, y);
-        } else if (typeof (this.hexMap as any).getTerrain === 'function') {
-          terrain = (this.hexMap as any).getTerrain(x, y);
-        }
-
-        let elevation = 0;
-        if (terrain === TerrainType.WATER) elevation = -0.08;
-        else if (terrain === TerrainType.HILL) elevation = 0.25;
-        else if (terrain === TerrainType.SWAMP) elevation = -0.04;
-
-        const borderMesh = new THREE.Mesh(ringGeo, borderMat);
+        const isHill = this.isHill(x, y);
+        const elevation = this.getHexElevation(x, y);
         const pos = this.hexToWorld(x, y);
-        borderMesh.position.set(pos.x, pos.y + elevation + 0.003, pos.z);
-        this.gridBordersGroup.add(borderMesh);
+
+        if (isHill) {
+          // On hill mesa, border outlines the smaller playable mesa hexagon
+          const rTop = this.getHillMesaRadius(x, y);
+          const hillOuter = rTop * 0.995;
+          const hillInner = Math.max(0.05, hillOuter - thicknessWorld);
+          const hillRingGeo = new THREE.RingGeometry(hillInner, hillOuter, 6, 1, Math.PI / 6);
+          hillRingGeo.rotateX(-Math.PI * 0.5);
+
+          const hillBorderMesh = new THREE.Mesh(hillRingGeo, borderMat);
+          hillBorderMesh.position.set(pos.x, pos.y + elevation + 0.003, pos.z);
+          this.gridBordersGroup.add(hillBorderMesh);
+        } else {
+          const borderMesh = new THREE.Mesh(ringGeo, borderMat);
+          borderMesh.position.set(pos.x, pos.y + elevation + 0.003, pos.z);
+          this.gridBordersGroup.add(borderMesh);
+        }
       }
     }
     this.gridBordersGroup.visible = this.showGrid;
@@ -469,7 +754,11 @@ export class HexBoard3D {
       return;
     }
     const worldPos = this.hexToWorld(coords.x, coords.y);
-    this.hoverMesh.position.set(worldPos.x, 0.03, worldPos.z);
+    const elev = this.getHexElevation(coords.x, coords.y);
+    const isHill = this.isHill(coords.x, coords.y);
+    const scale = isHill ? this.getHillMesaRadius(coords.x, coords.y) / (this.hexRadius * 0.98) : 1.0;
+    this.hoverMesh.scale.set(scale, 1, scale);
+    this.hoverMesh.position.set(worldPos.x, elev + 0.03, worldPos.z);
     this.hoverMesh.visible = true;
   }
 
@@ -481,17 +770,22 @@ export class HexBoard3D {
     }
 
     const worldPos = this.hexToWorld(coords.x, coords.y);
-    this.selectedRingMesh.position.set(worldPos.x, 0.02, worldPos.z);
+    const elev = this.getHexElevation(coords.x, coords.y);
+    const isHill = this.isHill(coords.x, coords.y);
+    const scale = isHill ? this.getHillMesaRadius(coords.x, coords.y) / (this.hexRadius * 0.95) : 1.0;
+    this.selectedRingMesh.scale.set(scale, 1, scale);
+    this.selectedRingMesh.position.set(worldPos.x, elev + 0.02, worldPos.z);
     this.selectedRingMesh.visible = true;
 
     if (facing !== undefined && facing !== HexDirection.NONE) {
-      this.updateFacingIndicator(worldPos, facing);
+      const topWorldPos = new THREE.Vector3(worldPos.x, elev, worldPos.z);
+      this.updateFacingIndicator(topWorldPos, facing, isHill ? this.getHillMesaRadius(coords.x, coords.y) : undefined);
     } else {
       this.facingIndicatorGroup.visible = false;
     }
   }
 
-  private updateFacingIndicator(worldPos: THREE.Vector3, facing: HexDirection): void {
+  private updateFacingIndicator(worldPos: THREE.Vector3, facing: HexDirection, mesaRadius?: number): void {
     while (this.facingIndicatorGroup.children.length > 0) {
       const child = this.facingIndicatorGroup.children[0];
       this.facingIndicatorGroup.remove(child);
@@ -513,7 +807,8 @@ export class HexBoard3D {
       [HexDirection.NONE]: 0,
     };
     const angle = angleMap[facing] ?? 0;
-    const dist = this.hexRadius * 0.72;
+    const baseRadius = mesaRadius ?? this.hexRadius;
+    const dist = baseRadius * 0.72;
 
     arrowMesh.position.set(Math.cos(angle) * dist, 0.04, Math.sin(angle) * dist);
     arrowMesh.rotation.y = -angle + Math.PI * 0.5;
@@ -541,7 +836,13 @@ export class HexBoard3D {
       const mesh = this.createHighlightHexMesh(0x33aacc, 0.28);
       mesh.name = `Reach_Walkable[${c.x},${c.y}]`;
       const pos = this.hexToWorld(c.x, c.y);
-      mesh.position.set(pos.x, 0.015, pos.z);
+      const elev = this.getHexElevation(c.x, c.y);
+      const isHill = this.isHill(c.x, c.y);
+      if (isHill) {
+        const scale = this.getHillMesaRadius(c.x, c.y) / (this.hexRadius * 0.98);
+        mesh.scale.set(scale, 1, scale);
+      }
+      mesh.position.set(pos.x, elev + 0.015, pos.z);
       this.group.add(mesh);
       this.overlayMeshes.set(key, mesh);
     });
@@ -552,7 +853,13 @@ export class HexBoard3D {
       const mesh = this.createHighlightHexMesh(0xee4433, 0.38);
       mesh.name = `Reach_Attackable[${c.x},${c.y}]`;
       const pos = this.hexToWorld(c.x, c.y);
-      mesh.position.set(pos.x, 0.02, pos.z);
+      const elev = this.getHexElevation(c.x, c.y);
+      const isHill = this.isHill(c.x, c.y);
+      if (isHill) {
+        const scale = this.getHillMesaRadius(c.x, c.y) / (this.hexRadius * 0.98);
+        mesh.scale.set(scale, 1, scale);
+      }
+      mesh.position.set(pos.x, elev + 0.02, pos.z);
       this.group.add(mesh);
       this.overlayMeshes.set(key, mesh);
     });
@@ -583,11 +890,25 @@ export class HexBoard3D {
     let terrain: TerrainType = TerrainType.PLAIN;
     if (this.getTerrain) {
       terrain = this.getTerrain(x, y);
+    } else if (typeof (this.hexMap as any).getTerrain === 'function') {
+      terrain = (this.hexMap as any).getTerrain(x, y);
     }
     if (terrain === TerrainType.WATER) return -0.08;
-    if (terrain === TerrainType.HILL) return 0.25;
+    if (terrain === TerrainType.HILL) {
+      const clusterId = this.hillClusters.get(`${x},${y}`);
+      if (clusterId !== undefined) {
+        return this.clusterElevations.get(clusterId) ?? 0.32;
+      }
+      return 0.32;
+    }
     if (terrain === TerrainType.SWAMP) return -0.04;
     return 0;
+  }
+
+  public hexToWorldWithElevation(x: number, y: number): THREE.Vector3 {
+    const v = this.hexToWorld(x, y);
+    v.y = this.getHexElevation(x, y);
+    return v;
   }
 
   public setAttackPreview(
