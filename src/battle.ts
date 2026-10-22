@@ -230,24 +230,12 @@ export class Battle {
       return c;
     });
 
-    // If a non-flying unit is set on top of a mountain, change that hex to a hill
-    for (const creature of this.creatures) {
-      if (!creature.isFlying && creature.pos) {
-        const { x, y } = creature.pos;
-        if (x >= 0 && x < this.hexMap.width && y >= 0 && y < this.hexMap.height) {
-          if (this.terrain_tiles[x]?.[y] === TerrainType.MOUNTAIN) {
-            this.terrain_tiles[x][y] = TerrainType.HILL;
-          }
-        }
-      }
-    }
-
     this.start();
   }
 
   public generateTerrain(matrix: number[][], mapWidth: number, mapHeight: number) {
-    // Terrain weights: Plain (0): 15, Forest (1): 3, Hill (2): 2, Swamp (3): 1, Mountain (4): 1
-    const weights = [15, 3, 2, 1, 1];
+    // Terrain weights: Plain (0): 15, Forest (1): 3, Hill (2): 2, Swamp (3): 1
+    const weights = [15, 3, 2, 1];
     const terrain_type_limits: number[] = weights.map((value, index) => {
       return value + weights.reduce((x, y, i) => (i < index ? x + y : x), 0);
     });
@@ -264,7 +252,7 @@ export class Battle {
 
   public getTerrainAt(coords: Coords): number {
     if (coords.x < 0 || coords.x >= this.hexMap.width || coords.y < 0 || coords.y >= this.hexMap.height) {
-      return 4; // Mountain / Impassable
+      return TerrainType.WATER; // Impassable
     }
     return this.terrain_tiles[coords.x]?.[coords.y] ?? 0;
   }
@@ -325,7 +313,14 @@ export class Battle {
     }
 
     const terrainCostsRecord: Record<number, number> = {};
-    for (let t = 0; t <= 5; t++) {
+    const allTerrains = [
+      TerrainType.PLAIN,
+      TerrainType.FOREST,
+      TerrainType.HILL,
+      TerrainType.SWAMP,
+      TerrainType.WATER,
+    ];
+    for (const t of allTerrains) {
       terrainCostsRecord[t] = this.getMoveCostForTerrain(t, creature);
     }
 

@@ -123,11 +123,6 @@ export class HexBoard3D {
       transparent: true,
       opacity: 0.85,
     });
-    this.materials['mountain'] = new THREE.MeshStandardMaterial({
-      color: 0x5a636e,
-      roughness: 0.7,
-      metalness: 0.2,
-    });
     this.materials['swamp'] = new THREE.MeshStandardMaterial({
       color: 0x4a5438,
       roughness: 0.85,
@@ -157,12 +152,11 @@ export class HexBoard3D {
           );
         });
 
-      const [grassTex, forestTex, dirtTex, swampTex, mountainTex, waterTex] = await Promise.all([
+      const [grassTex, forestTex, dirtTex, swampTex, waterTex] = await Promise.all([
         loadTex(`${basePath}grass.jpg`),
         loadTex(`${basePath}forest.jpg`),
         loadTex(`${basePath}dirt.jpg`),
         loadTex(`${basePath}swamp.jpg`),
-        loadTex(`${basePath}mountain.jpg`),
         loadTex(`${basePath}water.jpg`),
       ]);
 
@@ -170,7 +164,6 @@ export class HexBoard3D {
       this.materials['forest'] = new THREE.MeshStandardMaterial({ map: forestTex, roughness: 0.85 });
       this.materials['dirt'] = new THREE.MeshStandardMaterial({ map: dirtTex, roughness: 0.9 });
       this.materials['swamp'] = new THREE.MeshStandardMaterial({ map: swampTex, roughness: 0.85, metalness: 0.05 });
-      this.materials['mountain'] = new THREE.MeshStandardMaterial({ map: mountainTex, roughness: 0.75, metalness: 0.1 });
       this.materials['water'] = new THREE.MeshStandardMaterial({
         map: waterTex,
         roughness: 0.15,
@@ -240,8 +233,6 @@ export class HexBoard3D {
       topMat = this.materials['dirt'];
     } else if (terrain === TerrainType.SWAMP) {
       topMat = this.materials['swamp'];
-    } else if (terrain === TerrainType.MOUNTAIN) {
-      topMat = this.materials['mountain'];
     }
 
     return [this.sideMaterial, topMat, this.sideMaterial];
@@ -271,8 +262,6 @@ export class HexBoard3D {
           elevation = 0.25;
         } else if (terrain === TerrainType.SWAMP) {
           elevation = -0.04;
-        } else if (terrain === TerrainType.MOUNTAIN) {
-          elevation = 0.50;
         }
 
         const tileMaterials = this.getTileMaterials(terrain);
@@ -360,7 +349,6 @@ export class HexBoard3D {
         if (terrain === TerrainType.WATER) elevation = -0.08;
         else if (terrain === TerrainType.HILL) elevation = 0.25;
         else if (terrain === TerrainType.SWAMP) elevation = -0.04;
-        else if (terrain === TerrainType.MOUNTAIN) elevation = 0.50;
 
         const canvas = document.createElement('canvas');
         canvas.width = 128;
@@ -442,7 +430,6 @@ export class HexBoard3D {
         if (terrain === TerrainType.WATER) elevation = -0.08;
         else if (terrain === TerrainType.HILL) elevation = 0.25;
         else if (terrain === TerrainType.SWAMP) elevation = -0.04;
-        else if (terrain === TerrainType.MOUNTAIN) elevation = 0.50;
 
         const borderMesh = new THREE.Mesh(ringGeo, borderMat);
         const pos = this.hexToWorld(x, y);
@@ -600,7 +587,6 @@ export class HexBoard3D {
     if (terrain === TerrainType.WATER) return -0.08;
     if (terrain === TerrainType.HILL) return 0.25;
     if (terrain === TerrainType.SWAMP) return -0.04;
-    if (terrain === TerrainType.MOUNTAIN) return 0.50;
     return 0;
   }
 

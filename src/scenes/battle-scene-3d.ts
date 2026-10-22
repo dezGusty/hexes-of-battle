@@ -12,7 +12,6 @@ import { CreatureRepository } from "../battle/creature-repository";
 import { BattleView3D } from "../render3d/battle-view-3d";
 import { BattleHud2D } from "../render3d/battle-hud-2d";
 import { BattleConfig } from "../battle/battle-types";
-import { TerrainType } from "../battle/terrain-types";
 import { SaveManager } from "../battle/save-manager";
 
 export class BattleScene3D implements Scene {
@@ -298,15 +297,5 @@ export class BattleScene3D implements Scene {
     addUnit(CreatureType.BARBARIAN, { x: 4, y: 6 }, 1, HexDirection.WEST);
     // addUnit(CreatureType.PEASANT, { x: 4, y: 3 }, 1, HexDirection.WEST);
     // addUnit(CreatureType.PEASANT_ARCHER, { x: 7, y: 4 }, 1, HexDirection.WEST);
-
-    // If any non-flying unit is set on top of a mountain, change that hex to a hill
-    for (const creature of this.battle.creatures) {
-      if (!creature.isFlying && creature.pos) {
-        const { x, y } = creature.pos;
-        if (this.battle.getTerrainAt(creature.pos) === TerrainType.MOUNTAIN) {
-          this.battle.terrain_tiles[x][y] = TerrainType.HILL;
-        }
-      }
-    }
   }
 }

@@ -3,7 +3,6 @@ export enum TerrainType {
   FOREST = 1,
   HILL = 2,
   SWAMP = 3,
-  MOUNTAIN = 4, // IMPASSABLE
   WATER = 5    // typically IMPASSABLE - could be traversed by flying units and swimming units?
 }
 

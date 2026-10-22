@@ -255,7 +255,7 @@ describe("DefensiveCPUPlayer", () => {
 
     const terrainTiles: number[][] = [];
     for (let x = 0; x < 10; x++) {
-      terrainTiles[x] = new Array(8).fill(TerrainType.MOUNTAIN);
+      terrainTiles[x] = new Array(8).fill(TerrainType.WATER);
     }
     // Form a corridor along y = 0
     for (let x = 0; x < 10; x++) {

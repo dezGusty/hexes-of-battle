@@ -64,7 +64,7 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       const hexMap = new HexMap(4, 4);
       const hexBoard = new HexBoard3D(hexMap, {
         getTerrain: (x, y) => {
-          if (x === 0 && y === 0) return 4; // Mountain
+          if (x === 0 && y === 0) return 2; // Hill
           if (x === 1 && y === 0) return 5; // Water
           if (x === 2 && y === 0) return 1; // Forest
           return 0; // Plain

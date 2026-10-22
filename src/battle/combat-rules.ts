@@ -111,7 +111,6 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
       "1": 2,
       "2": 3,
       "3": 4,
-      "4": 10,
       "5": 10,
     },
     staminaCosts: {
@@ -119,7 +118,6 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
       "1": 2,
       "2": 2,
       "3": 2,
-      "4": 5,
       "5": 5,
     },
     buffs: {
