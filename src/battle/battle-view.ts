@@ -315,14 +315,15 @@ export class BattleView {
 
   public updateActiveUnitAbility(creature: Creature): void {
     let description = '';
-    let visible = false;
     if (creature.abilities.length > 0) {
       description = creature.abilities[0].name;
-      visible = true;
     }
     if (this.commonControls.activeAbility1Button) {
       this.commonControls.activeAbility1Button.text = description;
-      this.commonControls.activeAbility1Button.visible = visible;
+      this.commonControls.activeAbility1Button.visible = false; // Replaced by skill icon buttons on top of unit stats panel
+    }
+    if (this.unitStats?.isVisible()) {
+      this.showStatsForUnit(creature);
     }
   }
 
@@ -478,7 +479,14 @@ export class BattleView {
     }
 
     if (this.assets.uiSheet) {
-      this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet, this.battle.traitsConfig);
+      this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet, this.battle.traitsConfig, this.battle);
+      this.unitStats.onSkillClick = (index: number) => {
+        this.battle.selectActiveAbilityForCurrentUnit(index);
+        const active = this.battle.getActiveCreature();
+        if (active) {
+          this.showStatsForUnit(active);
+        }
+      };
       if (this.settings.hex.showStats) {
         this.unitStats.show();
         if (this.battle.activeCreatureIndex >= 0) {
@@ -1122,7 +1130,14 @@ export class BattleView {
   public toggleUnitStats(): void {
     if (!this.assets.uiSheet) return;
     if (!this.unitStats) {
-      this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet, this.battle.traitsConfig);
+      this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet, this.battle.traitsConfig, this.battle);
+      this.unitStats.onSkillClick = (index: number) => {
+        this.battle.selectActiveAbilityForCurrentUnit(index);
+        const active = this.battle.getActiveCreature();
+        if (active) {
+          this.showStatsForUnit(active);
+        }
+      };
     }
     this.unitStats.toggleVisibility();
     this.settings.hex.showStats = this.unitStats.isVisible();

@@ -199,7 +199,21 @@ export class Creature {
     "Hero Commander",
   ];
 
+  public isQuickDrawActive: boolean = false;
   private guid: HobGUID;
+
+  public hasQuickDrawAbility(): boolean {
+    return (
+      this.abilities?.some(
+        (a) =>
+          a.id === "quick-draw-01" ||
+          a.id === "quick-draw" ||
+          a.id === "dbl-strike-01" ||
+          a.name?.toLowerCase().includes("quick-draw") ||
+          a.name?.toLowerCase().includes("quick draw")
+      ) ?? false
+    );
+  }
 
   constructor(
     public creatureType: CreatureType = CreatureType.PEASANT,
@@ -208,6 +222,26 @@ export class Creature {
     public buffs: Buff[] = []
   ) {
     this.guid = GuidMaker.generateGuid();
+
+    if (this.abilities.length === 0) {
+      if (this.creatureType === CreatureType.PEASANT_ARCHER || this.creatureType === CreatureType.ARCHER) {
+        this.abilities = [Ability.createQuickDraw()];
+      } else if (this.creatureType === CreatureType.SPEARMAN) {
+        this.abilities = [Ability.createThrowJavelin()];
+      }
+    }
+
+    if (this.creatureType === CreatureType.PEASANT_ARCHER || this.creatureType === CreatureType.ARCHER) {
+      this.stats.is_ranged = this.stats.is_ranged ?? true;
+      if (this.stats.range <= 1) {
+        this.stats.range = 6;
+      }
+      if (this.stats.ammo <= 0) {
+        this.stats.ammo = 10;
+        this.stats.remaining_ammo = 10;
+      }
+    }
+
     this.stats.num_attacks = this.stats.num_attacks ?? 1;
     this.stats.num_counterattacks = this.stats.num_counterattacks ?? 1;
     this.stats.num_moves = this.stats.num_moves ?? 3;
@@ -475,6 +509,7 @@ export class Creature {
     this.stats.has_rested = false;
     this.stats.has_attacked = false;
     this.stats.shield_block_used = false;
+    this.isQuickDrawActive = false;
     this.updateMoraleState();
     this.updateExhaustionState();
   }

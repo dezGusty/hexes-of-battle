@@ -71,6 +71,44 @@ export class Ability {
     public damage_low: number = 0;
     public damage_high: number = 0;
     public resources: AbilityResource[] = [];
-    // public resource_used: AbilityResourceUse = AbilityResourceUse.None;
-    // public resource_cost: number = 0;
+
+    public static createQuickDraw(): Ability {
+        const ability = new Ability();
+        ability.id = "quick-draw-01";
+        ability.name = "Quick draw";
+        ability.tooltipName = "Quick draw";
+        ability.description = "Shoot twice in the same turn while attacking a target, paying 2 additional stamina points.";
+        ability.abilityType = AbilityType.Active;
+        ability.allowedTargets = [AbilityTarget.Enemies];
+        ability.requiresTarget = true;
+        ability.range = 0; // Dynamic range: uses regular attack range
+        ability.icon = "skills/icon_quick_draw.png";
+        ability.resources = [
+            { resource_used: AbilityResourceUse.Ammo, resource_cost: 2 },
+            { resource_used: AbilityResourceUse.Stamina, resource_cost: 6 },
+            { resource_used: AbilityResourceUse.Attack, resource_cost: 1 },
+        ];
+        return ability;
+    }
+
+    public static createThrowJavelin(): Ability {
+        const ability = new Ability();
+        ability.id = "jav-01";
+        ability.name = "throw-javelin";
+        ability.tooltipName = "Throw javelin";
+        ability.description = "Throw a javelin at an enemy.";
+        ability.icon = "skills/icon_throw_javelin.png";
+        ability.abilityType = AbilityType.Active;
+        ability.allowedTargets = [AbilityTarget.Enemies];
+        ability.requiresTarget = true;
+        ability.range = 2;
+        ability.damage_low = 8;
+        ability.damage_high = 10;
+        ability.resources = [
+            { resource_used: AbilityResourceUse.Ammo, resource_cost: 1 },
+            { resource_used: AbilityResourceUse.Stamina, resource_cost: 1 },
+            { resource_used: AbilityResourceUse.Attack, resource_cost: 1 },
+        ];
+        return ability;
+    }
 }

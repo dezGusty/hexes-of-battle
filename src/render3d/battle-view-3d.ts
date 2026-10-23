@@ -734,6 +734,7 @@ export class BattleView3D {
     this.boundClick = (e: MouseEvent) => {
       const stageCoords = this.getStageCoords(e.clientX, e.clientY);
       if (this.hud?.isPointerOverUI(stageCoords.x, stageCoords.y)) {
+        this.hud.handleClick(stageCoords.x, stageCoords.y);
         return;
       }
       if (this.battle.isCurrentTurnAI()) return;

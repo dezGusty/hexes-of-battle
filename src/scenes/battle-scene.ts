@@ -114,6 +114,13 @@ export class BattleScene implements Scene {
 
     this.inputController = new BattleInputController(this.battle, this.hexMap, {
       isMenuBlockingInput: () => this.view.battleMenuPanel?.isVisible() ?? false,
+      isPointerOverUI: (stageCoords) => {
+        if (this.view.unitStats?.isVisible() && this.view.unitStats.containsPoint(stageCoords.x, stageCoords.y)) {
+          this.view.unitStats.click(stageCoords);
+          return true;
+        }
+        return false;
+      },
       onCursorMove: (stageCoords) => this.view.updateCursorPosition(stageCoords),
       onClearHover: () => this.view.clearHover(),
       getCamera: () => this.view.camera,

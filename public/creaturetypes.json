@@ -30,18 +30,18 @@
   {
     "name": "swordsman",
     "model_count": 8,
-    "model_hp": 6,
+    "model_hp": 5,
     "tier": 2,
     "flying": false,
     "stats": {
       "ammo": 0,
       "attack_melee_low": 9,
-      "attack_melee_high": 12,
+      "attack_melee_high": 11,
       "attack_ranged_low": 0,
       "attack_ranged_high": 0,
-      "defense_melee": 3,
-      "defense_ranged": 2,
-      "health": 48,
+      "defense_melee": 1,
+      "defense_ranged": 1,
+      "health": 40,
       "initiative": 2,
       "is_ranged": false,
       "num_attacks": 1,
@@ -147,7 +147,9 @@
       "FragileLine",
       "VolleyFire"
     ],
-    "ability_ids": []
+    "ability_ids": [
+      "quick-draw-01"
+    ]
   },
   {
     "name": "crossbowman",

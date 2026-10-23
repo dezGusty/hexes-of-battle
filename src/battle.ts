@@ -1081,6 +1081,13 @@ export class Battle {
     let attacker = this.creatures[this.activeCreatureIndex];
     if (!attacker) return counterattacking;
 
+    // Check for Quick Draw attack
+    const isQuickDraw = currentAction.type === BattleActionType.ATTACK_RANGED && attacker.isQuickDrawActive && this.canCreatureUseQuickDraw(attacker);
+    if (isQuickDraw) {
+      this.executeQuickDrawAttack(attacker, originalTargetCoords);
+      return false;
+    }
+
     // Deduct stamina for attack
     const attackStamina = currentAction.type === BattleActionType.ATTACK_MELEE
       ? this.combatConfig.stamina.actionCosts.meleeAttack
@@ -1090,105 +1097,7 @@ export class Battle {
 
     // Ranged attack with per-projectile hit/scatter and proportional damage
     if (currentAction.type === BattleActionType.ATTACK_RANGED) {
-      attacker.stats.remaining_ammo = Math.max(0, attacker.stats.remaining_ammo - 1);
-
-      const totalArrows = Math.max(1, attacker.aliveModelCount);
-      const intendedHitInBattle = this.getCreatureAtPosition(originalTargetCoords);
-      const intendedTarget = intendedHitInBattle?.creature ?? null;
-      const projectiles: RangedProjectileData[] = [];
-      const targetHitCounts = new Map<Creature, number>();
-
-      for (let i = 0; i < totalArrows; i++) {
-        const isScattered = this.rng.chance(this.combatConfig.ranged.scatterChance);
-        let targetCoords = originalTargetCoords;
-        if (isScattered) {
-          const neighbours = this.hexMap.getNeighbours(originalTargetCoords);
-          if (neighbours.length > 0) {
-            targetCoords = this.rng.choice(neighbours) ?? originalTargetCoords;
-          }
-        }
-
-        const hitInBattle = this.getCreatureAtPosition(targetCoords);
-        const hitCreature = hitInBattle?.creature ?? null;
-
-        if (isScattered) {
-          this.hookRangedScatter?.(attacker, originalTargetCoords, targetCoords, hitCreature);
-          if (hitInBattle && hitInBattle.indexOFArmy === attacker.armyAlignment) {
-            this.friendlyFireEvents++;
-          }
-        }
-
-        projectiles.push({
-          targetHex: targetCoords,
-          hitCreature,
-          isScatter: isScattered,
-        });
-
-        if (hitCreature) {
-          targetHitCounts.set(hitCreature, (targetHitCounts.get(hitCreature) ?? 0) + 1);
-        }
-      }
-
-      const totalBaseDamage = attacker.getRandomAttackDamageRanged(this.rng);
-      const targetDamages: Array<{ target: Creature; damage: number; flankStatus: HexFlankStatus }> = [];
-
-      for (const [defender, count] of targetHitCounts.entries()) {
-        const proportion = count / totalArrows;
-        const attackFromDir = reverseDirection(attacker.facingDirection);
-        const flankStatus = checkFlankingStatus(defender.facingDirection, attackFromDir);
-        let facingBonus = 0;
-        if (flankStatus === HexFlankStatus.BACKSTAB) {
-          facingBonus = this.combatConfig.facing.rear.damageBonus;
-        } else if (flankStatus === HexFlankStatus.FLANK) {
-          facingBonus = this.combatConfig.facing.flank.damageBonus;
-        }
-        const targetArmor = defender.live_stats.defense_ranged;
-        const traitResult = calculateDamageWithTraits({
-          attacker,
-          defender,
-          attackType: BattleActionType.ATTACK_RANGED,
-          baseDamage: totalBaseDamage,
-          facingBonus,
-          targetArmor,
-          attackFromDir,
-          flankStatus,
-          customMultiplier: proportion,
-          traitsConfig: this.traitsConfig,
-          commit: true,
-        });
-        const damage = traitResult.damage;
-
-        targetDamages.push({ target: defender, damage, flankStatus });
-        this.hookDoingAttack(attacker, defender, damage, BattleActionType.ATTACK_RANGED, flankStatus, false);
-        const { modelsLost } = defender.takeDamage(damage);
-        this.totalDamageDealt[attacker.armyAlignment] += damage;
-
-        const casualtyThreshold = Math.max(1, Math.floor(defender.stats.model_count * this.combatConfig.morale.casualtyThresholdRatio));
-        if (modelsLost >= casualtyThreshold || defender.stats.stamina <= 0) {
-          this.checkMorale(defender, modelsLost);
-        }
-      }
-
-      this.hookDoingAttackRanged?.({
-        attacker,
-        intendedTarget,
-        intendedHex: originalTargetCoords,
-        projectiles,
-        targetDamages,
-      });
-
-      // Process casualties
-      for (const { target: defender } of targetDamages) {
-        if (!defender.isAlive) {
-          this.casualties.push(defender);
-          this.hookUnitDied(defender);
-          const idx = this.creatures.findIndex((c) => c === defender);
-          if (idx >= 0) this.creatures.splice(idx, 1);
-          this.checkVictoryConditionsAndState();
-          this.tryToSelectUnitAtLocation(attacker.pos);
-        }
-      }
-
+      this.executeSingleRangedAttackVolley(attacker, originalTargetCoords);
       attacker.stats.remaining_attacks = Math.max(0, attacker.stats.remaining_attacks - 1);
       attacker.stats.remaining_movement = 0;
       attacker.stats.has_attacked = true;
@@ -1236,6 +1145,172 @@ export class Battle {
     attacker.stats.remaining_movement = 0;
     attacker.stats.has_attacked = true;
     return counterattacking;
+  }
+
+  public executeSingleRangedAttackVolley(attacker: Creature, originalTargetCoords: Coords): {
+    totalDamage: number;
+    targetDamages: Array<{ target: Creature; damage: number; flankStatus: HexFlankStatus }>;
+  } {
+    attacker.stats.remaining_ammo = Math.max(0, attacker.stats.remaining_ammo - 1);
+
+    const totalArrows = Math.max(1, attacker.aliveModelCount);
+    const intendedHitInBattle = this.getCreatureAtPosition(originalTargetCoords);
+    const intendedTarget = intendedHitInBattle?.creature ?? null;
+    const projectiles: RangedProjectileData[] = [];
+    const targetHitCounts = new Map<Creature, number>();
+
+    for (let i = 0; i < totalArrows; i++) {
+      const isScattered = this.rng.chance(this.combatConfig.ranged.scatterChance);
+      let targetCoords = originalTargetCoords;
+      if (isScattered) {
+        const neighbours = this.hexMap.getNeighbours(originalTargetCoords);
+        if (neighbours.length > 0) {
+          targetCoords = this.rng.choice(neighbours) ?? originalTargetCoords;
+        }
+      }
+
+      const hitInBattle = this.getCreatureAtPosition(targetCoords);
+      const hitCreature = hitInBattle?.creature ?? null;
+
+      if (isScattered) {
+        this.hookRangedScatter?.(attacker, originalTargetCoords, targetCoords, hitCreature);
+        if (hitInBattle && hitInBattle.indexOFArmy === attacker.armyAlignment) {
+          this.friendlyFireEvents++;
+        }
+      }
+
+      projectiles.push({
+        targetHex: targetCoords,
+        hitCreature,
+        isScatter: isScattered,
+      });
+
+      if (hitCreature) {
+        targetHitCounts.set(hitCreature, (targetHitCounts.get(hitCreature) ?? 0) + 1);
+      }
+    }
+
+    const totalBaseDamage = attacker.getRandomAttackDamageRanged(this.rng);
+    const targetDamages: Array<{ target: Creature; damage: number; flankStatus: HexFlankStatus }> = [];
+    let volleyTotalDamage = 0;
+
+    for (const [defender, count] of targetHitCounts.entries()) {
+      const proportion = count / totalArrows;
+      const attackFromDir = reverseDirection(attacker.facingDirection);
+      const flankStatus = checkFlankingStatus(defender.facingDirection, attackFromDir);
+      let facingBonus = 0;
+      if (flankStatus === HexFlankStatus.BACKSTAB) {
+        facingBonus = this.combatConfig.facing.rear.damageBonus;
+      } else if (flankStatus === HexFlankStatus.FLANK) {
+        facingBonus = this.combatConfig.facing.flank.damageBonus;
+      }
+      const targetArmor = defender.live_stats.defense_ranged;
+      const traitResult = calculateDamageWithTraits({
+        attacker,
+        defender,
+        attackType: BattleActionType.ATTACK_RANGED,
+        baseDamage: totalBaseDamage,
+        facingBonus,
+        targetArmor,
+        attackFromDir,
+        flankStatus,
+        customMultiplier: proportion,
+        traitsConfig: this.traitsConfig,
+        commit: true,
+      });
+      const damage = traitResult.damage;
+      volleyTotalDamage += damage;
+
+      targetDamages.push({ target: defender, damage, flankStatus });
+      this.hookDoingAttack(attacker, defender, damage, BattleActionType.ATTACK_RANGED, flankStatus, false);
+      const { modelsLost } = defender.takeDamage(damage);
+      this.totalDamageDealt[attacker.armyAlignment] += damage;
+
+      const casualtyThreshold = Math.max(1, Math.floor(defender.stats.model_count * this.combatConfig.morale.casualtyThresholdRatio));
+      if (modelsLost >= casualtyThreshold || defender.stats.stamina <= 0) {
+        this.checkMorale(defender, modelsLost);
+      }
+    }
+
+    this.hookDoingAttackRanged?.({
+      attacker,
+      intendedTarget,
+      intendedHex: originalTargetCoords,
+      projectiles,
+      targetDamages,
+    });
+
+    // Process casualties
+    for (const { target: defender } of targetDamages) {
+      if (!defender.isAlive) {
+        this.casualties.push(defender);
+        this.hookUnitDied(defender);
+        const idx = this.creatures.findIndex((c) => c === defender);
+        if (idx >= 0) this.creatures.splice(idx, 1);
+        this.checkVictoryConditionsAndState();
+        this.tryToSelectUnitAtLocation(attacker.pos);
+      }
+    }
+
+    return { totalDamage: volleyTotalDamage, targetDamages };
+  }
+
+  public isQuickDrawAbility(ability?: Ability | null): boolean {
+    if (!ability) return false;
+    const id = ability.id?.toLowerCase() ?? "";
+    const name = ability.name?.toLowerCase() ?? "";
+    return (
+      id === "quick-draw-01" ||
+      id === "quick-draw" ||
+      id === "dbl-strike-01" ||
+      name.includes("quick-draw") ||
+      name.includes("quick draw")
+    );
+  }
+
+  public getQuickDrawStaminaCost(): number {
+    const attackStamina = this.combatConfig?.stamina?.actionCosts?.rangedAttack ?? 2;
+    return attackStamina * 2 + 2;
+  }
+
+  public canCreatureUseQuickDraw(creature: Creature): boolean {
+    if (!creature || !creature.isAlive) return false;
+    if (!creature.hasQuickDrawAbility()) return false;
+    if (creature.isPanickedOrRouting || creature.exhaustionState === ExhaustionState.DEPLETED) return false;
+    if (creature.live_stats.remaining_attacks <= 0) return false;
+    if (creature.live_stats.remaining_ammo < 2) return false;
+    return creature.live_stats.stamina >= this.getQuickDrawStaminaCost();
+  }
+
+  public executeQuickDrawAttack(attacker: Creature, targetCoords: Coords): boolean {
+    if (!this.canCreatureUseQuickDraw(attacker)) return false;
+
+    // Quick draw uses the same range as the regular attack
+    const distance = HexMap.getHexDistance(attacker.pos, targetCoords);
+    if (distance > attacker.live_stats.range) {
+      return false;
+    }
+
+    const totalStamina = this.getQuickDrawStaminaCost();
+    attacker.consumeStamina(totalStamina);
+    this.totalStaminaSpent[attacker.armyAlignment] += totalStamina;
+
+    this.makeCreatureFaceTargetIfNeeded(attacker, targetCoords);
+
+    // First shot
+    this.executeSingleRangedAttackVolley(attacker, targetCoords);
+
+    // Second shot in the same turn while attacking target
+    if (!this.finished && attacker.isAlive) {
+      this.executeSingleRangedAttackVolley(attacker, targetCoords);
+    }
+
+    attacker.stats.remaining_attacks = Math.max(0, attacker.stats.remaining_attacks - 1);
+    attacker.stats.remaining_movement = 0;
+    attacker.stats.has_attacked = true;
+    attacker.isQuickDrawActive = false;
+    this.nextRenderUpdate.setUnitRenderUpdate();
+    return true;
   }
 
   private updateDoCounterAttack(currentAction: BattleAction) {
@@ -1407,11 +1482,34 @@ export class Battle {
     let ability = creature.abilities[abilityIndex];
     if (!this.verifyAbilityUseByCreatureHasResources(ability, creature)) return;
 
+    if (this.isQuickDrawAbility(ability)) {
+      if (!this.canCreatureUseQuickDraw(creature)) return;
+      if (ability.abilityType === AbilityType.Active && ability.requiresTarget) {
+        this.showAbilityReachableCells(ability, creature);
+        this.input_state = InputState.SELECT_ABILITY_TARGET;
+        this.abilityToApply = ability;
+      } else {
+        creature.isQuickDrawActive = !creature.isQuickDrawActive;
+        this.nextRenderUpdate.somethingChanged = true;
+      }
+      return;
+    }
+
     if (ability.abilityType === AbilityType.Active && ability.requiresTarget) {
       this.showAbilityReachableCells(ability, creature);
       this.input_state = InputState.SELECT_ABILITY_TARGET;
       this.abilityToApply = ability;
+    } else if (ability.abilityType === AbilityType.Toggle) {
+      creature.isQuickDrawActive = !creature.isQuickDrawActive;
+      this.nextRenderUpdate.somethingChanged = true;
     }
+  }
+
+  public getAbilityRange(ability: Ability, owningCreature: Creature): number {
+    if (this.isQuickDrawAbility(ability)) {
+      return owningCreature.live_stats.range;
+    }
+    return ability.range > 0 ? ability.range : owningCreature.live_stats.range;
   }
 
   public showAbilityReachableCells(ability: Ability, owningCreature: Creature): Coords[] {
@@ -1427,10 +1525,11 @@ export class Battle {
       markUnitsInArmies.push(this.currentArmyIndex);
     }
 
+    const effectiveRange = this.getAbilityRange(ability, owningCreature);
     BattleHexMapPath.cacheRangedReachableCells(
       this.hexMap,
       owningCreature.pos,
-      ability.range,
+      effectiveRange,
       this.ability_reach_tiles,
       this.ability_reach_targets,
       { creatures: this.creatures },
@@ -1454,6 +1553,10 @@ export class Battle {
   }
 
   public verifyAbilityUseByCreatureHasResources(ability: Ability, creature: Creature): boolean {
+    if (this.isQuickDrawAbility(ability)) {
+      return this.canCreatureUseQuickDraw(creature);
+    }
+
     for (let res of ability.resources) {
       switch (res.resource_used) {
         case AbilityResourceUse.Ammo:
@@ -1540,6 +1643,11 @@ export class Battle {
 
   private applyAbilityEffect(source: Creature, target: Creature, attackType: BattleActionType) {
     if (attackType !== BattleActionType.TARGET_ABILITY || !this.abilityToApply) return;
+
+    if (this.isQuickDrawAbility(this.abilityToApply)) {
+      this.executeQuickDrawAttack(source, target.pos);
+      return;
+    }
 
     let sourceDamage = this.rng.range(this.abilityToApply.damage_low, this.abilityToApply.damage_high);
     let targetArmor = 0;

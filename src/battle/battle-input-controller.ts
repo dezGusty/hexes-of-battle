@@ -5,6 +5,7 @@ import { Battle } from '../battle';
 
 export interface BattleInputDelegate {
   isMenuBlockingInput: () => boolean;
+  isPointerOverUI?: (stageCoords: Coords) => boolean;
   onCursorMove: (stageCoords: Coords) => void;
   onClearHover: () => void;
   getCamera: () => HexViewportCamera;
@@ -113,6 +114,19 @@ export class BattleInputController {
     this.boundClick = (event: MouseEvent) => {
       if (this.delegate.isMenuBlockingInput()) {
         return;
+      }
+
+      if (this.delegate.isPointerOverUI) {
+        const camera = this.delegate.getCamera();
+        const stageInfo = this.delegate.getStageOffsetAndScale();
+        const stageCoords = camera.screenToStageCoords(
+          { x: event.clientX, y: event.clientY },
+          stageInfo.offset,
+          stageInfo.scale
+        );
+        if (this.delegate.isPointerOverUI(stageCoords)) {
+          return;
+        }
       }
 
       const hexInfo = this.screenToHex(event.clientX, event.clientY);

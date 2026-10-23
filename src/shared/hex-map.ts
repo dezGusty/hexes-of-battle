@@ -642,6 +642,20 @@ export class HexMap {
     return matrix;
   }
 
+  public static getHexDistance(a: Coords, b: Coords): number {
+    const q1 = a.x - (a.y - (Math.abs(a.y) % 2)) / 2;
+    const r1 = a.y;
+    const s1 = -q1 - r1;
 
+    const q2 = b.x - (b.y - (Math.abs(b.y) % 2)) / 2;
+    const r2 = b.y;
+    const s2 = -q2 - r2;
+
+    return Math.max(Math.abs(q1 - q2), Math.abs(r1 - r2), Math.abs(s1 - s2));
+  }
+
+  public getDistance(a: Coords, b: Coords): number {
+    return HexMap.getHexDistance(a, b);
+  }
 }
 

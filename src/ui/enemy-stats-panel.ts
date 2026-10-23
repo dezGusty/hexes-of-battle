@@ -1,12 +1,14 @@
-import { Container, NineSliceSprite, Sprite, Spritesheet, Text, TextOptions, Texture } from "pixi.js";
+import { Assets, Container, NineSliceSprite, Sprite, Spritesheet, Text, TextOptions, Texture } from "pixi.js";
 import { Buff, Creature, CreatureStats } from "../battle/creature";
 import { Coords } from "../shared";
-import { DisplayedStat } from "./unit-stats-panel";
+import { DisplayedStat, TraitSlot, SkillSlot, getSkillIconPath, formatAbilityDescription } from "./unit-stats-panel";
+import { Ability } from "../battle/ability";
+import { getTraitInfo, TraitsConfig } from "../battle/trait-system";
 
 /**
  * Secondary compact stats display panel for enemy units.
- * Features a ~75% scaled compact layout with enemy styling,
- * displaying the full suite of 11 stats, portrait, banner, and buff tooltips.
+ * Displays enemy stats, portrait, banner, trait perks, and combat effect tooltips.
+ * Height expanded by 50% (from 84px to 126px) to house dedicated trait icons.
  */
 export class EnemyStatsPanel {
   static DEFAULT_FONT_STYLE: TextOptions = {
@@ -51,6 +53,21 @@ export class EnemyStatsPanel {
 
   public readonly window = new Container();
 
+  private traitsConfig?: TraitsConfig;
+  private traitsGroup = new Container();
+  private traitSlots: TraitSlot[] = [];
+
+  private abilities: Ability[] = [];
+  private skillSlots: SkillSlot[] = [];
+
+  public getSkillSlots(): readonly SkillSlot[] {
+    return this.skillSlots;
+  }
+
+  public getTooltipIconSprite(): Sprite {
+    return this.tooltipIconSprite;
+  }
+
   private stats?: CreatureStats = undefined;
   private buffs?: Buff[] = [];
   private creatureType: string = '';
@@ -58,6 +75,7 @@ export class EnemyStatsPanel {
 
   private tooltipText = new Text({ ...EnemyStatsPanel.DEFAULT_FONT_STYLE, text: 'Tooltip' });
   private tooltipWindow?: NineSliceSprite = undefined;
+  private tooltipIconSprite: Sprite = new Sprite(Texture.EMPTY);
 
   private statIcons: Sprite[] = [];
   private statTooltipAreas: Container[] = [];
@@ -69,9 +87,15 @@ export class EnemyStatsPanel {
   private faceBg?: NineSliceSprite = undefined;
 
   public readonly panelWidth: number = 630;
-  public readonly panelHeight: number = 84;
+  public readonly panelHeight: number = 126; // +50% height (expanded from 84 to 126)
 
-  public constructor(private view: Container, private uiSheet: Spritesheet) {
+  public constructor(
+    private view: Container,
+    private uiSheet: Spritesheet,
+    traitsConfig?: TraitsConfig
+  ) {
+    this.traitsConfig = traitsConfig;
+
     const windowBg = new NineSliceSprite({
       texture: this.uiSheet.textures['panel.png'],
       leftWidth: 15,
@@ -155,6 +179,22 @@ export class EnemyStatsPanel {
       this.statValues[i] = valText;
     }
 
+    // Horizontal divider separating stats from trait perks
+    const divider = new NineSliceSprite({
+      texture: this.uiSheet.textures['thin_panel_semitransparent.png'],
+      leftWidth: 4,
+      topHeight: 1,
+      rightWidth: 4,
+      bottomHeight: 1,
+    });
+    divider.position = { x: 8, y: 80 };
+    divider.width = this.panelWidth - 16;
+    divider.height = 2;
+    this.window.addChild(divider);
+
+    this.traitsGroup.position = { x: 8, y: 84 };
+    this.window.addChild(this.traitsGroup);
+
     // Tooltip overlay window
     this.tooltipWindow = new NineSliceSprite({
       texture: this.uiSheet.textures['thin_panel_semitransparent.png'],
@@ -168,10 +208,19 @@ export class EnemyStatsPanel {
     this.tooltipWindow.width = 360;
     this.tooltipWindow.height = 70;
 
+    this.tooltipText.style.wordWrap = true;
+    this.tooltipText.style.wordWrapWidth = 360;
+    this.tooltipText.style.fontSize = 12;
+    this.tooltipText.style.lineHeight = 16;
     this.tooltipText.position = { x: this.tooltipWindow.position.x + 10, y: this.tooltipWindow.position.y + 8 };
     this.tooltipText.visible = false;
 
+    this.tooltipIconSprite.width = 128;
+    this.tooltipIconSprite.height = 128;
+    this.tooltipIconSprite.visible = false;
+
     this.window.addChild(this.tooltipWindow);
+    this.window.addChild(this.tooltipIconSprite);
     this.window.addChild(this.tooltipText);
 
     this.view.addChild(this.window);
@@ -181,6 +230,7 @@ export class EnemyStatsPanel {
   public setCreature(creature: Creature): void {
     this.stats = creature.live_stats;
     this.buffs = creature.buffs;
+    this.abilities = creature.abilities ? [...creature.abilities] : [];
     this.creatureType = Creature.CREATURE_NAMES[creature.creatureType] || 'Unknown';
   }
 
@@ -273,12 +323,186 @@ export class EnemyStatsPanel {
     return buffDescriptions;
   }
 
+  public setTraitsConfig(traitsConfig: TraitsConfig): void {
+    this.traitsConfig = traitsConfig;
+  }
+
+  public getTraitSlots(): readonly TraitSlot[] {
+    return this.traitSlots;
+  }
+
+  private getTextureForIcon(iconPath: string): Texture {
+    try {
+      if (typeof Assets !== "undefined" && Assets.get) {
+        const cached = Assets.get(iconPath);
+        if (cached instanceof Texture) return cached;
+        if (cached && (cached as any).baseTexture) return cached as Texture;
+        if (cached && (cached as any).source) return cached as Texture;
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      if (this.uiSheet?.textures?.[iconPath]) {
+        return this.uiSheet.textures[iconPath];
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      if (typeof Texture !== "undefined" && Texture.from) {
+        const tex = Texture.from(iconPath);
+        if (tex) return tex;
+      }
+    } catch {
+      // ignore
+    }
+
+    return Texture.EMPTY;
+  }
+
+  private renderTraits(): void {
+    this.traitsGroup.removeChildren();
+    this.traitSlots = [];
+    this.skillSlots = [];
+
+    const userTraits = this.stats?.traits?.filter((t) => !t.startsWith("format_")) ?? [];
+    const userSkills = this.abilities ?? [];
+
+    const header = new Text({
+      text: userTraits.length > 0 ? "TRAITS & PERKS:" : "TRAITS: NONE",
+      style: {
+        fill: userTraits.length > 0 ? 0xffb74d : 0x777777,
+        fontSize: 11,
+        fontWeight: "bold",
+        letterSpacing: 1,
+      },
+    });
+    header.position = { x: 4, y: 10 };
+    this.traitsGroup.addChild(header);
+
+    const slotSize = 34;
+    const slotGap = 6;
+    const startX = 125;
+    const startY = 2;
+
+    userTraits.forEach((traitName, index) => {
+      const info = getTraitInfo(traitName, this.traitsConfig);
+      const name = info?.name ?? traitName;
+      const iconPath = info?.icon ?? "traits/icon_shield_block.png";
+      const description = info?.description ?? `${name}: Specialized combat perk.`;
+
+      const slotContainer = new Container();
+      const slotX = startX + index * (slotSize + slotGap);
+      slotContainer.position = { x: slotX, y: startY };
+
+      const slotBorder = new NineSliceSprite({
+        texture: this.uiSheet.textures["thin_panel_semitransparent.png"],
+        leftWidth: 4,
+        topHeight: 4,
+        rightWidth: 4,
+        bottomHeight: 4,
+      });
+      slotBorder.width = slotSize;
+      slotBorder.height = slotSize;
+      slotContainer.addChild(slotBorder);
+
+      const iconTex = this.getTextureForIcon(iconPath);
+      const iconSprite = new Sprite(iconTex);
+      iconSprite.width = slotSize - 6;
+      iconSprite.height = slotSize - 6;
+      iconSprite.position = { x: 3, y: 3 };
+      slotContainer.addChild(iconSprite);
+
+      this.traitsGroup.addChild(slotContainer);
+
+      this.traitSlots.push({
+        container: slotContainer,
+        border: slotBorder,
+        iconSprite,
+        traitName,
+        name,
+        description,
+        iconPath,
+        x: this.traitsGroup.x + slotX,
+        y: this.traitsGroup.y + startY,
+        width: slotSize,
+        height: slotSize,
+      });
+    });
+
+    if (userSkills.length > 0) {
+      let currentX = startX + (userTraits.length > 0 ? userTraits.length * (slotSize + slotGap) + 12 : 0);
+      const skillHeader = new Text({
+        text: "SKILLS:",
+        style: {
+          fill: 0x5dade2,
+          fontSize: 11,
+          fontWeight: "bold",
+          letterSpacing: 1,
+        },
+      });
+      skillHeader.position = { x: currentX, y: 10 };
+      this.traitsGroup.addChild(skillHeader);
+      currentX += 54;
+
+      userSkills.forEach((ability, index) => {
+        const name = ability.tooltipName || ability.name || ability.id;
+        const iconPath = getSkillIconPath(ability);
+        const description = formatAbilityDescription(ability);
+
+        const slotContainer = new Container();
+        const slotX = currentX + index * (slotSize + slotGap);
+        slotContainer.position = { x: slotX, y: startY };
+
+        const slotBorder = new NineSliceSprite({
+          texture: this.uiSheet.textures["thin_panel_semitransparent.png"],
+          leftWidth: 4,
+          topHeight: 4,
+          rightWidth: 4,
+          bottomHeight: 4,
+        });
+        slotBorder.width = slotSize;
+        slotBorder.height = slotSize;
+        slotContainer.addChild(slotBorder);
+
+        const iconTex = this.getTextureForIcon(iconPath);
+        const iconSprite = new Sprite(iconTex);
+        iconSprite.width = slotSize - 6;
+        iconSprite.height = slotSize - 6;
+        iconSprite.position = { x: 3, y: 3 };
+        slotContainer.addChild(iconSprite);
+
+        this.traitsGroup.addChild(slotContainer);
+
+        this.skillSlots.push({
+          container: slotContainer,
+          border: slotBorder,
+          iconSprite,
+          skillId: ability.id,
+          name,
+          description,
+          iconPath,
+          ability,
+          index,
+          isUsable: true,
+          x: this.traitsGroup.x + slotX,
+          y: this.traitsGroup.y + startY,
+          width: slotSize,
+          height: slotSize,
+        });
+      });
+    }
+  }
+
   public update(): void {
     if (!this.stats) return;
 
-    const userTraits = this.stats.traits?.filter((t) => !t.startsWith("format_")) ?? [];
-    const traitsStr = userTraits.length > 0 ? ` | Traits: ${userTraits.join(", ")}` : "";
-    this.unitTypeText.text = `Enemy: ${this.creatureType}${traitsStr}`;
+    this.unitTypeText.text = `Enemy: ${this.creatureType}`;
+    this.renderTraits();
+
     this.statValues[DisplayedStat.HP].text = `${this.stats.remaining_health}/${this.stats.health}`;
     this.statValues[DisplayedStat.ATTACK_MELEE].text = `${this.stats.attack_melee_low}-${this.stats.attack_melee_high}`;
     this.statValues[DisplayedStat.ATTACK_RANGED].text = this.stats.is_ranged
@@ -328,6 +552,9 @@ export class EnemyStatsPanel {
     this.window.visible = false;
     if (this.tooltipWindow) this.tooltipWindow.visible = false;
     if (this.tooltipText) this.tooltipText.visible = false;
+    if (this.tooltipIconSprite) this.tooltipIconSprite.visible = false;
+    for (const slot of this.traitSlots) slot.border.tint = 0xffffff;
+    for (const slot of this.skillSlots) slot.border.tint = 0xffffff;
   }
 
   public toggleVisibility(): void {
@@ -385,15 +612,149 @@ export class EnemyStatsPanel {
       }
     }
 
-    if (statToDisplay !== -1) {
+    let hoveredSkill: SkillSlot | null = null;
+    for (const slot of this.skillSlots) {
+      if (
+        x >= slot.x &&
+        x <= slot.x + slot.width &&
+        y >= slot.y &&
+        y <= slot.y + slot.height
+      ) {
+        hoveredSkill = slot;
+        tooltipVisible = true;
+        slot.border.tint = 0xffe680;
+      } else {
+        slot.border.tint = 0xffffff;
+      }
+    }
+
+    let hoveredTrait: TraitSlot | null = null;
+    for (const slot of this.traitSlots) {
+      if (
+        x >= slot.x &&
+        x <= slot.x + slot.width &&
+        y >= slot.y &&
+        y <= slot.y + slot.height
+      ) {
+        hoveredTrait = slot;
+        tooltipVisible = true;
+        slot.border.tint = 0xffe680;
+      } else {
+        slot.border.tint = 0xffffff;
+      }
+    }
+
+    if (hoveredSkill) {
+      const skillHeader = `[SKILL] ${(hoveredSkill.name || hoveredSkill.skillId).toUpperCase()}`;
+      const skillDesc = hoveredSkill.description;
+
+      this.tooltipText.text = `${skillHeader}\n${skillDesc}`;
+      this.tooltipText.style.wordWrapWidth = 340;
+
+      if (this.tooltipWindow) {
+        let tipWidth = 520;
+        let tipHeight = 154; // to fit 128x128 icon with margins
+        try {
+          if (typeof document !== "undefined" && typeof (this.tooltipText as any).width === "number") {
+            tipWidth = Math.min(600, Math.max(480, Math.ceil(158 + (this.tooltipText.width || 300) + 16)));
+            tipHeight = Math.max(154, Math.ceil(this.tooltipText.height + 28));
+          }
+        } catch {
+          // headless fallback
+        }
+        this.tooltipWindow.width = tipWidth;
+        this.tooltipWindow.height = tipHeight;
+
+        const slotCenterX = hoveredSkill.x + hoveredSkill.width / 2;
+        let tipX = slotCenterX - tipWidth / 2;
+        tipX = Math.max(10, Math.min(tipX, this.panelWidth - tipWidth - 10));
+        const tipY = this.panelHeight + 4;
+
+        this.tooltipWindow.position = { x: tipX, y: tipY };
+
+        // Left aligned 128x128 icon inside tooltip
+        this.tooltipIconSprite.visible = true;
+        this.tooltipIconSprite.texture = this.getTextureForIcon((hoveredSkill as any).iconPath || getSkillIconPath(hoveredSkill.ability));
+        this.tooltipIconSprite.width = 128;
+        this.tooltipIconSprite.height = 128;
+        this.tooltipIconSprite.position = { x: tipX + 14, y: tipY + Math.max(12, (tipHeight - 128) / 2) };
+
+        // Shift text to the right to make room for icon
+        this.tooltipText.position = { x: tipX + 158, y: tipY + 14 };
+      }
+    } else if (hoveredTrait) {
+      const perkHeader = `[PERK] ${hoveredTrait.name.toUpperCase()}`;
+      const perkDesc = hoveredTrait.description.startsWith(hoveredTrait.name + ":")
+        ? hoveredTrait.description.slice(hoveredTrait.name.length + 1).trim()
+        : hoveredTrait.description;
+
+      this.tooltipText.text = `${perkHeader}\n${perkDesc}`;
+      this.tooltipText.style.wordWrapWidth = 340;
+
+      if (this.tooltipWindow) {
+        let tipWidth = 520;
+        let tipHeight = 154; // to fit 128x128 icon with margins
+        try {
+          if (typeof document !== "undefined" && typeof (this.tooltipText as any).width === "number") {
+            tipWidth = Math.min(600, Math.max(480, Math.ceil(158 + (this.tooltipText.width || 300) + 16)));
+            tipHeight = Math.max(154, Math.ceil(this.tooltipText.height + 28));
+          }
+        } catch {
+          // headless fallback
+        }
+        this.tooltipWindow.width = tipWidth;
+        this.tooltipWindow.height = tipHeight;
+
+        const slotCenterX = hoveredTrait.x + hoveredTrait.width / 2;
+        let tipX = slotCenterX - tipWidth / 2;
+        tipX = Math.max(10, Math.min(tipX, this.panelWidth - tipWidth - 10));
+        const tipY = this.panelHeight + 4;
+
+        this.tooltipWindow.position = { x: tipX, y: tipY };
+
+        // Left aligned 128x128 icon inside tooltip
+        this.tooltipIconSprite.visible = true;
+        const traitIcon = (hoveredTrait as any).iconPath || getTraitInfo(hoveredTrait.traitName, this.traitsConfig)?.icon || "traits/icon_shield_block.png";
+        this.tooltipIconSprite.texture = this.getTextureForIcon(traitIcon);
+        this.tooltipIconSprite.width = 128;
+        this.tooltipIconSprite.height = 128;
+        this.tooltipIconSprite.position = { x: tipX + 14, y: tipY + Math.max(12, (tipHeight - 128) / 2) };
+
+        // Shift text to the right to make room for icon
+        this.tooltipText.position = { x: tipX + 158, y: tipY + 14 };
+      }
+    } else if (statToDisplay !== -1) {
+      this.tooltipIconSprite.visible = false;
+      this.tooltipText.style.wordWrapWidth = 360;
       this.tooltipText.text =
         this.statDescriptions[statToDisplay] +
         (this.statBuffDescriptions[statToDisplay] ? '\nBuffs: ' + this.statBuffDescriptions[statToDisplay] : '');
+
+      if (this.tooltipWindow) {
+        let tipWidth = 360;
+        let tipHeight = 70;
+        try {
+          if (typeof document !== "undefined" && typeof (this.tooltipText as any).width === "number") {
+            tipHeight = Math.max(70, Math.ceil(this.tooltipText.height + 20));
+          }
+        } catch {
+          // headless fallback
+        }
+        this.tooltipWindow.width = tipWidth;
+        this.tooltipWindow.height = tipHeight;
+        this.tooltipWindow.position = { x: 86, y: this.panelHeight + 4 };
+        this.tooltipText.position = { x: 96, y: this.tooltipWindow.y + 8 };
+      }
+    } else {
+      this.tooltipIconSprite.visible = false;
     }
 
     if (this.tooltipWindow) {
       this.tooltipWindow.visible = tooltipVisible;
       this.tooltipText.visible = tooltipVisible;
+      if (!tooltipVisible) {
+        this.tooltipIconSprite.visible = false;
+      }
     }
   }
 }

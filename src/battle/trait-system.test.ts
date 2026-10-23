@@ -12,6 +12,7 @@ import {
   getTraitInfo,
 } from "./trait-system";
 import { UnitStatsPanel } from "../ui/unit-stats-panel";
+import { EnemyStatsPanel } from "../ui/enemy-stats-panel";
 
 describe("Trait & Perk System", () => {
   describe("1. Trait Name Normalization & Configuration Parsing", () => {
@@ -362,6 +363,7 @@ describe("Trait & Perk System", () => {
       battle.initializeFromConfig({
         mapWidth: 10,
         mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
         creatures: [attacker, defender],
       });
       battle.handlePrimaryCellAction(attacker.position);
@@ -458,6 +460,7 @@ describe("Trait & Perk System", () => {
       battle.initializeFromConfig({
         mapWidth: 10,
         mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
         creatures: [attacker, archer],
       });
       battle.handlePrimaryCellAction(attacker.position);
@@ -630,4 +633,108 @@ describe("Trait & Perk System", () => {
       expect(panel.containsPoint(wx + 100, wy + 50)).toBe(false);
     });
   });
+
+  describe("8. EnemyStatsPanel Trait Icons & Height Expansion", () => {
+    function createDummyUiSheet(): Spritesheet {
+      return {
+        textures: new Proxy({}, {
+          get: () => Texture.EMPTY,
+        }),
+      } as unknown as Spritesheet;
+    }
+
+    it("should have panel height increased by 50% (126px vs 84px)", () => {
+      const container = new Container();
+      const dummyUiSheet = createDummyUiSheet();
+      const enemyPanel = new EnemyStatsPanel(container, dummyUiSheet);
+
+      // Original height was 84; 84 * 1.5 = 126
+      expect(enemyPanel.panelHeight).toBe(126);
+      expect(enemyPanel.panelWidth).toBe(630);
+    });
+
+    it("should display trait icons in EnemyStatsPanel for enemy units", () => {
+      const container = new Container();
+      const dummyUiSheet = createDummyUiSheet();
+      const enemyPanel = new EnemyStatsPanel(container, dummyUiSheet);
+
+      // Peasant enemy squad has 0 traits
+      const peasant = new Creature(CreatureType.PEASANT);
+      peasant.stats.traits = [];
+      enemyPanel.setCreature(peasant);
+      enemyPanel.update();
+      expect(enemyPanel.getTraitSlots().length).toBe(0);
+
+      // Enemy Spearman has traits: SpearWall, CloseQuartersCounter
+      const spearman = new Creature(CreatureType.SPEARMAN);
+      spearman.stats.traits = ["SpearWall", "CloseQuartersCounter"];
+      enemyPanel.setCreature(spearman);
+      enemyPanel.update();
+
+      const slots = enemyPanel.getTraitSlots();
+      expect(slots.length).toBe(2);
+      expect(slots[0].name).toBe("Spear Wall");
+      expect(slots[0].traitName).toBe("SpearWall");
+      expect(slots[0].width).toBe(34);
+      expect(slots[0].height).toBe(34);
+      expect(slots[1].name).toBe("Close Quarters Counter");
+      // Icons should be horizontally sequenced in traits row
+      expect(slots[1].x).toBeGreaterThan(slots[0].x);
+    });
+
+    it("should highlight slot border and show trait effect tooltip on mouse hover in EnemyStatsPanel", () => {
+      const container = new Container();
+      const dummyUiSheet = createDummyUiSheet();
+      const enemyPanel = new EnemyStatsPanel(container, dummyUiSheet);
+      enemyPanel.show();
+
+      const enemySwordsman = new Creature(CreatureType.SWORDSMAN);
+      enemySwordsman.stats.traits = ["ShieldBlock"];
+      enemyPanel.setCreature(enemySwordsman);
+      enemyPanel.update();
+
+      const slot = enemyPanel.getTraitSlots()[0];
+      expect(slot).toBeDefined();
+
+      const anyEnemy = enemyPanel as any;
+      expect(anyEnemy.tooltipWindow.visible).toBe(false);
+
+      // Hover over enemy trait icon
+      const slotCenterX = anyEnemy.window.x + slot.x + slot.width / 2;
+      const slotCenterY = anyEnemy.window.y + slot.y + slot.height / 2;
+
+      enemyPanel.mousemove({ x: slotCenterX, y: slotCenterY });
+
+      // Trait tooltip visible below the expanded panel
+      expect(anyEnemy.tooltipWindow.visible).toBe(true);
+      expect(anyEnemy.tooltipText.text).toContain("[PERK] SHIELD BLOCK");
+      expect(anyEnemy.tooltipText.text).toContain("Reduces melee damage by 2 for the first attack received in a turn.");
+      expect(slot.border.tint).toBe(0xffe680);
+      expect(anyEnemy.tooltipWindow.position.y).toBe(enemyPanel.panelHeight + 4);
+
+      // Move away
+      enemyPanel.mousemove({ x: anyEnemy.window.x + 10, y: anyEnemy.window.y + 10 });
+      expect(anyEnemy.tooltipWindow.visible).toBe(false);
+      expect(slot.border.tint).toBe(0xffffff);
+    });
+
+    it("should correctly test containsPoint for the expanded EnemyStatsPanel bounds", () => {
+      const container = new Container();
+      const dummyUiSheet = createDummyUiSheet();
+      const enemyPanel = new EnemyStatsPanel(container, dummyUiSheet);
+      enemyPanel.show();
+
+      const wx = (enemyPanel as any).window.x;
+      const wy = (enemyPanel as any).window.y;
+
+      // Point at y = wy + 100 is inside the 126px panel (whereas old 84px panel would have rejected it)
+      expect(enemyPanel.containsPoint(wx + 100, wy + 100)).toBe(true);
+      // Beyond panel height
+      expect(enemyPanel.containsPoint(wx + 100, wy + 140)).toBe(false);
+
+      enemyPanel.hide();
+      expect(enemyPanel.containsPoint(wx + 100, wy + 100)).toBe(false);
+    });
+  });
 });
+

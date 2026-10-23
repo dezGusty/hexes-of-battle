@@ -4,6 +4,7 @@
         "name": "patch-up",
         "tooltip-name": "Patch up",
         "description": "Heal a friendly unit for a bit of health.",
+        "icon": "skills/icon_patch_up.png",
         "abilityType": "active",
         "allowedTargets": [
             "self",
@@ -15,6 +16,7 @@
         "name": "pick-up ammo",
         "tooltip-name": "Pick-up ammo",
         "description": "Pick up ammo from the ground.",
+        "icon": "skills/icon_pickup_ammo.png",
         "abilityType": "active",
         "allowedTargets": [
             "none"
@@ -25,6 +27,7 @@
         "name": "throw-javelin",
         "tooltip-name": "Throw javelin",
         "description": "Throw a javelin at an enemy.",
+        "icon": "skills/icon_throw_javelin.png",
         "abilityType": "active",
         "allowedTargets": [
             "enemies"
@@ -49,16 +52,29 @@
         ]
     },
     {
-        "id": "dbl-strike-01",
-        "name": "double-shot",
-        "tooltip-name": "Double shot",
-        "description": "Fire two arrows in quick succession at an enemy.",
-        "abilityType": "toggle",
+        "id": "quick-draw-01",
+        "name": "Quick draw",
+        "tooltip-name": "Quick draw",
+        "description": "Shoot twice in the same turn while attacking a target, paying 2 additional stamina points.",
+        "icon": "skills/icon_quick_draw.png",
+        "abilityType": "active",
         "allowedTargets": [
-            "none"
+            "enemies"
         ],
-        "cost": {
-            "stamina": 5
-        }
+        "requiresTarget": true,
+        "resources": [
+            {
+                "resource_used": "ammo",
+                "resource_cost": 2
+            },
+            {
+                "resource_used": "stamina",
+                "resource_cost": 6
+            },
+            {
+                "resource_used": "attack",
+                "resource_cost": 1
+            }
+        ]
     }
 ]

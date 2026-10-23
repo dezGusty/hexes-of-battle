@@ -10,6 +10,7 @@ export class CreatureRepository {
     [CreatureType.SWORDSMAN, "swordsman"],
     [CreatureType.SPEARMAN, "spearman"],
     [CreatureType.CROSSBOWMAN, "crossbowman"],
+    [CreatureType.ARCHER, "peasant-archer"],
     [CreatureType.BARBARIAN, "barbarian"],
     [CreatureType.HEAVY_KNIGHTS, "heavy-knights"],
     [CreatureType.BEHEMOTH, "behemoth"],

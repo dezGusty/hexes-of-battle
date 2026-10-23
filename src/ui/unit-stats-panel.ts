@@ -1,7 +1,9 @@
 import { Assets, Container, NineSliceSprite, Sprite, Spritesheet, Text, TextOptions, Texture } from "pixi.js";
 import { Buff, Creature, CreatureStats } from "../battle/creature";
+import { Ability, AbilityResourceUse } from "../battle/ability";
 import { Coords } from "../shared";
 import { getTraitInfo, TraitsConfig } from "../battle/trait-system";
+import type { Battle } from "../battle";
 
 export interface TraitSlot {
   container: Container;
@@ -10,10 +12,64 @@ export interface TraitSlot {
   traitName: string;
   name: string;
   description: string;
+  iconPath?: string;
   x: number;
   y: number;
   width: number;
   height: number;
+}
+
+export interface SkillSlot {
+  container: Container;
+  border: NineSliceSprite;
+  iconSprite: Sprite;
+  skillId: string;
+  name: string;
+  description: string;
+  iconPath: string;
+  ability: Ability;
+  index: number;
+  isUsable: boolean;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export const DEFAULT_SKILL_ICONS: Record<string, string> = {
+  "quick-draw-01": "skills/icon_quick_draw.png",
+  "quick-draw": "skills/icon_quick_draw.png",
+  "jav-01": "skills/icon_throw_javelin.png",
+  "throw-javelin": "skills/icon_throw_javelin.png",
+  "heal-01": "skills/icon_patch_up.png",
+  "patch-up": "skills/icon_patch_up.png",
+  "pck-01": "skills/icon_pickup_ammo.png",
+  "pick-up ammo": "skills/icon_pickup_ammo.png",
+};
+
+export function getSkillIconPath(ability: Ability): string {
+  if (ability.icon && ability.icon.length > 0) return ability.icon;
+  const idLower = ability.id?.toLowerCase() ?? "";
+  if (DEFAULT_SKILL_ICONS[idLower]) return DEFAULT_SKILL_ICONS[idLower];
+  const nameLower = ability.name?.toLowerCase() ?? "";
+  if (DEFAULT_SKILL_ICONS[nameLower]) return DEFAULT_SKILL_ICONS[nameLower];
+  return "skills/icon_quick_draw.png";
+}
+
+export function formatAbilityDescription(ability: Ability): string {
+  let desc = ability.description || `${ability.tooltipName || ability.name}: Specialized combat skill.`;
+  const costs: string[] = [];
+  for (const res of ability.resources || []) {
+    if (res.resource_used === AbilityResourceUse.Stamina) {
+      costs.push(`${res.resource_cost} Stamina`);
+    } else if (res.resource_used === AbilityResourceUse.Ammo) {
+      costs.push(`${res.resource_cost} Ammo`);
+    }
+  }
+  if (costs.length > 0 && !desc.toLowerCase().includes("cost:")) {
+    desc += ` (Cost: ${costs.join(", ")})`;
+  }
+  return desc;
 }
 
 export enum DisplayedStat {
@@ -79,6 +135,33 @@ export class UnitStatsPanel {
   private traitsGroup = new Container();
   private traitSlots: TraitSlot[] = [];
 
+  private abilities: Ability[] = [];
+  private skillsGroup = new Container();
+  private skillSlots: SkillSlot[] = [];
+
+  public onSkillClick?: (index: number, ability: Ability) => void;
+  private currentCreature?: Creature = undefined;
+
+  public getSkillSlots(): readonly SkillSlot[] {
+    return this.skillSlots;
+  }
+
+  public getCurrentCreature(): Creature | undefined {
+    return this.currentCreature;
+  }
+
+  public setBattle(battle: Battle): void {
+    this.battle = battle;
+  }
+
+  public getBattle(): Battle | undefined {
+    return this.battle;
+  }
+
+  public getTooltipIconSprite(): Sprite {
+    return this.tooltipIconSprite;
+  }
+
   private stats?: CreatureStats = undefined;
   private buffs?: Buff[] = [];
   private creatureType: string = '';
@@ -86,6 +169,7 @@ export class UnitStatsPanel {
 
   private tooltipText = new Text({ ...UnitStatsPanel.DEFAULT_FONT_STYLE, text: 'Tooltip' });
   private tooltipWindow?: NineSliceSprite = undefined;
+  private tooltipIconSprite: Sprite = new Sprite(Texture.EMPTY);
 
   private statIcons: Sprite[] = [];
   private statTooltipAreas: Container[] = [];
@@ -97,8 +181,10 @@ export class UnitStatsPanel {
   private faceBg?: NineSliceSprite = undefined;
 
   public setCreature(creature: Creature) {
+    this.currentCreature = creature;
     this.stats = creature.live_stats;
     this.buffs = creature.buffs;
+    this.abilities = creature.abilities ? [...creature.abilities] : [];
     this.creatureType = Creature.CREATURE_NAMES[creature.creatureType];
   }
 
@@ -148,7 +234,8 @@ export class UnitStatsPanel {
   public constructor(
     private view: Container,
     private uiSheet: Spritesheet,
-    traitsConfig?: TraitsConfig
+    traitsConfig?: TraitsConfig,
+    private battle?: Battle
   ) {
     this.traitsConfig = traitsConfig;
 
@@ -247,6 +334,9 @@ export class UnitStatsPanel {
     this.traitsGroup.position = { x: 890, y: 0 };
     this.window.addChild(this.traitsGroup);
 
+    this.skillsGroup.position = { x: 250, y: -36 };
+    this.window.addChild(this.skillsGroup);
+
     this.tooltipWindow = new NineSliceSprite({
       texture: this.uiSheet.textures['thin_panel_semitransparent.png'],
       leftWidth: 4,
@@ -254,11 +344,14 @@ export class UnitStatsPanel {
       rightWidth: 4,
       bottomHeight: 4,
     });
-    // this.tooltipWindow.addChild(this.tooltipText);
     this.tooltipWindow.position = { x: 300, y: -2 - 90 };
     this.tooltipWindow.visible = false;
     this.tooltipWindow.width = 420;
     this.tooltipWindow.height = 90;
+
+    this.tooltipIconSprite.width = 128;
+    this.tooltipIconSprite.height = 128;
+    this.tooltipIconSprite.visible = false;
 
     this.tooltipText.style.wordWrap = true;
     this.tooltipText.style.wordWrapWidth = 430;
@@ -267,6 +360,7 @@ export class UnitStatsPanel {
     this.tooltipText.position = { x: this.tooltipWindow.position.x + 20, y: this.tooltipWindow.position.y + 15 };
 
     this.window.addChild(this.tooltipWindow);
+    this.window.addChild(this.tooltipIconSprite);
     this.window.addChild(this.tooltipText);
 
     this.view.addChild(this.window);
@@ -440,6 +534,7 @@ export class UnitStatsPanel {
         traitName,
         name,
         description,
+        iconPath,
         x: this.traitsGroup.x + slotX,
         y: this.traitsGroup.y + startY,
         width: slotSize,
@@ -448,11 +543,140 @@ export class UnitStatsPanel {
     });
   }
 
+  public isAbilityUsable(ability: Ability, creature?: Creature): boolean {
+    const c = creature || this.currentCreature;
+    if (!c) return false;
+    if (this.battle) {
+      return this.battle.verifyAbilityUseByCreatureHasResources(ability, c);
+    }
+    for (const res of ability.resources || []) {
+      if (res.resource_used === AbilityResourceUse.Stamina && c.live_stats.stamina < res.resource_cost) return false;
+      if (res.resource_used === AbilityResourceUse.Ammo && c.live_stats.remaining_ammo < res.resource_cost) return false;
+      if (res.resource_used === AbilityResourceUse.Attack && c.live_stats.remaining_attacks < res.resource_cost) return false;
+    }
+    return true;
+  }
+
+  private renderSkills(): void {
+    this.skillsGroup.removeChildren();
+    this.skillSlots = [];
+
+    const userSkills = this.abilities ?? [];
+    if (userSkills.length === 0) return;
+
+    const slotSize = 48;
+    const slotGap = 8;
+    const startY = 0;
+
+    userSkills.forEach((ability, index) => {
+      const name = ability.tooltipName || ability.name || ability.id;
+      const iconPath = getSkillIconPath(ability);
+      const description = formatAbilityDescription(ability);
+      const isUsable = this.currentCreature ? this.isAbilityUsable(ability, this.currentCreature) : true;
+      const isActive = !!(this.currentCreature?.isQuickDrawActive && (ability.id === 'quick-draw-01' || ability.name?.toLowerCase().includes('quick draw')));
+
+      const slotContainer = new Container();
+      const slotX = index * (slotSize + slotGap);
+      slotContainer.position = { x: slotX, y: startY };
+      slotContainer.eventMode = 'static';
+      slotContainer.cursor = isUsable ? 'pointer' : 'not-allowed';
+      slotContainer.alpha = isUsable ? 1.0 : 0.4;
+
+      const slotBorder = new NineSliceSprite({
+        texture: this.uiSheet.textures["thin_panel_semitransparent.png"],
+        leftWidth: 4,
+        topHeight: 4,
+        rightWidth: 4,
+        bottomHeight: 4,
+      });
+      slotBorder.width = slotSize;
+      slotBorder.height = slotSize;
+      if (isActive) {
+        slotBorder.tint = 0x66ff66;
+      }
+      slotContainer.addChild(slotBorder);
+
+      const iconTex = this.getTextureForIcon(iconPath);
+      const iconSprite = new Sprite(iconTex);
+      iconSprite.width = slotSize - 8;
+      iconSprite.height = slotSize - 8;
+      iconSprite.position = { x: 4, y: 4 };
+      slotContainer.addChild(iconSprite);
+
+      slotContainer.on('pointerdown', () => {
+        if (isUsable) {
+          slotBorder.tint = 0xd4b038;
+        }
+      });
+      slotContainer.on('pointerup', () => {
+        if (isUsable) {
+          slotBorder.tint = 0xffe680;
+        }
+      });
+      slotContainer.on('pointertap', () => {
+        this.triggerSkill(index);
+      });
+
+      this.skillsGroup.addChild(slotContainer);
+
+      this.skillSlots.push({
+        container: slotContainer,
+        border: slotBorder,
+        iconSprite,
+        skillId: ability.id,
+        name,
+        description,
+        iconPath,
+        ability,
+        index,
+        isUsable,
+        x: this.skillsGroup.x + slotX,
+        y: this.skillsGroup.y + startY,
+        width: slotSize,
+        height: slotSize,
+      });
+    });
+  }
+
+  public triggerSkill(index: number): boolean {
+    const slot = this.skillSlots[index];
+    if (!slot) return false;
+    if (!slot.isUsable) return false;
+    if (this.onSkillClick) {
+      this.onSkillClick(index, slot.ability);
+    } else if (this.battle) {
+      this.battle.selectActiveAbilityForCurrentUnit(index);
+    }
+    if (this.currentCreature) {
+      this.update();
+    }
+    return true;
+  }
+
+  public click(coords: Coords): boolean {
+    if (!this.isVisible()) return false;
+    const x = coords.x - this.window.x;
+    const y = coords.y - this.window.y;
+    for (let i = 0; i < this.skillSlots.length; i++) {
+      const slot = this.skillSlots[i];
+      if (
+        x >= slot.x &&
+        x <= slot.x + slot.width &&
+        y >= slot.y &&
+        y <= slot.y + slot.height
+      ) {
+        return this.triggerSkill(i);
+      }
+    }
+    return false;
+  }
+
   public update() {
     if (!this.stats) return;
 
     this.unitTypeText.text = `Unit: ${this.creatureType}`;
     this.renderTraits();
+    this.renderSkills();
 
     this.statValues[DisplayedStat.HP].text = `${this.stats?.remaining_health} / ${this.stats?.health}`;
     this.statValues[DisplayedStat.ATTACK_MELEE].text = `${this.stats?.attack_melee_low}-${this.stats?.attack_melee_high}`;
@@ -509,6 +733,12 @@ export class UnitStatsPanel {
     this.window.visible = false;
     if (this.tooltipWindow) this.tooltipWindow.visible = false;
     if (this.tooltipText) this.tooltipText.visible = false;
+    if (this.tooltipIconSprite) this.tooltipIconSprite.visible = false;
+    for (const slot of this.traitSlots) slot.border.tint = 0xffffff;
+    for (const slot of this.skillSlots) {
+      const isActive = !!(this.currentCreature?.isQuickDrawActive && (slot.ability.id === 'quick-draw-01' || slot.ability.name?.toLowerCase().includes('quick draw')));
+      slot.border.tint = isActive ? 0x66ff66 : 0xffffff;
+    }
   }
 
   public isVisible() {
@@ -528,6 +758,14 @@ export class UnitStatsPanel {
       const fx = wx + this.faceBg.x;
       const fy = wy + this.faceBg.y;
       if (stageX >= fx && stageX <= fx + this.faceBg.width && stageY >= fy && stageY <= fy + this.faceBg.height) {
+        return true;
+      }
+    }
+    // Check skills area on top of panel
+    for (const slot of this.skillSlots) {
+      const sx = wx + slot.x;
+      const sy = wy + slot.y;
+      if (stageX >= sx && stageX <= sx + slot.width && stageY >= sy && stageY <= sy + slot.height) {
         return true;
       }
     }
@@ -560,6 +798,23 @@ export class UnitStatsPanel {
       }
     }
 
+    let hoveredSkill: SkillSlot | null = null;
+    for (const slot of this.skillSlots) {
+      const isActive = !!(this.currentCreature?.isQuickDrawActive && (slot.ability.id === 'quick-draw-01' || slot.ability.name?.toLowerCase().includes('quick draw')));
+      if (
+        x >= slot.x &&
+        x <= slot.x + slot.width &&
+        y >= slot.y &&
+        y <= slot.y + slot.height
+      ) {
+        hoveredSkill = slot;
+        tooltipVisible = true;
+        slot.border.tint = 0xffe680;
+      } else {
+        slot.border.tint = isActive ? 0x66ff66 : 0xffffff;
+      }
+    }
+
     let hoveredTrait: TraitSlot | null = null;
     for (const slot of this.traitSlots) {
       if (
@@ -576,21 +831,60 @@ export class UnitStatsPanel {
       }
     }
 
-    if (hoveredTrait) {
+    if (hoveredSkill) {
+      const skillHeader = `[SKILL] ${(hoveredSkill.name || hoveredSkill.skillId).toUpperCase()}`;
+      const skillDesc = hoveredSkill.description;
+
+      this.tooltipText.text = `${skillHeader}\n${skillDesc}`;
+      this.tooltipText.style.wordWrapWidth = 360;
+
+      if (this.tooltipWindow) {
+        let tipWidth = 540;
+        let tipHeight = 154; // comfortably houses 128x128px icon
+        try {
+          if (typeof document !== "undefined" && typeof (this.tooltipText as any).width === "number") {
+            tipWidth = Math.min(650, Math.max(500, Math.ceil(158 + (this.tooltipText.width || 340) + 20)));
+            tipHeight = Math.max(154, Math.ceil(this.tooltipText.height + 28));
+          }
+        } catch {
+          // headless test environment fallback
+        }
+        this.tooltipWindow.width = tipWidth;
+        this.tooltipWindow.height = tipHeight;
+
+        const slotCenterX = hoveredSkill.x + hoveredSkill.width / 2;
+        let tipX = slotCenterX - tipWidth / 2;
+        tipX = Math.max(20, Math.min(tipX, 1200 - tipWidth - 10));
+        const tipY = hoveredSkill.y - tipHeight - 8;
+
+        this.tooltipWindow.position = { x: tipX, y: tipY };
+
+        // Left aligned 128x128 icon inside tooltip
+        this.tooltipIconSprite.visible = true;
+        this.tooltipIconSprite.texture = this.getTextureForIcon(hoveredSkill.iconPath || getSkillIconPath(hoveredSkill.ability));
+        this.tooltipIconSprite.width = 128;
+        this.tooltipIconSprite.height = 128;
+        this.tooltipIconSprite.position = { x: tipX + 14, y: tipY + Math.max(12, (tipHeight - 128) / 2) };
+
+        // Shift text to the right to make room for icon
+        this.tooltipText.position = { x: tipX + 158, y: tipY + 14 };
+      }
+    } else if (hoveredTrait) {
       const perkHeader = `[PERK] ${hoveredTrait.name.toUpperCase()}`;
       const perkDesc = hoveredTrait.description.startsWith(hoveredTrait.name + ":")
         ? hoveredTrait.description.slice(hoveredTrait.name.length + 1).trim()
         : hoveredTrait.description;
 
       this.tooltipText.text = `${perkHeader}\n${perkDesc}`;
+      this.tooltipText.style.wordWrapWidth = 360;
 
       if (this.tooltipWindow) {
-        let tipWidth = 440;
-        let tipHeight = 84;
+        let tipWidth = 540;
+        let tipHeight = 154; // comfortably houses 128x128px icon
         try {
           if (typeof document !== "undefined" && typeof (this.tooltipText as any).width === "number") {
-            tipWidth = Math.min(480, Math.max(380, Math.ceil(this.tooltipText.width + 30)));
-            tipHeight = Math.max(76, Math.ceil(this.tooltipText.height + 24));
+            tipWidth = Math.min(650, Math.max(500, Math.ceil(158 + (this.tooltipText.width || 340) + 20)));
+            tipHeight = Math.max(154, Math.ceil(this.tooltipText.height + 28));
           }
         } catch {
           // headless test environment fallback
@@ -601,11 +895,24 @@ export class UnitStatsPanel {
         const slotCenterX = hoveredTrait.x + hoveredTrait.width / 2;
         let tipX = slotCenterX - tipWidth / 2;
         tipX = Math.max(20, Math.min(tipX, 1200 - tipWidth - 10));
+        const tipY = -tipHeight - 8;
 
-        this.tooltipWindow.position = { x: tipX, y: -tipHeight - 6 };
-        this.tooltipText.position = { x: tipX + 15, y: -tipHeight + 6 };
+        this.tooltipWindow.position = { x: tipX, y: tipY };
+
+        // Left aligned 128x128 icon inside tooltip
+        this.tooltipIconSprite.visible = true;
+        const traitIcon = hoveredTrait.iconPath || getTraitInfo(hoveredTrait.traitName, this.traitsConfig)?.icon || "traits/icon_shield_block.png";
+        this.tooltipIconSprite.texture = this.getTextureForIcon(traitIcon);
+        this.tooltipIconSprite.width = 128;
+        this.tooltipIconSprite.height = 128;
+        this.tooltipIconSprite.position = { x: tipX + 14, y: tipY + Math.max(12, (tipHeight - 128) / 2) };
+
+        // Shift text to the right to make room for icon
+        this.tooltipText.position = { x: tipX + 158, y: tipY + 14 };
       }
     } else if (statToDisplay != -1) {
+      this.tooltipIconSprite.visible = false;
+      this.tooltipText.style.wordWrapWidth = 430;
       this.tooltipText.text = this.statDescriptions[statToDisplay]
         + (this.statBuffDescriptions[statToDisplay] ? "\nBuffs: " + this.statBuffDescriptions[statToDisplay] : "");
 
@@ -624,11 +931,16 @@ export class UnitStatsPanel {
         this.tooltipWindow.position = { x: 300, y: -tipHeight - 2 };
         this.tooltipText.position = { x: 320, y: -tipHeight + 10 };
       }
+    } else {
+      this.tooltipIconSprite.visible = false;
     }
 
     if (this.tooltipWindow) {
       this.tooltipWindow.visible = tooltipVisible;
       this.tooltipText.visible = tooltipVisible;
+      if (!tooltipVisible) {
+        this.tooltipIconSprite.visible = false;
+      }
       if (statToDisplay == 0) {
         statToDisplay = DisplayedStat.HP;
       }

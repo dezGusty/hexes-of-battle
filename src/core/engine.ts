@@ -219,6 +219,10 @@ export class HexesEngine {
         'traits/icon_spear_wall.png',
         'traits/icon_volley_fire.png',
         'traits/icon_fragile_line.png',
+        'skills/icon_patch_up.png',
+        'skills/icon_pickup_ammo.png',
+        'skills/icon_throw_javelin.png',
+        'skills/icon_quick_draw.png',
       ]);
     } catch {
       // Ignore if offline/headless

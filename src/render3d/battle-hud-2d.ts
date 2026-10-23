@@ -97,13 +97,20 @@ export class BattleHud2D {
         this.softCursorSprite = new Sprite(this.assets.softCursorTextures['default']);
         this.uiCursorRenderGroup.addChild(this.softCursorSprite);
       }
-      this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet, this.battle.traitsConfig);
+      this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet, this.battle.traitsConfig, this.battle);
+      this.unitStats.onSkillClick = (index: number) => {
+        this.battle.selectActiveAbilityForCurrentUnit(index);
+        const active = this.battle.getActiveCreature();
+        if (active) {
+          this.updateUnitStats(active);
+        }
+      };
       if (this.settings.hex.showStats) {
         this.unitStats.show();
       } else {
         this.unitStats.hide();
       }
-      this.enemyStats = new EnemyStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet);
+      this.enemyStats = new EnemyStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet, this.battle.traitsConfig);
       this.enemyStats.hide();
     }
 
@@ -362,18 +369,33 @@ export class BattleHud2D {
 
   public updateActiveUnitAbility(creature?: Creature): void {
     let description = '';
-    let visible = false;
+    let canUse = true;
+
     if (creature && creature.abilities.length > 0) {
-      description = creature.abilities[0].name;
-      visible = true;
+      const ability = creature.abilities[0];
+      description = ability.tooltipName || ability.name;
+      if (creature.isQuickDrawActive) {
+        description = `${description} [ON]`;
+      }
+      if (this.battle) {
+        canUse = this.battle.verifyAbilityUseByCreatureHasResources(ability, creature);
+      }
     }
+
     if (this.commonControls?.activeAbility1Button) {
       this.commonControls.activeAbility1Button.text = description;
-      this.commonControls.activeAbility1Button.visible = visible;
+      this.commonControls.activeAbility1Button.visible = false; // Replaced by skill icon buttons on top of unit stats panel
+      this.commonControls.activeAbility1Button.alpha = canUse ? 1.0 : 0.4;
     }
+
     if (this.commonControls?.restButton) {
       const canRest = creature ? creature.canRest() : false;
       this.commonControls.restButton.alpha = canRest ? 1.0 : 0.4;
+    }
+
+    if (creature && this.unitStats?.isVisible()) {
+      this.unitStats.setCreature(creature);
+      this.unitStats.update();
     }
   }
 
@@ -442,7 +464,14 @@ export class BattleHud2D {
   public toggleUnitStats(): void {
     if (!this.assets.uiSheet) return;
     if (!this.unitStats) {
-      this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet, this.battle.traitsConfig);
+      this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet, this.battle.traitsConfig, this.battle);
+      this.unitStats.onSkillClick = (index: number) => {
+        this.battle.selectActiveAbilityForCurrentUnit(index);
+        const active = this.battle.getActiveCreature();
+        if (active) {
+          this.updateUnitStats(active);
+        }
+      };
     }
     this.unitStats.toggleVisibility();
     this.settings.hex.showStats = this.unitStats.isVisible();
@@ -458,6 +487,7 @@ export class BattleHud2D {
     const bannerTexture = this.getBannerTextureForArmyIndex(creature.armyAlignment);
     this.enemyStats.setBannerTexture(bannerTexture);
     this.enemyStats.setCreature(creature);
+    this.enemyStats.setTraitsConfig(this.battle.traitsConfig);
 
     const faceTexture = this.getFaceTextureForCreature(creature);
     this.enemyStats.setFaceTexture(faceTexture);
@@ -502,6 +532,11 @@ export class BattleHud2D {
       return true;
     }
 
+    // Unit stats panel (including skill icon buttons on top)
+    if (this.unitStats?.isVisible() && this.unitStats.containsPoint(stageX, stageY)) {
+      return true;
+    }
+
     // Left sidebar controls (Menu at top, toggle buttons, Rest, Next Unit, End Turn)
     if (stageX >= 0 && stageX <= 165) {
       if ((stageY >= 0 && stageY <= 65) || (stageY >= 295 && stageY <= 890)) {
@@ -526,6 +561,13 @@ export class BattleHud2D {
       }
     }
 
+    return false;
+  }
+
+  public handleClick(stageX: number, stageY: number): boolean {
+    if (this.unitStats?.isVisible() && this.unitStats.containsPoint(stageX, stageY)) {
+      return this.unitStats.click({ x: stageX, y: stageY });
+    }
     return false;
   }
 
