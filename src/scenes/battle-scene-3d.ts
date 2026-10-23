@@ -116,6 +116,9 @@ export class BattleScene3D implements Scene {
       onToggleSceneInspector: (showInspector) => {
         this.view.setSceneInspectorVisible(showInspector);
       },
+      onToggleHardwareCursor: (hide) => {
+        this.view.applyHardwareCursorVisibility(hide);
+      },
       onSaveBattle: (name) => {
         SaveManager.saveBattle(this.battle, name);
         return true;

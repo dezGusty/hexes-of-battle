@@ -33,6 +33,7 @@ export interface BattleHud2DEvents {
   onToggleCoords?: (showCoords: boolean) => void;
   onToggleMusic?: (musicOn: boolean) => void;
   onToggleSceneInspector?: (showInspector: boolean) => void;
+  onToggleHardwareCursor?: (hide: boolean) => void;
   onSaveBattle?: (name: string) => boolean;
   onLoadSave?: (entry: BattleSaveEntry) => void;
 }
@@ -173,6 +174,7 @@ export class BattleHud2D {
           SaveManager.loadBattle(entry, this.battle);
         }
       };
+      this.battleMenuPanel.setHardwareCursorHidden(this.settings.hideHardwareCursor);
       this.battleMenuPanel.hide();
     }
 
@@ -255,6 +257,15 @@ export class BattleHud2D {
       this.settings.save();
       if (events.onToggleFps) {
         events.onToggleFps(this.settings.debug.showFps);
+      }
+    });
+
+    this.battleMenuPanel?.toggleHardwareCursorButton?.onPress.connect(() => {
+      this.settings.hideHardwareCursor = !this.settings.hideHardwareCursor;
+      this.settings.save();
+      this.battleMenuPanel?.setHardwareCursorHidden(this.settings.hideHardwareCursor);
+      if (events.onToggleHardwareCursor) {
+        events.onToggleHardwareCursor(this.settings.hideHardwareCursor);
       }
     });
 
@@ -467,6 +478,10 @@ export class BattleHud2D {
     if (this.enemyStats?.isVisible()) {
       this.enemyStats.mousemove(coords);
     }
+  }
+
+  public setHardwareCursorHidden(hidden: boolean): void {
+    this.battleMenuPanel?.setHardwareCursorHidden(hidden);
   }
 
   public setCursor(cursorHint?: string): void {

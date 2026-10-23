@@ -11,6 +11,7 @@ export interface BattleInputDelegate {
   getStageOffsetAndScale: () => { offset: Coords; scale: Coords };
   getScreenSize: () => { width: number; height: number };
   onToggleStats?: () => void;
+  onToggleHardwareCursor?: () => void;
 }
 
 export class BattleInputController {
@@ -52,6 +53,9 @@ export class BattleInputController {
       } else if (event.key === 'F4' || event.code === 'F4' || event.key?.toLowerCase() === 'f4') {
         event.preventDefault();
         this.delegate.onToggleStats?.();
+      } else if (event.key === 'F8' || event.code === 'F8' || event.key?.toLowerCase() === 'f8') {
+        event.preventDefault();
+        this.delegate.onToggleHardwareCursor?.();
       }
     };
 

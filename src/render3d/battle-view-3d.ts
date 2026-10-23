@@ -33,6 +33,7 @@ export class BattleView3D {
 
   public readonly squadVisuals: Map<string, SquadVisual3D> = new Map();
   public readonly battle: Battle;
+  public readonly container: HTMLElement;
   private hexMap: HexMap;
   private settings: BattleSettings;
 
@@ -82,6 +83,7 @@ export class BattleView3D {
     this.hexMap = hexMap;
     this.battle = battle;
     this.settings = settings;
+    this.container = container;
 
     this.sceneManager = new ThreeSceneManager(container);
     this.hexBoard = new HexBoard3D(this.hexMap, {
@@ -117,6 +119,8 @@ export class BattleView3D {
         this.settings.save();
       },
     });
+
+    this.applyHardwareCursorVisibility(this.settings.hideHardwareCursor);
   }
 
   public setHud(hud: any, getStageInfo: () => { offset: Coords; scale: Coords }): void {
@@ -143,6 +147,27 @@ export class BattleView3D {
   public toggleSceneInspector(): boolean {
     this.sceneDebugger?.toggle();
     return this.sceneDebugger?.isVisible() ?? false;
+  }
+
+  public applyHardwareCursorVisibility(hidden: boolean): void {
+    const gameContainer = (typeof document !== 'undefined' ? document.getElementById('game') : null) || this.container;
+    if (gameContainer) {
+      if (hidden) {
+        gameContainer.classList.add('hide-hardware-cursor');
+        gameContainer.style.cursor = 'none';
+      } else {
+        gameContainer.classList.remove('hide-hardware-cursor');
+        gameContainer.style.cursor = '';
+      }
+    }
+  }
+
+  public toggleHardwareCursor(): boolean {
+    this.settings.hideHardwareCursor = !this.settings.hideHardwareCursor;
+    this.settings.save();
+    this.applyHardwareCursorVisibility(this.settings.hideHardwareCursor);
+    this.hud?.setHardwareCursorHidden(this.settings.hideHardwareCursor);
+    return this.settings.hideHardwareCursor;
   }
 
   public setZoomLevel(normalized: number): void {
@@ -801,6 +826,7 @@ export class BattleView3D {
       const nextUnitKey = (this.settings?.hotkeys?.nextUnit ?? 'tab').toLowerCase();
       const resetCamKey = (this.settings?.hotkeys?.resetCamera ?? 'home').toLowerCase();
       const toggleStatsKey = (this.settings?.hotkeys?.toggleStats ?? 'f4').toLowerCase();
+      const toggleCursorKey = (this.settings?.hotkeys?.toggleHardwareCursor ?? 'f8').toLowerCase();
 
       if (key === printKey) {
         this.printPathPreview();
@@ -820,6 +846,9 @@ export class BattleView3D {
         } else if (this.hud?.toggleUnitStats) {
           this.hud.toggleUnitStats();
         }
+      } else if (key === toggleCursorKey || key === 'f8') {
+        e.preventDefault();
+        this.toggleHardwareCursor();
       }
     };
 
@@ -857,6 +886,7 @@ export class BattleView3D {
     if (this.boundKeyUp) window.removeEventListener('keyup', this.boundKeyUp);
     if (this.boundBlur) window.removeEventListener('blur', this.boundBlur);
     this.pressedKeys.clear();
+    this.applyHardwareCursorVisibility(false);
 
     this.squadVisuals.forEach((s) => s.dispose());
     this.hexBoard.dispose();

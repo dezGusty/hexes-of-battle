@@ -37,6 +37,7 @@ export class HotkeysSettings {
   public nextUnit: string = 'tab';
   public resetCamera: string = 'home';
   public toggleStats: string = 'f4';
+  public toggleHardwareCursor: string = 'f8';
 }
 
 export class BattleSettings {
@@ -45,6 +46,7 @@ export class BattleSettings {
   public hex: HexDisplaySettings = new HexDisplaySettings();
   public debug: DebugSettings = new DebugSettings();
   public hotkeys: HotkeysSettings = new HotkeysSettings();
+  public hideHardwareCursor: boolean = false;
 
   public load() {
     if (typeof localStorage === 'undefined') return;
@@ -82,6 +84,11 @@ export class BattleSettings {
       this.debug.showFps = showFps === 'true';
     }
 
+    const hideHardwareCursor = localStorage.getItem('hob.hideHardwareCursor');
+    if (hideHardwareCursor !== null) {
+      this.hideHardwareCursor = hideHardwareCursor === 'true';
+    }
+
     const hotkeys = localStorage.getItem('hob.hotkeys');
     if (hotkeys) {
       try {
@@ -102,6 +109,8 @@ export class BattleSettings {
     // Save the debug settings to the browser's local storage
     localStorage.setItem('hob.debug', JSON.stringify(this.debug));
     localStorage.setItem('hob.debug.showFps', String(this.debug.showFps));
+    // Save the hardware cursor visibility setting to local storage
+    localStorage.setItem('hob.hideHardwareCursor', String(this.hideHardwareCursor));
     // Save the hotkeys settings to the browser's local storage
     localStorage.setItem('hob.hotkeys', JSON.stringify(this.hotkeys));
   }

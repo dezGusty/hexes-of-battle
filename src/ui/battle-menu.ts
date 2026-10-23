@@ -43,6 +43,10 @@ export class BattleMenuPanel {
     public toggleStatsButton?: FancyButton;
     public saveButton?: FancyButton;
     public loadButton?: FancyButton;
+    public toggleHardwareCursorButton?: FancyButton;
+
+    private hardwareCursorText?: Text;
+    private isHardwareCursorHidden: boolean = false;
 
     private closeButton: FancyButton = new FancyButton({
         ...this.THIN_BUTTON_STYLE
@@ -69,6 +73,7 @@ export class BattleMenuPanel {
     public onToggleSceneInspector?: () => void;
     public onToggleStats?: () => void;
     public onToggleFps?: (showFps: boolean) => void;
+    public onToggleHardwareCursor?: (hide: boolean) => void;
 
     public constructor(private view: Container, private uiSheet: Spritesheet) {
         const windowBg = new NineSliceSprite({
@@ -98,6 +103,26 @@ export class BattleMenuPanel {
         this.initializeLoadDialog(windowBg.width);
 
         this.view.addChild(this.window);
+    }
+
+    private getHardwareCursorLabel(): string {
+        const status = this.isHardwareCursorHidden ? '[✓ Checked]' : '[Unchecked]';
+        return `Hide Hardware Cursor ${status}\nHide OS cursor while in game (F8)`;
+    }
+
+    public setHardwareCursorHidden(hidden: boolean): void {
+        this.isHardwareCursorHidden = hidden;
+        if (this.hardwareCursorText) {
+            this.hardwareCursorText.text = this.getHardwareCursorLabel();
+        }
+    }
+
+    public get hardwareCursorChecked(): boolean {
+        return this.isHardwareCursorHidden;
+    }
+
+    public set hardwareCursorChecked(checked: boolean) {
+        this.setHardwareCursorHidden(checked);
     }
 
     public setSoundValues(musicVolume: number, soundVolume: number): void {
@@ -155,6 +180,13 @@ export class BattleMenuPanel {
         addMenuOption(col2TextX, 205, 'Save Battle State\nSave snapshot to local storage.');
         addMenuOption(col2TextX, 280, 'Load Saved Battle\nSelect and restore a saved state.');
         addMenuOption(col2TextX, 355, 'Toggle Unit Stats display.\n(Same effect as pressing F4)');
+
+        this.hardwareCursorText = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: this.getHardwareCursorLabel(),
+        });
+        this.hardwareCursorText.position = { x: col2TextX, y: 430 + 8 };
+        this.mainContainer.addChild(this.hardwareCursorText);
 
         // Column 1 Buttons
         this.fullscreenToggleButton = new FancyButton({
@@ -309,6 +341,14 @@ export class BattleMenuPanel {
         this.toggleStatsButton.width = 64;
         this.toggleStatsButton.height = 60;
 
+        this.toggleHardwareCursorButton = new FancyButton({
+            ...this.DEFAULT_BUTTON_STYLE,
+            icon: 'cursor_arrow.png',
+        });
+        this.toggleHardwareCursorButton.position.set(col2BtnX, 430);
+        this.toggleHardwareCursorButton.width = 64;
+        this.toggleHardwareCursorButton.height = 60;
+
         this.closeButton.position.set((panelWidth - 140) / 2, 510);
         this.closeButton.width = 140;
         this.closeButton.height = 36;
@@ -333,6 +373,7 @@ export class BattleMenuPanel {
         this.mainContainer.addChild(this.saveButton);
         this.mainContainer.addChild(this.loadButton);
         this.mainContainer.addChild(this.toggleStatsButton);
+        this.mainContainer.addChild(this.toggleHardwareCursorButton);
         this.mainContainer.addChild(this.closeButton);
 
         this.connectMainEventHandlers();
@@ -523,6 +564,14 @@ export class BattleMenuPanel {
         this.toggleStatsButton?.onPress.connect(() => {
             if (this.onToggleStats) {
                 this.onToggleStats();
+            }
+        });
+
+        this.toggleHardwareCursorButton?.onPress.connect(() => {
+            this.isHardwareCursorHidden = !this.isHardwareCursorHidden;
+            this.setHardwareCursorHidden(this.isHardwareCursorHidden);
+            if (this.onToggleHardwareCursor) {
+                this.onToggleHardwareCursor(this.isHardwareCursorHidden);
             }
         });
 
