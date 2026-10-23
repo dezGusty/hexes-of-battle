@@ -276,7 +276,9 @@ export class EnemyStatsPanel {
   public update(): void {
     if (!this.stats) return;
 
-    this.unitTypeText.text = `Enemy: ${this.creatureType}`;
+    const userTraits = this.stats.traits?.filter((t) => !t.startsWith("format_")) ?? [];
+    const traitsStr = userTraits.length > 0 ? ` | Traits: ${userTraits.join(", ")}` : "";
+    this.unitTypeText.text = `Enemy: ${this.creatureType}${traitsStr}`;
     this.statValues[DisplayedStat.HP].text = `${this.stats.remaining_health}/${this.stats.health}`;
     this.statValues[DisplayedStat.ATTACK_MELEE].text = `${this.stats.attack_melee_low}-${this.stats.attack_melee_high}`;
     this.statValues[DisplayedStat.ATTACK_RANGED].text = this.stats.is_ranged

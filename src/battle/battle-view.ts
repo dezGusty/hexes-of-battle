@@ -478,11 +478,12 @@ export class BattleView {
     }
 
     if (this.assets.uiSheet) {
-      this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet);
+      this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet, this.battle.traitsConfig);
       if (this.settings.hex.showStats) {
         this.unitStats.show();
         if (this.battle.activeCreatureIndex >= 0) {
           this.unitStats.setCreature(this.battle.creatures[this.battle.activeCreatureIndex]);
+          this.unitStats.setTraitsConfig(this.battle.traitsConfig);
           this.unitStats.update();
         }
       } else {
@@ -1030,6 +1031,7 @@ export class BattleView {
     const bannerTexture = this.assets.bannersSheet?.textures[bannerName];
     this.unitStats.setBannerTexture(bannerTexture);
     this.unitStats.setCreature(creature);
+    this.unitStats.setTraitsConfig(this.battle.traitsConfig);
 
     let faceName = 'peasant_face.png';
     switch (creature.creatureType) {
@@ -1120,13 +1122,14 @@ export class BattleView {
   public toggleUnitStats(): void {
     if (!this.assets.uiSheet) return;
     if (!this.unitStats) {
-      this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet);
+      this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet, this.battle.traitsConfig);
     }
     this.unitStats.toggleVisibility();
     this.settings.hex.showStats = this.unitStats.isVisible();
     this.settings.save();
     if (this.unitStats && this.battle.activeCreatureIndex >= 0) {
       this.unitStats.setCreature(this.battle.creatures[this.battle.activeCreatureIndex]);
+      this.unitStats.setTraitsConfig(this.battle.traitsConfig);
       this.unitStats.update();
     }
   }

@@ -11,6 +11,7 @@ import { BattleConfig, BattleResult } from "./battle/battle-types";
 import { CombatConfig, DEFAULT_COMBAT_CONFIG, ExhaustionState, MoraleState, getRetaliationDamageMultiplier } from "./battle/combat-rules";
 import { TerrainType } from "./battle/terrain-types";
 import { SeedableRNG } from "./shared/prng";
+import { calculateDamageWithTraits, DEFAULT_TRAITS_CONFIG, TraitsConfig } from "./battle/trait-system";
 
 export enum AnimationType {
   NONE = 0,
@@ -166,6 +167,17 @@ export class Battle {
   };
 
   constructor(public hexMap: HexMap) {}
+
+  public get traitsConfig(): TraitsConfig {
+    return this.combatConfig.traits ?? DEFAULT_TRAITS_CONFIG;
+  }
+
+  public setTraitsConfig(config: Partial<TraitsConfig>): void {
+    this.combatConfig.traits = {
+      ...(this.combatConfig.traits ?? DEFAULT_TRAITS_CONFIG),
+      ...config,
+    };
+  }
 
   public setCombatConfig(config: CombatConfig): void {
     this.combatConfig = config;
@@ -787,8 +799,9 @@ export class Battle {
       }
     }
 
-    // Reset units for the army whose turn is now starting
+    // Reset units for the army whose turn is now starting, and reset turn-based perks for all units
     for (let i = 0; i < this.creatures.length; i++) {
+      this.creatures[i].stats.shield_block_used = false;
       if (this.creatures[i].armyAlignment === this.currentArmyIndex) {
         this.creatures[i].resetTurn();
       }
@@ -1130,7 +1143,20 @@ export class Battle {
           facingBonus = this.combatConfig.facing.flank.damageBonus;
         }
         const targetArmor = defender.live_stats.defense_ranged;
-        let damage = Math.max(0, Math.round((totalBaseDamage + facingBonus - targetArmor) * proportion));
+        const traitResult = calculateDamageWithTraits({
+          attacker,
+          defender,
+          attackType: BattleActionType.ATTACK_RANGED,
+          baseDamage: totalBaseDamage,
+          facingBonus,
+          targetArmor,
+          attackFromDir,
+          flankStatus,
+          customMultiplier: proportion,
+          traitsConfig: this.traitsConfig,
+          commit: true,
+        });
+        const damage = traitResult.damage;
 
         targetDamages.push({ target: defender, damage, flankStatus });
         this.hookDoingAttack(attacker, defender, damage, BattleActionType.ATTACK_RANGED, flankStatus, false);
@@ -1289,12 +1315,32 @@ export class Battle {
       facingBonus = this.combatConfig.facing.flank.damageBonus;
     }
 
-    let damage = Math.round((baseDamage + facingBonus - targetArmor) * customMultiplier);
-    if (damage < 0) damage = 0;
+    const traitResult = calculateDamageWithTraits({
+      attacker: source,
+      defender: target,
+      attackType,
+      baseDamage,
+      facingBonus,
+      targetArmor,
+      attackFromDir,
+      flankStatus,
+      customMultiplier,
+      traitsConfig: this.traitsConfig,
+      commit: true,
+    });
+    let damage = traitResult.damage;
 
     this.hookDoingAttack(source, target, damage, attackType, flankStatus, attackType === BattleActionType.COUNTER_ATTACK_MELEE);
     const { modelsLost } = target.takeDamage(damage);
     this.totalDamageDealt[source.armyAlignment] += damage;
+
+    // Check if target panicked or routing from FragileLine or taken damage
+    if (target.isPanickedOrRouting && (target.stats.remaining_movement > 0 || target.stats.remaining_attacks > 0)) {
+      target.stats.remaining_movement = 0;
+      target.stats.remaining_attacks = 0;
+      this.moraleBreaks[target.armyAlignment]++;
+      this.hookMoraleBreak?.(target, target.stats.morale_state);
+    }
 
     // Morale dynamics check on casualties / stamina exhaustion
     const casualtyThreshold = Math.max(1, Math.floor(target.stats.model_count * this.combatConfig.morale.casualtyThresholdRatio));
@@ -1322,7 +1368,8 @@ export class Battle {
     const failRoll = this.rng.range(1, 30);
 
     if (failRoll > effectiveMorale) {
-      const drop = Math.max(1, modelsLost > 0 ? modelsLost * 2 : 2);
+      const fragileLoss = creature.hasTrait("FragileLine") ? (this.traitsConfig.fragileLine.extraMoraleLoss || 0) : 0;
+      const drop = Math.max(1, modelsLost > 0 ? modelsLost * 2 : 2) + fragileLoss;
       creature.consumeMorale(drop);
       const state = creature.stats.morale_state;
       if (state === MoraleState.PANICKED || state === MoraleState.ROUTING) {

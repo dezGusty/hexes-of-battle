@@ -52,7 +52,9 @@
       "morale": 10,
       "flying": false
     },
-    "traits": [],
+    "traits": [
+      "ShieldBlock"
+    ],
     "ability_ids": []
   },
   {
@@ -81,7 +83,8 @@
       "flying": false
     },
     "traits": [
-      "CloseQuartersCounter"
+      "CloseQuartersCounter",
+      "SpearWall"
     ],
     "ability_ids": [
       "jav-01"
@@ -140,7 +143,10 @@
       "morale": 10,
       "flying": false
     },
-    "traits": [],
+    "traits": [
+      "FragileLine",
+      "VolleyFire"
+    ],
     "ability_ids": []
   },
   {
@@ -168,7 +174,10 @@
       "morale": 10,
       "flying": false
     },
-    "traits": [],
+    "traits": [
+      "FragileLine",
+      "VolleyFire"
+    ],
     "ability_ids": []
   },
   {

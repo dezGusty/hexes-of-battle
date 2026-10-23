@@ -45,12 +45,18 @@ export class BattleScene implements Scene {
       if (context.templates.combatConfig) {
         this.battle.setCombatConfig(context.templates.combatConfig);
       }
+      if (context.templates.traitsConfig) {
+        this.battle.setTraitsConfig(context.templates.traitsConfig);
+      }
       this.battle.initializeFromConfig(params.config);
     } else {
       this.hexMap = new HexMap(13, 9);
       this.battle = new Battle(this.hexMap);
       if (context.templates.combatConfig) {
         this.battle.setCombatConfig(context.templates.combatConfig);
+      }
+      if (context.templates.traitsConfig) {
+        this.battle.setTraitsConfig(context.templates.traitsConfig);
       }
       this.initializeDefaultMapAndArmies();
     }

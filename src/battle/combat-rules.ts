@@ -1,3 +1,5 @@
+import { TraitsConfig, DEFAULT_TRAITS_CONFIG } from "./trait-system";
+
 export enum ExhaustionState {
   FRESH = "fresh",
   WINDED = "winded",
@@ -102,6 +104,7 @@ export interface CombatConfig {
   ranged: RangedConfig;
   morale: MoraleConfig;
   hero: HeroConfig;
+  traits?: TraitsConfig;
 }
 
 export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
@@ -201,6 +204,7 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
     bodyguardRetinueAbsorption: 1.0,
     presenceMoraleBonus: 5,
   },
+  traits: DEFAULT_TRAITS_CONFIG,
 };
 
 export const MIN_MORALE = 0;

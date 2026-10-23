@@ -42,6 +42,7 @@ export class CreatureStats {
   flying: boolean = false;
   has_rested: boolean = false;
   has_attacked: boolean = false;
+  shield_block_used: boolean = false;
 
   static EMPTY: CreatureStats = {
     ammo: 0,
@@ -80,6 +81,7 @@ export class CreatureStats {
     flying: false,
     has_rested: false,
     has_attacked: false,
+    shield_block_used: false,
   };
 }
 
@@ -172,6 +174,7 @@ export class Creature {
     flying: false,
     has_rested: false,
     has_attacked: false,
+    shield_block_used: false,
   };
 
   public position: Coords = { x: 0, y: 0 };
@@ -370,7 +373,11 @@ export class Creature {
   }
 
   public hasTrait(traitName: string): boolean {
-    return this.stats.traits.includes(traitName);
+    if (!this.stats?.traits || this.stats.traits.length === 0) return false;
+    const target = traitName.toLowerCase().replace(/[\s\-_]/g, "");
+    return this.stats.traits.some(
+      (t) => t === traitName || t.toLowerCase().replace(/[\s\-_]/g, "") === target
+    );
   }
 
   /**
@@ -467,6 +474,7 @@ export class Creature {
     this.stats.retaliations_done = 0;
     this.stats.has_rested = false;
     this.stats.has_attacked = false;
+    this.stats.shield_block_used = false;
     this.updateMoraleState();
     this.updateExhaustionState();
   }

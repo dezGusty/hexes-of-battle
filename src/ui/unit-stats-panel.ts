@@ -1,6 +1,20 @@
-import { Container, NineSliceSprite, Sprite, Spritesheet, Text, TextOptions, Texture } from "pixi.js";
+import { Assets, Container, NineSliceSprite, Sprite, Spritesheet, Text, TextOptions, Texture } from "pixi.js";
 import { Buff, Creature, CreatureStats } from "../battle/creature";
 import { Coords } from "../shared";
+import { getTraitInfo, TraitsConfig } from "../battle/trait-system";
+
+export interface TraitSlot {
+  container: Container;
+  border: NineSliceSprite;
+  iconSprite: Sprite;
+  traitName: string;
+  name: string;
+  description: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 export enum DisplayedStat {
   HP = 0,
@@ -60,6 +74,10 @@ export class UnitStatsPanel {
   };
 
   private window = new Container();
+
+  private traitsConfig?: TraitsConfig;
+  private traitsGroup = new Container();
+  private traitSlots: TraitSlot[] = [];
 
   private stats?: CreatureStats = undefined;
   private buffs?: Buff[] = [];
@@ -127,7 +145,12 @@ export class UnitStatsPanel {
   }
 
 
-  public constructor(private view: Container, private uiSheet: Spritesheet) {
+  public constructor(
+    private view: Container,
+    private uiSheet: Spritesheet,
+    traitsConfig?: TraitsConfig
+  ) {
+    this.traitsConfig = traitsConfig;
 
     const windowBg = new NineSliceSprite({
       texture: this.uiSheet.textures['panel.png'],
@@ -208,6 +231,22 @@ export class UnitStatsPanel {
       this.window.addChild(this.statValues[i]);
     }
 
+    // Vertical divider separating stat boxes from trait perks
+    const divider = new NineSliceSprite({
+      texture: this.uiSheet.textures['thin_panel_semitransparent.png'],
+      leftWidth: 1,
+      topHeight: 4,
+      rightWidth: 1,
+      bottomHeight: 4,
+    });
+    divider.position = { x: 882, y: 8 };
+    divider.width = 2;
+    divider.height = 88;
+    this.window.addChild(divider);
+
+    this.traitsGroup.position = { x: 890, y: 0 };
+    this.window.addChild(this.traitsGroup);
+
     this.tooltipWindow = new NineSliceSprite({
       texture: this.uiSheet.textures['thin_panel_semitransparent.png'],
       leftWidth: 4,
@@ -221,6 +260,10 @@ export class UnitStatsPanel {
     this.tooltipWindow.width = 420;
     this.tooltipWindow.height = 90;
 
+    this.tooltipText.style.wordWrap = true;
+    this.tooltipText.style.wordWrapWidth = 430;
+    this.tooltipText.style.fontSize = 14;
+    this.tooltipText.style.lineHeight = 19;
     this.tooltipText.position = { x: this.tooltipWindow.position.x + 20, y: this.tooltipWindow.position.y + 15 };
 
     this.window.addChild(this.tooltipWindow);
@@ -296,10 +339,121 @@ export class UnitStatsPanel {
     return buffDescriptions;
   }
 
+  public setTraitsConfig(traitsConfig: TraitsConfig): void {
+    this.traitsConfig = traitsConfig;
+  }
+
+  public getTraitSlots(): readonly TraitSlot[] {
+    return this.traitSlots;
+  }
+
+  private getTextureForIcon(iconPath: string): Texture {
+    try {
+      if (typeof Assets !== "undefined" && Assets.get) {
+        const cached = Assets.get(iconPath);
+        if (cached instanceof Texture) return cached;
+        if (cached && (cached as any).baseTexture) return cached as Texture;
+        if (cached && (cached as any).source) return cached as Texture;
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      if (this.uiSheet?.textures?.[iconPath]) {
+        return this.uiSheet.textures[iconPath];
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      if (typeof Texture !== "undefined" && Texture.from) {
+        const tex = Texture.from(iconPath);
+        if (tex) return tex;
+      }
+    } catch {
+      // ignore
+    }
+
+    return Texture.EMPTY;
+  }
+
+  private renderTraits(): void {
+    this.traitsGroup.removeChildren();
+    this.traitSlots = [];
+
+    const userTraits = this.stats?.traits?.filter((t) => !t.startsWith("format_")) ?? [];
+
+    const header = new Text({
+      text: userTraits.length > 0 ? "PERKS / TRAITS" : "TRAITS: NONE",
+      style: {
+        fill: userTraits.length > 0 ? 0xd4af37 : 0x777777,
+        fontSize: 11,
+        fontWeight: "bold",
+        letterSpacing: 1,
+      },
+    });
+    header.position = { x: 4, y: 8 };
+    this.traitsGroup.addChild(header);
+
+    if (userTraits.length === 0) return;
+
+    const slotSize = 48;
+    const slotGap = 8;
+    const startY = 28;
+
+    userTraits.forEach((traitName, index) => {
+      const info = getTraitInfo(traitName, this.traitsConfig);
+      const name = info?.name ?? traitName;
+      const iconPath = info?.icon ?? "traits/icon_shield_block.png";
+      const description = info?.description ?? `${name}: Specialized combat perk.`;
+
+      const slotContainer = new Container();
+      const slotX = 4 + index * (slotSize + slotGap);
+      slotContainer.position = { x: slotX, y: startY };
+
+      const slotBorder = new NineSliceSprite({
+        texture: this.uiSheet.textures["thin_panel_semitransparent.png"],
+        leftWidth: 4,
+        topHeight: 4,
+        rightWidth: 4,
+        bottomHeight: 4,
+      });
+      slotBorder.width = slotSize;
+      slotBorder.height = slotSize;
+      slotContainer.addChild(slotBorder);
+
+      const iconTex = this.getTextureForIcon(iconPath);
+      const iconSprite = new Sprite(iconTex);
+      iconSprite.width = slotSize - 8;
+      iconSprite.height = slotSize - 8;
+      iconSprite.position = { x: 4, y: 4 };
+      slotContainer.addChild(iconSprite);
+
+      this.traitsGroup.addChild(slotContainer);
+
+      this.traitSlots.push({
+        container: slotContainer,
+        border: slotBorder,
+        iconSprite,
+        traitName,
+        name,
+        description,
+        x: this.traitsGroup.x + slotX,
+        y: this.traitsGroup.y + startY,
+        width: slotSize,
+        height: slotSize,
+      });
+    });
+  }
+
   public update() {
     if (!this.stats) return;
 
     this.unitTypeText.text = `Unit: ${this.creatureType}`;
+    this.renderTraits();
+
     this.statValues[DisplayedStat.HP].text = `${this.stats?.remaining_health} / ${this.stats?.health}`;
     this.statValues[DisplayedStat.ATTACK_MELEE].text = `${this.stats?.attack_melee_low}-${this.stats?.attack_melee_high}`;
     this.statValues[DisplayedStat.ATTACK_RANGED].text =
@@ -353,10 +507,39 @@ export class UnitStatsPanel {
 
   public hide() {
     this.window.visible = false;
+    if (this.tooltipWindow) this.tooltipWindow.visible = false;
+    if (this.tooltipText) this.tooltipText.visible = false;
   }
 
   public isVisible() {
     return this.window.visible;
+  }
+
+  public containsPoint(stageX: number, stageY: number): boolean {
+    if (!this.isVisible()) return false;
+    const wx = this.window.x;
+    const wy = this.window.y;
+    // Check main panel bounds
+    if (stageX >= wx && stageX <= wx + 1200 && stageY >= wy && stageY <= wy + 104) {
+      return true;
+    }
+    // Check portrait area
+    if (this.faceBg) {
+      const fx = wx + this.faceBg.x;
+      const fy = wy + this.faceBg.y;
+      if (stageX >= fx && stageX <= fx + this.faceBg.width && stageY >= fy && stageY <= fy + this.faceBg.height) {
+        return true;
+      }
+    }
+    // Check tooltip bounds if visible
+    if (this.tooltipWindow?.visible) {
+      const tx = wx + this.tooltipWindow.x;
+      const ty = wy + this.tooltipWindow.y;
+      if (stageX >= tx && stageX <= tx + this.tooltipWindow.width && stageY >= ty && stageY <= ty + this.tooltipWindow.height) {
+        return true;
+      }
+    }
+    return false;
   }
 
   mousemove(coords: Coords) {
@@ -377,9 +560,70 @@ export class UnitStatsPanel {
       }
     }
 
-    if (statToDisplay != -1) {
+    let hoveredTrait: TraitSlot | null = null;
+    for (const slot of this.traitSlots) {
+      if (
+        x >= slot.x &&
+        x <= slot.x + slot.width &&
+        y >= slot.y &&
+        y <= slot.y + slot.height
+      ) {
+        hoveredTrait = slot;
+        tooltipVisible = true;
+        slot.border.tint = 0xffe680;
+      } else {
+        slot.border.tint = 0xffffff;
+      }
+    }
+
+    if (hoveredTrait) {
+      const perkHeader = `[PERK] ${hoveredTrait.name.toUpperCase()}`;
+      const perkDesc = hoveredTrait.description.startsWith(hoveredTrait.name + ":")
+        ? hoveredTrait.description.slice(hoveredTrait.name.length + 1).trim()
+        : hoveredTrait.description;
+
+      this.tooltipText.text = `${perkHeader}\n${perkDesc}`;
+
+      if (this.tooltipWindow) {
+        let tipWidth = 440;
+        let tipHeight = 84;
+        try {
+          if (typeof document !== "undefined" && typeof (this.tooltipText as any).width === "number") {
+            tipWidth = Math.min(480, Math.max(380, Math.ceil(this.tooltipText.width + 30)));
+            tipHeight = Math.max(76, Math.ceil(this.tooltipText.height + 24));
+          }
+        } catch {
+          // headless test environment fallback
+        }
+        this.tooltipWindow.width = tipWidth;
+        this.tooltipWindow.height = tipHeight;
+
+        const slotCenterX = hoveredTrait.x + hoveredTrait.width / 2;
+        let tipX = slotCenterX - tipWidth / 2;
+        tipX = Math.max(20, Math.min(tipX, 1200 - tipWidth - 10));
+
+        this.tooltipWindow.position = { x: tipX, y: -tipHeight - 6 };
+        this.tooltipText.position = { x: tipX + 15, y: -tipHeight + 6 };
+      }
+    } else if (statToDisplay != -1) {
       this.tooltipText.text = this.statDescriptions[statToDisplay]
         + (this.statBuffDescriptions[statToDisplay] ? "\nBuffs: " + this.statBuffDescriptions[statToDisplay] : "");
+
+      if (this.tooltipWindow) {
+        let tipWidth = 420;
+        let tipHeight = 90;
+        try {
+          if (typeof document !== "undefined" && typeof (this.tooltipText as any).width === "number") {
+            tipHeight = Math.max(80, Math.ceil(this.tooltipText.height + 24));
+          }
+        } catch {
+          // headless test environment fallback
+        }
+        this.tooltipWindow.width = tipWidth;
+        this.tooltipWindow.height = tipHeight;
+        this.tooltipWindow.position = { x: 300, y: -tipHeight - 2 };
+        this.tooltipText.position = { x: 320, y: -tipHeight + 10 };
+      }
     }
 
     if (this.tooltipWindow) {

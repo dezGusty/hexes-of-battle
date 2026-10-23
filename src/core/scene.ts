@@ -4,6 +4,7 @@ import { BattleSettings } from '../battle/settings';
 import { Ability } from '../battle/ability';
 import { CreatureTemplate } from '../battle/creature';
 import { CombatConfig } from '../battle/combat-rules';
+import { TraitsConfig } from '../battle/trait-system';
 import { ISoundSystem } from './sound-system';
 
 export interface GameAssets {
@@ -75,6 +76,7 @@ export interface GameTemplates {
   combatConfig?: CombatConfig;
   scenarios?: any[];
   hudConfig?: HudConfig;
+  traitsConfig?: TraitsConfig;
 }
 
 export interface GameContext {

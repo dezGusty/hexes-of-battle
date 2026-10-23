@@ -97,7 +97,7 @@ export class BattleHud2D {
         this.softCursorSprite = new Sprite(this.assets.softCursorTextures['default']);
         this.uiCursorRenderGroup.addChild(this.softCursorSprite);
       }
-      this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet);
+      this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet, this.battle.traitsConfig);
       if (this.settings.hex.showStats) {
         this.unitStats.show();
       } else {
@@ -432,6 +432,7 @@ export class BattleHud2D {
     const bannerTexture = this.getBannerTextureForArmyIndex(creature.armyAlignment);
     this.unitStats.setBannerTexture(bannerTexture);
     this.unitStats.setCreature(creature);
+    this.unitStats.setTraitsConfig(this.battle.traitsConfig);
 
     const faceTexture = this.getFaceTextureForCreature(creature);
     this.unitStats.setFaceTexture(faceTexture);
@@ -441,7 +442,7 @@ export class BattleHud2D {
   public toggleUnitStats(): void {
     if (!this.assets.uiSheet) return;
     if (!this.unitStats) {
-      this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet);
+      this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet, this.battle.traitsConfig);
     }
     this.unitStats.toggleVisibility();
     this.settings.hex.showStats = this.unitStats.isVisible();

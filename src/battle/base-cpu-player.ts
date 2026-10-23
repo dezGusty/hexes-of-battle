@@ -6,6 +6,8 @@ import { BattleHexMapPath } from "./battle-hex-map-path";
 import { NumMatrix } from "../shared/num-matrix";
 import { Creature } from "./creature";
 import { CPUPlayer } from "./cpu-player";
+import { BattleActionType } from "./battle-action";
+import { calculateDamageWithTraits } from "./trait-system";
 
 export enum CPUPlayerState {
   NONE = 0,
@@ -333,12 +335,37 @@ export abstract class BaseCPUPlayer implements CPUPlayer {
     }
 
     const mult = attacker.getDamageOutputMultiplier();
-    const minAtk = Math.round(attacker.live_stats.attack_melee_low * mult) + flankBonus;
-    const maxAtk = Math.round(attacker.live_stats.attack_melee_high * mult) + flankBonus;
+    const minAtk = Math.round(attacker.live_stats.attack_melee_low * mult);
+    const maxAtk = Math.round(attacker.live_stats.attack_melee_high * mult);
     const def = defender.live_stats.defense_melee;
+    const traitsConfig = this.battle.traitsConfig;
 
-    const damageMin = Math.max(0, minAtk - def);
-    const damageMax = Math.max(0, maxAtk - def);
+    const damageMin = calculateDamageWithTraits({
+      attacker,
+      defender,
+      attackType: BattleActionType.ATTACK_MELEE,
+      baseDamage: minAtk,
+      facingBonus: flankBonus,
+      targetArmor: def,
+      attackFromDir: direction,
+      flankStatus,
+      traitsConfig,
+      commit: false,
+    }).damage;
+
+    const damageMax = calculateDamageWithTraits({
+      attacker,
+      defender,
+      attackType: BattleActionType.ATTACK_MELEE,
+      baseDamage: maxAtk,
+      facingBonus: flankBonus,
+      targetArmor: def,
+      attackFromDir: direction,
+      flankStatus,
+      traitsConfig,
+      commit: false,
+    }).damage;
+
     const avgDamage = (damageMin + damageMax) / 2;
     const willKill = avgDamage >= defender.live_stats.remaining_health;
 
@@ -353,9 +380,28 @@ export abstract class BaseCPUPlayer implements CPUPlayer {
     const minAtk = Math.round(attacker.live_stats.attack_ranged_low * mult);
     const maxAtk = Math.round(attacker.live_stats.attack_ranged_high * mult);
     const def = defender.live_stats.defense_ranged;
+    const traitsConfig = this.battle.traitsConfig;
 
-    const damageMin = Math.max(0, minAtk - def);
-    const damageMax = Math.max(0, maxAtk - def);
+    const damageMin = calculateDamageWithTraits({
+      attacker,
+      defender,
+      attackType: BattleActionType.ATTACK_RANGED,
+      baseDamage: minAtk,
+      targetArmor: def,
+      traitsConfig,
+      commit: false,
+    }).damage;
+
+    const damageMax = calculateDamageWithTraits({
+      attacker,
+      defender,
+      attackType: BattleActionType.ATTACK_RANGED,
+      baseDamage: maxAtk,
+      targetArmor: def,
+      traitsConfig,
+      commit: false,
+    }).damage;
+
     const avgDamage = (damageMin + damageMax) / 2;
     const willKill = avgDamage >= defender.live_stats.remaining_health;
 
@@ -377,9 +423,28 @@ export abstract class BaseCPUPlayer implements CPUPlayer {
     const minAtk = Math.round(defender.live_stats.attack_melee_low * mult);
     const maxAtk = Math.round(defender.live_stats.attack_melee_high * mult);
     const def = attacker.live_stats.defense_melee;
+    const traitsConfig = this.battle.traitsConfig;
 
-    const damageMin = Math.max(0, minAtk - def);
-    const damageMax = Math.max(0, maxAtk - def);
+    const damageMin = calculateDamageWithTraits({
+      attacker: defender,
+      defender: attacker,
+      attackType: BattleActionType.COUNTER_ATTACK_MELEE,
+      baseDamage: minAtk,
+      targetArmor: def,
+      traitsConfig,
+      commit: false,
+    }).damage;
+
+    const damageMax = calculateDamageWithTraits({
+      attacker: defender,
+      defender: attacker,
+      attackType: BattleActionType.COUNTER_ATTACK_MELEE,
+      baseDamage: maxAtk,
+      targetArmor: def,
+      traitsConfig,
+      commit: false,
+    }).damage;
+
     const avgDamage = (damageMin + damageMax) / 2;
     const willKillAttacker = avgDamage >= attacker.live_stats.remaining_health;
 

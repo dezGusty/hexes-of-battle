@@ -10,6 +10,7 @@ import { CreatureTemplate } from '../battle/creature';
 import { JsonLoader } from '../shared/jsonloader';
 import { Coords } from '../shared';
 import { PixiSoundSystem } from './sound-system';
+import { parseTraitsConfig } from '../battle/trait-system';
 
 export class HexesEngine {
   public readonly version: string = pkg.version;
@@ -115,6 +116,17 @@ export class HexesEngine {
       // Use defaults if not found
     }
     try {
+      const traitsData = await JsonLoader.loadJson<any>('./traits.json');
+      if (traitsData) {
+        this.templates.traitsConfig = parseTraitsConfig(traitsData);
+        if (this.templates.combatConfig) {
+          this.templates.combatConfig.traits = this.templates.traitsConfig;
+        }
+      }
+    } catch {
+      // Use defaults if not found
+    }
+    try {
       this.templates.scenarios = await JsonLoader.loadJson<any[]>('./scenarios.json');
     } catch {
       // Use empty if not found
@@ -199,6 +211,17 @@ export class HexesEngine {
       this.assets.softCursorTextures['attack_melee_se'] = this.assets.uiSheet.textures['cursor_sword_se.png'];
       this.assets.softCursorTextures['attack_melee_sw'] = this.assets.uiSheet.textures['cursor_sword_sw.png'];
       this.assets.softCursorTextures['attack_ranged'] = this.assets.uiSheet.textures['cursor_arrow.png'];
+    }
+
+    try {
+      await Assets.load([
+        'traits/icon_shield_block.png',
+        'traits/icon_spear_wall.png',
+        'traits/icon_volley_fire.png',
+        'traits/icon_fragile_line.png',
+      ]);
+    } catch {
+      // Ignore if offline/headless
     }
   }
 

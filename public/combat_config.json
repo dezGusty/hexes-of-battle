@@ -91,5 +91,24 @@
   "hero": {
     "bodyguardRetinueAbsorption": 1.0,
     "presenceMoraleBonus": 15
+  },
+  "traits": {
+    "fragileLine": {
+      "extraMoraleLoss": 2
+    },
+    "shieldBlock": {
+      "damageReduction": 2
+    },
+    "volleyFire": {
+      "highThreshold": 0.75,
+      "highMultiplier": 1.25,
+      "midThreshold": 0.50,
+      "midMultiplier": 1.0,
+      "lowMultiplier": 0.75
+    },
+    "spearWall": {
+      "damageReduction": 2,
+      "exactDirectionOnly": true
+    }
   }
 }
