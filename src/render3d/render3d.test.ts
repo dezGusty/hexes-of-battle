@@ -453,6 +453,7 @@ describe('3D Graphics Engine & Rendering Systems', () => {
         'glyph_reset.png',
         'glyph_ability1.png',
         'glyph_stamina',
+        'cursor_arrow.png',
         'panel.png',
       ];
       textureNames.forEach((name) => {
@@ -480,6 +481,7 @@ describe('3D Graphics Engine & Rendering Systems', () => {
 
         const hud = new BattleHud2D(assets, settings, battle);
         let eventToggledValue: boolean | undefined;
+        let hardwareCursorToggledValue: boolean | undefined;
         hud.initialize({
           onZoomIn: () => {},
           onZoomOut: () => {},
@@ -490,6 +492,9 @@ describe('3D Graphics Engine & Rendering Systems', () => {
           onRest: () => {},
           onToggleFps: (val) => {
             eventToggledValue = val;
+          },
+          onToggleHardwareCursor: (val) => {
+            hardwareCursorToggledValue = val;
           },
         });
 
@@ -505,6 +510,17 @@ describe('3D Graphics Engine & Rendering Systems', () => {
         expect(hud.isFpsVisible()).toBe(true);
         expect(settings.debug.showFps).toBe(true);
         expect(eventToggledValue).toBe(true);
+
+        // Hardware cursor toggle button
+        expect(hud.battleMenuPanel?.toggleHardwareCursorButton).toBeDefined();
+        expect(settings.hideHardwareCursor).toBe(false);
+        hud.battleMenuPanel!.toggleHardwareCursorButton!.onPress.emit();
+        expect(settings.hideHardwareCursor).toBe(true);
+        expect(hardwareCursorToggledValue).toBe(true);
+
+        hud.battleMenuPanel!.toggleHardwareCursorButton!.onPress.emit();
+        expect(settings.hideHardwareCursor).toBe(false);
+        expect(hardwareCursorToggledValue).toBe(false);
 
         hud.destroy();
       } finally {

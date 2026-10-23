@@ -212,6 +212,27 @@ export class BattleView {
     }
   }
 
+  public applyHardwareCursorVisibility(hidden: boolean): void {
+    const gameContainer = typeof document !== 'undefined' ? document.getElementById('game') : null;
+    if (gameContainer) {
+      if (hidden) {
+        gameContainer.classList.add('hide-hardware-cursor');
+        gameContainer.style.cursor = 'none';
+      } else {
+        gameContainer.classList.remove('hide-hardware-cursor');
+        gameContainer.style.cursor = '';
+      }
+    }
+  }
+
+  public toggleHardwareCursor(): boolean {
+    this.settings.hideHardwareCursor = !this.settings.hideHardwareCursor;
+    this.settings.save();
+    this.applyHardwareCursorVisibility(this.settings.hideHardwareCursor);
+    this.battleMenuPanel?.setHardwareCursorHidden(this.settings.hideHardwareCursor);
+    return this.settings.hideHardwareCursor;
+  }
+
   public clearHover(): void {
     if (this.hexHoverSprite) {
       this.hexCellsContainer.removeChild(this.hexHoverSprite);
@@ -351,8 +372,10 @@ export class BattleView {
           SaveManager.loadBattle(entry, this.battle);
         }
       };
+      this.battleMenuPanel.setHardwareCursorHidden(this.settings.hideHardwareCursor);
       this.battleMenuPanel.hide();
     }
+    this.applyHardwareCursorVisibility(this.settings.hideHardwareCursor);
 
     this.commonControls.getControls().forEach((control) => {
       this.uiRenderGroup.addChild(control);
@@ -411,6 +434,13 @@ export class BattleView {
       if (this.fpsText) {
         this.fpsText.visible = this.settings.debug.showFps;
       }
+    });
+
+    this.battleMenuPanel?.toggleHardwareCursorButton?.onPress.connect(() => {
+      this.settings.hideHardwareCursor = !this.settings.hideHardwareCursor;
+      this.settings.save();
+      this.applyHardwareCursorVisibility(this.settings.hideHardwareCursor);
+      this.battleMenuPanel?.setHardwareCursorHidden(this.settings.hideHardwareCursor);
     });
 
     this.battleMenuPanel?.toggleMusicButton?.onPress.connect(() => {

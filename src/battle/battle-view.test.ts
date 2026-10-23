@@ -319,6 +319,7 @@ describe("BattleMenuPanel 2-Column Layout & Scene Inspector Toggle", () => {
       'glyph_toggle_stats.png',
       'glyph_plus.png',
       'glyph_next_turn.png',
+      'cursor_arrow.png',
       'panel.png',
     ];
     textureNames.forEach((name) => {
@@ -352,6 +353,7 @@ describe("BattleMenuPanel 2-Column Layout & Scene Inspector Toggle", () => {
     expect(menu.saveButton).toBeDefined();
     expect(menu.loadButton).toBeDefined();
     expect(menu.toggleStatsButton).toBeDefined();
+    expect(menu.toggleHardwareCursorButton).toBeDefined();
 
     // Verify column 2 X coordinates are greater than column 1 X coordinates
     expect(menu.toggleMusicButton!.position.x).toBeGreaterThan(menu.fullscreenToggleButton!.position.x);
@@ -359,6 +361,8 @@ describe("BattleMenuPanel 2-Column Layout & Scene Inspector Toggle", () => {
     expect(menu.saveButton!.position.x).toBeGreaterThan(menu.toggleGridButton!.position.x);
     expect(menu.loadButton!.position.x).toBeGreaterThan(menu.showHealthbarsButton!.position.x);
     expect(menu.toggleStatsButton!.position.x).toBeGreaterThan(menu.toggleSceneInspectorButton!.position.x);
+    expect(menu.toggleHardwareCursorButton!.position.x).toBeGreaterThan(menu.toggleFpsButton!.position.x);
+    expect(menu.toggleHardwareCursorButton!.position.y).toBe(430);
 
     let inspectorToggled = false;
     menu.onToggleSceneInspector = () => {
@@ -381,7 +385,60 @@ describe("BattleMenuPanel 2-Column Layout & Scene Inspector Toggle", () => {
     menu.toggleStatsButton!.onPress.emit();
     expect(statsToggled).toBe(true);
 
+    let cursorToggled: boolean | undefined;
+    menu.onToggleHardwareCursor = (hide) => {
+      cursorToggled = hide;
+    };
+    expect(menu.hardwareCursorChecked).toBe(false);
+    menu.toggleHardwareCursorButton!.onPress.emit();
+    expect(cursorToggled).toBe(true);
+    expect(menu.hardwareCursorChecked).toBe(true);
+
+    menu.setHardwareCursorHidden(false);
+    expect(menu.hardwareCursorChecked).toBe(false);
+
     menu.destroy();
+  });
+
+  it("should persist and load hideHardwareCursor in hob.hideHardwareCursor in localStorage", () => {
+    const storage: Record<string, string> = {};
+    (globalThis as any).localStorage = {
+      getItem: (key: string) => storage[key] ?? null,
+      setItem: (key: string, value: string) => {
+        storage[key] = value;
+      },
+      removeItem: (key: string) => {
+        delete storage[key];
+      },
+      clear: () => {
+        Object.keys(storage).forEach((k) => delete storage[k]);
+      },
+    };
+
+    const settings = new BattleSettings();
+    // Default setting must be visible (false)
+    expect(settings.hideHardwareCursor).toBe(false);
+    expect(settings.hotkeys.toggleHardwareCursor).toBe('f8');
+
+    // Enable hideHardwareCursor and save
+    settings.hideHardwareCursor = true;
+    settings.save();
+    expect(storage['hob.hideHardwareCursor']).toBe('true');
+
+    // Load into new settings instance
+    const freshSettings = new BattleSettings();
+    expect(freshSettings.hideHardwareCursor).toBe(false);
+    freshSettings.load();
+    expect(freshSettings.hideHardwareCursor).toBe(true);
+
+    // Disable and save
+    freshSettings.hideHardwareCursor = false;
+    freshSettings.save();
+    expect(storage['hob.hideHardwareCursor']).toBe('false');
+
+    const freshSettings2 = new BattleSettings();
+    freshSettings2.load();
+    expect(freshSettings2.hideHardwareCursor).toBe(false);
   });
 });
 

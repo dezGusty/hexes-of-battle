@@ -56,6 +56,7 @@ export interface BattleHooks {
   hookActiveUnitChanged?: (creature: Creature) => void;
   hookRangedScatter?: (attacker: Creature, originalTarget: Coords, scatterTarget: Coords, hitCreature: Creature | null) => void;
   hookMoraleBreak?: (creature: Creature, state: MoraleState) => void;
+  hookUnitChangedFacing?: (creature: Creature, direction: HexDirection) => void;
 }
 
 export enum ArmyControlType {
@@ -402,6 +403,7 @@ export class Battle {
     if (direction === HexDirection.NONE) return false;
     this.creatures[creatureIndex].facingDirection = direction;
     this.nextRenderUpdate.setUnitRenderUpdate();
+    this.hookUnitChangedFacing?.(this.creatures[creatureIndex], direction);
     return true;
   }
 
@@ -480,6 +482,7 @@ export class Battle {
           if (!isAdjacent) {
             // Unblocked ranged attack with scatter and friendly fire check
             this.currentActions.push(new BattleAction(BattleActionType.ATTACK_RANGED, [coords], 0, 500, 50, creature, creatureAtTarget.creature));
+            creature.stats.has_attacked = true;
             this.nextRenderUpdate.setUnitRenderUpdate();
             return;
           }
@@ -527,6 +530,7 @@ export class Battle {
     }
 
     this.currentActions.push(BattleAction.CreateAttackMelee(creature, creatureAtTarget.creature));
+    creature.stats.has_attacked = true;
   }
 
   public handlePrimaryCellAction(coords: Coords, optionalDirection: HexDirection = HexDirection.NONE): boolean {
@@ -551,6 +555,24 @@ export class Battle {
 
     if (this.cancelTargetForAbilityIfApplicable()) {
       return true;
+    }
+
+    const activeCreature = this.getActiveCreature();
+    if (
+      activeCreature &&
+      activeCreature.isAlive &&
+      activeCreature.armyAlignment === this.currentArmyIndex &&
+      coords.x === activeCreature.position.x &&
+      coords.y === activeCreature.position.y
+    ) {
+      if (
+        optionalDirection !== HexDirection.NONE &&
+        !activeCreature.hasAttackedThisTurn() &&
+        activeCreature.live_stats.remaining_attacks > 0
+      ) {
+        return this.setCreatureFacing(this.activeCreatureIndex, optionalDirection);
+      }
+      return false;
     }
 
     this.moveOrAttackWithActiveCreatureAtLocation(coords, optionalDirection, meleePreference);
@@ -1143,6 +1165,7 @@ export class Battle {
 
       attacker.stats.remaining_attacks = Math.max(0, attacker.stats.remaining_attacks - 1);
       attacker.stats.remaining_movement = 0;
+      attacker.stats.has_attacked = true;
       return false;
     }
 
@@ -1152,6 +1175,7 @@ export class Battle {
     if (hitCreatureInBattle === null) {
       attacker.stats.remaining_attacks = Math.max(0, attacker.stats.remaining_attacks - 1);
       attacker.stats.remaining_movement = 0;
+      attacker.stats.has_attacked = true;
       return counterattacking;
     }
 
@@ -1184,6 +1208,7 @@ export class Battle {
 
     attacker.stats.remaining_attacks = Math.max(0, attacker.stats.remaining_attacks - 1);
     attacker.stats.remaining_movement = 0;
+    attacker.stats.has_attacked = true;
     return counterattacking;
   }
 
@@ -1408,6 +1433,7 @@ export class Battle {
           break;
         case AbilityResourceUse.Attack:
           creature.stats.remaining_attacks -= res.resource_cost;
+          creature.stats.has_attacked = true;
           break;
         case AbilityResourceUse.Stamina:
           creature.consumeStamina(res.resource_cost);
@@ -1568,4 +1594,5 @@ export class Battle {
   hookActiveUnitChanged(_creature: Creature) {}
   hookRangedScatter(_attacker: Creature, _orig: Coords, _scatter: Coords, _hit: Creature | null) {}
   hookMoraleBreak(_creature: Creature, _state: MoraleState) {}
+  hookUnitChangedFacing?(_creature: Creature, _direction: HexDirection) {}
 }

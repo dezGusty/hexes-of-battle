@@ -691,4 +691,159 @@ describe("Tactical Systems Validation", () => {
       expect(unit.stats.morale).toBe(9);   // 8 + 1 = 9
     });
   });
+
+  describe("9. Free Unit Orientation Change via Right Click on Same Hex", () => {
+    it("should allow selected unit to change orientation freely by right-clicking on its own hex towards an edge before attacking", () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const unit = new Creature(CreatureType.SWORDSMAN);
+      unit.position = { x: 3, y: 3 };
+      unit.armyAlignment = 0;
+      unit.facingDirection = HexDirection.EAST;
+      const initialMoves = unit.stats.remaining_movement;
+      const initialStamina = unit.stats.stamina;
+      const initialAttacks = unit.stats.remaining_attacks;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        creatures: [unit],
+      });
+      battle.handlePrimaryCellAction(unit.position);
+
+      // Unit at (3, 3) is active
+      expect(battle.getActiveCreature()).toBe(unit);
+      expect(unit.facingDirection).toBe(HexDirection.EAST);
+
+      // Right-click on self towards WEST
+      const okWest = battle.handleSecondaryCellAction({ x: 3, y: 3 }, HexDirection.WEST);
+      expect(okWest).toBe(true);
+      expect(unit.facingDirection).toBe(HexDirection.WEST);
+
+      // Freely changes orientation: movement, stamina, and attacks are untouched
+      expect(unit.stats.remaining_movement).toBe(initialMoves);
+      expect(unit.stats.stamina).toBe(initialStamina);
+      expect(unit.stats.remaining_attacks).toBe(initialAttacks);
+
+      // Reorient towards NORTHEAST
+      const okNE = battle.handleSecondaryCellAction({ x: 3, y: 3 }, HexDirection.NORTHEAST);
+      expect(okNE).toBe(true);
+      expect(unit.facingDirection).toBe(HexDirection.NORTHEAST);
+
+      // Reorient towards SOUTHEAST
+      const okSE = battle.handleSecondaryCellAction({ x: 3, y: 3 }, HexDirection.SOUTHEAST);
+      expect(okSE).toBe(true);
+      expect(unit.facingDirection).toBe(HexDirection.SOUTHEAST);
+
+      // Direction NONE does not change orientation
+      const okNone = battle.handleSecondaryCellAction({ x: 3, y: 3 }, HexDirection.NONE);
+      expect(okNone).toBe(false);
+      expect(unit.facingDirection).toBe(HexDirection.SOUTHEAST);
+    });
+
+    it("should allow unit to change orientation after moving as long as it has not attacked yet", () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const unit = new Creature(CreatureType.SWORDSMAN);
+      unit.position = { x: 2, y: 2 };
+      unit.armyAlignment = 0;
+      unit.facingDirection = HexDirection.EAST;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        creatures: [unit],
+      });
+      battle.handlePrimaryCellAction(unit.position);
+
+      expect(battle.getActiveCreature()).toBe(unit);
+
+      // Move unit to adjacent cell (3, 2)
+      battle.handleSecondaryCellAction({ x: 3, y: 2 });
+      battle.stepInstant();
+
+      expect(unit.position).toEqual({ x: 3, y: 2 });
+      expect(unit.stats.remaining_movement).toBeLessThan(unit.stats.num_moves);
+      expect(unit.hasAttackedThisTurn()).toBe(false);
+
+      // Unit moved, but has NOT attacked yet -> changing orientation is allowed
+      const ok = battle.handleSecondaryCellAction({ x: 3, y: 2 }, HexDirection.SOUTHWEST);
+      expect(ok).toBe(true);
+      expect(unit.facingDirection).toBe(HexDirection.SOUTHWEST);
+    });
+
+    it("should disallow changing orientation if the unit has already attacked this turn", () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const attacker = new Creature(CreatureType.SWORDSMAN);
+      attacker.position = { x: 2, y: 2 };
+      attacker.armyAlignment = 0;
+      attacker.facingDirection = HexDirection.EAST;
+
+      const defender = new Creature(CreatureType.PEASANT);
+      defender.position = { x: 3, y: 2 };
+      defender.armyAlignment = 1;
+      defender.facingDirection = HexDirection.WEST;
+      defender.stats.health = 100;
+      defender.stats.remaining_health = 100;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        creatures: [attacker, defender],
+      });
+      battle.handlePrimaryCellAction(attacker.position);
+
+      // Attacker attacks defender
+      battle.handleSecondaryCellAction({ x: 3, y: 2 });
+      battle.stepInstant();
+      battle.stepInstant();
+
+      expect(attacker.hasAttackedThisTurn()).toBe(true);
+      expect(attacker.stats.remaining_attacks).toBe(0);
+
+      const initialFacing = attacker.facingDirection;
+
+      // Attempting to change orientation after attacking should be rejected
+      const ok = battle.handleSecondaryCellAction({ x: 2, y: 2 }, HexDirection.NORTHWEST);
+      expect(ok).toBe(false);
+      expect(attacker.facingDirection).toBe(initialFacing);
+    });
+
+    it("should dynamically affect flanking and backstabbing when unit orientation is changed", () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const playerUnit = new Creature(CreatureType.SWORDSMAN);
+      playerUnit.position = { x: 3, y: 3 };
+      playerUnit.armyAlignment = 0;
+      playerUnit.facingDirection = HexDirection.EAST;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        creatures: [playerUnit],
+      });
+      battle.handlePrimaryCellAction(playerUnit.position);
+
+      // An attack from WEST into playerUnit facing EAST is a backstab
+      const attackFromWest = HexDirection.WEST;
+      expect(checkFlankingStatus(playerUnit.facingDirection, attackFromWest)).toBe(HexFlankStatus.BACKSTAB);
+
+      // Player turns unit to face WEST to face the threat
+      const turned = battle.handleSecondaryCellAction({ x: 3, y: 3 }, HexDirection.WEST);
+      expect(turned).toBe(true);
+      expect(playerUnit.facingDirection).toBe(HexDirection.WEST);
+
+      // Now attack from WEST meets front of unit (no backstab or flank)
+      expect(checkFlankingStatus(playerUnit.facingDirection, attackFromWest)).toBe(HexFlankStatus.NONE);
+
+      // Attack from EAST (now from behind) is now a backstab
+      const attackFromEast = HexDirection.EAST;
+      expect(checkFlankingStatus(playerUnit.facingDirection, attackFromEast)).toBe(HexFlankStatus.BACKSTAB);
+    });
+  });
 });

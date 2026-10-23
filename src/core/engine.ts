@@ -83,6 +83,11 @@ export class HexesEngine {
       event.preventDefault();
     });
 
+    if (this.settings.hideHardwareCursor) {
+      containingElement.classList.add('hide-hardware-cursor');
+      containingElement.style.cursor = 'none';
+    }
+
     this.app.stage.addChild(this.renderContainer);
 
     await this.loadTemplates();

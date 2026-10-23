@@ -651,10 +651,33 @@ export class BattleView3D {
       }
       if (this.battle.isCurrentTurnAI()) return;
 
-      // Right-click: Target for movement or attack
-      if (e.button === 2 && this.hoveredHex) {
-        this.battle.handleSecondaryCellAction(this.hoveredHex, this.hoveredDirection, e.ctrlKey);
-        this.updateHoverVisuals();
+      // Right-click: Target for movement, attack, or orientation change
+      if (e.button === 2) {
+        if (!this.hoveredHex) {
+          const hits = this.sceneManager.raycastFromScreen(e.clientX, e.clientY, [this.hexBoard.group]);
+          if (hits.length > 0) {
+            const hitTile = hits.find((h) => (h.object as any).userData?.isHexTile);
+            if (hitTile) {
+              const { hexX, hexY } = (hitTile.object as any).userData;
+              this.hoveredHex = { x: hexX, y: hexY };
+              const centerWorld = this.hexBoard.hexToWorld(hexX, hexY);
+              const dx = hitTile.point.x - centerWorld.x;
+              const dz = hitTile.point.z - centerWorld.z;
+              this.hoveredDirection = this.hexBoard.worldVectorToHexDirection(dx, dz);
+            }
+          }
+        }
+
+        if (this.hoveredHex) {
+          this.battle.handleSecondaryCellAction(this.hoveredHex, this.hoveredDirection, e.ctrlKey);
+          const active = this.battle.getActiveCreature();
+          if (active) {
+            const squad = this.squadVisuals.get(active.GUID.toString());
+            squad?.setFacing(active.facingDirection);
+          }
+          this.updateActiveUnitSelection();
+          this.updateHoverVisuals();
+        }
       }
     };
 

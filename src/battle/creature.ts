@@ -41,6 +41,7 @@ export class CreatureStats {
   traits: string[] = [];
   flying: boolean = false;
   has_rested: boolean = false;
+  has_attacked: boolean = false;
 
   static EMPTY: CreatureStats = {
     ammo: 0,
@@ -78,6 +79,7 @@ export class CreatureStats {
     traits: [],
     flying: false,
     has_rested: false,
+    has_attacked: false,
   };
 }
 
@@ -169,6 +171,7 @@ export class Creature {
     traits: [],
     flying: false,
     has_rested: false,
+    has_attacked: false,
   };
 
   public position: Coords = { x: 0, y: 0 };
@@ -436,7 +439,16 @@ export class Creature {
     if (this.stats.stamina >= this.stats.max_stamina) return false;
     if (this.stats.remaining_movement < this.stats.num_moves) return false;
     if (this.stats.remaining_attacks < this.stats.num_attacks) return false;
+    if (this.stats.has_attacked) return false;
     return true;
+  }
+
+  public hasAttackedThisTurn(): boolean {
+    if (this.stats.has_attacked) return true;
+    if (this.stats.remaining_attacks !== undefined && this.stats.num_attacks !== undefined) {
+      if (this.stats.remaining_attacks < this.stats.num_attacks) return true;
+    }
+    return false;
   }
 
   public rest(amount: number = 5): number {
@@ -454,6 +466,7 @@ export class Creature {
     this.stats.remaining_counterattacks = this.stats.num_counterattacks;
     this.stats.retaliations_done = 0;
     this.stats.has_rested = false;
+    this.stats.has_attacked = false;
     this.updateMoraleState();
     this.updateExhaustionState();
   }

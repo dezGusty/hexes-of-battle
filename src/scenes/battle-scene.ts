@@ -120,6 +120,7 @@ export class BattleScene implements Scene {
         height: this.context.app.screen.height,
       }),
       onToggleStats: () => this.view.toggleUnitStats(),
+      onToggleHardwareCursor: () => this.view.toggleHardwareCursor(),
     });
     this.inputController.attach();
 
