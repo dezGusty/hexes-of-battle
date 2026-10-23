@@ -178,7 +178,7 @@ export class BattleView3D {
       if (!creature.isAlive) return;
 
       const squad = this.visualFactory.createSquadVisual(creature);
-      const worldPos = this.hexBoard.hexToWorldWithElevation(creature.position.x, creature.position.y);
+      const worldPos = this.hexBoard.hexToWorldWithElevation(creature.position.x, creature.position.y, true);
       squad.rootGroup.position.copy(worldPos);
       squad.setFacing(creature.facingDirection);
 
@@ -372,7 +372,7 @@ export class BattleView3D {
       this.squadVisuals.forEach((squad, guidStr) => {
         const creature = this.battle.creatures.find((c) => c.GUID.toString() === guidStr);
         if (creature && creature.isAlive && creature.aliveModelCount > 0) {
-          const worldPos = this.hexBoard.hexToWorldWithElevation(creature.position.x, creature.position.y);
+          const worldPos = this.hexBoard.hexToWorldWithElevation(creature.position.x, creature.position.y, true);
           squad.rootGroup.position.copy(worldPos);
           squad.setFacing(creature.facingDirection);
           squad.updateStats();

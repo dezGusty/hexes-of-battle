@@ -905,9 +905,20 @@ export class HexBoard3D {
     return 0;
   }
 
-  public hexToWorldWithElevation(x: number, y: number): THREE.Vector3 {
+  /**
+   * Returns a subtle front-back (Z) offset for units sitting on adjacent hexes
+   * (especially on the same horizontal East-West row) to prevent billboard z-fighting and clipping.
+   */
+  public getUnitFrontBackOffset(x: number, y: number): number {
+    return (x % 2 === 0 ? 0.035 : -0.035) + (y % 2 === 0 ? 0.015 : -0.015);
+  }
+
+  public hexToWorldWithElevation(x: number, y: number, offsetForUnit: boolean = false): THREE.Vector3 {
     const v = this.hexToWorld(x, y);
     v.y = this.getHexElevation(x, y);
+    if (offsetForUnit) {
+      v.z += this.getUnitFrontBackOffset(x, y);
+    }
     return v;
   }
 

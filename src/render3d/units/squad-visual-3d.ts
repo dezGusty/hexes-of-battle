@@ -63,6 +63,10 @@ export class SquadVisual3D {
     this.updateStats();
   }
 
+  public getModelOffsets(): readonly THREE.Vector3[] {
+    return this.modelOffsets;
+  }
+
   private calculateFormationOffsets(): void {
     const count = this.models.length;
     this.modelOffsets = [];
@@ -72,23 +76,37 @@ export class SquadVisual3D {
       return;
     }
 
+    if (count === 2) {
+      this.modelOffsets.push(new THREE.Vector3(-0.3, 0, 0.04));
+      this.modelOffsets.push(new THREE.Vector3(0.3, 0, -0.04));
+      return;
+    }
+
+    if (count === 3) {
+      this.modelOffsets.push(new THREE.Vector3(-0.35, 0, 0.04));
+      this.modelOffsets.push(new THREE.Vector3(0, 0, -0.04));
+      this.modelOffsets.push(new THREE.Vector3(0.35, 0, 0.04));
+      return;
+    }
+
     if (count === 4) {
-      // 2x2 grid
+      // 2x2 grid with front-back offset between side-by-side units
       const s = 0.35;
-      this.modelOffsets.push(new THREE.Vector3(-s, 0, -s));
-      this.modelOffsets.push(new THREE.Vector3(s, 0, -s));
-      this.modelOffsets.push(new THREE.Vector3(-s, 0, s));
-      this.modelOffsets.push(new THREE.Vector3(s, 0, s));
+      const dz = 0.04;
+      this.modelOffsets.push(new THREE.Vector3(-s, 0, -s + dz));
+      this.modelOffsets.push(new THREE.Vector3(s, 0, -s - dz));
+      this.modelOffsets.push(new THREE.Vector3(-s, 0, s - dz));
+      this.modelOffsets.push(new THREE.Vector3(s, 0, s + dz));
     } else if (count === 6) {
-      // 3x2 grid (hero in center)
+      // 3x2 grid (hero in center) with front-back offset between adjacent units
       const sx = 0.32;
       const sz = 0.28;
-      this.modelOffsets.push(new THREE.Vector3(-sx, 0, -sz));
-      this.modelOffsets.push(new THREE.Vector3(0, 0, -sz));
-      this.modelOffsets.push(new THREE.Vector3(sx, 0, -sz));
-      this.modelOffsets.push(new THREE.Vector3(-sx, 0, sz));
-      this.modelOffsets.push(new THREE.Vector3(0, 0, sz));
-      this.modelOffsets.push(new THREE.Vector3(sx, 0, sz));
+      this.modelOffsets.push(new THREE.Vector3(-sx, 0, -sz + 0.04));
+      this.modelOffsets.push(new THREE.Vector3(0, 0, -sz - 0.04));
+      this.modelOffsets.push(new THREE.Vector3(sx, 0, -sz + 0.04));
+      this.modelOffsets.push(new THREE.Vector3(-sx, 0, sz - 0.04));
+      this.modelOffsets.push(new THREE.Vector3(0, 0, sz + 0.04));
+      this.modelOffsets.push(new THREE.Vector3(sx, 0, sz - 0.04));
     } else if (count <= 8) {
       // 4x2 grid
       const sx = 0.25;
@@ -96,7 +114,9 @@ export class SquadVisual3D {
       for (let r = 0; r < 2; r++) {
         for (let c = 0; c < 4; c++) {
           if (this.modelOffsets.length < count) {
-            this.modelOffsets.push(new THREE.Vector3((c - 1.5) * sx, 0, (r - 0.5) * sz));
+            // Stagger adjacent units in row front-back to prevent billboard z-fighting/clipping
+            const staggerZ = ((c % 2 === 0 ? 0.04 : -0.04) + (c - 1.5) * 0.015) * (r % 2 === 0 ? 1 : -1);
+            this.modelOffsets.push(new THREE.Vector3((c - 1.5) * sx, 0, (r - 0.5) * sz + staggerZ));
           }
         }
       }
@@ -107,7 +127,8 @@ export class SquadVisual3D {
       for (let r = 0; r < 3; r++) {
         for (let c = 0; c < 4; c++) {
           if (this.modelOffsets.length < count) {
-            this.modelOffsets.push(new THREE.Vector3((c - 1.5) * sx, 0, (r - 1.0) * sz));
+            const staggerZ = ((c % 2 === 0 ? 0.035 : -0.035) + (c - 1.5) * 0.01) * (r % 2 === 0 ? 1 : -1);
+            this.modelOffsets.push(new THREE.Vector3((c - 1.5) * sx, 0, (r - 1.0) * sz + staggerZ));
           }
         }
       }
@@ -117,7 +138,8 @@ export class SquadVisual3D {
       for (let r = 0; r < 4; r++) {
         for (let c = 0; c < 4; c++) {
           if (this.modelOffsets.length < count) {
-            this.modelOffsets.push(new THREE.Vector3((c - 1.5) * s, 0, (r - 1.5) * s));
+            const staggerZ = ((c % 2 === 0 ? 0.03 : -0.03) + (c - 1.5) * 0.008) * (r % 2 === 0 ? 1 : -1);
+            this.modelOffsets.push(new THREE.Vector3((c - 1.5) * s, 0, (r - 1.5) * s + staggerZ));
           }
         }
       }

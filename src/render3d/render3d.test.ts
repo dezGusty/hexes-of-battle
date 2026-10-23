@@ -245,6 +245,44 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(map.get(c2.GUID.toString())).toBe(c2);
       expect(map.get(c3.GUID.toString())).toBe(c3);
     });
+
+    it('should stagger formation model offsets front-to-back to prevent billboard z-fighting/clipping', () => {
+      const factory = new UnitVisualFactory();
+      const squadCreature = new Creature(CreatureType.PEASANT);
+      squadCreature.stats.model_count = 8;
+      const squad = factory.createSquadVisual(squadCreature);
+
+      const offsets = squad.getModelOffsets();
+      expect(offsets.length).toBe(8);
+
+      // Models sitting next to each other in row 0 must not have identical Z
+      expect(offsets[0].z).not.toBe(offsets[1].z);
+      expect(offsets[1].z).not.toBe(offsets[2].z);
+      expect(offsets[2].z).not.toBe(offsets[3].z);
+
+      // Depth separation between adjacent models prevents z-fighting
+      expect(Math.abs(offsets[0].z - offsets[1].z)).toBeGreaterThanOrEqual(0.05);
+      expect(Math.abs(offsets[1].z - offsets[2].z)).toBeGreaterThanOrEqual(0.05);
+    });
+
+    it('should provide front-to-back offset between units sitting on adjacent hexes', () => {
+      const hexMap = new HexMap(6, 6);
+      const hexBoard = new HexBoard3D(hexMap);
+
+      // Adjacent hexes on same horizontal line: (2, 3) and (3, 3)
+      const offset1 = hexBoard.getUnitFrontBackOffset(2, 3);
+      const offset2 = hexBoard.getUnitFrontBackOffset(3, 3);
+
+      expect(offset1).not.toBe(offset2);
+      expect(Math.abs(offset1 - offset2)).toBeGreaterThanOrEqual(0.05);
+
+      const world1 = hexBoard.hexToWorldWithElevation(2, 3, true);
+      const world2 = hexBoard.hexToWorldWithElevation(3, 3, true);
+      expect(world1.z).not.toBe(world2.z);
+      expect(Math.abs(world1.z - world2.z)).toBeGreaterThan(0.05);
+
+      hexBoard.dispose();
+    });
   });
 
   describe('3. 3D Ballistic Projectile System & Trajectory Curves', () => {
