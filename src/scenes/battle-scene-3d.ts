@@ -83,7 +83,8 @@ export class BattleScene3D implements Scene {
       context.settings,
       this.battle,
       this.cpuPlayer,
-      params?.config?.armyNames
+      params?.config?.armyNames,
+      context.version
     );
     this.container.addChild(this.hud.container);
 

@@ -1,4 +1,5 @@
-import { Container, Sprite, Text, TextStyle, BitmapText, AnimatedSprite } from 'pixi.js';
+import { Container, Sprite, Text, TextStyle, BitmapText, AnimatedSprite, NineSliceSprite, Texture } from 'pixi.js';
+import pkg from '../../package.json';
 import { ProgressBar } from '@pixi/ui';
 import { OutlineFilter, AdvancedBloomFilter } from 'pixi-filters';
 import { sound } from '@pixi/sound';
@@ -8,7 +9,7 @@ import { HexDirection, HexEdge, HexFlankStatus, HexMap } from '../shared/hex-map
 import { HexViewportCamera } from '../shared/hex-viewport-camera';
 import { Coords } from '../shared';
 import { Creature, CreatureType } from './creature';
-import { AnimationType, ArmyControlType, Battle, MapRenderUpdate } from '../battle';
+import { AnimationType, ArmyControlType, Battle, InputState, MapRenderUpdate } from '../battle';
 import { BattleActionType } from './battle-action';
 import { CPUPlayer } from './cpu-player';
 import { CommonControls } from '../ui/common-controls';
@@ -51,8 +52,13 @@ export class BattleView {
   private softCursorName: string = 'default';
 
   private fpsText?: BitmapText;
+  public versionText?: BitmapText;
   private instructionsText?: Text;
   private messagesText?: Text;
+  public targetAcquirementBanner?: Container;
+  public targetAcquirementText?: Text;
+  public targetAcquirementBg?: NineSliceSprite;
+  private gameVersion: string = pkg.version;
   private coordsTexts: Map<string, BitmapText> = new Map();
 
   private unitSprites: Sprite[] = [];
@@ -94,8 +100,13 @@ export class BattleView {
     private armyNames: [string, string] = [
       "The Count of Ekkina's 1st Army",
       "Knights of The Grand Duke"
-    ]
-  ) {}
+    ],
+    gameVersion?: string
+  ) {
+    if (gameVersion) {
+      this.gameVersion = gameVersion;
+    }
+  }
 
   public setCpuPlayer(cpuPlayer: CPUPlayer | undefined): void {
     this.cpuPlayer = cpuPlayer;
@@ -213,7 +224,7 @@ export class BattleView {
   }
 
   public applyHardwareCursorVisibility(hidden: boolean): void {
-    const gameContainer = typeof document !== 'undefined' ? document.getElementById('game') : null;
+    const gameContainer = typeof document !== 'undefined' && typeof document.getElementById === 'function' ? document.getElementById('game') : null;
     if (gameContainer) {
       if (hidden) {
         gameContainer.classList.add('hide-hardware-cursor');
@@ -245,6 +256,9 @@ export class BattleView {
       this.fpsText.text = `FPS: ${Math.round(fps)}`;
       this.fpsText.visible = this.settings.debug.showFps;
     }
+    if (this.versionText) {
+      this.versionText.visible = this.settings.debug.showFps;
+    }
 
     const mapUpdate: MapRenderUpdate = this.battle.update(deltaMS);
 
@@ -254,6 +268,7 @@ export class BattleView {
 
     this.damageValueDisplay.update(deltaMS);
     this.turnChangeDisplay.update(deltaMS);
+    this.updateTargetAcquirementHint();
   }
 
   public showAttackVisuals(
@@ -325,6 +340,7 @@ export class BattleView {
     if (this.unitStats?.isVisible()) {
       this.showStatsForUnit(creature);
     }
+    this.updateTargetAcquirementHint();
   }
 
   public resetGridAndTerrain(): void {
@@ -430,11 +446,8 @@ export class BattleView {
     });
 
     this.battleMenuPanel?.toggleFpsButton?.onPress.connect(() => {
-      this.settings.debug.showFps = !this.settings.debug.showFps;
+      this.setFpsVisible(!this.settings.debug.showFps);
       this.settings.save();
-      if (this.fpsText) {
-        this.fpsText.visible = this.settings.debug.showFps;
-      }
     });
 
     this.battleMenuPanel?.toggleHardwareCursorButton?.onPress.connect(() => {
@@ -486,6 +499,7 @@ export class BattleView {
         if (active) {
           this.showStatsForUnit(active);
         }
+        this.updateTargetAcquirementHint();
       };
       if (this.settings.hex.showStats) {
         this.unitStats.show();
@@ -587,6 +601,29 @@ export class BattleView {
     this.fpsText.visible = this.settings.debug.showFps;
     this.uiRenderGroup.addChild(this.fpsText);
 
+    this.versionText = new BitmapText({
+      text: `Hexes Of Battle v.${this.gameVersion}`,
+      style: {
+        fontFamily: this.settings.debug.fpsFontFamily || 'GustysSerpents',
+        fontSize: this.settings.debug.fpsFontSize || 14,
+        align: 'right',
+      },
+    });
+    if (this.versionText.anchor) {
+      if (typeof this.versionText.anchor.set === 'function') {
+        this.versionText.anchor.set(1, 0);
+      } else {
+        (this.versionText.anchor as any).x = 1;
+        (this.versionText.anchor as any).y = 0;
+      }
+    }
+    this.versionText.x = 1905;
+    this.versionText.y = 8;
+    this.versionText.alpha = this.settings.debug.fpsAlpha ?? 0.7;
+    this.versionText.visible = this.settings.debug.showFps;
+    this.versionText.eventMode = 'none';
+    this.uiRenderGroup.addChild(this.versionText);
+
     const style = new TextStyle({ fontFamily: 'Arial', fontSize: 18, fill: { color: '#ffffff', alpha: 1 } });
     this.instructionsText = new Text({ text: '', style });
     this.instructionsText.position = { x: 1480, y: 5 };
@@ -596,6 +633,86 @@ export class BattleView {
     this.messagesText.x = 10;
     this.messagesText.y = 60;
     this.uiRenderGroup.addChild(this.messagesText);
+
+    this.initializeTargetAcquirementBanner();
+  }
+
+  public initializeTargetAcquirementBanner(): void {
+    if (this.targetAcquirementBanner) return;
+
+    this.targetAcquirementBanner = new Container();
+    this.targetAcquirementBanner.position.set(800, 75);
+    this.targetAcquirementBanner.eventMode = 'none';
+    this.targetAcquirementBanner.visible = false;
+
+    const bannerWidth = 720;
+    const bannerHeight = 40;
+
+    if (this.assets.uiSheet?.textures) {
+      this.targetAcquirementBg = new NineSliceSprite({
+        texture:
+          this.assets.uiSheet.textures['thin_panel_semitransparent.png'] ||
+          this.assets.uiSheet.textures['panel.png'] ||
+          Texture.EMPTY,
+        leftWidth: 8,
+        topHeight: 8,
+        rightWidth: 8,
+        bottomHeight: 8,
+      });
+      this.targetAcquirementBg.width = bannerWidth;
+      this.targetAcquirementBg.height = bannerHeight;
+      this.targetAcquirementBg.position.set(-bannerWidth / 2, -bannerHeight / 2);
+      this.targetAcquirementBg.tint = 0x162238;
+      this.targetAcquirementBanner.addChild(this.targetAcquirementBg);
+    }
+
+    this.targetAcquirementText = new Text({
+      text: '',
+      style: {
+        fontFamily: 'GustysSerpents',
+        fill: { color: '#ffea75', alpha: 1 },
+        fontSize: 16,
+        fontWeight: 'bold',
+        align: 'center',
+      },
+    });
+    this.targetAcquirementText.anchor.set(0.5, 0.5);
+    this.targetAcquirementBanner.addChild(this.targetAcquirementText);
+
+    this.uiPlusRenderGroup.addChild(this.targetAcquirementBanner);
+  }
+
+  public updateTargetAcquirementHint(): void {
+    if (this.battle.input_state === InputState.SELECT_ABILITY_TARGET && this.battle.abilityToApply) {
+      const abilityName = this.battle.abilityToApply.tooltipName || this.battle.abilityToApply.name || 'skill';
+      this.showTargetAcquirementHint(abilityName);
+    } else {
+      this.hideTargetAcquirementHint();
+    }
+  }
+
+  public showTargetAcquirementHint(skillName: string): void {
+    if (this.instructionsText) {
+      this.instructionsText.text = `[Targeting ${skillName}: Left-click use, Right-click cancel]`;
+    }
+    if (!this.targetAcquirementBanner) {
+      this.initializeTargetAcquirementBanner();
+    }
+    if (this.targetAcquirementText) {
+      this.targetAcquirementText.text = `Select target for ${skillName}: Left-click on target to use, Right-click to cancel`;
+    }
+    if (this.targetAcquirementBanner) {
+      this.targetAcquirementBanner.visible = true;
+    }
+  }
+
+  public hideTargetAcquirementHint(): void {
+    if (this.instructionsText) {
+      this.instructionsText.text = '';
+    }
+    if (this.targetAcquirementBanner) {
+      this.targetAcquirementBanner.visible = false;
+    }
   }
 
   public updateCoordsTexts(): void {
@@ -965,7 +1082,11 @@ export class BattleView {
         this.hexHoverSprite.y = hexHoverCoords.y - this.hexMap.cellSize().y / 2;
       }
 
-      if (mapUpdate.hoverEnemyIndex !== -1) {
+      if (this.battle.input_state === InputState.SELECT_ABILITY_TARGET) {
+        if (this.battle.activeCreatureIndex !== -1) {
+          this.showStatsForUnit(this.battle.creatures[this.battle.activeCreatureIndex]);
+        }
+      } else if (mapUpdate.hoverEnemyIndex !== -1) {
         this.showStatsForUnit(this.battle.creatures[mapUpdate.hoverEnemyIndex]);
       } else if (mapUpdate.hoverOverUnitIndex !== -1) {
         this.showStatsForUnit(this.battle.creatures[mapUpdate.hoverOverUnitIndex]);
@@ -1033,7 +1154,10 @@ export class BattleView {
   }
 
   public showStatsForUnit(creature: Creature): void {
-    if (!this.unitStats) return;
+    if (!this.unitStats || !creature) return;
+    if (this.battle.input_state === InputState.SELECT_ABILITY_TARGET && creature.armyAlignment !== this.battle.currentArmyIndex) {
+      return;
+    }
 
     const bannerName = this.getBannerTextureNameForArmyIndex(creature.armyAlignment);
     const bannerTexture = this.assets.bannersSheet?.textures[bannerName];
@@ -1147,6 +1271,20 @@ export class BattleView {
       this.unitStats.setTraitsConfig(this.battle.traitsConfig);
       this.unitStats.update();
     }
+  }
+
+  public setFpsVisible(visible: boolean): void {
+    this.settings.debug.showFps = visible;
+    if (this.fpsText) {
+      this.fpsText.visible = visible;
+    }
+    if (this.versionText) {
+      this.versionText.visible = visible;
+    }
+  }
+
+  public isFpsVisible(): boolean {
+    return this.fpsText?.visible ?? this.settings.debug.showFps;
   }
 
   public destroy(): void {

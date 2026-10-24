@@ -77,7 +77,8 @@ export class BattleScene implements Scene {
       this.battle,
       1.4,
       this.cpuPlayer,
-      params?.config?.armyNames
+      params?.config?.armyNames,
+      context.version
     );
     this.container.addChild(this.view.container);
 

@@ -17,6 +17,7 @@ import { DefensiveCPUPlayer } from "./defensive-cpu-player";
 import { DumbCPUPlayer } from "./dumb-cpu-player";
 import { UnitStatsPanel } from "../ui/unit-stats-panel";
 import { BattleMenuPanel } from "../ui/battle-menu";
+import pkg from "../../package.json";
 
 describe("BattleView Army Names Formatting", () => {
   const dummyAssets: any = { softCursorTextures: {} };
@@ -274,6 +275,88 @@ describe("UnitStatsPanel Visibility", () => {
     expect(reloadedSettings.debug.showFps).toBe(true);
     expect(storage['hob.debug.showFps']).toBe('true');
   });
+
+  it("should persist and load showCoords in hob.debug and hob.debug.showCoords in localStorage", () => {
+    const storage: Record<string, string> = {};
+    (globalThis as any).localStorage = {
+      getItem: (key: string) => storage[key] ?? null,
+      setItem: (key: string, value: string) => {
+        storage[key] = value;
+      },
+      removeItem: (key: string) => {
+        delete storage[key];
+      },
+      clear: () => {
+        Object.keys(storage).forEach((k) => delete storage[k]);
+      },
+    };
+
+    const settings = new BattleSettings();
+    expect(settings.debug.showCoords).toBe(true);
+
+    // Toggle coords off and save
+    settings.debug.showCoords = false;
+    settings.save();
+
+    const storedDebug = JSON.parse(storage['hob.debug'] || '{}');
+    expect(storedDebug.showCoords).toBe(false);
+    expect(storage['hob.debug.showCoords']).toBe('false');
+
+    // Fresh instance loads persisted false preference
+    const loadedSettings = new BattleSettings();
+    loadedSettings.load();
+    expect(loadedSettings.debug.showCoords).toBe(false);
+
+    // Toggle coords back on and save
+    loadedSettings.debug.showCoords = true;
+    loadedSettings.save();
+
+    const reloadedSettings = new BattleSettings();
+    reloadedSettings.load();
+    expect(reloadedSettings.debug.showCoords).toBe(true);
+    expect(storage['hob.debug.showCoords']).toBe('true');
+  });
+
+  it("should persist and load showGrid in hob.hex and hob.hex.showGrid in localStorage", () => {
+    const storage: Record<string, string> = {};
+    (globalThis as any).localStorage = {
+      getItem: (key: string) => storage[key] ?? null,
+      setItem: (key: string, value: string) => {
+        storage[key] = value;
+      },
+      removeItem: (key: string) => {
+        delete storage[key];
+      },
+      clear: () => {
+        Object.keys(storage).forEach((k) => delete storage[k]);
+      },
+    };
+
+    const settings = new BattleSettings();
+    expect(settings.hex.showGrid).toBe(true);
+
+    // Toggle grid off and save
+    settings.hex.showGrid = false;
+    settings.save();
+
+    const storedHex = JSON.parse(storage['hob.hex'] || '{}');
+    expect(storedHex.showGrid).toBe(false);
+    expect(storage['hob.hex.showGrid']).toBe('false');
+
+    // Fresh instance loads persisted false preference
+    const loadedSettings = new BattleSettings();
+    loadedSettings.load();
+    expect(loadedSettings.hex.showGrid).toBe(false);
+
+    // Toggle grid back on and save
+    loadedSettings.hex.showGrid = true;
+    loadedSettings.save();
+
+    const reloadedSettings = new BattleSettings();
+    reloadedSettings.load();
+    expect(reloadedSettings.hex.showGrid).toBe(true);
+    expect(storage['hob.hex.showGrid']).toBe('true');
+  });
 });
 
 describe("BattleMenuPanel 2-Column Layout & Scene Inspector Toggle", () => {
@@ -439,6 +522,50 @@ describe("BattleMenuPanel 2-Column Layout & Scene Inspector Toggle", () => {
     const freshSettings2 = new BattleSettings();
     freshSettings2.load();
     expect(freshSettings2.hideHardwareCursor).toBe(false);
+  });
+
+  it("should display game version text in top-right corner when FPS is displayed and sync visibility with FPS", () => {
+    const dummyAssets: any = { softCursorTextures: {} };
+    const hexMap = new HexMap(10, 8);
+    const battle = new Battle(hexMap);
+    battle.initializeToSize(10, 8);
+    const settings = new BattleSettings();
+    settings.debug.showFps = true;
+
+    ['thin_button_normal.png', 'thin_button_hover.png', 'glyph_minus.png', 'glyph_plus.png'].forEach((name) => {
+      try {
+        Assets.cache.set(name, Texture.WHITE);
+      } catch {}
+    });
+
+    const view = new BattleView(dummyAssets, settings, hexMap, battle, 1.4);
+    view.initialize({
+      onZoomIn: vi.fn(),
+      onZoomOut: vi.fn(),
+      onZoomSliderUpdate: vi.fn(),
+      onNextTurn: vi.fn(),
+      onNextUnit: vi.fn(),
+      onReset: vi.fn(),
+      onRest: vi.fn(),
+      onActiveAbility1: vi.fn(),
+    });
+
+    expect(view.versionText).toBeDefined();
+    expect(view.versionText?.text).toBe(`Hexes Of Battle v.${pkg.version}`);
+    expect(view.versionText?.visible).toBe(true);
+    expect(view.versionText?.x).toBe(1905);
+
+    // Update with 60 fps
+    view.update(16.6, 60);
+    expect(view.versionText?.visible).toBe(true);
+
+    // Hide FPS
+    view.setFpsVisible(false);
+    expect(view.versionText?.visible).toBe(false);
+
+    // Show FPS
+    view.setFpsVisible(true);
+    expect(view.versionText?.visible).toBe(true);
   });
 });
 

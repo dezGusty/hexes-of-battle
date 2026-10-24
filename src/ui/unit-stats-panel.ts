@@ -3,7 +3,7 @@ import { Buff, Creature, CreatureStats } from "../battle/creature";
 import { Ability, AbilityResourceUse } from "../battle/ability";
 import { Coords } from "../shared";
 import { getTraitInfo, TraitsConfig } from "../battle/trait-system";
-import type { Battle } from "../battle";
+import { Battle, InputState } from "../battle";
 
 export interface TraitSlot {
   container: Container;
@@ -573,7 +573,10 @@ export class UnitStatsPanel {
       const iconPath = getSkillIconPath(ability);
       const description = formatAbilityDescription(ability);
       const isUsable = this.currentCreature ? this.isAbilityUsable(ability, this.currentCreature) : true;
-      const isActive = !!(this.currentCreature?.isQuickDrawActive && (ability.id === 'quick-draw-01' || ability.name?.toLowerCase().includes('quick draw')));
+      const isActive = !!(
+        (this.currentCreature?.isQuickDrawActive && (ability.id === 'quick-draw-01' || ability.name?.toLowerCase().includes('quick draw'))) ||
+        (this.battle && this.battle.input_state === InputState.SELECT_ABILITY_TARGET && this.battle.abilityToApply?.id === ability.id)
+      );
 
       const slotContainer = new Container();
       const slotX = index * (slotSize + slotGap);
@@ -800,7 +803,10 @@ export class UnitStatsPanel {
 
     let hoveredSkill: SkillSlot | null = null;
     for (const slot of this.skillSlots) {
-      const isActive = !!(this.currentCreature?.isQuickDrawActive && (slot.ability.id === 'quick-draw-01' || slot.ability.name?.toLowerCase().includes('quick draw')));
+      const isActive = !!(
+        (this.currentCreature?.isQuickDrawActive && (slot.ability.id === 'quick-draw-01' || slot.ability.name?.toLowerCase().includes('quick draw'))) ||
+        (this.battle && this.battle.input_state === InputState.SELECT_ABILITY_TARGET && this.battle.abilityToApply?.id === slot.ability.id)
+      );
       if (
         x >= slot.x &&
         x <= slot.x + slot.width &&

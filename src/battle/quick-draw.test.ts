@@ -663,5 +663,371 @@ describe('Quick draw Skill for Archers', () => {
       expect(slot.border.tint).toBe(0xffffff);
     });
   });
+
+  describe('6. Skill Targeting & Allowed Targets Validation', () => {
+    it('should allow enemy squads and reject allied squads/self for enemy-only skills (Quick draw, throw-javelin)', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const archer = new Creature(CreatureType.PEASANT_ARCHER);
+      archer.position = { x: 2, y: 2 };
+      archer.armyAlignment = 0;
+      archer.stats.stamina = 12;
+      archer.stats.remaining_ammo = 10;
+      archer.stats.remaining_attacks = 1;
+
+      const allySquad = new Creature(CreatureType.SWORDSMAN);
+      allySquad.position = { x: 3, y: 2 };
+      allySquad.armyAlignment = 0;
+
+      const enemySquad = new Creature(CreatureType.SWORDSMAN);
+      enemySquad.position = { x: 5, y: 2 };
+      enemySquad.armyAlignment = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [archer, allySquad, enemySquad],
+      });
+
+      // Select archer and activate Quick draw targeting
+      battle.handlePrimaryCellAction(archer.position);
+      battle.selectActiveAbilityForCurrentUnit(0);
+      expect((battle as any).input_state).toBe(3); // InputState.SELECT_ABILITY_TARGET
+
+      const quickDraw = archer.abilities[0];
+      expect(quickDraw.allowedTargets).toContain('enemies');
+      expect(quickDraw.allowedTargets).not.toContain('allies');
+
+      // Validating targets via isTargetAllowedForAbility
+      expect(battle.isTargetAllowedForAbility(quickDraw, archer, enemySquad.position)).toBe(true);
+      expect(battle.isTargetAllowedForAbility(quickDraw, archer, allySquad.position)).toBe(false);
+      expect(battle.isTargetAllowedForAbility(quickDraw, archer, archer.position)).toBe(false);
+      expect(battle.isTargetAllowedForAbility(quickDraw, archer, { x: 4, y: 2 })).toBe(false); // empty tile
+
+      // Reach targets matrix must mark ONLY the enemy squad, not the ally squad or caster
+      expect(battle.ability_reach_targets[enemySquad.position.x][enemySquad.position.y]).toBe(500);
+      expect(battle.ability_reach_targets[allySquad.position.x][allySquad.position.y]).toBe(0);
+      expect(battle.ability_reach_targets[archer.position.x][archer.position.y]).toBe(0);
+
+      // Attempting to target an allied squad must be rejected
+      const allyTargetResult = battle.handlePrimaryCellAction(allySquad.position);
+      expect(allyTargetResult).toBe(false);
+      expect((battle as any).input_state).toBe(3); // Still waiting for valid target
+      expect((battle as any).currentActions.length).toBe(0); // No action queued
+      expect(archer.stats.stamina).toBe(12); // No stamina spent
+      expect(allySquad.stats.health).toBe(allySquad.stats.remaining_health); // No damage dealt
+
+      // Left clicking on the enemy squad must succeed
+      const enemyTargetResult = battle.handlePrimaryCellAction(enemySquad.position);
+      expect(enemyTargetResult).toBe(true);
+      expect((battle as any).currentActions.length).toBe(1);
+      expect((battle as any).currentActions[0].type).toBe(BattleActionType.TARGET_ABILITY);
+
+      // Step action to apply damage
+      battle.stepInstant();
+      expect(archer.stats.stamina).toBe(6); // 12 - 6 stamina for Quick draw
+    });
+
+    it('should reject targeting allies with throw-javelin and only allow enemy targets', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const spearman = new Creature(CreatureType.SPEARMAN);
+      spearman.position = { x: 2, y: 2 };
+      spearman.armyAlignment = 0;
+      spearman.stats.stamina = 10;
+      spearman.stats.ammo = 5;
+      spearman.stats.remaining_ammo = 5;
+      spearman.stats.remaining_attacks = 1;
+
+      const allySquad = new Creature(CreatureType.SWORDSMAN);
+      allySquad.position = { x: 3, y: 2 };
+      allySquad.armyAlignment = 0;
+
+      const enemySquad = new Creature(CreatureType.SWORDSMAN);
+      enemySquad.position = { x: 4, y: 2 };
+      enemySquad.armyAlignment = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [spearman, allySquad, enemySquad],
+      });
+
+      battle.handlePrimaryCellAction(spearman.position);
+      battle.selectActiveAbilityForCurrentUnit(0);
+      expect((battle as any).input_state).toBe(3); // SELECT_ABILITY_TARGET
+
+      const throwJav = spearman.abilities[0];
+      expect(throwJav.name).toMatch(/throw-javelin/i);
+
+      // Validate allowed targets
+      expect(battle.isTargetAllowedForAbility(throwJav, spearman, enemySquad.position)).toBe(true);
+      expect(battle.isTargetAllowedForAbility(throwJav, spearman, allySquad.position)).toBe(false);
+
+      // Targeting ally is rejected
+      expect(battle.handlePrimaryCellAction(allySquad.position)).toBe(false);
+      expect((battle as any).input_state).toBe(3);
+
+      // Targeting enemy succeeds
+      expect(battle.handlePrimaryCellAction(enemySquad.position)).toBe(true);
+    });
+
+    it('should toggle off ability targeting mode when clicking the same skill button again', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const archer = new Creature(CreatureType.PEASANT_ARCHER);
+      archer.position = { x: 2, y: 2 };
+      archer.armyAlignment = 0;
+      archer.stats.stamina = 12;
+      archer.stats.remaining_ammo = 10;
+      archer.stats.remaining_attacks = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [archer],
+      });
+
+      battle.handlePrimaryCellAction(archer.position);
+      expect((battle as any).input_state).toBe(2); // SELECT_UNIT_OR_TARGET
+
+      // First click: activate ability targeting
+      battle.selectActiveAbilityForCurrentUnit(0);
+      expect((battle as any).input_state).toBe(3); // SELECT_ABILITY_TARGET
+
+      // Second click: toggle off ability targeting
+      battle.selectActiveAbilityForCurrentUnit(0);
+      expect((battle as any).input_state).toBe(2); // Restored to SELECT_UNIT_OR_TARGET
+      expect((battle as any).abilityToApply).toBeNull();
+    });
+
+    it('should set attack_ranged cursor hint when hovering valid ability targets and default cursor on allies', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const archer = new Creature(CreatureType.PEASANT_ARCHER);
+      archer.position = { x: 2, y: 2 };
+      archer.armyAlignment = 0;
+      archer.stats.stamina = 12;
+      archer.stats.remaining_ammo = 10;
+      archer.stats.remaining_attacks = 1;
+
+      const allySquad = new Creature(CreatureType.SWORDSMAN);
+      allySquad.position = { x: 3, y: 2 };
+      allySquad.armyAlignment = 0;
+
+      const enemySquad = new Creature(CreatureType.SWORDSMAN);
+      enemySquad.position = { x: 5, y: 2 };
+      enemySquad.armyAlignment = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [archer, allySquad, enemySquad],
+      });
+
+      battle.handlePrimaryCellAction(archer.position);
+      battle.selectActiveAbilityForCurrentUnit(0);
+
+      // Hover over enemy squad: cursor becomes attack_ranged
+      battle.onMouseOverCell(enemySquad.position);
+      expect(battle.nextRenderUpdate.cursorHint).toBe('attack_ranged');
+
+      // Hover over allied squad: cursor becomes default
+      battle.onMouseOverCell(allySquad.position);
+      expect(battle.nextRenderUpdate.cursorHint).toBe('default');
+
+      // Hover over empty hex: cursor becomes default
+      battle.onMouseOverCell({ x: 4, y: 2 });
+      expect(battle.nextRenderUpdate.cursorHint).toBe('default');
+    });
+  });
+
+  describe('7. Ability Target Acquirement & Enemy Stats Suppression', () => {
+    const dummyUiSheet = {
+      textures: new Proxy({}, {
+        get: () => Texture.EMPTY,
+      }),
+    } as unknown as any;
+    it('should enter target acquirement state and display visible text hint banner when ability is clicked', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+      const settings = new BattleSettings();
+      const assets = { softCursorTextures: {} };
+
+      const archer = new Creature(CreatureType.PEASANT_ARCHER);
+      archer.position = { x: 2, y: 2 };
+      archer.armyAlignment = 0;
+      archer.stats.stamina = 10;
+      archer.stats.remaining_ammo = 10;
+      archer.stats.remaining_attacks = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [archer],
+      });
+
+      const hud = new BattleHud2D(assets, settings, battle);
+      battle.handlePrimaryCellAction(archer.position);
+
+      expect((battle as any).input_state).toBe(2); // SELECT_UNIT_OR_TARGET
+      expect(hud.targetAcquirementBanner?.visible).toBe(false);
+
+      // Click skill button to enter target acquirement state
+      battle.selectActiveAbilityForCurrentUnit(0);
+      expect((battle as any).input_state).toBe(3); // SELECT_ABILITY_TARGET
+
+      hud.updateTargetAcquirementHint();
+      expect(hud.targetAcquirementBanner?.visible).toBe(true);
+      expect(hud.targetAcquirementText?.text).toContain('Left-click on target to use');
+      expect(hud.targetAcquirementText?.text).toContain('Right-click to cancel');
+      expect(hud.targetAcquirementText?.text).toContain('Quick draw');
+
+      hud.destroy();
+    });
+
+    it('should leave target acquirement state and hide text hint banner when right-click is performed', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+      const settings = new BattleSettings();
+      const assets = { softCursorTextures: {} };
+
+      const archer = new Creature(CreatureType.PEASANT_ARCHER);
+      archer.position = { x: 2, y: 2 };
+      archer.armyAlignment = 0;
+      archer.stats.stamina = 10;
+      archer.stats.remaining_ammo = 10;
+      archer.stats.remaining_attacks = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [archer],
+      });
+
+      const hud = new BattleHud2D(assets, settings, battle);
+      battle.handlePrimaryCellAction(archer.position);
+      battle.selectActiveAbilityForCurrentUnit(0);
+
+      hud.updateTargetAcquirementHint();
+      expect((battle as any).input_state).toBe(3); // SELECT_ABILITY_TARGET
+      expect(hud.targetAcquirementBanner?.visible).toBe(true);
+
+      // Right-click cancel
+      const canceled = battle.cancelTargetForAbilityIfApplicable();
+      expect(canceled).toBe(true);
+      expect((battle as any).input_state).toBe(2); // Restored to SELECT_UNIT_OR_TARGET
+      expect((battle as any).abilityToApply).toBeNull();
+
+      hud.updateTargetAcquirementHint();
+      expect(hud.targetAcquirementBanner?.visible).toBe(false);
+
+      hud.destroy();
+    });
+
+    it('should NOT open EnemyStatsPanel when clicking an enemy in target acquirement state, but select target and issue ability action', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+      const settings = new BattleSettings();
+      const assets = { softCursorTextures: {} };
+
+      const archer = new Creature(CreatureType.PEASANT_ARCHER);
+      archer.position = { x: 2, y: 2 };
+      archer.armyAlignment = 0;
+      archer.stats.stamina = 10;
+      archer.stats.remaining_ammo = 10;
+      archer.stats.remaining_attacks = 1;
+
+      const enemy = new Creature(CreatureType.SWORDSMAN);
+      enemy.position = { x: 5, y: 2 };
+      enemy.armyAlignment = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [archer, enemy],
+      });
+
+      const hud = new BattleHud2D(assets, settings, battle);
+      hud.enemyStats = new EnemyStatsPanel(hud.uiPlusRenderGroup, dummyUiSheet as unknown as any);
+      hud.enemyStats.hide();
+
+      battle.handlePrimaryCellAction(archer.position);
+      battle.selectActiveAbilityForCurrentUnit(0);
+      expect((battle as any).input_state).toBe(3); // SELECT_ABILITY_TARGET
+
+      // Attempt to show enemy stats directly while in targeting state - must be suppressed
+      hud.showEnemyStats(enemy);
+      expect(hud.enemyStats.isVisible()).toBe(false);
+
+      // Left-click on enemy cell in target acquirement state: issues TARGET_ABILITY action
+      const targetResult = battle.handlePrimaryCellAction(enemy.position);
+      expect(targetResult).toBe(true);
+
+      const currentActions = (battle as any).currentActions;
+      expect(currentActions.length).toBeGreaterThan(0);
+      expect(currentActions[0].type).toBe(BattleActionType.TARGET_ABILITY);
+      expect(currentActions[0].path[0]).toEqual(enemy.position);
+
+      // Enemy stats panel must still remain hidden
+      expect(hud.enemyStats.isVisible()).toBe(false);
+
+      hud.destroy();
+    });
+
+    it('should highlight active skill slot border in UnitStatsPanel during targeting state', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const archer = new Creature(CreatureType.PEASANT_ARCHER);
+      archer.position = { x: 2, y: 2 };
+      archer.armyAlignment = 0;
+      archer.stats.stamina = 10;
+      archer.stats.remaining_ammo = 10;
+      archer.stats.remaining_attacks = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [archer],
+      });
+
+      const container = new Container();
+      const unitStats = new UnitStatsPanel(container, dummyUiSheet as unknown as any, undefined, battle);
+      unitStats.setCreature(archer);
+      unitStats.update();
+
+      // Before activation: border tint is normal (0xffffff)
+      expect(unitStats.getSkillSlots()[0].border.tint).toBe(0xffffff);
+
+      // Trigger skill targeting
+      battle.handlePrimaryCellAction(archer.position);
+      battle.selectActiveAbilityForCurrentUnit(0);
+      expect((battle as any).input_state).toBe(3);
+
+      unitStats.update();
+      // During targeting: border tint is active highlighted (0x66ff66)
+      expect(unitStats.getSkillSlots()[0].border.tint).toBe(0x66ff66);
+
+      // Cancel targeting
+      battle.cancelTargetForAbilityIfApplicable();
+      unitStats.update();
+      // After canceling: border tint returns to normal (0xffffff)
+      expect(unitStats.getSkillSlots()[0].border.tint).toBe(0xffffff);
+    });
+  });
 });
+
 

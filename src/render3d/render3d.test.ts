@@ -24,6 +24,7 @@ import { BattleHexMapPath } from '../battle/battle-hex-map-path';
 import { NumMatrix } from '../shared/num-matrix';
 import { CommonControls } from '../ui/common-controls';
 import { TerrainType } from '../battle/terrain-types';
+import pkg from '../../package.json';
 
 describe('3D Graphics Engine & Rendering Systems', () => {
   describe('1. 3D Hex Board & Coordinates', () => {
@@ -383,20 +384,26 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       const hud = new BattleHud2D(assets, settings, battle);
 
       expect(hud.fpsText).toBeDefined();
+      expect(hud.versionText).toBeDefined();
+      expect(hud.versionText?.text).toBe(`Hexes Of Battle v.${pkg.version}`);
+      expect(hud.versionText?.visible).toBe(true);
       expect(hud.isFpsVisible()).toBe(true);
 
       // Update with 60 FPS
       hud.update(16.6, 59.8);
       expect(hud.fpsText?.text).toBe('FPS: 60');
+      expect(hud.versionText?.visible).toBe(true);
 
       // Toggle FPS visibility
       hud.setFpsVisible(false);
       expect(hud.isFpsVisible()).toBe(false);
       expect(hud.fpsText?.visible).toBe(false);
+      expect(hud.versionText?.visible).toBe(false);
 
       hud.setFpsVisible(true);
       expect(hud.isFpsVisible()).toBe(true);
       expect(hud.fpsText?.visible).toBe(true);
+      expect(hud.versionText?.visible).toBe(true);
 
       hud.destroy();
     });

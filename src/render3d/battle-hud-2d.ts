@@ -1,9 +1,10 @@
-import { BitmapText, Container, Sprite, Texture } from "pixi.js";
+import { BitmapText, Container, NineSliceSprite, Sprite, Text, Texture } from "pixi.js";
 import { sound } from "@pixi/sound";
 import { AdvancedBloomFilter } from "pixi-filters";
 import { GameAssets } from "../core/scene";
 import { BattleSettings } from "../battle/settings";
-import { Battle, ArmyControlType } from "../battle";
+import { Battle, ArmyControlType, InputState } from "../battle";
+import pkg from "../../package.json";
 import { CPUPlayer } from "../battle/cpu-player";
 import { Creature, CreatureType } from "../battle/creature";
 import { Coords } from "../shared";
@@ -56,9 +57,14 @@ export class BattleHud2D {
   public unitStats?: UnitStatsPanel;
   public enemyStats?: EnemyStatsPanel;
   public fpsText?: BitmapText;
+  public versionText?: BitmapText;
   public turnChangeDisplay: TurnChangeCollection = new TurnChangeCollection();
   public softCursorSprite?: Sprite;
+  public targetAcquirementBanner?: Container;
+  public targetAcquirementText?: Text;
+  public targetAcquirementBg?: NineSliceSprite;
 
+  private gameVersion: string = pkg.version;
   private assets: GameAssets;
   public readonly settings: BattleSettings;
   private battle: Battle;
@@ -73,7 +79,8 @@ export class BattleHud2D {
     settings: BattleSettings,
     battle: Battle,
     cpuPlayer?: CPUPlayer,
-    armyNames?: [string, string]
+    armyNames?: [string, string],
+    gameVersion?: string
   ) {
     this.assets = assets;
     this.settings = settings;
@@ -82,12 +89,16 @@ export class BattleHud2D {
     if (armyNames) {
       this.armyNames = armyNames;
     }
+    if (gameVersion) {
+      this.gameVersion = gameVersion;
+    }
 
     this.container.addChild(this.uiRenderGroup);
     this.container.addChild(this.uiPlusRenderGroup);
     this.container.addChild(this.uiCursorRenderGroup);
 
     this.initializeFpsIndicator();
+    this.initializeTargetAcquirementBanner();
   }
 
   public initialize(events: BattleHud2DEvents): void {
@@ -104,6 +115,8 @@ export class BattleHud2D {
         if (active) {
           this.updateUnitStats(active);
         }
+        this.hideEnemyStats();
+        this.updateTargetAcquirementHint();
       };
       if (this.settings.hex.showStats) {
         this.unitStats.show();
@@ -310,6 +323,29 @@ export class BattleHud2D {
     this.fpsText.alpha = this.settings.debug.fpsAlpha ?? 0.7;
     this.fpsText.visible = this.settings.debug.showFps;
     this.uiRenderGroup.addChild(this.fpsText);
+
+    this.versionText = new BitmapText({
+      text: `Hexes Of Battle v.${this.gameVersion}`,
+      style: {
+        fontFamily: this.settings.debug.fpsFontFamily || 'GustysSerpents',
+        fontSize: this.settings.debug.fpsFontSize || 14,
+        align: 'right',
+      },
+    });
+    if (this.versionText.anchor) {
+      if (typeof this.versionText.anchor.set === 'function') {
+        this.versionText.anchor.set(1, 0);
+      } else {
+        (this.versionText.anchor as any).x = 1;
+        (this.versionText.anchor as any).y = 0;
+      }
+    }
+    this.versionText.x = 1905;
+    this.versionText.y = 8;
+    this.versionText.alpha = this.settings.debug.fpsAlpha ?? 0.7;
+    this.versionText.visible = this.settings.debug.showFps;
+    this.versionText.eventMode = 'none';
+    this.uiRenderGroup.addChild(this.versionText);
   }
 
   private initializeTopPanel(): void {
@@ -471,6 +507,8 @@ export class BattleHud2D {
         if (active) {
           this.updateUnitStats(active);
         }
+        this.hideEnemyStats();
+        this.updateTargetAcquirementHint();
       };
     }
     this.unitStats.toggleVisibility();
@@ -483,6 +521,7 @@ export class BattleHud2D {
   }
 
   public showEnemyStats(creature: Creature): void {
+    if (this.battle.input_state === InputState.SELECT_ABILITY_TARGET) return;
     if (!this.enemyStats || !creature) return;
     const bannerTexture = this.getBannerTextureForArmyIndex(creature.armyAlignment);
     this.enemyStats.setBannerTexture(bannerTexture);
@@ -573,9 +612,86 @@ export class BattleHud2D {
 
   public update(deltaMS: number, fps?: number): void {
     this.turnChangeDisplay.update(deltaMS);
+    this.updateTargetAcquirementHint();
     if (this.fpsText && fps !== undefined) {
       this.fpsText.text = `FPS: ${Math.round(fps)}`;
       this.fpsText.visible = this.settings.debug.showFps;
+    }
+    if (this.versionText) {
+      this.versionText.visible = this.settings.debug.showFps;
+    }
+  }
+
+  public initializeTargetAcquirementBanner(): void {
+    if (this.targetAcquirementBanner) return;
+
+    this.targetAcquirementBanner = new Container();
+    this.targetAcquirementBanner.position.set(800, 75);
+    this.targetAcquirementBanner.eventMode = 'none';
+    this.targetAcquirementBanner.visible = false;
+
+    const bannerWidth = 720;
+    const bannerHeight = 40;
+
+    if (this.assets.uiSheet?.textures) {
+      this.targetAcquirementBg = new NineSliceSprite({
+        texture:
+          this.assets.uiSheet.textures['thin_panel_semitransparent.png'] ||
+          this.assets.uiSheet.textures['panel.png'] ||
+          Texture.EMPTY,
+        leftWidth: 8,
+        topHeight: 8,
+        rightWidth: 8,
+        bottomHeight: 8,
+      });
+      this.targetAcquirementBg.width = bannerWidth;
+      this.targetAcquirementBg.height = bannerHeight;
+      this.targetAcquirementBg.position.set(-bannerWidth / 2, -bannerHeight / 2);
+      this.targetAcquirementBg.tint = 0x162238;
+      this.targetAcquirementBanner.addChild(this.targetAcquirementBg);
+    }
+
+    this.targetAcquirementText = new Text({
+      text: '',
+      style: {
+        fontFamily: 'GustysSerpents',
+        fill: { color: '#ffea75', alpha: 1 },
+        fontSize: 16,
+        fontWeight: 'bold',
+        align: 'center',
+      },
+    });
+    this.targetAcquirementText.anchor.set(0.5, 0.5);
+    this.targetAcquirementBanner.addChild(this.targetAcquirementText);
+
+    this.uiPlusRenderGroup.addChild(this.targetAcquirementBanner);
+  }
+
+  public updateTargetAcquirementHint(): void {
+    if (this.battle.input_state === InputState.SELECT_ABILITY_TARGET && this.battle.abilityToApply) {
+      const abilityName = this.battle.abilityToApply.tooltipName || this.battle.abilityToApply.name || 'skill';
+      this.showTargetAcquirementHint(abilityName);
+    } else {
+      this.hideTargetAcquirementHint();
+    }
+  }
+
+  public showTargetAcquirementHint(skillName: string): void {
+    if (!this.targetAcquirementBanner) {
+      this.initializeTargetAcquirementBanner();
+    }
+    if (this.targetAcquirementText) {
+      this.targetAcquirementText.text = `Select target for ${skillName}: Left-click on target to use, Right-click to cancel`;
+    }
+    if (this.targetAcquirementBanner) {
+      this.targetAcquirementBanner.visible = true;
+    }
+    this.hideEnemyStats();
+  }
+
+  public hideTargetAcquirementHint(): void {
+    if (this.targetAcquirementBanner) {
+      this.targetAcquirementBanner.visible = false;
     }
   }
 
@@ -583,6 +699,9 @@ export class BattleHud2D {
     this.settings.debug.showFps = visible;
     if (this.fpsText) {
       this.fpsText.visible = visible;
+    }
+    if (this.versionText) {
+      this.versionText.visible = visible;
     }
   }
 
@@ -596,6 +715,8 @@ export class BattleHud2D {
 
   public destroy(): void {
     this.battleMenuPanel?.destroy();
+    this.targetAcquirementBanner?.destroy({ children: true });
+    this.versionText?.destroy();
     this.container.removeChildren();
   }
 }

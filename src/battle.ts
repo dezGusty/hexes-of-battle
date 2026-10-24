@@ -143,8 +143,8 @@ export class Battle {
   private currentActions: BattleAction[] = [];
   private finished: boolean = false;
   private onMouseOverCellPrevPrefMelee: boolean = false;
-  private input_state: InputState = InputState.SELECT_UNIT_OR_TARGET;
-  private abilityToApply: Ability | null = null;
+  public input_state: InputState = InputState.SELECT_UNIT_OR_TARGET;
+  public abilityToApply: Ability | null = null;
 
   public combatConfig: CombatConfig = { ...DEFAULT_COMBAT_CONFIG };
   public rng: SeedableRNG = new SeedableRNG();
@@ -549,8 +549,8 @@ export class Battle {
     if (this.hasRunningActions()) return false;
     if (this.army_control[this.currentArmyIndex] === ArmyControlType.AI) return false;
 
-    if (this.selectTargetForAbility(coords, optionalDirection)) {
-      return true;
+    if (this.input_state === InputState.SELECT_ABILITY_TARGET) {
+      return this.selectTargetForAbility(coords, optionalDirection);
     }
 
     this.tryToSelectUnitAtLocation(coords);
@@ -608,8 +608,7 @@ export class Battle {
     if (this.input_state != InputState.SELECT_ABILITY_TARGET) {
       return false;
     }
-    this.tryToApplyAbilityWithActiveCreatureAtLocation(coords, optionalDirection);
-    return true;
+    return this.tryToApplyAbilityWithActiveCreatureAtLocation(coords, optionalDirection);
   }
 
   public cancelTargetForAbilityIfApplicable(): boolean {
@@ -619,6 +618,7 @@ export class Battle {
     this.input_state = InputState.SELECT_UNIT_OR_TARGET;
     this.abilityToApply = null;
     this.reselectCurrentUnit();
+    this.nextRenderUpdate.somethingChanged = true;
     return true;
   }
 
@@ -650,6 +650,23 @@ export class Battle {
 
     const activeCreature = this.creatures[this.activeCreatureIndex];
     const targetCreature = this.getCreatureAtPosition(coords);
+
+    if (this.input_state === InputState.SELECT_ABILITY_TARGET) {
+      this.nextRenderUpdate.hoverPath = [];
+      this.currentHoverPath = [];
+      this.nextRenderUpdate.hoverEnemyIndex = -1;
+      this.nextRenderUpdate.hoverOverUnitIndex = -1;
+      if (
+        this.abilityToApply &&
+        this.isTargetAllowedForAbility(this.abilityToApply, activeCreature, coords)
+      ) {
+        this.nextRenderUpdate.setCursorHint("attack_ranged");
+      } else {
+        this.nextRenderUpdate.setCursorHint("default");
+      }
+      this.nextRenderUpdate.somethingChanged = true;
+      return;
+    }
 
     if (targetCreature === null || targetCreature.indexOFArmy === this.currentArmyIndex) {
       this.nextRenderUpdate.hoverPath = this.findPathFromSelectedUnitToCell(coords);
@@ -1482,12 +1499,18 @@ export class Battle {
     let ability = creature.abilities[abilityIndex];
     if (!this.verifyAbilityUseByCreatureHasResources(ability, creature)) return;
 
+    if (this.input_state === InputState.SELECT_ABILITY_TARGET && this.abilityToApply === ability) {
+      this.cancelTargetForAbilityIfApplicable();
+      return;
+    }
+
     if (this.isQuickDrawAbility(ability)) {
       if (!this.canCreatureUseQuickDraw(creature)) return;
       if (ability.abilityType === AbilityType.Active && ability.requiresTarget) {
         this.showAbilityReachableCells(ability, creature);
         this.input_state = InputState.SELECT_ABILITY_TARGET;
         this.abilityToApply = ability;
+        this.nextRenderUpdate.somethingChanged = true;
       } else {
         creature.isQuickDrawActive = !creature.isQuickDrawActive;
         this.nextRenderUpdate.somethingChanged = true;
@@ -1499,6 +1522,7 @@ export class Battle {
       this.showAbilityReachableCells(ability, creature);
       this.input_state = InputState.SELECT_ABILITY_TARGET;
       this.abilityToApply = ability;
+      this.nextRenderUpdate.somethingChanged = true;
     } else if (ability.abilityType === AbilityType.Toggle) {
       creature.isQuickDrawActive = !creature.isQuickDrawActive;
       this.nextRenderUpdate.somethingChanged = true;
@@ -1521,7 +1545,7 @@ export class Battle {
     if (ability.allowedTargets.includes(AbilityTarget.Enemies)) {
       markUnitsInArmies.push(this.currentArmyIndex === 0 ? 1 : 0);
     }
-    if (ability.allowedTargets.includes(AbilityTarget.Allies)) {
+    if (ability.allowedTargets.includes(AbilityTarget.Allies) || ability.allowedTargets.includes(AbilityTarget.Self)) {
       markUnitsInArmies.push(this.currentArmyIndex);
     }
 
@@ -1535,6 +1559,29 @@ export class Battle {
       { creatures: this.creatures },
       { markUnitsInArmies: markUnitsInArmies }
     );
+
+    // If Self is not allowed, clear owning creature from target matrix
+    if (!ability.allowedTargets.includes(AbilityTarget.Self)) {
+      if (
+        owningCreature.pos.x >= 0 &&
+        owningCreature.pos.x < this.hexMap.width &&
+        owningCreature.pos.y >= 0 &&
+        owningCreature.pos.y < this.hexMap.height
+      ) {
+        this.ability_reach_targets[owningCreature.pos.x][owningCreature.pos.y] = 0;
+      }
+    }
+
+    // If Allies is not allowed (but Self is), clear other allies from target matrix
+    if (!ability.allowedTargets.includes(AbilityTarget.Allies)) {
+      for (const c of this.creatures) {
+        if (c.armyAlignment === this.currentArmyIndex && c.GUID !== owningCreature.GUID) {
+          if (c.pos.x >= 0 && c.pos.x < this.hexMap.width && c.pos.y >= 0 && c.pos.y < this.hexMap.height) {
+            this.ability_reach_targets[c.pos.x][c.pos.y] = 0;
+          }
+        }
+      }
+    }
 
     this.nextRenderUpdate.hoverPath = [];
     this.nextRenderUpdate.abilityReachableCells = true;
@@ -1593,14 +1640,65 @@ export class Battle {
     }
   }
 
-  public tryToApplyAbilityWithActiveCreatureAtLocation(coords: Coords, _optionalDirection: HexDirection) {
-    if (this.activeCreatureIndex < 0) return;
-    if (this.ability_reach_tiles[coords.x]?.[coords.y] <= 0 && this.ability_reach_targets[coords.x]?.[coords.y] <= 0) return;
+  public isTargetAllowedForAbility(ability: Ability, sourceCreature: Creature, targetCoords: Coords): boolean {
+    if (!ability || !sourceCreature) return false;
 
-    let creatureAtTarget = this.getCreatureAtPosition(coords);
-    if (creatureAtTarget === null) return;
+    if (
+      targetCoords.x < 0 ||
+      targetCoords.x >= this.hexMap.width ||
+      targetCoords.y < 0 ||
+      targetCoords.y >= this.hexMap.height
+    ) {
+      return false;
+    }
+
+    const inReach =
+      (this.ability_reach_tiles[targetCoords.x]?.[targetCoords.y] ?? 0) > 0 ||
+      (this.ability_reach_targets[targetCoords.x]?.[targetCoords.y] ?? 0) > 0;
+    if (!inReach) return false;
+
+    const targetCreatureEntry = this.getCreatureAtPosition(targetCoords);
+
+    if (targetCreatureEntry) {
+      const targetCreature = targetCreatureEntry.creature;
+      if (!targetCreature.isAlive) return false;
+
+      const isSelf = targetCreature.GUID === sourceCreature.GUID;
+      const isAlly = targetCreature.armyAlignment === sourceCreature.armyAlignment && !isSelf;
+      const isEnemy = targetCreature.armyAlignment !== sourceCreature.armyAlignment;
+
+      if (isSelf) {
+        return ability.allowedTargets.includes(AbilityTarget.Self);
+      }
+      if (isAlly) {
+        return ability.allowedTargets.includes(AbilityTarget.Allies);
+      }
+      if (isEnemy) {
+        return ability.allowedTargets.includes(AbilityTarget.Enemies);
+      }
+      return false;
+    } else {
+      if (ability.requiresTarget) {
+        return ability.allowedTargets.includes(AbilityTarget.Terrain);
+      }
+      return (
+        ability.allowedTargets.includes(AbilityTarget.Terrain) ||
+        ability.allowedTargets.includes(AbilityTarget.None)
+      );
+    }
+  }
+
+  public tryToApplyAbilityWithActiveCreatureAtLocation(coords: Coords, _optionalDirection: HexDirection): boolean {
+    if (this.activeCreatureIndex < 0) return false;
+    const activeCreature = this.creatures[this.activeCreatureIndex];
+    if (!activeCreature || !this.abilityToApply) return false;
+
+    if (!this.isTargetAllowedForAbility(this.abilityToApply, activeCreature, coords)) {
+      return false;
+    }
 
     this.currentActions.push(new BattleAction(BattleActionType.TARGET_ABILITY, [coords], 0, 500, 50));
+    return true;
   }
 
   private updateDoApplyAbility(currentAction: BattleAction) {
@@ -1631,10 +1729,11 @@ export class Battle {
     let thisCreature = this.creatures[this.activeCreatureIndex];
     this.applyAbilityEffect(thisCreature, creatureInBattle.creature, currentAction.type);
 
-    if (!creatureInBattle.creature.isAlive) {
+    if (!creatureInBattle.creature.isAlive && this.creatures.includes(creatureInBattle.creature)) {
       this.casualties.push(creatureInBattle.creature);
       this.hookUnitDied(creatureInBattle.creature);
-      this.creatures.splice(creatureInBattle.indexInArmy, 1);
+      const idx = this.creatures.findIndex((c) => c === creatureInBattle.creature);
+      if (idx >= 0) this.creatures.splice(idx, 1);
       this.checkVictoryConditionsAndState();
       this.tryToSelectUnitAtLocation(thisCreature.pos);
     }

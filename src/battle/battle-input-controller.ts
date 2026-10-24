@@ -1,7 +1,7 @@
 import { Coords } from '../shared';
 import { HexDirection, HexMap } from '../shared/hex-map';
 import { HexViewportCamera } from '../shared/hex-viewport-camera';
-import { Battle } from '../battle';
+import { Battle, InputState } from '../battle';
 
 export interface BattleInputDelegate {
   isMenuBlockingInput: () => boolean;
@@ -103,9 +103,13 @@ export class BattleInputController {
       }
 
       if (event.button === 2 && this.mouseRightClickCoords.x > 0 && this.mouseRightClickCoords.y > 0) {
-        const hexInfo = this.screenToHex(event.clientX, event.clientY);
-        if (this.isHexInBounds(hexInfo.cell)) {
-          this.battle.handleSecondaryCellAction(hexInfo.cell, hexInfo.direction, this.controlPressed);
+        if (this.battle.input_state === InputState.SELECT_ABILITY_TARGET) {
+          this.battle.cancelTargetForAbilityIfApplicable();
+        } else {
+          const hexInfo = this.screenToHex(event.clientX, event.clientY);
+          if (this.isHexInBounds(hexInfo.cell)) {
+            this.battle.handleSecondaryCellAction(hexInfo.cell, hexInfo.direction, this.controlPressed);
+          }
         }
         this.mouseRightClickCoords = { x: 0, y: 0 };
       }

@@ -89,6 +89,7 @@ export interface GameContext {
   soundSystem?: ISoundSystem;
   nativeResolution: { width: number; height: number };
   switchToScene: (sceneName: string, params?: any) => Promise<void>;
+  version?: string;
 }
 
 export interface Scene {

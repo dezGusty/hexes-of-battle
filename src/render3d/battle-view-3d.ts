@@ -1,4 +1,4 @@
-import { Battle, MapRenderUpdate, RangedAttackData } from '../battle';
+import { Battle, InputState, MapRenderUpdate, RangedAttackData } from '../battle';
 import { HexDirection, HexFlankStatus, HexMap, checkFlankingStatus } from '../shared/hex-map';
 import { Coords } from '../shared';
 import { Creature } from '../battle/creature';
@@ -130,6 +130,8 @@ export class BattleView3D {
 
   public setGridVisible(visible: boolean): void {
     this.hexBoard.setGridVisible(visible);
+    this.settings.hex.showGrid = visible;
+    this.settings.save();
   }
 
   public setGridBorderThickness(thickness: number): void {
@@ -138,6 +140,8 @@ export class BattleView3D {
 
   public setCoordsVisible(visible: boolean): void {
     this.hexBoard.setCoordsVisible(visible);
+    this.settings.debug.showCoords = visible;
+    this.settings.save();
   }
 
   public setSceneInspectorVisible(visible: boolean): void {
@@ -225,15 +229,29 @@ export class BattleView3D {
       const walkable: Coords[] = [];
       const attackable: Coords[] = [];
 
-      for (let x = 0; x < this.hexMap.width; x++) {
-        for (let y = 0; y < this.hexMap.height; y++) {
-          const pathVal = this.battle.pathfinding_tiles[x]?.[y] ?? 0;
-          const rangeVal = this.battle.rangereach_targets[x]?.[y] ?? 0;
+      if (this.battle.input_state === InputState.SELECT_ABILITY_TARGET && this.battle.abilityToApply) {
+        for (let x = 0; x < this.hexMap.width; x++) {
+          for (let y = 0; y < this.hexMap.height; y++) {
+            const tileVal = this.battle.ability_reach_tiles[x]?.[y] ?? 0;
+            const targetVal = this.battle.ability_reach_targets[x]?.[y] ?? 0;
+            if (targetVal > 0 && this.battle.isTargetAllowedForAbility(this.battle.abilityToApply, active, { x, y })) {
+              attackable.push({ x, y });
+            } else if (tileVal > 0) {
+              walkable.push({ x, y });
+            }
+          }
+        }
+      } else {
+        for (let x = 0; x < this.hexMap.width; x++) {
+          for (let y = 0; y < this.hexMap.height; y++) {
+            const pathVal = this.battle.pathfinding_tiles[x]?.[y] ?? 0;
+            const rangeVal = this.battle.rangereach_targets[x]?.[y] ?? 0;
 
-          if (pathVal > 0 && pathVal !== BattleHexMapPath.CELL_ENEMY) {
-            walkable.push({ x, y });
-          } else if (pathVal === BattleHexMapPath.CELL_ENEMY || rangeVal === BattleHexMapPath.CELL_ENEMY) {
-            attackable.push({ x, y });
+            if (pathVal > 0 && pathVal !== BattleHexMapPath.CELL_ENEMY) {
+              walkable.push({ x, y });
+            } else if (pathVal === BattleHexMapPath.CELL_ENEMY || rangeVal === BattleHexMapPath.CELL_ENEMY) {
+              attackable.push({ x, y });
+            }
           }
         }
       }
@@ -565,6 +583,23 @@ export class BattleView3D {
       this.hud?.setCursor('default');
     }
 
+    if (this.battle.input_state === InputState.SELECT_ABILITY_TARGET) {
+      if (
+        activeCreature &&
+        this.battle.abilityToApply &&
+        this.battle.isTargetAllowedForAbility(this.battle.abilityToApply, activeCreature, this.hoveredHex)
+      ) {
+        this.hexBoard.setAttackPreview(this.hoveredHex, null, HexFlankStatus.NONE);
+        this.hexBoard.clearPathPreview();
+        this.hud?.setCursor('attack_ranged');
+      } else {
+        this.hexBoard.clearAttackPreview();
+        this.hexBoard.clearPathPreview();
+        this.hud?.setCursor('default');
+      }
+      return;
+    }
+
     const { hoverPath, originHex, isRanged } = this.computeAttackAndHoverPaths();
 
     // 2. Attack Preview & Flank Calculation
@@ -631,11 +666,25 @@ export class BattleView3D {
   }
 
   private setupPointerEvents(container: HTMLElement): void {
-    this.boundContextMenu = (e) => e.preventDefault();
+    this.boundContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+      if (this.battle.input_state === InputState.SELECT_ABILITY_TARGET) {
+        this.battle.cancelTargetForAbilityIfApplicable();
+        this.hud?.updateTargetAcquirementHint();
+        this.updateActiveUnitSelection();
+        this.updateHoverVisuals();
+      }
+    };
 
     this.boundPointerDown = (e: PointerEvent) => {
       const stageCoords = this.getStageCoords(e.clientX, e.clientY);
       if (this.hud?.isPointerOverUI(stageCoords.x, stageCoords.y)) {
+        if (e.button === 2 && this.battle.input_state === InputState.SELECT_ABILITY_TARGET) {
+          this.battle.cancelTargetForAbilityIfApplicable();
+          this.hud?.updateTargetAcquirementHint();
+          this.updateActiveUnitSelection();
+          this.updateHoverVisuals();
+        }
         return;
       }
       this.isPointerDown = true;
@@ -647,12 +696,25 @@ export class BattleView3D {
       this.isPointerDown = false;
       const stageCoords = this.getStageCoords(e.clientX, e.clientY);
       if (this.hud?.isPointerOverUI(stageCoords.x, stageCoords.y)) {
+        if (e.button === 2 && this.battle.input_state === InputState.SELECT_ABILITY_TARGET) {
+          this.battle.cancelTargetForAbilityIfApplicable();
+          this.hud?.updateTargetAcquirementHint();
+          this.updateActiveUnitSelection();
+          this.updateHoverVisuals();
+        }
         return;
       }
       if (this.battle.isCurrentTurnAI()) return;
 
-      // Right-click: Target for movement, attack, or orientation change
+      // Right-click: Target for movement, attack, orientation change, or cancel ability targeting
       if (e.button === 2) {
+        if (this.battle.input_state === InputState.SELECT_ABILITY_TARGET) {
+          this.battle.cancelTargetForAbilityIfApplicable();
+          this.hud?.updateTargetAcquirementHint();
+          this.updateActiveUnitSelection();
+          this.updateHoverVisuals();
+          return;
+        }
         if (!this.hoveredHex) {
           const hits = this.sceneManager.raycastFromScreen(e.clientX, e.clientY, [this.hexBoard.group]);
           if (hits.length > 0) {
@@ -735,25 +797,53 @@ export class BattleView3D {
       const stageCoords = this.getStageCoords(e.clientX, e.clientY);
       if (this.hud?.isPointerOverUI(stageCoords.x, stageCoords.y)) {
         this.hud.handleClick(stageCoords.x, stageCoords.y);
+        this.hud.updateTargetAcquirementHint();
+        this.updateActiveUnitSelection();
+        this.updateHoverVisuals();
         return;
       }
       if (this.battle.isCurrentTurnAI()) return;
 
       if (e.button === 0) {
+        if (!this.hoveredHex) {
+          const hits = this.sceneManager.raycastFromScreen(e.clientX, e.clientY, [this.hexBoard.group]);
+          if (hits.length > 0) {
+            const hitTile = hits.find((h) => (h.object as any).userData?.isHexTile);
+            if (hitTile) {
+              const { hexX, hexY } = (hitTile.object as any).userData;
+              this.hoveredHex = { x: hexX, y: hexY };
+              const centerWorld = this.hexBoard.hexToWorld(hexX, hexY);
+              const dx = hitTile.point.x - centerWorld.x;
+              const dz = hitTile.point.z - centerWorld.z;
+              this.hoveredDirection = this.hexBoard.worldVectorToHexDirection(dx, dz);
+            }
+          }
+        }
+
         if (this.hoveredHex) {
-          const creatureInBattle = this.battle.getCreatureAtPosition(this.hoveredHex);
-          if (creatureInBattle && creatureInBattle.indexOFArmy !== this.battle.currentArmyIndex) {
-            // Clicked an enemy squad: show secondary enemy stats panel
-            this.hud?.showEnemyStats(creatureInBattle.creature);
-          } else {
-            // Clicked own squad or empty hex: close enemy stats panel
+          if (this.battle.input_state === InputState.SELECT_ABILITY_TARGET) {
             this.hud?.hideEnemyStats();
             this.battle.handlePrimaryCellAction(this.hoveredHex, this.hoveredDirection);
+            this.hud?.updateTargetAcquirementHint();
+            this.updateActiveUnitSelection();
+            this.updateHoverVisuals();
+            return;
+          } else {
+            const creatureInBattle = this.battle.getCreatureAtPosition(this.hoveredHex);
+            if (creatureInBattle && creatureInBattle.indexOFArmy !== this.battle.currentArmyIndex) {
+              // Clicked an enemy squad: show secondary enemy stats panel
+              this.hud?.showEnemyStats(creatureInBattle.creature);
+            } else {
+              // Clicked own squad or empty hex: close enemy stats panel
+              this.hud?.hideEnemyStats();
+              this.battle.handlePrimaryCellAction(this.hoveredHex, this.hoveredDirection);
+            }
           }
         } else {
           // Clicked outside of board
           this.hud?.hideEnemyStats();
         }
+        this.updateActiveUnitSelection();
         this.updateHoverVisuals();
       }
     };

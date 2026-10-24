@@ -79,6 +79,16 @@ export class BattleSettings {
       }
     }
 
+    const showCoords = localStorage.getItem('hob.debug.showCoords');
+    if (showCoords !== null) {
+      this.debug.showCoords = showCoords === 'true';
+    }
+
+    const showGrid = localStorage.getItem('hob.hex.showGrid');
+    if (showGrid !== null) {
+      this.hex.showGrid = showGrid === 'true';
+    }
+
     const showFps = localStorage.getItem('hob.debug.showFps');
     if (showFps !== null) {
       this.debug.showFps = showFps === 'true';
@@ -106,8 +116,10 @@ export class BattleSettings {
     localStorage.setItem('hob.sound', JSON.stringify(this.sound));
     // Save the hex display settings to the browser's local storage
     localStorage.setItem('hob.hex', JSON.stringify(this.hex));
+    localStorage.setItem('hob.hex.showGrid', String(this.hex.showGrid));
     // Save the debug settings to the browser's local storage
     localStorage.setItem('hob.debug', JSON.stringify(this.debug));
+    localStorage.setItem('hob.debug.showCoords', String(this.debug.showCoords));
     localStorage.setItem('hob.debug.showFps', String(this.debug.showFps));
     // Save the hardware cursor visibility setting to local storage
     localStorage.setItem('hob.hideHardwareCursor', String(this.hideHardwareCursor));

@@ -12,6 +12,8 @@ import { Coords } from '../shared';
 import { PixiSoundSystem } from './sound-system';
 import { parseTraitsConfig } from '../battle/trait-system';
 
+export const GAME_VERSION: string = pkg.version;
+
 export class HexesEngine {
   public readonly version: string = pkg.version;
   public readonly nativeResolution = { width: 1920, height: 1080 };
@@ -52,6 +54,7 @@ export class HexesEngine {
       soundSystem: this.soundSystem,
       nativeResolution: this.nativeResolution,
       switchToScene: (sceneName: string, params?: any) => this.sceneManager.switchTo(sceneName, params),
+      version: this.version,
     };
   }
 
@@ -186,6 +189,9 @@ export class HexesEngine {
           if (hotkeysCfg.resetCamera !== undefined) this.settings.hotkeys.resetCamera = hotkeysCfg.resetCamera;
           if (hotkeysCfg.toggleStats !== undefined) this.settings.hotkeys.toggleStats = hotkeysCfg.toggleStats;
         }
+
+        // Re-apply saved user preferences from localStorage so template defaults do not overwrite them
+        this.settings.load();
       }
     } catch {
       // Use defaults if not found
