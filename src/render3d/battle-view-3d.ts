@@ -242,6 +242,9 @@ export class BattleView3D {
             }
           }
         }
+
+        // Render range perimeter for active skill (e.g. throw-javelin)
+        this.hexBoard.updateRangePerimeter(this.battle.ability_reach_tiles, 0xffaa33, 0.4);
       } else {
         for (let x = 0; x < this.hexMap.width; x++) {
           for (let y = 0; y < this.hexMap.height; y++) {
@@ -255,12 +258,25 @@ export class BattleView3D {
             }
           }
         }
+
+        // Render range perimeter for ranged squad weapon attacks (e.g. archers)
+        if (
+          active.live_stats.is_ranged &&
+          active.live_stats.remaining_ammo > 0 &&
+          active.exhaustionState !== ExhaustionState.DEPLETED &&
+          !active.isPanickedOrRouting
+        ) {
+          this.hexBoard.updateRangePerimeter(this.battle.rangereach_tiles, 0x44aacc, 0.35);
+        } else {
+          this.hexBoard.clearRangePerimeter();
+        }
       }
 
       this.hexBoard.updateReachOverlays(walkable, attackable);
     } else {
       this.hexBoard.setSelectedUnitHex(null);
       this.hexBoard.clearReachOverlays();
+      this.hexBoard.clearRangePerimeter();
     }
   }
 

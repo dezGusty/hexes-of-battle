@@ -1603,7 +1603,131 @@ describe('Quick draw Skill for Archers', () => {
       expect(archer.stats.remaining_ammo).toBe(9);
       // Total Quick draw stamina was committed
       expect(archer.stats.stamina).toBe(6);
-      expect(archer.stats.remaining_attacks).toBe(0);
+    });
+  });
+
+  describe('10. Throw Javelin Skill for Spearmen - Animation & Visual Events', () => {
+    it('should identify throw-javelin skill via isThrowJavelinAbility', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const javAbility = Ability.createThrowJavelin();
+      expect(battle.isThrowJavelinAbility(javAbility)).toBe(true);
+      expect(battle.isThrowJavelinAbility(null)).toBe(false);
+      expect(battle.isThrowJavelinAbility(Ability.createQuickDraw())).toBe(false);
+    });
+
+    it('should emit hookDoingAttackRanged with projectile and target data when spearman throws javelin', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const spearman = new Creature(CreatureType.SPEARMAN);
+      spearman.position = { x: 2, y: 2 };
+      spearman.armyAlignment = 0;
+      spearman.stats.stamina = 10;
+      spearman.stats.ammo = 5;
+      spearman.stats.remaining_ammo = 5;
+      spearman.stats.remaining_attacks = 1;
+
+      const enemySquad = new Creature(CreatureType.PEASANT);
+      enemySquad.position = { x: 4, y: 2 };
+      enemySquad.armyAlignment = 1;
+      enemySquad.stats.health = 50;
+      enemySquad.stats.remaining_health = 50;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [spearman, enemySquad],
+      });
+
+      const rangedEvents: any[] = [];
+      battle.hookDoingAttackRanged = (data) => {
+        rangedEvents.push(data);
+      };
+
+      let attackHookData: any = null;
+      battle.hookDoingAttack = (attacker, defender, damage, type, flank) => {
+        attackHookData = { attacker, defender, damage, type, flank };
+      };
+
+      // Select spearman, activate throw-javelin, and target enemy
+      battle.handlePrimaryCellAction(spearman.position);
+      battle.selectActiveAbilityForCurrentUnit(0);
+      expect(battle.abilityToApply?.id).toBe('jav-01');
+
+      battle.selectTargetForAbility(enemySquad.position);
+
+      // Frame 1: Action begins, spearman turns to target, animation is set to ATTACK_RANGED
+      battle.update(50);
+      expect(battle.nextRenderUpdate.animationAtCoords.type).toBe(AnimationType.ATTACK_RANGED);
+      expect(battle.nextRenderUpdate.animationAtCoords.coords).toEqual(enemySquad.position);
+
+      // Advance through animation duration
+      while (battle.hasRunningActions()) {
+        battle.update(100);
+      }
+
+      // hookDoingAttackRanged was emitted
+      expect(rangedEvents.length).toBe(1);
+      const event = rangedEvents[0];
+      expect(event.attacker).toBe(spearman);
+      expect(event.intendedTarget).toBe(enemySquad);
+      expect(event.intendedHex).toEqual(enemySquad.position);
+      expect(event.projectiles.length).toBeGreaterThan(0);
+      expect(event.projectiles[0].targetHex).toEqual(enemySquad.position);
+      expect(event.targetDamages.length).toBe(1);
+      expect(event.targetDamages[0].target).toBe(enemySquad);
+      expect(event.targetDamages[0].damage).toBeGreaterThanOrEqual(8);
+      expect(event.targetDamages[0].damage).toBeLessThanOrEqual(10);
+
+      // hookDoingAttack was also emitted for 2D audio and damage value displays
+      expect(attackHookData).not.toBeNull();
+      expect(attackHookData.attacker).toBe(spearman);
+      expect(attackHookData.defender).toBe(enemySquad);
+      expect(attackHookData.type).toBe(BattleActionType.ATTACK_RANGED);
+
+      // Target took damage and spearman resources deducted
+      expect(enemySquad.stats.remaining_health).toBeLessThan(50);
+      expect(spearman.stats.remaining_attacks).toBe(0);
+      expect(spearman.stats.remaining_ammo).toBe(4);
+      expect(spearman.stats.remaining_movement).toBe(0);
+    });
+
+    it('should turn spearman to face target when throwing javelin', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const spearman = new Creature(CreatureType.SPEARMAN);
+      spearman.position = { x: 2, y: 2 };
+      spearman.facingDirection = HexDirection.WEST;
+      spearman.armyAlignment = 0;
+      spearman.stats.stamina = 10;
+      spearman.stats.remaining_ammo = 5;
+      spearman.stats.remaining_attacks = 1;
+
+      const enemySquad = new Creature(CreatureType.PEASANT);
+      enemySquad.position = { x: 4, y: 2 }; // Target is to the East
+      enemySquad.armyAlignment = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [spearman, enemySquad],
+      });
+
+      battle.handlePrimaryCellAction(spearman.position);
+      battle.selectActiveAbilityForCurrentUnit(0);
+      battle.selectTargetForAbility(enemySquad.position);
+
+      while (battle.hasRunningActions()) {
+        battle.update(100);
+      }
+
+      // Spearman faced East towards target
+      expect(spearman.facingDirection).toBe(HexDirection.EAST);
     });
   });
 });

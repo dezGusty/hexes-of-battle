@@ -15,7 +15,9 @@ import { BattleSettings } from "./settings";
 import { AggressiveCPUPlayer } from "./aggressive-cpu-player";
 import { DefensiveCPUPlayer } from "./defensive-cpu-player";
 import { DumbCPUPlayer } from "./dumb-cpu-player";
-import { UnitStatsPanel } from "../ui/unit-stats-panel";
+import { UnitStatsPanel, DisplayedStat } from "../ui/unit-stats-panel";
+import { EnemyStatsPanel } from "../ui/enemy-stats-panel";
+import { Creature, CreatureType } from "./creature";
 import { BattleMenuPanel } from "../ui/battle-menu";
 import pkg from "../../package.json";
 
@@ -566,6 +568,82 @@ describe("BattleMenuPanel 2-Column Layout & Scene Inspector Toggle", () => {
     // Show FPS
     view.setFpsVisible(true);
     expect(view.versionText?.visible).toBe(true);
+  });
+});
+
+describe("UnitStatsPanel & EnemyStatsPanel Ammo Display", () => {
+  const dummyUiSheet = {
+    textures: new Proxy({}, {
+      get: () => Texture.EMPTY,
+    }),
+  } as unknown as Spritesheet;
+
+  it("should display empty ammo text and dimmed icon in UnitStatsPanel for units without ammunition", () => {
+    const container = new Container();
+    const panel = new UnitStatsPanel(container, dummyUiSheet);
+    const peasant = new Creature(CreatureType.PEASANT);
+
+    panel.setCreature(peasant);
+    panel.update();
+
+    const ammoVal = (panel as any).statValues[DisplayedStat.AMMO];
+    const ammoIcon = (panel as any).statIcons[DisplayedStat.AMMO];
+
+    expect(ammoVal.text).toBe("");
+    expect(ammoVal.text).not.toBe("010");
+    expect(ammoIcon.tint).toBe(0x666666);
+  });
+
+  it("should display current and max ammo in UnitStatsPanel for units with ammunition", () => {
+    const container = new Container();
+    const panel = new UnitStatsPanel(container, dummyUiSheet);
+    const archer = new Creature(CreatureType.PEASANT_ARCHER);
+
+    panel.setCreature(archer);
+    panel.update();
+
+    const ammoVal = (panel as any).statValues[DisplayedStat.AMMO];
+    const ammoIcon = (panel as any).statIcons[DisplayedStat.AMMO];
+
+    expect(ammoVal.text).toBe("10 / 10");
+    expect(ammoIcon.tint).toBe(0xffffff);
+
+    // After firing an arrow (ammo consumed)
+    archer.stats.remaining_ammo = 8;
+    panel.setCreature(archer);
+    panel.update();
+    expect(ammoVal.text).toBe("8 / 10");
+  });
+
+  it("should display empty ammo text and dimmed icon in EnemyStatsPanel for enemy units without ammunition", () => {
+    const container = new Container();
+    const panel = new EnemyStatsPanel(container, dummyUiSheet);
+    const peasant = new Creature(CreatureType.PEASANT);
+
+    panel.setCreature(peasant);
+    panel.update();
+
+    const ammoVal = (panel as any).statValues[DisplayedStat.AMMO];
+    const ammoIcon = (panel as any).statIcons[DisplayedStat.AMMO];
+
+    expect(ammoVal.text).toBe("");
+    expect(ammoVal.text).not.toBe("0/0");
+    expect(ammoIcon.tint).toBe(0x666666);
+  });
+
+  it("should display ammo in EnemyStatsPanel for enemy units with ammunition", () => {
+    const container = new Container();
+    const panel = new EnemyStatsPanel(container, dummyUiSheet);
+    const archer = new Creature(CreatureType.PEASANT_ARCHER);
+
+    panel.setCreature(archer);
+    panel.update();
+
+    const ammoVal = (panel as any).statValues[DisplayedStat.AMMO];
+    const ammoIcon = (panel as any).statIcons[DisplayedStat.AMMO];
+
+    expect(ammoVal.text).toBe("10/10");
+    expect(ammoIcon.tint).toBe(0xffffff);
   });
 });
 

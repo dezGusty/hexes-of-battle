@@ -515,7 +515,8 @@ export class EnemyStatsPanel {
     this.statValues[DisplayedStat.RANGED_DEFENSE].text = `${this.stats.defense_ranged}`;
     this.statValues[DisplayedStat.COUNTER_ATTACKS].text = `${this.stats.remaining_counterattacks}/${this.stats.num_counterattacks}`;
     this.statValues[DisplayedStat.STAMINA].text = `${this.stats.stamina}`;
-    this.statValues[DisplayedStat.AMMO].text = `${this.stats.remaining_ammo}/${this.stats.ammo}`;
+    this.statValues[DisplayedStat.AMMO].text =
+      (this.stats.ammo && this.stats.ammo > 0) ? `${this.stats.remaining_ammo}/${this.stats.ammo}` : '';
     const moraleVal = (this.stats.morale !== undefined && !Number.isNaN(this.stats.morale)) ? this.stats.morale : 10;
     this.statValues[DisplayedStat.MORALE].text = `${moraleVal}`;
 

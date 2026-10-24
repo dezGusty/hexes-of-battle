@@ -1246,6 +1246,98 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(settings.hotkeys.rest).toBe('z');
     });
   });
+
+  describe('10. Ranged Attack & Ability Reach Perimeter Wall Rendering', () => {
+    it('should initialize empty rangePerimeterGroup on HexBoard3D', () => {
+      const hexMap = new HexMap(10, 8);
+      const hexBoard = new HexBoard3D(hexMap);
+
+      expect(hexBoard.rangePerimeterGroup).toBeDefined();
+      expect(hexBoard.rangePerimeterGroup.name).toBe('RangePerimeter');
+      expect(hexBoard.rangePerimeterGroup.children.length).toBe(0);
+
+      hexBoard.dispose();
+    });
+
+    it('should generate semi-transparent perimeter wall mesh and rim lines around range matrix', () => {
+      const hexMap = new HexMap(10, 8);
+      const hexBoard = new HexBoard3D(hexMap);
+
+      // Create a 10x8 matrix with a radius-2 range at (3, 3)
+      const rangeMatrix = Array.from({ length: 10 }, () => Array(8).fill(0));
+      BattleHexMapPath.cacheRangedReachableCells(
+        hexMap,
+        { x: 3, y: 3 },
+        2,
+        rangeMatrix,
+        Array.from({ length: 10 }, () => Array(8).fill(0)),
+        { creatures: [] },
+        { markUnitsInArmies: [] }
+      );
+
+      // Update range perimeter
+      hexBoard.updateRangePerimeter(rangeMatrix, 0x44aacc, 0.35);
+
+      expect(hexBoard.rangePerimeterGroup.children.length).toBe(2);
+      const wall = hexBoard.rangePerimeterGroup.children.find((c) => c.name === 'RangePerimeterWall') as THREE.Mesh;
+      const lines = hexBoard.rangePerimeterGroup.children.find((c) => c.name === 'RangePerimeterLines') as THREE.LineSegments;
+
+      expect(wall).toBeDefined();
+      expect(lines).toBeDefined();
+
+      // Geometry checks
+      const wallPosAttr = wall.geometry.getAttribute('position');
+      expect(wallPosAttr.count).toBeGreaterThan(0); // non-empty triangles
+
+      const linePosAttr = lines.geometry.getAttribute('position');
+      expect(linePosAttr.count).toBeGreaterThan(0); // non-empty line vertices
+
+      // Material checks
+      const wallMat = wall.material as THREE.MeshBasicMaterial;
+      expect(wallMat.transparent).toBe(true);
+      expect(wallMat.depthWrite).toBe(false);
+      expect(wallMat.opacity).toBeCloseTo(0.22);
+      expect(wallMat.color.getHex()).toBe(0x44aacc);
+
+      const lineMat = lines.material as THREE.LineBasicMaterial;
+      expect(lineMat.transparent).toBe(true);
+      expect(lineMat.depthWrite).toBe(false);
+      expect(lineMat.opacity).toBeCloseTo(0.85);
+
+      // Clearing perimeter
+      hexBoard.clearRangePerimeter();
+      expect(hexBoard.rangePerimeterGroup.children.length).toBe(0);
+
+      hexBoard.dispose();
+    });
+
+    it('should render distinct amber perimeter wall for ability reach (throw-javelin)', () => {
+      const hexMap = new HexMap(10, 8);
+      const hexBoard = new HexBoard3D(hexMap);
+
+      // Ability range 2 (e.g. javelin throw)
+      const abilityMatrix = Array.from({ length: 10 }, () => Array(8).fill(0));
+      BattleHexMapPath.cacheRangedReachableCells(
+        hexMap,
+        { x: 5, y: 4 },
+        2,
+        abilityMatrix,
+        Array.from({ length: 10 }, () => Array(8).fill(0)),
+        { creatures: [] },
+        { markUnitsInArmies: [] }
+      );
+
+      hexBoard.updateRangePerimeter(abilityMatrix, 0xffaa33, 0.40);
+
+      expect(hexBoard.rangePerimeterGroup.children.length).toBe(2);
+      const wall = hexBoard.rangePerimeterGroup.children.find((c) => c.name === 'RangePerimeterWall') as THREE.Mesh;
+      const wallMat = wall.material as THREE.MeshBasicMaterial;
+      expect(wallMat.color.getHex()).toBe(0xffaa33);
+      expect(wallMat.opacity).toBeCloseTo(0.22);
+
+      hexBoard.dispose();
+    });
+  });
 });
 
 

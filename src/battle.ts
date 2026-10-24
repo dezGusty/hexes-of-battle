@@ -1300,6 +1300,19 @@ export class Battle {
     );
   }
 
+  public isThrowJavelinAbility(ability?: Ability | null): boolean {
+    if (!ability) return false;
+    const id = ability.id?.toLowerCase() ?? "";
+    const name = ability.name?.toLowerCase() ?? "";
+    return (
+      id === "jav-01" ||
+      id === "throw-javelin" ||
+      name.includes("throw-javelin") ||
+      name.includes("throw javelin") ||
+      name.includes("javelin")
+    );
+  }
+
   public getQuickDrawStaminaCost(): number {
     const attackStamina = this.combatConfig?.stamina?.actionCosts?.rangedAttack ?? 2;
     return attackStamina * 2 + 2;
@@ -1845,7 +1858,10 @@ export class Battle {
     }
 
     if (currentAction.step === 0) {
-      this.makeCreatureFaceTargetIfNeeded(this.creatures[this.activeCreatureIndex], currentAction.path[0]);
+      const attacker = currentAction.sourceUnit ?? this.creatures[this.activeCreatureIndex];
+      if (attacker) {
+        this.makeCreatureFaceTargetIfNeeded(attacker, currentAction.path[0]);
+      }
       this.nextRenderUpdate.animationAtCoords = new AnimationAtCoords(AnimationType.ATTACK_RANGED, currentAction.path[0]);
       this.nextRenderUpdate.somethingChanged = true;
       currentAction.step++;
@@ -1868,8 +1884,9 @@ export class Battle {
     let creatureInBattle = this.getCreatureAtPosition(target);
     if (creatureInBattle === null) return;
 
-    let thisCreature = this.creatures[this.activeCreatureIndex];
-    this.applyAbilityEffect(thisCreature, creatureInBattle.creature, currentAction.type);
+    let thisCreature = currentAction.sourceUnit ?? this.creatures[this.activeCreatureIndex];
+    const ability = currentAction.ability ?? this.abilityToApply;
+    this.applyAbilityEffect(thisCreature, creatureInBattle.creature, currentAction.type, ability);
 
     if (!creatureInBattle.creature.isAlive && this.creatures.includes(creatureInBattle.creature)) {
       this.casualties.push(creatureInBattle.creature);
@@ -1882,23 +1899,57 @@ export class Battle {
     thisCreature.stats.remaining_movement = 0;
   }
 
-  private applyAbilityEffect(source: Creature, target: Creature, attackType: BattleActionType) {
-    if (attackType !== BattleActionType.TARGET_ABILITY || !this.abilityToApply) return;
+  private applyAbilityEffect(
+    source: Creature,
+    target: Creature,
+    attackType: BattleActionType,
+    abilityToUse?: Ability | null
+  ) {
+    const ability = abilityToUse ?? this.abilityToApply;
+    if (attackType !== BattleActionType.TARGET_ABILITY || !ability) return;
 
-    if (this.isQuickDrawAbility(this.abilityToApply)) {
+    if (this.isQuickDrawAbility(ability)) {
       this.executeQuickDrawAttack(source, target.pos);
       return;
     }
 
-    let sourceDamage = this.rng.range(this.abilityToApply.damage_low, this.abilityToApply.damage_high);
+    let sourceDamage = this.rng.range(ability.damage_low ?? 8, ability.damage_high ?? 10);
     let targetArmor = 0;
-    let flankStatus = HexFlankStatus.NONE;
+    this.makeCreatureFaceTargetIfNeeded(source, target.pos);
+    const attackFromDir = reverseDirection(source.facingDirection);
+    const flankStatus = checkFlankingStatus(target.facingDirection, attackFromDir);
     let damage = Math.max(0, sourceDamage - targetArmor);
 
-    this.hookDoingAttack(source, target, damage, BattleActionType.ATTACK_RANGED, flankStatus);
-    target.takeDamage(damage);
+    const { modelsLost } = target.takeDamage(damage);
+    if (this.totalDamageDealt && source.armyAlignment in this.totalDamageDealt) {
+      this.totalDamageDealt[source.armyAlignment] += damage;
+    }
+    const casualtyThreshold = Math.max(1, Math.floor(target.stats.model_count * this.combatConfig.morale.casualtyThresholdRatio));
+    if (modelsLost >= casualtyThreshold || target.stats.stamina <= 0) {
+      this.checkMorale(target, modelsLost);
+    }
+
+    this.hookDoingAttack(source, target, damage, BattleActionType.ATTACK_RANGED, flankStatus, false);
+
+    const projectileCount = Math.max(1, Math.min(3, source.aliveModelCount));
+    const projectiles: RangedProjectileData[] = Array.from({ length: projectileCount }, () => ({
+      targetHex: target.pos,
+      hitCreature: target,
+      isScatter: false,
+    }));
+
+    this.hookDoingAttackRanged?.({
+      attacker: source,
+      intendedTarget: target,
+      intendedHex: target.pos,
+      projectiles,
+      targetDamages: [{ target, damage, flankStatus }],
+    });
+
     source.stats.remaining_attacks = Math.max(0, source.stats.remaining_attacks - 1);
-    this.deductCostForAbilityUseByCreature(this.abilityToApply, source);
+    this.deductCostForAbilityUseByCreature(ability, source);
+    source.stats.remaining_attacks = Math.max(0, source.stats.remaining_attacks);
+    source.stats.remaining_ammo = Math.max(0, source.stats.remaining_ammo);
   }
 
   public start() {

@@ -33,6 +33,7 @@ export class HexBoard3D {
   private facingIndicatorGroup: THREE.Group = new THREE.Group();
   private attackPreviewGroup: THREE.Group = new THREE.Group();
   private pathPreviewGroup: THREE.Group = new THREE.Group();
+  public readonly rangePerimeterGroup: THREE.Group = new THREE.Group();
 
   private showGrid: boolean = true;
   private borderThickness: number = 2.5;
@@ -99,6 +100,8 @@ export class HexBoard3D {
     this.group.add(this.facingIndicatorGroup);
     this.group.add(this.attackPreviewGroup);
     this.group.add(this.pathPreviewGroup);
+    this.rangePerimeterGroup.name = 'RangePerimeter';
+    this.group.add(this.rangePerimeterGroup);
     this.group.add(this.gridBordersGroup);
     this.group.add(this.coordsGroup);
 
@@ -869,6 +872,142 @@ export class HexBoard3D {
     this.updateReachOverlays([], []);
   }
 
+  /**
+   * Renders a semi-transparent perimeter wall and glowing boundary rim along the outer perimeter
+   * of a given range matrix (e.g. ranged squad weapon attack range or active ranged skill reach).
+   */
+  public updateRangePerimeter(
+    rangeMatrix: number[][],
+    colorHex: number = 0x44aacc,
+    wallHeight: number = 0.35
+  ): void {
+    this.clearRangePerimeter();
+
+    if (!rangeMatrix || rangeMatrix.length === 0) return;
+
+    const edgeDirections: HexDirection[] = [
+      HexDirection.EAST,       // Edge 0: Corner 5 (330°) to Corner 0 (30°)
+      HexDirection.SOUTHEAST,  // Edge 1: Corner 0 (30°) to Corner 1 (90°)
+      HexDirection.SOUTHWEST,  // Edge 2: Corner 1 (90°) to Corner 2 (150°)
+      HexDirection.WEST,       // Edge 3: Corner 2 (150°) to Corner 3 (210°)
+      HexDirection.NORTHWEST,  // Edge 4: Corner 3 (210°) to Corner 4 (270°)
+      HexDirection.NORTHEAST,  // Edge 5: Corner 4 (270°) to Corner 5 (330°)
+    ];
+
+    const wallPositions: number[] = [];
+    const linePositions: number[] = [];
+
+    for (let x = 0; x < this.hexMap.width; x++) {
+      for (let y = 0; y < this.hexMap.height; y++) {
+        if ((rangeMatrix[x]?.[y] ?? 0) <= 0) continue;
+
+        const center = this.hexToWorld(x, y);
+        const elev = this.getHexElevation(x, y);
+        const isHill = this.isHill(x, y);
+        const R = (isHill ? this.getHillMesaRadius(x, y) : this.hexRadius) * 0.98;
+        const yBase = elev + 0.02;
+        const yTop = yBase + wallHeight;
+
+        for (let e = 0; e < 6; e++) {
+          const dir = edgeDirections[e];
+          const neighbor = HexMapHelpers.directionCoordsMap[dir]?.({ x, y });
+          const isOutside =
+            !neighbor ||
+            neighbor.x < 0 ||
+            neighbor.x >= this.hexMap.width ||
+            neighbor.y < 0 ||
+            neighbor.y >= this.hexMap.height ||
+            (rangeMatrix[neighbor.x]?.[neighbor.y] ?? 0) <= 0;
+
+          if (isOutside) {
+            const k1 = (e + 5) % 6;
+            const k2 = e;
+            const a1 = ((k1 * 60 + 30) * Math.PI) / 180;
+            const a2 = ((k2 * 60 + 30) * Math.PI) / 180;
+
+            const c1x = center.x + R * Math.cos(a1);
+            const c1z = center.z + R * Math.sin(a1);
+            const c2x = center.x + R * Math.cos(a2);
+            const c2z = center.z + R * Math.sin(a2);
+
+            // Wall quad (two triangles, double-sided)
+            // Triangle 1: (c1, yBase), (c2, yBase), (c2, yTop)
+            wallPositions.push(c1x, yBase, c1z);
+            wallPositions.push(c2x, yBase, c2z);
+            wallPositions.push(c2x, yTop, c2z);
+            // Triangle 2: (c1, yBase), (c2, yTop), (c1, yTop)
+            wallPositions.push(c1x, yBase, c1z);
+            wallPositions.push(c2x, yTop, c2z);
+            wallPositions.push(c1x, yTop, c1z);
+
+            // Top glowing rim line
+            linePositions.push(c1x, yTop, c1z);
+            linePositions.push(c2x, yTop, c2z);
+
+            // Base contour line
+            linePositions.push(c1x, yBase, c1z);
+            linePositions.push(c2x, yBase, c2z);
+
+            // Vertical corner posts
+            linePositions.push(c1x, yBase, c1z);
+            linePositions.push(c1x, yTop, c1z);
+            linePositions.push(c2x, yBase, c2z);
+            linePositions.push(c2x, yTop, c2z);
+          }
+        }
+      }
+    }
+
+    if (wallPositions.length > 0) {
+      const wallGeo = new THREE.BufferGeometry();
+      wallGeo.setAttribute('position', new THREE.Float32BufferAttribute(wallPositions, 3));
+      wallGeo.computeVertexNormals();
+
+      const wallMat = new THREE.MeshBasicMaterial({
+        color: colorHex,
+        transparent: true,
+        opacity: 0.22,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+
+      const wallMesh = new THREE.Mesh(wallGeo, wallMat);
+      wallMesh.name = 'RangePerimeterWall';
+      wallMesh.raycast = () => {};
+      this.rangePerimeterGroup.add(wallMesh);
+
+      const lineGeo = new THREE.BufferGeometry();
+      lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(linePositions, 3));
+
+      const lineMat = new THREE.LineBasicMaterial({
+        color: colorHex,
+        transparent: true,
+        opacity: 0.85,
+        depthWrite: false,
+      });
+
+      const lineSegments = new THREE.LineSegments(lineGeo, lineMat);
+      lineSegments.name = 'RangePerimeterLines';
+      lineSegments.raycast = () => {};
+      this.rangePerimeterGroup.add(lineSegments);
+    }
+  }
+
+  public clearRangePerimeter(): void {
+    while (this.rangePerimeterGroup.children.length > 0) {
+      const obj = this.rangePerimeterGroup.children[0] as THREE.Mesh | THREE.LineSegments;
+      this.rangePerimeterGroup.remove(obj);
+      if (obj.geometry) obj.geometry.dispose();
+      if (obj.material) {
+        if (Array.isArray(obj.material)) {
+          obj.material.forEach((m) => m.dispose());
+        } else {
+          obj.material.dispose();
+        }
+      }
+    }
+  }
+
   public worldVectorToHexDirection(dx: number, dz: number): HexDirection {
     const dist = Math.hypot(dx, dz);
     if (dist < 0.08) return HexDirection.NONE;
@@ -1137,6 +1276,7 @@ export class HexBoard3D {
       }
     }
     this.clearReachOverlays();
+    this.clearRangePerimeter();
     this.clearAttackPreview();
     this.clearPathPreview();
   }

@@ -998,6 +998,9 @@ export class BattleView {
     }
 
     if (mapUpdate.abilityReachableCells) {
+      this.hexReachableSprites.forEach((sprite) => this.hexCellsContainer.removeChild(sprite));
+      this.hexReachableSprites = [];
+
       for (let j = 0; j < this.hexMap.height; j++) {
         for (let i = 0; i < this.hexMap.width; i++) {
           if (this.battle.ability_reach_tiles[i][j] <= 0) continue;
