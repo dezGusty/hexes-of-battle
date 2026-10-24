@@ -55,6 +55,11 @@ export class BillboardStaticVisual implements IUnitVisual {
     }
   }
 
+  public setTexture(texture: THREE.Texture): void {
+    this.material.map = texture;
+    this.material.needsUpdate = true;
+  }
+
   public setFacing(direction: HexDirection, _cameraFacing: boolean = true): void {
     // Mirror billboard horizontally if facing west-side directions
     const isWest =

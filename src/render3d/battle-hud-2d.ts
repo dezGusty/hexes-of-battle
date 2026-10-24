@@ -36,6 +36,7 @@ export interface BattleHud2DEvents {
   onToggleMusic?: (musicOn: boolean) => void;
   onToggleSceneInspector?: (showInspector: boolean) => void;
   onToggleHardwareCursor?: (hide: boolean) => void;
+  onToggleDamageIndicators?: (showDamageIndicators: boolean) => void;
   onSaveBattle?: (name: string) => boolean;
   onLoadSave?: (entry: BattleSaveEntry) => void;
 }
@@ -226,6 +227,14 @@ export class BattleHud2D {
     this.battleMenuPanel?.showHealthbarsButton?.onPress.connect(() => {
       this.settings.hex.showHealthbars = !this.settings.hex.showHealthbars;
       this.settings.save();
+    });
+
+    this.battleMenuPanel?.toggleDamageIndicatorsButton?.onPress.connect(() => {
+      this.settings.hex.showDamageIndicators = !this.settings.hex.showDamageIndicators;
+      this.settings.save();
+      if (events.onToggleDamageIndicators) {
+        events.onToggleDamageIndicators(this.settings.hex.showDamageIndicators);
+      }
     });
 
     this.battleMenuPanel?.toggleMusicButton?.onPress.connect(() => {

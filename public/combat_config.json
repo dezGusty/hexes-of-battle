@@ -44,8 +44,8 @@
     },
     "restRecovery": 5,
     "exhaustionThresholds": {
-      "freshMinPercent": 0.50,
-      "windedMinPercent": 0.20,
+      "freshMinPercent": 0.55,
+      "windedMinPercent": 0.25,
       "exhaustedMinPercent": 0.01,
       "depletedPercent": 0.00
     },

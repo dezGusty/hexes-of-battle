@@ -10,6 +10,7 @@ export class HexDisplaySettings {
   public showGrid: boolean = true;
   public showHealthbars: boolean = true;
   public showStats: boolean = true;
+  public showDamageIndicators: boolean = true;
   public gridBorderThickness: number = 2.5;
   public gridBorderColor: string = '#000000';
 }
@@ -94,6 +95,11 @@ export class BattleSettings {
       this.hex.showGrid = showGrid === 'true';
     }
 
+    const showDamageIndicators = localStorage.getItem('hob.hex.showDamageIndicators');
+    if (showDamageIndicators !== null) {
+      this.hex.showDamageIndicators = showDamageIndicators === 'true';
+    }
+
     const showFps = localStorage.getItem('hob.debug.showFps');
     if (showFps !== null) {
       this.debug.showFps = showFps === 'true';
@@ -122,6 +128,7 @@ export class BattleSettings {
     // Save the hex display settings to the browser's local storage
     localStorage.setItem('hob.hex', JSON.stringify(this.hex));
     localStorage.setItem('hob.hex.showGrid', String(this.hex.showGrid));
+    localStorage.setItem('hob.hex.showDamageIndicators', String(this.hex.showDamageIndicators));
     // Save the debug settings to the browser's local storage
     localStorage.setItem('hob.debug', JSON.stringify(this.debug));
     localStorage.setItem('hob.debug.showCoords', String(this.debug.showCoords));

@@ -8,7 +8,7 @@ import { Coords } from "../shared";
 export class DamageValueDisplay {
 
   static DEFAULT_FONT_STYLE: TextOptions = { style: { fill: { color: '#ff0000', alpha: 1 }, fontSize: 24, align: 'left' } };
-  static DEFAULT_DURATION_IN_MILLIS: number = 500;
+  static DEFAULT_DURATION_IN_MILLIS: number = 400;
 
   private attackNumberText = new Text({ ...DamageValueDisplay.DEFAULT_FONT_STYLE, text: this.damageValue });
   private travelDistance: Coords = { x: 10, y: -105 };
@@ -42,8 +42,8 @@ export class DamageValueDisplay {
 export class DamageValueCollection {
   private damageValues: DamageValueDisplay[] = [];
 
-  public addDamageValue(damageValue: string, view: Container, coords: Coords) {
-    const damageValueDisplay = new DamageValueDisplay(damageValue, view, DamageValueDisplay.DEFAULT_DURATION_IN_MILLIS, coords);
+  public addDamageValue(damageValue: string, view: Container, coords: Coords, durationInMillis: number = DamageValueDisplay.DEFAULT_DURATION_IN_MILLIS) {
+    const damageValueDisplay = new DamageValueDisplay(damageValue, view, durationInMillis, coords);
     this.damageValues.push(damageValueDisplay);
   }
 

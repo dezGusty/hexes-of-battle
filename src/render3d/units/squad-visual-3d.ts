@@ -4,6 +4,7 @@ import { HexDirection } from '../../shared/hex-map';
 import { IUnitVisual } from './unit-visual-interface';
 import { UnitAnimationState } from '../types';
 import { MoraleState } from '../../battle/combat-rules';
+import { DamageIndicatorType, createDamageIndicatorCanvas } from '../../ui/indicator-icon-utils';
 
 export interface FloatingText3D {
   sprite: THREE.Sprite;
@@ -38,6 +39,14 @@ export class SquadVisual3D {
   // Floating text queue
   private floatingTexts: FloatingText3D[] = [];
 
+  // Damage indicators configuration and tracking
+  public showDamageIndicators: boolean = true;
+  private lastHealth: number = 0;
+  private lastStamina: number = 0;
+  private lastMorale: number = 0;
+  private indicatorStaggerIndex: number = 0;
+  private lastIndicatorTime: number = 0;
+
   // Movement animation interpolation
   private isMoving: boolean = false;
   private movePath: THREE.Vector3[] = [];
@@ -62,7 +71,11 @@ export class SquadVisual3D {
     this.rootGroup.add(this.overheadGroup);
     this.overheadGroup.position.set(0, 1.6, 0);
 
-    this.updateStats();
+    this.lastHealth = this.creature.isAlive ? Math.max(0, creature.stats.remaining_health) : 0;
+    this.lastStamina = Math.max(0, creature.stats.stamina);
+    this.lastMorale = creature.stats.morale;
+
+    this.updateStats(false);
   }
 
   public getModelOffsets(): readonly THREE.Vector3[] {
@@ -263,11 +276,35 @@ export class SquadVisual3D {
     return this.floatingTexts.length > 0;
   }
 
-  public updateStats(): void {
+  public updateStats(showIndicators: boolean = this.showDamageIndicators): void {
     const prevAlive = this.aliveCount;
     this.aliveCount = this.creature.isAlive ? this.creature.aliveModelCount : 0;
 
     const isDead = !this.creature.isAlive || this.aliveCount <= 0;
+
+    const curHp = this.creature.isAlive ? Math.max(0, this.creature.stats.remaining_health) : 0;
+    const curSt = Math.max(0, this.creature.stats.stamina);
+    const curMo = this.creature.stats.morale;
+
+    const hpDelta = curHp - this.lastHealth;
+    const stDelta = curSt - this.lastStamina;
+    const moDelta = curMo - this.lastMorale;
+
+    if (showIndicators && this.showDamageIndicators) {
+      if (hpDelta !== 0) {
+        this.addDamageIndicator('health', hpDelta);
+      }
+      if (stDelta !== 0) {
+        this.addDamageIndicator('stamina', stDelta);
+      }
+      if (moDelta !== 0) {
+        this.addDamageIndicator('morale', moDelta);
+      }
+    }
+
+    this.lastHealth = curHp;
+    this.lastStamina = curSt;
+    this.lastMorale = curMo;
 
     if (isDead) {
       this.overheadGroup.visible = false;
@@ -314,6 +351,54 @@ export class SquadVisual3D {
       this.prevMoraleState = currentMorale;
       this.updateCountText();
     }
+  }
+
+  /**
+   * Adds a floating damage/stat indicator with an icon and +/- sign,
+   * starting from the position of the healthbar and rising quickly over 0.4 seconds.
+   */
+  public addDamageIndicator(type: DamageIndicatorType, delta: number): void {
+    if (!this.showDamageIndicators || delta === 0) return;
+    if (typeof document === 'undefined') return;
+
+    const canvas = createDamageIndicatorCanvas(type, delta);
+    if (!canvas) return;
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.generateMipmaps = false;
+
+    const mat = new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true,
+      depthTest: false,
+    });
+    const sprite = new THREE.Sprite(mat);
+    sprite.scale.set(0.95, 0.285, 1);
+
+    const now = Date.now();
+    if (now - this.lastIndicatorTime > 600) {
+      this.indicatorStaggerIndex = 0;
+    }
+    this.lastIndicatorTime = now;
+
+    const staggerOffsets = [0, -0.38, 0.38, -0.76, 0.76];
+    const xOffset = staggerOffsets[this.indicatorStaggerIndex % staggerOffsets.length];
+    this.indicatorStaggerIndex++;
+
+    // Starting from the position of the healthbar (overheadGroup y = 1.6)
+    const startPos = new THREE.Vector3(xOffset, 1.62, 0.05);
+    sprite.position.copy(startPos);
+    this.rootGroup.add(sprite);
+
+    this.floatingTexts.push({
+      sprite,
+      startPos,
+      elapsedMs: 0,
+      durationMs: 400, // 0.4 seconds duration
+      riseSpeed: 0.75, // quick upward travel typical of video games
+    });
   }
 
   public setFacing(direction: HexDirection): void {
@@ -389,11 +474,15 @@ export class SquadVisual3D {
       const p = ft.elapsedMs / ft.durationMs;
       if (p >= 1) {
         this.rootGroup.remove(ft.sprite);
+        if (ft.sprite.material.map) {
+          ft.sprite.material.map.dispose();
+        }
         ft.sprite.material.dispose();
         this.floatingTexts.splice(i, 1);
       } else {
         ft.sprite.position.y = ft.startPos.y + p * ft.riseSpeed;
-        ft.sprite.material.opacity = 1.0 - Math.pow(p, 2);
+        const opacity = p < 0.6 ? 1.0 : Math.max(0, 1.0 - (p - 0.6) / 0.4);
+        ft.sprite.material.opacity = opacity;
       }
     }
 
@@ -422,6 +511,9 @@ export class SquadVisual3D {
     this.models.forEach((m) => m.dispose());
     this.floatingTexts.forEach((ft) => {
       this.rootGroup.remove(ft.sprite);
+      if (ft.sprite.material.map) {
+        ft.sprite.material.map.dispose();
+      }
       ft.sprite.material.dispose();
     });
     this.barBgMesh.geometry.dispose();

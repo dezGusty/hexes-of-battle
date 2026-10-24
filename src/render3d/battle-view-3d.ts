@@ -148,6 +148,14 @@ export class BattleView3D {
     this.settings.save();
   }
 
+  public setShowDamageIndicators(show: boolean): void {
+    this.settings.hex.showDamageIndicators = show;
+    this.settings.save();
+    this.squadVisuals.forEach((squad) => {
+      squad.showDamageIndicators = show;
+    });
+  }
+
   public setSceneInspectorVisible(visible: boolean): void {
     this.sceneDebugger?.setVisible(visible);
   }
@@ -211,6 +219,7 @@ export class BattleView3D {
       if (!creature.isAlive) return;
 
       const squad = this.visualFactory.createSquadVisual(creature);
+      squad.showDamageIndicators = this.settings.hex.showDamageIndicators;
       const worldPos = this.hexBoard.hexToWorldWithElevation(creature.position.x, creature.position.y, true);
       squad.rootGroup.position.copy(worldPos);
       squad.setFacing(creature.facingDirection);
@@ -404,21 +413,30 @@ export class BattleView3D {
     if (!defenderSquad) return;
 
     defenderSquad.playAnimation('hit', 350);
-    defenderSquad.updateStats();
+    defenderSquad.updateStats(false);
 
     if (damage !== undefined && damage > 0) {
-      let label = `-${damage}`;
-      let color = '#ff3333';
+      if (this.settings.hex.showDamageIndicators) {
+        defenderSquad.addDamageIndicator('health', -damage);
+        if (flankStatus === HexFlankStatus.BACKSTAB) {
+          defenderSquad.addFloatingCombatText('BACKSTAB!', '#ffaa00', 800);
+        } else if (flankStatus === HexFlankStatus.FLANK) {
+          defenderSquad.addFloatingCombatText('FLANK!', '#ffdd44', 800);
+        }
+      } else {
+        let label = `-${damage}`;
+        let color = '#ff3333';
 
-      if (flankStatus === HexFlankStatus.BACKSTAB) {
-        label = `-${damage}\nBACKSTAB!`;
-        color = '#ffaa00';
-      } else if (flankStatus === HexFlankStatus.FLANK) {
-        label = `-${damage}\nFLANK!`;
-        color = '#ffdd44';
+        if (flankStatus === HexFlankStatus.BACKSTAB) {
+          label = `-${damage}\nBACKSTAB!`;
+          color = '#ffaa00';
+        } else if (flankStatus === HexFlankStatus.FLANK) {
+          label = `-${damage}\nFLANK!`;
+          color = '#ffdd44';
+        }
+
+        defenderSquad.addFloatingCombatText(label, color, 1300);
       }
-
-      defenderSquad.addFloatingCombatText(label, color, 1300);
 
       if (!defenderSquad.creature.isAlive) {
         if (this.soundSystem) {
@@ -434,8 +452,12 @@ export class BattleView3D {
     const squad = this.squadVisuals.get(creature.GUID.toString());
     if (squad) {
       squad.playAnimation('rest', 600);
-      squad.updateStats();
-      squad.addFloatingCombatText(`+${recoveredStamina} STAMINA`, '#33ccff', 1200);
+      squad.updateStats(false);
+      if (this.settings.hex.showDamageIndicators) {
+        squad.addDamageIndicator('stamina', recoveredStamina);
+      } else {
+        squad.addFloatingCombatText(`+${recoveredStamina} STAMINA`, '#33ccff', 1200);
+      }
     }
   }
 
@@ -454,9 +476,9 @@ export class BattleView3D {
           const worldPos = this.hexBoard.hexToWorldWithElevation(creature.position.x, creature.position.y, true);
           squad.rootGroup.position.copy(worldPos);
           squad.setFacing(creature.facingDirection);
-          squad.updateStats();
+          squad.updateStats(this.settings.hex.showDamageIndicators);
         } else {
-          squad.updateStats();
+          squad.updateStats(this.settings.hex.showDamageIndicators);
         }
       });
       this.updateActiveUnitSelection();

@@ -72,8 +72,18 @@ export class UnitVisualFactory {
     if (spritesheet.data?.frames) {
       this.catalog.spriteFrames = spritesheet.data.frames;
     }
-    const resource = spritesheet.textureSource?.resource ?? spritesheet.baseTexture?.resource?.source;
-    if (resource && (resource instanceof HTMLImageElement || resource instanceof HTMLCanvasElement || resource instanceof ImageBitmap)) {
+    const resource =
+      spritesheet.textureSource?.source ??
+      spritesheet.textureSource?.resource ??
+      spritesheet.baseTexture?.resource?.source ??
+      spritesheet.textureSource;
+    if (
+      resource &&
+      (resource instanceof HTMLImageElement ||
+        resource instanceof HTMLCanvasElement ||
+        resource instanceof ImageBitmap ||
+        (typeof ImageBitmap !== 'undefined' && resource instanceof ImageBitmap))
+    ) {
       this.catalog.unitsImage = resource as any;
       this.textureCache.clear();
     }
@@ -226,15 +236,46 @@ export class UnitVisualFactory {
         canvas.height = f.h;
         const ctx = canvas.getContext('2d');
         if (ctx) {
-          ctx.clearRect(0, 0, f.w, f.h);
-          ctx.drawImage(this.catalog.unitsImage, f.x, f.y, f.w, f.h, 0, 0, f.w, f.h);
-          const texture = new THREE.CanvasTexture(canvas);
-          texture.colorSpace = THREE.SRGBColorSpace;
-          texture.magFilter = THREE.NearestFilter;
-          texture.minFilter = THREE.LinearMipmapLinearFilter;
-          this.textureCache.set(frameName, texture);
-          return texture;
+          try {
+            ctx.clearRect(0, 0, f.w, f.h);
+            ctx.drawImage(this.catalog.unitsImage, f.x, f.y, f.w, f.h, 0, 0, f.w, f.h);
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.colorSpace = THREE.SRGBColorSpace;
+            texture.magFilter = THREE.LinearFilter;
+            texture.minFilter = THREE.LinearFilter;
+            texture.generateMipmaps = false;
+            this.textureCache.set(frameName, texture);
+            return texture;
+          } catch (e) {
+            console.warn(`Could not extract sprite frame ${frameName}:`, e);
+          }
         }
+      }
+
+      // Check for standalone unit PNG file as fallback
+      try {
+        const loader = new THREE.TextureLoader();
+        const placeholderTexture = new THREE.Texture();
+        const standaloneUrl = `units/${frameName}`;
+        loader.load(
+          standaloneUrl,
+          (loadedTex) => {
+            loadedTex.colorSpace = THREE.SRGBColorSpace;
+            loadedTex.magFilter = THREE.LinearFilter;
+            loadedTex.minFilter = THREE.LinearFilter;
+            loadedTex.generateMipmaps = false;
+            placeholderTexture.image = loadedTex.image;
+            placeholderTexture.needsUpdate = true;
+          },
+          undefined,
+          () => {
+            // Standalone file not found, procedural fallback remains active
+          }
+        );
+        this.textureCache.set(frameName, placeholderTexture);
+        return placeholderTexture;
+      } catch {
+        // Fall back to procedural canvas
       }
 
       // Transparent fallback procedural canvas texture (clean transparent background, never solid blue)
@@ -256,6 +297,9 @@ export class UnitVisualFactory {
 
         const texture = new THREE.CanvasTexture(fallbackCanvas);
         texture.colorSpace = THREE.SRGBColorSpace;
+        texture.magFilter = THREE.LinearFilter;
+        texture.minFilter = THREE.LinearFilter;
+        texture.generateMipmaps = false;
         this.textureCache.set(frameName, texture);
         return texture;
       }

@@ -66,14 +66,30 @@ export class BattleScene3D implements Scene {
 
     this.cpuPlayer = CPUPlayerFactory.create(overrideDefaultPersonality, this.battle);
 
-    const gameElement = document.getElementById("game") ?? document.body;
+    const gameElement =
+      typeof document !== 'undefined'
+        ? (document.getElementById("game") ?? document.body ?? document.createElement('div'))
+        : undefined;
+    const rawResource =
+      context.assets.unitsSheet?.textureSource?.source ??
+      context.assets.unitsSheet?.textureSource?.resource;
+    const unitsImg =
+      rawResource &&
+      (rawResource instanceof HTMLImageElement ||
+        rawResource instanceof HTMLCanvasElement ||
+        (typeof ImageBitmap !== 'undefined' && rawResource instanceof ImageBitmap))
+        ? rawResource
+        : undefined;
+    const spriteFrames = context.assets.unitsSheet?.data?.frames;
 
     this.view = new BattleView3D(
-      gameElement,
+      gameElement as HTMLElement,
       this.hexMap,
       this.battle,
       context.settings,
-      this.cpuPlayer
+      this.cpuPlayer,
+      unitsImg as any,
+      spriteFrames
     );
     this.view.setSoundSystem(this.soundSystem);
 
@@ -125,6 +141,9 @@ export class BattleScene3D implements Scene {
       },
       onToggleHardwareCursor: (hide) => {
         this.view.applyHardwareCursorVisibility(hide);
+      },
+      onToggleDamageIndicators: (show) => {
+        this.view.setShowDamageIndicators(show);
       },
       onSaveBattle: (name) => {
         SaveManager.saveBattle(this.battle, name);
@@ -186,19 +205,20 @@ export class BattleScene3D implements Scene {
   }
 
   public update(deltaMS: number): void {
+    if (!this.view || !this.hud || !this.cpuPlayer) return;
     this.view.update(deltaMS);
-    this.hud.update(deltaMS, this.context.app.ticker.FPS);
+    this.hud.update(deltaMS, this.context?.app?.ticker?.FPS ?? 60);
     this.cpuPlayer.update(deltaMS);
   }
 
   public resize(width: number, height: number): void {
-    this.view.resize(width, height);
+    this.view?.resize(width, height);
   }
 
   public exit(): void {
-    this.soundSystem.stop(SoundCategory.MUSIC);
-    this.view.destroy();
-    this.hud.destroy();
+    this.soundSystem?.stop(SoundCategory.MUSIC);
+    this.view?.destroy();
+    this.hud?.destroy();
     this.container.removeChildren();
   }
 

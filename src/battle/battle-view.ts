@@ -280,13 +280,15 @@ export class BattleView {
     flankStatus: HexFlankStatus
   ): void {
     const defenderPixelCoords = this.hexMap.hexToPixel(defender.position.x, defender.position.y);
-    let damageText = `${damage}`;
-    if (flankStatus === HexFlankStatus.BACKSTAB) {
-      damageText += '\n(backstab)';
-    } else if (flankStatus === HexFlankStatus.FLANK) {
-      damageText += '\n(flanking)';
+    if (this.settings.hex.showDamageIndicators) {
+      let damageText = `-${damage}`;
+      if (flankStatus === HexFlankStatus.BACKSTAB) {
+        damageText += '\n(backstab)';
+      } else if (flankStatus === HexFlankStatus.FLANK) {
+        damageText += '\n(flanking)';
+      }
+      this.damageValueDisplay.addDamageValue(damageText, this.uiPlusRenderGroup, defenderPixelCoords, 400);
     }
-    this.damageValueDisplay.addDamageValue(damageText, this.uiPlusRenderGroup, defenderPixelCoords);
 
     if (attackType === BattleActionType.ATTACK_MELEE || attackType === BattleActionType.COUNTER_ATTACK_MELEE) {
       sound.play('sword', { speed: 0.9 + Math.random() * 0.2, volume: this.settings.sound.soundVolume });
@@ -435,6 +437,11 @@ export class BattleView {
     this.battleMenuPanel?.showHealthbarsButton?.onPress.connect(() => {
       this.showHealthbars = !this.showHealthbars;
       this.battle.reselectCurrentUnit();
+    });
+
+    this.battleMenuPanel?.toggleDamageIndicatorsButton?.onPress.connect(() => {
+      this.settings.hex.showDamageIndicators = !this.settings.hex.showDamageIndicators;
+      this.settings.save();
     });
 
     this.battleMenuPanel?.toggleSceneInspectorButton?.onPress.connect(() => {

@@ -44,6 +44,7 @@ export class BattleMenuPanel {
     public saveButton?: FancyButton;
     public loadButton?: FancyButton;
     public toggleHardwareCursorButton?: FancyButton;
+    public toggleDamageIndicatorsButton?: FancyButton;
 
     private hardwareCursorText?: Text;
     private isHardwareCursorHidden: boolean = false;
@@ -85,7 +86,7 @@ export class BattleMenuPanel {
         });
 
         windowBg.width = 920;
-        windowBg.height = 570;
+        windowBg.height = 640;
         windowBg.alpha = 0.95;
 
         this.window.addChild(windowBg);
@@ -173,6 +174,7 @@ export class BattleMenuPanel {
         addMenuOption(col1TextX, 280, 'Toggle healthbars display.');
         addMenuOption(col1TextX, 355, 'Toggle 3D Scene Inspector.\n(Same effect as pressing F2)');
         addMenuOption(col1TextX, 430, 'Show FPS\nToggle frames per second counter.');
+        addMenuOption(col1TextX, 505, 'Show damage indicators.\nFloating indicators on morale/HP/stamina change.');
 
         // Column 2 Options
         addMenuOption(col2TextX, 55, 'Toggle music on/off.');
@@ -227,6 +229,14 @@ export class BattleMenuPanel {
         this.toggleFpsButton.position.set(col1BtnX, 430);
         this.toggleFpsButton.width = 64;
         this.toggleFpsButton.height = 60;
+
+        this.toggleDamageIndicatorsButton = new FancyButton({
+            ...this.DEFAULT_BUTTON_STYLE,
+            icon: this.uiSheet.textures['glyph_hp'] ? 'glyph_hp' : 'glyph_plus.png',
+        });
+        this.toggleDamageIndicatorsButton.position.set(col1BtnX, 505);
+        this.toggleDamageIndicatorsButton.width = 64;
+        this.toggleDamageIndicatorsButton.height = 60;
 
         // Column 2 Buttons & Sliders
         this.toggleMusicButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_toggle_music.png' });
@@ -349,7 +359,7 @@ export class BattleMenuPanel {
         this.toggleHardwareCursorButton.width = 64;
         this.toggleHardwareCursorButton.height = 60;
 
-        this.closeButton.position.set((panelWidth - 140) / 2, 510);
+        this.closeButton.position.set((panelWidth - 140) / 2, 580);
         this.closeButton.width = 140;
         this.closeButton.height = 36;
         this.closeButton.text = new Text({
@@ -364,6 +374,7 @@ export class BattleMenuPanel {
         this.mainContainer.addChild(this.showHealthbarsButton);
         this.mainContainer.addChild(this.toggleSceneInspectorButton);
         this.mainContainer.addChild(this.toggleFpsButton);
+        this.mainContainer.addChild(this.toggleDamageIndicatorsButton);
         this.mainContainer.addChild(this.toggleMusicButton);
         this.mainContainer.addChild(this.musicVolumeSlider);
         this.mainContainer.addChild(this.musicVolumeValueText);
