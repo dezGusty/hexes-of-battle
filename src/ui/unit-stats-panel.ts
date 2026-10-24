@@ -4,7 +4,8 @@ import { Ability, AbilityResourceUse } from "../battle/ability";
 import { Coords } from "../shared";
 import { getTraitInfo, TraitsConfig } from "../battle/trait-system";
 import { Battle, InputState } from "../battle";
-import { getMoraleTooltip } from "../battle/combat-rules";
+import { getMoraleState, getMoraleTooltip } from "../battle/combat-rules";
+import { getMoraleTexture } from "./morale-icon-utils";
 
 export interface TraitSlot {
   container: Container;
@@ -177,6 +178,7 @@ export class UnitStatsPanel {
   private statIcons: Sprite[] = [];
   private statTooltipAreas: Container[] = [];
   private statValues: Text[] = [];
+  public readonly moraleStateIcon: Sprite;
 
   private bannerSprite?: Sprite = undefined;
   private bannerBg?: NineSliceSprite = undefined;
@@ -323,6 +325,12 @@ export class UnitStatsPanel {
       this.window.addChild(this.statValues[i]);
     }
 
+    this.moraleStateIcon = new Sprite(Texture.EMPTY);
+    this.moraleStateIcon.width = 20;
+    this.moraleStateIcon.height = 20;
+    this.moraleStateIcon.visible = false;
+    this.window.addChild(this.moraleStateIcon);
+
     // Vertical divider separating stat boxes from trait perks
     const divider = new NineSliceSprite({
       texture: this.uiSheet.textures['thin_panel_semitransparent.png'],
@@ -444,6 +452,10 @@ export class UnitStatsPanel {
 
   public getTraitSlots(): readonly TraitSlot[] {
     return this.traitSlots;
+  }
+
+  public getMoraleStateIcon(): Sprite {
+    return this.moraleStateIcon;
   }
 
   private getTextureForIcon(iconPath: string): Texture {
@@ -706,6 +718,10 @@ export class UnitStatsPanel {
   }
 
   public update() {
+    if (this.currentCreature) {
+      this.stats = this.currentCreature.live_stats;
+      this.buffs = this.currentCreature.buffs;
+    }
     if (!this.stats) return;
 
     this.unitTypeText.text = `Unit: ${this.creatureType}`;
@@ -731,6 +747,24 @@ export class UnitStatsPanel {
         `${this.stats?.remaining_ammo ?? 0} / ${this.stats?.ammo}` : "";
     const moraleVal = (this.stats?.morale !== undefined && !Number.isNaN(this.stats.morale)) ? this.stats.morale : 10;
     this.statValues[DisplayedStat.MORALE].text = `${moraleVal}`;
+
+    const moraleState = this.currentCreature
+      ? this.currentCreature.moraleState
+      : ((this.stats as any)?.morale_state ?? getMoraleState(moraleVal));
+    this.moraleStateIcon.texture = getMoraleTexture(moraleState, this.uiSheet);
+    this.moraleStateIcon.visible = this.statValues[DisplayedStat.MORALE].text !== "";
+    let valWidth = 18;
+    try {
+      if (typeof document !== "undefined") {
+        valWidth = this.statValues[DisplayedStat.MORALE].width || 18;
+      } else {
+        valWidth = (this.statValues[DisplayedStat.MORALE].text?.length || 2) * 9;
+      }
+    } catch {
+      valWidth = 18;
+    }
+    this.moraleStateIcon.position.x = this.statValues[DisplayedStat.MORALE].position.x + valWidth + 4;
+    this.moraleStateIcon.position.y = this.statIcons[DisplayedStat.MORALE].y + Math.round((32 - this.moraleStateIcon.height) / 2);
 
     for (let i = 0; i < DisplayedStat.NUM_STATS; i++) {
       if (this.statValues[i].text == "") {

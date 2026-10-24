@@ -19,6 +19,8 @@ import { UnitStatsPanel, DisplayedStat } from "../ui/unit-stats-panel";
 import { EnemyStatsPanel } from "../ui/enemy-stats-panel";
 import { Creature, CreatureType } from "./creature";
 import { BattleMenuPanel } from "../ui/battle-menu";
+import { MoraleState } from "./combat-rules";
+import { getMoraleTexture } from "../ui/morale-icon-utils";
 import pkg from "../../package.json";
 
 describe("BattleView Army Names Formatting", () => {
@@ -683,6 +685,76 @@ describe("UnitStatsPanel & EnemyStatsPanel Ammo Display", () => {
 
     expect((unitPanel as any).statDescriptions[DisplayedStat.MORALE]).toContain("Steady: 9-20, High: >20");
     expect((enemyPanel as any).statDescriptions[DisplayedStat.MORALE]).toContain("Steady: 9-20, High: >20");
+  });
+
+  it("should display the morale icon next to the morale value in UnitStatsPanel and update across morale states", () => {
+    const container = new Container();
+    const panel = new UnitStatsPanel(container, dummyUiSheet);
+    const peasant = new Creature(CreatureType.PEASANT);
+
+    panel.setCreature(peasant);
+    panel.update();
+
+    const moraleValText = (panel as any).statValues[DisplayedStat.MORALE];
+    const moraleIcon = panel.getMoraleStateIcon();
+
+    expect(moraleIcon).toBeDefined();
+    expect(moraleIcon.visible).toBe(true);
+    expect(moraleIcon.x).toBeGreaterThan(moraleValText.x);
+    expect(moraleIcon.width).toBe(20);
+    expect(moraleIcon.height).toBe(20);
+
+    // Test across morale states
+    const statesToTest = [
+      { morale: 20, expectedState: MoraleState.HIGH },
+      { morale: 10, expectedState: MoraleState.STEADY },
+      { morale: 4, expectedState: MoraleState.WAVERING },
+      { morale: 2, expectedState: MoraleState.PANICKED },
+      { morale: 0, expectedState: MoraleState.ROUTING },
+    ];
+
+    for (const { morale, expectedState } of statesToTest) {
+      peasant.stats.morale = morale;
+      panel.update();
+      expect(moraleValText.text).toBe(`${morale}`);
+      expect(moraleIcon.visible).toBe(true);
+      expect(moraleIcon.texture).toBe(getMoraleTexture(expectedState, dummyUiSheet));
+    }
+  });
+
+  it("should display the morale icon next to the morale value in EnemyStatsPanel and update across morale states", () => {
+    const container = new Container();
+    const panel = new EnemyStatsPanel(container, dummyUiSheet);
+    const enemy = new Creature(CreatureType.SWORDSMAN);
+
+    panel.setCreature(enemy);
+    panel.update();
+
+    const moraleValText = (panel as any).statValues[DisplayedStat.MORALE];
+    const moraleIcon = panel.getMoraleStateIcon();
+
+    expect(moraleIcon).toBeDefined();
+    expect(moraleIcon.visible).toBe(true);
+    expect(moraleIcon.x).toBeGreaterThan(moraleValText.x);
+    expect(moraleIcon.width).toBe(16);
+    expect(moraleIcon.height).toBe(16);
+
+    // Test across morale states
+    const statesToTest = [
+      { morale: 25, expectedState: MoraleState.HIGH },
+      { morale: 12, expectedState: MoraleState.STEADY },
+      { morale: 5, expectedState: MoraleState.WAVERING },
+      { morale: 1, expectedState: MoraleState.PANICKED },
+      { morale: 0, expectedState: MoraleState.ROUTING },
+    ];
+
+    for (const { morale, expectedState } of statesToTest) {
+      enemy.stats.morale = morale;
+      panel.update();
+      expect(moraleValText.text).toBe(`${morale}`);
+      expect(moraleIcon.visible).toBe(true);
+      expect(moraleIcon.texture).toBe(getMoraleTexture(expectedState, dummyUiSheet));
+    }
   });
 });
 

@@ -4,7 +4,8 @@ import { Coords } from "../shared";
 import { DisplayedStat, TraitSlot, SkillSlot, getSkillIconPath, formatAbilityDescription } from "./unit-stats-panel";
 import { Ability } from "../battle/ability";
 import { getTraitInfo, TraitsConfig } from "../battle/trait-system";
-import { getMoraleTooltip } from "../battle/combat-rules";
+import { getMoraleState, getMoraleTooltip } from "../battle/combat-rules";
+import { getMoraleTexture } from "./morale-icon-utils";
 
 /**
  * Secondary compact stats display panel for enemy units.
@@ -69,6 +70,11 @@ export class EnemyStatsPanel {
     return this.tooltipIconSprite;
   }
 
+  public getMoraleStateIcon(): Sprite {
+    return this.moraleStateIcon;
+  }
+
+  private currentCreature?: Creature = undefined;
   private stats?: CreatureStats = undefined;
   private buffs?: Buff[] = [];
   private creatureType: string = '';
@@ -81,6 +87,7 @@ export class EnemyStatsPanel {
   private statIcons: Sprite[] = [];
   private statTooltipAreas: Container[] = [];
   private statValues: Text[] = [];
+  public readonly moraleStateIcon: Sprite;
 
   private bannerSprite?: Sprite = undefined;
   private bannerBg?: NineSliceSprite = undefined;
@@ -180,6 +187,12 @@ export class EnemyStatsPanel {
       this.statValues[i] = valText;
     }
 
+    this.moraleStateIcon = new Sprite(Texture.EMPTY);
+    this.moraleStateIcon.width = 16;
+    this.moraleStateIcon.height = 16;
+    this.moraleStateIcon.visible = false;
+    this.window.addChild(this.moraleStateIcon);
+
     // Horizontal divider separating stats from trait perks
     const divider = new NineSliceSprite({
       texture: this.uiSheet.textures['thin_panel_semitransparent.png'],
@@ -229,6 +242,7 @@ export class EnemyStatsPanel {
   }
 
   public setCreature(creature: Creature): void {
+    this.currentCreature = creature;
     this.stats = creature.live_stats;
     this.buffs = creature.buffs;
     this.abilities = creature.abilities ? [...creature.abilities] : [];
@@ -502,6 +516,10 @@ export class EnemyStatsPanel {
   }
 
   public update(): void {
+    if (this.currentCreature) {
+      this.stats = this.currentCreature.live_stats;
+      this.buffs = this.currentCreature.buffs;
+    }
     if (!this.stats) return;
 
     this.unitTypeText.text = `Enemy: ${this.creatureType}`;
@@ -523,6 +541,24 @@ export class EnemyStatsPanel {
       (this.stats.ammo && this.stats.ammo > 0) ? `${this.stats.remaining_ammo}/${this.stats.ammo}` : '';
     const moraleVal = (this.stats.morale !== undefined && !Number.isNaN(this.stats.morale)) ? this.stats.morale : 10;
     this.statValues[DisplayedStat.MORALE].text = `${moraleVal}`;
+
+    const moraleState = this.currentCreature
+      ? this.currentCreature.moraleState
+      : ((this.stats as any)?.morale_state ?? getMoraleState(moraleVal));
+    this.moraleStateIcon.texture = getMoraleTexture(moraleState, this.uiSheet);
+    this.moraleStateIcon.visible = this.statValues[DisplayedStat.MORALE].text !== '';
+    let valWidth = 13;
+    try {
+      if (typeof document !== "undefined") {
+        valWidth = this.statValues[DisplayedStat.MORALE].width || 13;
+      } else {
+        valWidth = (this.statValues[DisplayedStat.MORALE].text?.length || 2) * 7;
+      }
+    } catch {
+      valWidth = 13;
+    }
+    this.moraleStateIcon.position.x = this.statValues[DisplayedStat.MORALE].position.x + valWidth + 3;
+    this.moraleStateIcon.position.y = this.statIcons[DisplayedStat.MORALE].y + Math.round((18 - this.moraleStateIcon.height) / 2);
 
     for (let i = 0; i < DisplayedStat.NUM_STATS; i++) {
       if (this.statValues[i].text === '') {
