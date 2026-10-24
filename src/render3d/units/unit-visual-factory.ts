@@ -28,7 +28,7 @@ export class UnitVisualFactory {
   }
 
   public async loadCatalogAssets(
-    imageSrc: string = 'units_80x160.png',
+    imageSrc: string = 'units_160x320.png',
     jsonSrc: string = 'unitsspritesheet.json'
   ): Promise<void> {
     try {
@@ -36,6 +36,9 @@ export class UnitVisualFactory {
       const data = await resp.json();
       if (data && data.frames) {
         this.catalog.spriteFrames = data.frames;
+      }
+      if (data?.meta?.image) {
+        imageSrc = data.meta.image;
       }
     } catch (e) {
       console.warn('Could not load sprite sheet JSON:', e);

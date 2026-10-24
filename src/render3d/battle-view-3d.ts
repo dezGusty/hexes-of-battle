@@ -182,7 +182,7 @@ export class BattleView3D {
 
   public async loadAllAssets(): Promise<void> {
     await Promise.all([
-      this.visualFactory.loadCatalogAssets('units_80x160.png', 'unitsspritesheet.json'),
+      this.visualFactory.loadCatalogAssets('units_160x320.png', 'unitsspritesheet.json'),
       this.hexBoard.loadTerrainAssets('textures/terrain/'),
     ]);
     this.syncAllSquads();
