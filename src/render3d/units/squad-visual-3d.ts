@@ -212,7 +212,7 @@ export class SquadVisual3D {
     const textMetrics = ctx.measureText(countStr);
     const textWidth = textMetrics.width;
 
-    const iconSize = 22; // Renders to ~16x16 screen pixels in 3D world view
+    const iconSize = 28; // Renders to ~20x20 screen pixels in 3D world view
     const gap = 6;
     const totalW = iconSize + gap + textWidth;
     const startX = Math.round((128 - totalW) / 2);
@@ -448,7 +448,7 @@ const MORALE_ICON_PATHS: Record<MoraleState, string> = {
 const moraleImageCache = new Map<string, HTMLImageElement>();
 
 function getMoraleImage(state: MoraleState, onLoaded?: () => void): HTMLImageElement | undefined {
-  if (typeof document === 'undefined') return undefined;
+  if (typeof document === 'undefined' || typeof Image === 'undefined') return undefined;
   const path = MORALE_ICON_PATHS[state] || MORALE_ICON_PATHS[MoraleState.STEADY];
   let img = moraleImageCache.get(path);
   if (!img) {

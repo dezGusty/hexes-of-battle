@@ -313,6 +313,72 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       squad.updateStats();
     });
 
+    it('should draw morale icon with size 28 next to unit count in SquadVisual3D', () => {
+      const mockCtx = {
+        save: vi.fn(),
+        restore: vi.fn(),
+        translate: vi.fn(),
+        scale: vi.fn(),
+        beginPath: vi.fn(),
+        closePath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
+        stroke: vi.fn(),
+        clearRect: vi.fn(),
+        measureText: vi.fn().mockReturnValue({ width: 30 }),
+        fillText: vi.fn(),
+        font: '',
+        textAlign: '',
+        textBaseline: '',
+        fillStyle: '',
+        strokeStyle: '',
+        lineWidth: 1,
+        lineCap: '',
+        lineJoin: '',
+        shadowColor: '',
+        shadowBlur: 0,
+      };
+      const mockCanvas = {
+        width: 128,
+        height: 64,
+        getContext: vi.fn().mockReturnValue(mockCtx),
+      };
+
+      const originalDocument = (globalThis as any).document;
+      const originalImage = (globalThis as any).Image;
+      class MockImage {
+        src = '';
+        complete = false;
+        naturalWidth = 0;
+      }
+      (globalThis as any).document = {
+        createElement: vi.fn().mockReturnValue(mockCanvas),
+      };
+      (globalThis as any).Image = MockImage;
+
+      try {
+        const factory = new UnitVisualFactory();
+        const squadCreature = new Creature(CreatureType.SWORDSMAN);
+        const squad = factory.createSquadVisual(squadCreature);
+
+        const drawMoraleIconSpy = vi.spyOn(squad as any, 'drawMoraleIcon');
+        (squad as any).updateCountText();
+
+        expect(drawMoraleIconSpy).toHaveBeenCalledWith(
+          mockCtx,
+          squadCreature.moraleState,
+          expect.any(Number),
+          expect.any(Number),
+          28
+        );
+      } finally {
+        (globalThis as any).document = originalDocument;
+        (globalThis as any).Image = originalImage;
+      }
+    });
+
     it('should correctly map multiple squads uniquely using HobGUID.toString() without overwriting', () => {
       const c1 = new Creature(CreatureType.PEASANT);
       const c2 = new Creature(CreatureType.SPEARMAN);

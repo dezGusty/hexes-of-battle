@@ -873,12 +873,13 @@ export class BattleView {
 
       // Dual Bars: Health Bar & Stamina Bar
       if (this.showHealthbars) {
-        // Morale Icon (16x16) and Squad Count Label above the bars
+        // Morale Icon (20x20) and Squad Count Label above the bars
         const moraleState = creature.moraleState;
         const moraleTexture = Assets.cache.get(`morale/morale_${moraleState}.png`) || Texture.EMPTY;
         const moraleSprite = new Sprite(moraleTexture);
-        moraleSprite.width = 16;
-        moraleSprite.height = 16;
+        const moraleIconSize = 20;
+        moraleSprite.width = moraleIconSize;
+        moraleSprite.height = moraleIconSize;
         moraleSprite.anchor.set(0.5, 0.5);
 
         const countText = new Text({
@@ -893,11 +894,11 @@ export class BattleView {
         });
         countText.anchor.set(0, 0.5);
 
-        const badgeWidth = 16 + 4 + countText.width;
+        const badgeWidth = moraleIconSize + 4 + countText.width;
         const badgeStartX = centerPixel.x - badgeWidth / 2;
-        moraleSprite.x = badgeStartX + 8;
+        moraleSprite.x = badgeStartX + moraleIconSize / 2;
         moraleSprite.y = centerPixel.y + 14;
-        countText.x = badgeStartX + 16 + 4;
+        countText.x = badgeStartX + moraleIconSize + 4;
         countText.y = centerPixel.y + 14;
 
         this.unitRenderSubgroups[creature.position.y]?.addChild(moraleSprite);

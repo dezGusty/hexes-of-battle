@@ -7,8 +7,8 @@ vi.mock("@pixi/sound", () => ({
   },
 }));
 
-import { Container, Texture, Spritesheet, Assets } from "pixi.js";
-import { Battle, ArmyControlType } from "../battle";
+import { Container, Texture, Spritesheet, Assets, Sprite } from "pixi.js";
+import { Battle, ArmyControlType, MapRenderUpdate } from "../battle";
 import { HexMap } from "../shared/hex-map";
 import { BattleView } from "./battle-view";
 import { BattleSettings } from "./settings";
@@ -127,27 +127,27 @@ describe("UnitStatsPanel Visibility", () => {
     };
 
     const settings = new BattleSettings();
-    expect(settings.hex.showStats).toBe(false);
+    expect(settings.hex.showStats).toBe(true);
 
     // Change and save
-    settings.hex.showStats = true;
+    settings.hex.showStats = false;
     settings.save();
 
     const storedHex = JSON.parse(storage['hob.hex'] || '{}');
-    expect(storedHex.showStats).toBe(true);
+    expect(storedHex.showStats).toBe(false);
 
     // Load in fresh settings
     const newSettings = new BattleSettings();
     newSettings.load();
-    expect(newSettings.hex.showStats).toBe(true);
+    expect(newSettings.hex.showStats).toBe(false);
 
-    // Turn off and save
-    newSettings.hex.showStats = false;
+    // Turn back on and save
+    newSettings.hex.showStats = true;
     newSettings.save();
 
     const updatedSettings = new BattleSettings();
     updatedSettings.load();
-    expect(updatedSettings.hex.showStats).toBe(false);
+    expect(updatedSettings.hex.showStats).toBe(true);
   });
 
   it("should persist and load musicOn in hob.sound in localStorage", () => {
@@ -755,6 +755,41 @@ describe("UnitStatsPanel & EnemyStatsPanel Ammo Display", () => {
       expect(moraleIcon.visible).toBe(true);
       expect(moraleIcon.texture).toBe(getMoraleTexture(expectedState, dummyUiSheet));
     }
+  });
+
+  it("should render 20x20 morale icon next to squad unit count in BattleView", () => {
+    const dummyAssets: any = { softCursorTextures: {} };
+    const settings = new BattleSettings();
+    const hexMap = new HexMap(10, 8);
+    const battle = new Battle(hexMap);
+    battle.initializeToSize(10, 8);
+    const creature = new Creature(CreatureType.SWORDSMAN);
+    creature.position = { x: 2, y: 2 };
+    battle.creatures.push(creature);
+    const dumbCpu = new DumbCPUPlayer(battle);
+
+    Assets.cache.set('thin_button_normal.png', Texture.WHITE);
+    Assets.cache.set('progress_fill.png', Texture.WHITE);
+    Assets.cache.set('morale/morale_steady.png', Texture.WHITE);
+
+    const view = new BattleView(dummyAssets, settings, hexMap, battle, 1.4, dumbCpu);
+    (view as any).initializeMapGrid();
+    view.renderUnits(new MapRenderUpdate());
+
+    const subgroups = (view as any).unitRenderSubgroups as Container[];
+    let foundMoraleSprite: Sprite | undefined;
+    for (const group of subgroups) {
+      for (const child of group.children) {
+        if (child instanceof Sprite && child.width === 20 && child.height === 20) {
+          foundMoraleSprite = child;
+          break;
+        }
+      }
+      if (foundMoraleSprite) break;
+    }
+    expect(foundMoraleSprite).toBeDefined();
+    expect(foundMoraleSprite!.width).toBe(20);
+    expect(foundMoraleSprite!.height).toBe(20);
   });
 });
 
