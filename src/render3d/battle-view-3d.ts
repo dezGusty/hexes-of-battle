@@ -1,6 +1,7 @@
 import { Battle, InputState, MapRenderUpdate, RangedAttackData } from '../battle';
 import { HexDirection, HexFlankStatus, HexMap, checkFlankingStatus } from '../shared/hex-map';
 import { Coords } from '../shared';
+import { PinchGestureHandler } from '../shared/pinch-gesture-handler';
 import { Creature } from '../battle/creature';
 import { BattleActionType } from '../battle/battle-action';
 import { CPUPlayer } from '../battle/cpu-player';
@@ -61,6 +62,7 @@ export class BattleView3D {
   private boundKeyDown?: (e: KeyboardEvent) => void;
   private boundKeyUp?: (e: KeyboardEvent) => void;
   private boundBlur?: () => void;
+  private pinchHandler?: PinchGestureHandler;
 
   // Active keyboard navigation keys
   private pressedKeys: Set<string> = new Set();
@@ -719,6 +721,9 @@ export class BattleView3D {
     };
 
     this.boundPointerDown = (e: PointerEvent) => {
+      if (this.pinchHandler?.shouldSuppressClick()) {
+        return;
+      }
       const stageCoords = this.getStageCoords(e.clientX, e.clientY);
       if (e.button === 2 && this.battle.input_state === InputState.SELECT_ABILITY_TARGET) {
         this.rightClickCanceledAbility = true;
@@ -841,6 +846,9 @@ export class BattleView3D {
     };
 
     this.boundClick = (e: MouseEvent) => {
+      if (this.pinchHandler?.shouldSuppressClick()) {
+        return;
+      }
       const stageCoords = this.getStageCoords(e.clientX, e.clientY);
       if (this.hud?.isPointerOverUI(stageCoords.x, stageCoords.y)) {
         this.hud.handleClick(stageCoords.x, stageCoords.y);
@@ -895,6 +903,28 @@ export class BattleView3D {
       }
     };
 
+    this.pinchHandler = new PinchGestureHandler({
+      isEnabled: () => !this.battle.isCurrentTurnAI(),
+      onPinchZoom: (event) => {
+        const stageCoords = this.getStageCoords(event.center.x, event.center.y);
+        if (this.hud?.isPointerOverUI(stageCoords.x, stageCoords.y)) {
+          return;
+        }
+
+        // In 3D:
+        // Spreading fingers (deltaDistance > 0) -> zoom in (negative deltaDistance for zoomCamera).
+        // Pinching together (deltaDistance < 0) -> zoom out (positive deltaDistance for zoomCamera).
+        if (Math.abs(event.deltaDistance) > 0.5) {
+          this.sceneManager.zoomCamera(-event.deltaDistance * 0.05);
+        }
+
+        // Pan camera with two-finger drag
+        if (Math.abs(event.deltaCenter.x) > 0.5 || Math.abs(event.deltaCenter.y) > 0.5) {
+          this.sceneManager.panCamera(-event.deltaCenter.x * 0.02, -event.deltaCenter.y * 0.02);
+        }
+      },
+    });
+
     container.addEventListener('contextmenu', this.boundContextMenu);
     if (typeof window !== 'undefined') {
       window.addEventListener('pointerdown', this.boundPointerDown);
@@ -902,6 +932,7 @@ export class BattleView3D {
       window.addEventListener('pointermove', this.boundPointerMove);
       window.addEventListener('wheel', this.boundWheel, { passive: false });
       window.addEventListener('click', this.boundClick);
+      this.pinchHandler.attach(window);
     }
   }
 
@@ -1101,6 +1132,7 @@ export class BattleView3D {
       if (this.boundKeyUp) window.removeEventListener('keyup', this.boundKeyUp);
       if (this.boundBlur) window.removeEventListener('blur', this.boundBlur);
     }
+    this.pinchHandler?.detach();
     this.pressedKeys.clear();
     this.applyHardwareCursorVisibility(false);
 

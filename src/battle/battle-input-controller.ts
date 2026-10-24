@@ -2,6 +2,7 @@ import { Coords } from '../shared';
 import { HexDirection, HexMap } from '../shared/hex-map';
 import { HexViewportCamera } from '../shared/hex-viewport-camera';
 import { Battle, InputState } from '../battle';
+import { PinchGestureHandler } from '../shared/pinch-gesture-handler';
 
 export interface BattleInputDelegate {
   isMenuBlockingInput: () => boolean;
@@ -21,6 +22,7 @@ export class BattleInputController {
   private mouseDragCoords: Coords = { x: 0, y: 0 };
   private mouseRightClickCoords: Coords = { x: 0, y: 0 };
   private rightClickWasInAbilityTargeting: boolean = false;
+  private pinchHandler: PinchGestureHandler;
 
   private boundKeyDown?: (e: KeyboardEvent) => void;
   private boundKeyUp?: (e: KeyboardEvent) => void;
@@ -34,7 +36,31 @@ export class BattleInputController {
     private battle: Battle,
     private hexMap: HexMap,
     private delegate: BattleInputDelegate
-  ) {}
+  ) {
+    this.pinchHandler = new PinchGestureHandler({
+      isEnabled: () => !this.delegate.isMenuBlockingInput(),
+      onPinchZoom: (event) => {
+        const screenSize = this.delegate.getScreenSize();
+        const camera = this.delegate.getCamera();
+        const focalRatio: Coords = {
+          x: event.center.x / (screenSize.width || 1),
+          y: event.center.y / (screenSize.height || 1),
+        };
+
+        // Similar to mouse scroll:
+        // Spreading fingers (deltaDistance > 0) -> zoom in (like deltaY < 0).
+        // Pinching together (deltaDistance < 0) -> zoom out (like deltaY > 0).
+        if (Math.abs(event.deltaDistance) > 0.5) {
+          camera.zoomBy(event.deltaDistance * 0.005, focalRatio);
+        }
+
+        // Pan with movement of pinch midpoint
+        if (Math.abs(event.deltaCenter.x) > 0.5 || Math.abs(event.deltaCenter.y) > 0.5) {
+          camera.panBy(event.deltaCenter);
+        }
+      },
+    });
+  }
 
   public attach(): void {
     this.boundKeyDown = (event: KeyboardEvent) => {
@@ -119,6 +145,9 @@ export class BattleInputController {
     };
 
     this.boundMouseDown = (event: MouseEvent) => {
+      if (this.pinchHandler.shouldSuppressClick()) {
+        return;
+      }
       if (event.button === 1) {
         this.mouseDragCoords = { x: event.clientX, y: event.clientY };
       }
@@ -151,7 +180,7 @@ export class BattleInputController {
     };
 
     this.boundClick = (event: MouseEvent) => {
-      if (this.delegate.isMenuBlockingInput()) {
+      if (this.pinchHandler.shouldSuppressClick() || this.delegate.isMenuBlockingInput()) {
         return;
       }
 
@@ -214,10 +243,12 @@ export class BattleInputController {
       document.addEventListener('mouseup', this.boundMouseUp);
       document.addEventListener('click', this.boundClick);
       document.addEventListener('mousemove', this.boundMouseMove);
+      this.pinchHandler.attach(document);
     }
   }
 
   public detach(): void {
+    this.pinchHandler.detach();
     if (typeof document !== 'undefined') {
       if (this.boundKeyDown) document.removeEventListener('keydown', this.boundKeyDown);
       if (this.boundKeyUp) document.removeEventListener('keyup', this.boundKeyUp);
