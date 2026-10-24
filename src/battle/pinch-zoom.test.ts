@@ -1,4 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+vi.mock("@pixi/sound", () => ({
+  sound: {
+    play: vi.fn(),
+    stop: vi.fn(),
+  },
+}));
+
 import { BattleInputController } from './battle-input-controller';
 import { Battle } from '../battle';
 import { HexMap } from '../shared/hex-map';
