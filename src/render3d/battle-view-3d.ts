@@ -44,6 +44,7 @@ export class BattleView3D {
   private isCtrlPressed: boolean = false;
   private lastPointerPos: Coords = { x: 0, y: 0 };
   private pointerButton: number = 0;
+  private rightClickCanceledAbility: boolean = false;
 
   // Events callback
   private events?: BattleView3DEvents;
@@ -529,7 +530,11 @@ export class BattleView3D {
       }
 
       // Targeting an enemy unit
-      const isRanged = activeCreature.live_stats.is_ranged && activeCreature.stats.remaining_ammo > 0 && !this.isCtrlPressed;
+      const isAdjacent = this.hexMap.getNeighbours(activeCreature.position).some(
+        (n) => n.x === this.hoveredHex!.x && n.y === this.hoveredHex!.y
+      );
+      const remainingAmmo = activeCreature.live_stats.remaining_ammo ?? activeCreature.stats.remaining_ammo ?? 0;
+      const isRanged = activeCreature.live_stats.is_ranged && remainingAmmo > 0 && !this.isCtrlPressed && !isAdjacent;
       if (isRanged) {
         return {
           hoverPath: [],
@@ -672,9 +677,11 @@ export class BattleView3D {
         } else {
           this.hexBoard.clearPathPreview();
         }
+        this.hud?.setCursor('attack_melee');
       } else {
         this.hexBoard.clearAttackPreview();
         this.hexBoard.clearPathPreview();
+        this.hud?.setCursor('default');
       }
     } else {
       this.hexBoard.clearAttackPreview();
@@ -684,6 +691,7 @@ export class BattleView3D {
       } else {
         this.hexBoard.clearPathPreview();
       }
+      this.hud?.setCursor('default');
     }
   }
 
@@ -701,7 +709,8 @@ export class BattleView3D {
   private setupPointerEvents(container: HTMLElement): void {
     this.boundContextMenu = (e: MouseEvent) => {
       e.preventDefault();
-      if (this.battle.input_state === InputState.SELECT_ABILITY_TARGET) {
+      if (this.battle.input_state === InputState.SELECT_ABILITY_TARGET || this.rightClickCanceledAbility) {
+        this.rightClickCanceledAbility = true;
         this.battle.cancelTargetForAbilityIfApplicable();
         this.hud?.updateTargetAcquirementHint();
         this.updateActiveUnitSelection();
@@ -711,13 +720,14 @@ export class BattleView3D {
 
     this.boundPointerDown = (e: PointerEvent) => {
       const stageCoords = this.getStageCoords(e.clientX, e.clientY);
+      if (e.button === 2 && this.battle.input_state === InputState.SELECT_ABILITY_TARGET) {
+        this.rightClickCanceledAbility = true;
+        this.battle.cancelTargetForAbilityIfApplicable();
+        this.hud?.updateTargetAcquirementHint();
+        this.updateActiveUnitSelection();
+        this.updateHoverVisuals();
+      }
       if (this.hud?.isPointerOverUI(stageCoords.x, stageCoords.y)) {
-        if (e.button === 2 && this.battle.input_state === InputState.SELECT_ABILITY_TARGET) {
-          this.battle.cancelTargetForAbilityIfApplicable();
-          this.hud?.updateTargetAcquirementHint();
-          this.updateActiveUnitSelection();
-          this.updateHoverVisuals();
-        }
         return;
       }
       this.isPointerDown = true;
@@ -729,11 +739,14 @@ export class BattleView3D {
       this.isPointerDown = false;
       const stageCoords = this.getStageCoords(e.clientX, e.clientY);
       if (this.hud?.isPointerOverUI(stageCoords.x, stageCoords.y)) {
-        if (e.button === 2 && this.battle.input_state === InputState.SELECT_ABILITY_TARGET) {
-          this.battle.cancelTargetForAbilityIfApplicable();
-          this.hud?.updateTargetAcquirementHint();
-          this.updateActiveUnitSelection();
-          this.updateHoverVisuals();
+        if (e.button === 2) {
+          if (this.rightClickCanceledAbility || this.battle.input_state === InputState.SELECT_ABILITY_TARGET) {
+            this.battle.cancelTargetForAbilityIfApplicable();
+            this.hud?.updateTargetAcquirementHint();
+            this.updateActiveUnitSelection();
+            this.updateHoverVisuals();
+          }
+          this.rightClickCanceledAbility = false;
         }
         return;
       }
@@ -741,7 +754,8 @@ export class BattleView3D {
 
       // Right-click: Target for movement, attack, orientation change, or cancel ability targeting
       if (e.button === 2) {
-        if (this.battle.input_state === InputState.SELECT_ABILITY_TARGET) {
+        if (this.rightClickCanceledAbility || this.battle.input_state === InputState.SELECT_ABILITY_TARGET) {
+          this.rightClickCanceledAbility = false;
           this.battle.cancelTargetForAbilityIfApplicable();
           this.hud?.updateTargetAcquirementHint();
           this.updateActiveUnitSelection();
@@ -882,11 +896,13 @@ export class BattleView3D {
     };
 
     container.addEventListener('contextmenu', this.boundContextMenu);
-    window.addEventListener('pointerdown', this.boundPointerDown);
-    window.addEventListener('pointerup', this.boundPointerUp);
-    window.addEventListener('pointermove', this.boundPointerMove);
-    window.addEventListener('wheel', this.boundWheel, { passive: false });
-    window.addEventListener('click', this.boundClick);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pointerdown', this.boundPointerDown);
+      window.addEventListener('pointerup', this.boundPointerUp);
+      window.addEventListener('pointermove', this.boundPointerMove);
+      window.addEventListener('wheel', this.boundWheel, { passive: false });
+      window.addEventListener('click', this.boundClick);
+    }
   }
 
   public updateCameraKeyboardInput(deltaMS: number): void {
@@ -1068,15 +1084,23 @@ export class BattleView3D {
   }
 
   public destroy(): void {
-    if (this.boundContextMenu) window.removeEventListener('contextmenu', this.boundContextMenu);
-    if (this.boundPointerDown) window.removeEventListener('pointerdown', this.boundPointerDown);
-    if (this.boundPointerUp) window.removeEventListener('pointerup', this.boundPointerUp);
-    if (this.boundPointerMove) window.removeEventListener('pointermove', this.boundPointerMove);
-    if (this.boundWheel) window.removeEventListener('wheel', this.boundWheel);
-    if (this.boundClick) window.removeEventListener('click', this.boundClick);
-    if (this.boundKeyDown) window.removeEventListener('keydown', this.boundKeyDown);
-    if (this.boundKeyUp) window.removeEventListener('keyup', this.boundKeyUp);
-    if (this.boundBlur) window.removeEventListener('blur', this.boundBlur);
+    if (this.boundContextMenu) {
+      this.container?.removeEventListener('contextmenu', this.boundContextMenu);
+      if (typeof window !== 'undefined') window.removeEventListener('contextmenu', this.boundContextMenu);
+    }
+    if (this.boundPointerDown) {
+      this.container?.removeEventListener('pointerdown', this.boundPointerDown);
+      if (typeof window !== 'undefined') window.removeEventListener('pointerdown', this.boundPointerDown);
+    }
+    if (typeof window !== 'undefined') {
+      if (this.boundPointerUp) window.removeEventListener('pointerup', this.boundPointerUp);
+      if (this.boundPointerMove) window.removeEventListener('pointermove', this.boundPointerMove);
+      if (this.boundWheel) window.removeEventListener('wheel', this.boundWheel);
+      if (this.boundClick) window.removeEventListener('click', this.boundClick);
+      if (this.boundKeyDown) window.removeEventListener('keydown', this.boundKeyDown);
+      if (this.boundKeyUp) window.removeEventListener('keyup', this.boundKeyUp);
+      if (this.boundBlur) window.removeEventListener('blur', this.boundBlur);
+    }
     this.pressedKeys.clear();
     this.applyHardwareCursorVisibility(false);
 

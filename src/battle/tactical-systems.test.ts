@@ -3,7 +3,7 @@ import { Battle } from "../battle";
 import { BattleActionType } from "./battle-action";
 import { HexDirection, HexFlankStatus, HexMap, checkFlankingStatus } from "../shared/hex-map";
 import { Creature, CreatureType } from "./creature";
-import { ExhaustionState, MoraleState, getExhaustionState, getMoraleState, getRetaliationDamageMultiplier } from "./combat-rules";
+import { ExhaustionState, MoraleState, getExhaustionState, getMoraleState, getRetaliationDamageMultiplier, validateMoraleBreakpoints, DEFAULT_MORALE_BREAKPOINTS, getMoraleTooltip } from "./combat-rules";
 import { TerrainType } from "./terrain-types";
 import { BatchSimulationRunner } from "../headless/batch-runner";
 
@@ -559,7 +559,7 @@ describe("Tactical Systems Validation", () => {
   });
 
   describe("8. Morale System, 0-30 Scale & Turn Recovery", () => {
-    it("should map numeric morale values correctly to breakpoints (0: Routing, 1-2: Panicked, 3-5: Wavering, >5: Steady)", () => {
+    it("should map numeric morale values correctly to breakpoints (0: Routing, 1-2: Panicked, 3-5: Wavering, 6-15: Steady, >15: High)", () => {
       expect(getMoraleState(0)).toBe(MoraleState.ROUTING);
       expect(getMoraleState(-1)).toBe(MoraleState.ROUTING);
       expect(getMoraleState(1)).toBe(MoraleState.PANICKED);
@@ -569,7 +569,8 @@ describe("Tactical Systems Validation", () => {
       expect(getMoraleState(5)).toBe(MoraleState.WAVERING);
       expect(getMoraleState(6)).toBe(MoraleState.STEADY);
       expect(getMoraleState(15)).toBe(MoraleState.STEADY);
-      expect(getMoraleState(30)).toBe(MoraleState.STEADY);
+      expect(getMoraleState(16)).toBe(MoraleState.HIGH);
+      expect(getMoraleState(30)).toBe(MoraleState.HIGH);
     });
 
     it("should not automatically reset morale to STEADY, but increase by 1 after a turn without taking damage", () => {
@@ -689,6 +690,50 @@ describe("Tactical Systems Validation", () => {
 
       expect(unit.stats.stamina).toBe(9); // 4 + 5 = 9
       expect(unit.stats.morale).toBe(9);   // 8 + 1 = 9
+    });
+
+    it("should validate morale breakpoints and revert to defaults if invalid or incorrect order", () => {
+      // Valid custom breakpoints
+      const valid = validateMoraleBreakpoints({ routing: 1, panicked: 3, wavering: 7, steady: 18 });
+      expect(valid).toEqual({ routing: 1, panicked: 3, wavering: 7, steady: 18 });
+
+      // Revert if negative routing
+      expect(validateMoraleBreakpoints({ routing: -1, panicked: 2, wavering: 5, steady: 15 })).toEqual(DEFAULT_MORALE_BREAKPOINTS);
+
+      // Revert if steady exceeds maxMorale
+      expect(validateMoraleBreakpoints({ routing: 0, panicked: 2, wavering: 5, steady: 35 })).toEqual(DEFAULT_MORALE_BREAKPOINTS);
+
+      // Revert if values are out of order (e.g. routing >= panicked)
+      expect(validateMoraleBreakpoints({ routing: 3, panicked: 2, wavering: 5, steady: 15 })).toEqual(DEFAULT_MORALE_BREAKPOINTS);
+      expect(validateMoraleBreakpoints({ routing: 0, panicked: 6, wavering: 5, steady: 15 })).toEqual(DEFAULT_MORALE_BREAKPOINTS);
+      expect(validateMoraleBreakpoints({ routing: 0, panicked: 2, wavering: 16, steady: 15 })).toEqual(DEFAULT_MORALE_BREAKPOINTS);
+
+      // Revert if non-numeric or missing
+      expect(validateMoraleBreakpoints({ routing: "abc" })).toEqual(DEFAULT_MORALE_BREAKPOINTS);
+      expect(validateMoraleBreakpoints(undefined)).toEqual(DEFAULT_MORALE_BREAKPOINTS);
+    });
+
+    it("should correctly evaluate morale states using custom configured breakpoints", () => {
+      const customBp = { routing: 1, panicked: 4, wavering: 9, steady: 20 };
+      expect(getMoraleState(0, customBp)).toBe(MoraleState.ROUTING);
+      expect(getMoraleState(1, customBp)).toBe(MoraleState.ROUTING);
+      expect(getMoraleState(2, customBp)).toBe(MoraleState.PANICKED);
+      expect(getMoraleState(4, customBp)).toBe(MoraleState.PANICKED);
+      expect(getMoraleState(5, customBp)).toBe(MoraleState.WAVERING);
+      expect(getMoraleState(9, customBp)).toBe(MoraleState.WAVERING);
+      expect(getMoraleState(10, customBp)).toBe(MoraleState.STEADY);
+      expect(getMoraleState(20, customBp)).toBe(MoraleState.STEADY);
+      expect(getMoraleState(21, customBp)).toBe(MoraleState.HIGH);
+      expect(getMoraleState(30, customBp)).toBe(MoraleState.HIGH);
+    });
+
+    it("should format morale tooltip with steady 6-15 and high >15 by default, and update with custom breakpoints", () => {
+      const defaultTooltip = getMoraleTooltip();
+      expect(defaultTooltip).toContain("Steady: 6-15, High: >15");
+      expect(defaultTooltip).toContain("Routing: 0, Panicked: 1-2, Wavering: 3-5");
+
+      const customTooltip = getMoraleTooltip({ routing: 1, panicked: 4, wavering: 8, steady: 18 });
+      expect(customTooltip).toContain("Routing: 0-1, Panicked: 2-4, Wavering: 5-8, Steady: 9-18, High: >18");
     });
   });
 

@@ -10,7 +10,7 @@ vi.mock("@pixi/sound", () => ({
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 import { Container, Spritesheet, Texture } from 'pixi.js';
-import { Battle, AnimationType } from '../battle';
+import { Battle, AnimationType, InputState } from '../battle';
 import { HexDirection, HexMap } from '../shared/hex-map';
 import { Creature, CreatureType } from './creature';
 import { CreatureRepository } from './creature-repository';
@@ -849,6 +849,70 @@ describe('Quick draw Skill for Archers', () => {
       battle.onMouseOverCell({ x: 4, y: 2 });
       expect(battle.nextRenderUpdate.cursorHint).toBe('default');
     });
+
+    it('should set attack_melee cursor hint when hovering enemy squad attackable in melee and attack_ranged for ranged attack', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const swordsman = new Creature(CreatureType.SWORDSMAN);
+      swordsman.position = { x: 2, y: 2 };
+      swordsman.armyAlignment = 0;
+      swordsman.stats.remaining_attacks = 1;
+      swordsman.stats.remaining_movement = 4;
+
+      const archer = new Creature(CreatureType.PEASANT_ARCHER);
+      archer.position = { x: 2, y: 5 };
+      archer.armyAlignment = 0;
+      archer.stats.is_ranged = true;
+      archer.stats.remaining_attacks = 1;
+      archer.stats.remaining_ammo = 10;
+      archer.stats.range = 5;
+
+      const enemyNear = new Creature(CreatureType.SWORDSMAN);
+      enemyNear.position = { x: 3, y: 2 }; // adjacent to swordsman, in range of archer
+      enemyNear.armyAlignment = 1;
+
+      const enemyFar = new Creature(CreatureType.SWORDSMAN);
+      enemyFar.position = { x: 9, y: 7 }; // out of reach for both
+      enemyFar.armyAlignment = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [swordsman, archer, enemyNear, enemyFar],
+      });
+
+      // 1. Select melee squad (swordsman)
+      battle.handlePrimaryCellAction(swordsman.position);
+
+      // Hover over adjacent enemy squad -> sword cursor (attack_melee)
+      battle.onMouseOverCell(enemyNear.position);
+      expect(battle.nextRenderUpdate.cursorHint).toBe('attack_melee');
+
+      // Hover over distant enemy squad out of reach -> default cursor
+      battle.onMouseOverCell(enemyFar.position);
+      expect(battle.nextRenderUpdate.cursorHint).toBe('default');
+
+      // Hover over ally squad -> default cursor
+      battle.onMouseOverCell(archer.position);
+      expect(battle.nextRenderUpdate.cursorHint).toBe('default');
+
+      // Hover over empty hex -> default cursor
+      battle.onMouseOverCell({ x: 5, y: 5 });
+      expect(battle.nextRenderUpdate.cursorHint).toBe('default');
+
+      // 2. Select ranged squad (archer)
+      battle.handlePrimaryCellAction(archer.position);
+
+      // Hover over enemy within range -> arrow cursor (attack_ranged)
+      battle.onMouseOverCell(enemyNear.position);
+      expect(battle.nextRenderUpdate.cursorHint).toBe('attack_ranged');
+
+      // Hover over enemy out of range -> default cursor
+      battle.onMouseOverCell(enemyFar.position);
+      expect(battle.nextRenderUpdate.cursorHint).toBe('default');
+    });
   });
 
   describe('7. Ability Target Acquirement & Enemy Stats Suppression', () => {
@@ -934,6 +998,59 @@ describe('Quick draw Skill for Archers', () => {
       expect(hud.targetAcquirementBanner?.visible).toBe(false);
 
       hud.destroy();
+    });
+
+    it('should ensure right-clicking over an enemy unit only cancels target acquiring and does NOT issue an attack', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const archer = new Creature(CreatureType.PEASANT_ARCHER);
+      archer.position = { x: 2, y: 2 };
+      archer.armyAlignment = 0;
+      archer.stats.stamina = 12;
+      archer.stats.remaining_ammo = 10;
+      archer.stats.remaining_attacks = 1;
+      archer.stats.has_attacked = false;
+
+      const enemy = new Creature(CreatureType.SWORDSMAN);
+      enemy.position = { x: 5, y: 2 };
+      enemy.armyAlignment = 1;
+      const initialEnemyHealth = enemy.stats.remaining_health;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [archer, enemy],
+      });
+
+      battle.handlePrimaryCellAction(archer.position);
+      battle.selectActiveAbilityForCurrentUnit(0);
+      expect(battle.input_state).toBe(InputState.SELECT_ABILITY_TARGET);
+
+      // Scenario 1: Direct right click over enemy via handleSecondaryCellAction
+      const handled = battle.handleSecondaryCellAction(enemy.position);
+      expect(handled).toBe(true);
+      expect(battle.input_state).toBe(InputState.SELECT_UNIT_OR_TARGET);
+      expect(archer.stats.has_attacked).toBe(false);
+      expect(archer.stats.remaining_attacks).toBe(1);
+      expect(enemy.stats.remaining_health).toBe(initialEnemyHealth);
+      expect((battle as any).currentActions.length).toBe(0);
+
+      // Re-enter skill targeting
+      battle.selectActiveAbilityForCurrentUnit(0);
+      expect(battle.input_state).toBe(InputState.SELECT_ABILITY_TARGET);
+
+      // Scenario 2: Sequence of contextmenu cancel followed immediately by mouseup / pointerup handleSecondaryCellAction
+      battle.cancelTargetForAbilityIfApplicable();
+      expect(battle.input_state).toBe(InputState.SELECT_UNIT_OR_TARGET);
+
+      const secondHandled = battle.handleSecondaryCellAction(enemy.position);
+      expect(secondHandled).toBe(true);
+      expect(archer.stats.has_attacked).toBe(false);
+      expect(archer.stats.remaining_attacks).toBe(1);
+      expect(enemy.stats.remaining_health).toBe(initialEnemyHealth);
+      expect((battle as any).currentActions.length).toBe(0);
     });
 
     it('should NOT open EnemyStatsPanel when clicking an enemy in target acquirement state, but select target and issue ability action', () => {

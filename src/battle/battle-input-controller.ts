@@ -20,6 +20,7 @@ export class BattleInputController {
   private controlPressed: boolean = false;
   private mouseDragCoords: Coords = { x: 0, y: 0 };
   private mouseRightClickCoords: Coords = { x: 0, y: 0 };
+  private rightClickWasInAbilityTargeting: boolean = false;
 
   private boundKeyDown?: (e: KeyboardEvent) => void;
   private boundKeyUp?: (e: KeyboardEvent) => void;
@@ -123,6 +124,7 @@ export class BattleInputController {
       }
       if (event.button === 2) {
         this.mouseRightClickCoords = { x: event.clientX, y: event.clientY };
+        this.rightClickWasInAbilityTargeting = this.battle.input_state === InputState.SELECT_ABILITY_TARGET;
       }
     };
 
@@ -135,7 +137,7 @@ export class BattleInputController {
       }
 
       if (event.button === 2 && this.mouseRightClickCoords.x > 0 && this.mouseRightClickCoords.y > 0) {
-        if (this.battle.input_state === InputState.SELECT_ABILITY_TARGET) {
+        if (this.rightClickWasInAbilityTargeting || this.battle.input_state === InputState.SELECT_ABILITY_TARGET) {
           this.battle.cancelTargetForAbilityIfApplicable();
         } else {
           const hexInfo = this.screenToHex(event.clientX, event.clientY);
@@ -144,6 +146,7 @@ export class BattleInputController {
           }
         }
         this.mouseRightClickCoords = { x: 0, y: 0 };
+        this.rightClickWasInAbilityTargeting = false;
       }
     };
 

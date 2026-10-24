@@ -11,6 +11,7 @@ import { JsonLoader } from '../shared/jsonloader';
 import { Coords } from '../shared';
 import { PixiSoundSystem } from './sound-system';
 import { parseTraitsConfig } from '../battle/trait-system';
+import { validateMoraleBreakpoints } from '../battle/combat-rules';
 
 export const GAME_VERSION: string = pkg.version;
 
@@ -115,6 +116,11 @@ export class HexesEngine {
     this.templates.creatureTemplates = await JsonLoader.loadJson<CreatureTemplate[]>('./creaturetypes.json');
     try {
       this.templates.combatConfig = await JsonLoader.loadJson<any>('./combat_config.json');
+      if (this.templates.combatConfig?.morale) {
+        this.templates.combatConfig.morale.breakpoints = validateMoraleBreakpoints(
+          this.templates.combatConfig.morale.breakpoints
+        );
+      }
     } catch {
       // Use defaults if not found
     }
@@ -234,6 +240,11 @@ export class HexesEngine {
         'skills/icon_pickup_ammo.png',
         'skills/icon_throw_javelin.png',
         'skills/icon_quick_draw.png',
+        'morale/morale_high.png',
+        'morale/morale_steady.png',
+        'morale/morale_wavering.png',
+        'morale/morale_panicked.png',
+        'morale/morale_routing.png',
       ]);
     } catch {
       // Ignore if offline/headless

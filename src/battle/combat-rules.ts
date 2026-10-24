@@ -8,11 +8,26 @@ export enum ExhaustionState {
 }
 
 export enum MoraleState {
+  HIGH = "high",
   STEADY = "steady",
   WAVERING = "wavering",
   PANICKED = "panicked",
   ROUTING = "routing",
 }
+
+export interface MoraleBreakpoints {
+  routing: number;
+  panicked: number;
+  wavering: number;
+  steady: number;
+}
+
+export const DEFAULT_MORALE_BREAKPOINTS: MoraleBreakpoints = {
+  routing: 0,
+  panicked: 2,
+  wavering: 5,
+  steady: 15,
+};
 
 export interface TerrainCombatConfig {
   moveCosts: Record<number | string, number>;
@@ -89,6 +104,7 @@ export interface MoraleConfig {
   routingTurnLoss: boolean;
   undamagedTurnRecovery: number;
   restRecovery: number;
+  breakpoints?: MoraleBreakpoints;
 }
 
 export interface HeroConfig {
@@ -199,6 +215,7 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
     routingTurnLoss: true,
     undamagedTurnRecovery: 1,
     restRecovery: 1,
+    breakpoints: { ...DEFAULT_MORALE_BREAKPOINTS },
   },
   hero: {
     bodyguardRetinueAbsorption: 1.0,
@@ -211,17 +228,70 @@ export const MIN_MORALE = 0;
 export const MAX_MORALE = 30;
 
 /**
- * Maps a numeric morale value (0 to 30) to its corresponding MoraleState:
- * - Routing: 0 (or <= 0)
- * - Panicked: 1 or 2
- * - Wavering: 3, 4, 5
- * - Steady: anything above 5 (6 to 30)
+ * Validates morale breakpoints:
+ * Values must be within [MIN_MORALE, maxMorale] and in strictly ascending order:
+ * MIN_MORALE <= routing < panicked < wavering < steady < maxMorale
+ * If invalid (out of bounds, non-numeric, or incorrect order), reverts to DEFAULT_MORALE_BREAKPOINTS.
  */
-export function getMoraleState(morale: number): MoraleState {
-  if (morale <= 0) return MoraleState.ROUTING;
-  if (morale <= 2) return MoraleState.PANICKED;
-  if (morale <= 5) return MoraleState.WAVERING;
-  return MoraleState.STEADY;
+export function validateMoraleBreakpoints(
+  breakpoints?: any,
+  maxMorale: number = MAX_MORALE
+): MoraleBreakpoints {
+  if (!breakpoints || typeof breakpoints !== "object") {
+    return { ...DEFAULT_MORALE_BREAKPOINTS };
+  }
+
+  const routing = Number(breakpoints.routing);
+  const panicked = Number(breakpoints.panicked);
+  const wavering = Number(breakpoints.wavering);
+  const steady = Number(breakpoints.steady);
+
+  if (
+    !Number.isFinite(routing) ||
+    !Number.isFinite(panicked) ||
+    !Number.isFinite(wavering) ||
+    !Number.isFinite(steady)
+  ) {
+    return { ...DEFAULT_MORALE_BREAKPOINTS };
+  }
+
+  if (
+    routing < MIN_MORALE ||
+    routing >= panicked ||
+    panicked >= wavering ||
+    wavering >= steady ||
+    steady >= maxMorale
+  ) {
+    return { ...DEFAULT_MORALE_BREAKPOINTS };
+  }
+
+  return { routing, panicked, wavering, steady };
+}
+
+/**
+ * Maps a numeric morale value (0 to 30) to its corresponding MoraleState:
+ * - Routing: <= routing (default 0)
+ * - Panicked: routing + 1 to panicked (default 1 to 2)
+ * - Wavering: panicked + 1 to wavering (default 3 to 5)
+ * - Steady: wavering + 1 to steady (default 6 to 15)
+ * - High: > steady (default > 15)
+ */
+export function getMoraleState(
+  morale: number,
+  breakpoints?: MoraleBreakpoints | any
+): MoraleState {
+  const bp = validateMoraleBreakpoints(breakpoints);
+  if (morale <= bp.routing) return MoraleState.ROUTING;
+  if (morale <= bp.panicked) return MoraleState.PANICKED;
+  if (morale <= bp.wavering) return MoraleState.WAVERING;
+  if (morale <= bp.steady) return MoraleState.STEADY;
+  return MoraleState.HIGH;
+}
+
+export function getMoraleTooltip(breakpoints?: MoraleBreakpoints | any): string {
+  const bp = validateMoraleBreakpoints(breakpoints);
+  const routingStr = bp.routing <= 0 ? '0' : `0-${bp.routing}`;
+  return `Morale (0-30). Dictates the squad's courage and discipline.\nRouting: ${routingStr}, Panicked: ${bp.routing + 1}-${bp.panicked}, Wavering: ${bp.panicked + 1}-${bp.wavering}, Steady: ${bp.wavering + 1}-${bp.steady}, High: >${bp.steady}.\n+1 if undamaged for a full turn or upon resting.`;
 }
 
 export function getExhaustionState(currentStamina: number, maxStamina: number, config: CombatConfig = DEFAULT_COMBAT_CONFIG): ExhaustionState {

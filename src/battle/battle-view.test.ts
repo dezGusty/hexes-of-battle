@@ -645,6 +645,45 @@ describe("UnitStatsPanel & EnemyStatsPanel Ammo Display", () => {
     expect(ammoVal.text).toBe("10/10");
     expect(ammoIcon.tint).toBe(0xffffff);
   });
+
+  it("should display updated morale tooltip with Steady 6-15 and High >15 in UnitStatsPanel and EnemyStatsPanel", () => {
+    const container = new Container();
+    const unitPanel = new UnitStatsPanel(container, dummyUiSheet);
+    const enemyPanel = new EnemyStatsPanel(container, dummyUiSheet);
+
+    const peasant = new Creature(CreatureType.PEASANT);
+    unitPanel.setCreature(peasant);
+    enemyPanel.setCreature(peasant);
+
+    const unitMoraleDesc = (unitPanel as any).statDescriptions[DisplayedStat.MORALE];
+    const enemyMoraleDesc = (enemyPanel as any).statDescriptions[DisplayedStat.MORALE];
+
+    expect(unitMoraleDesc).toContain("Steady: 6-15, High: >15");
+    expect(enemyMoraleDesc).toContain("Steady: 6-15, High: >15");
+
+    // Custom breakpoints update dynamically on setCreature
+    const customCreature = new Creature(CreatureType.SWORDSMAN);
+    customCreature.combatConfig = {
+      morale: {
+        maxMorale: 30,
+        casualtyThresholdRatio: 0.25,
+        panicBaseChance: 0.3,
+        exhaustionMoraleCheckPenalty: 0.2,
+        heroAuraBonus: 5,
+        heroAuraRadius: 2,
+        routingTurnLoss: true,
+        undamagedTurnRecovery: 1,
+        restRecovery: 1,
+        breakpoints: { routing: 1, panicked: 4, wavering: 8, steady: 20 },
+      },
+    } as any;
+
+    unitPanel.setCreature(customCreature);
+    enemyPanel.setCreature(customCreature);
+
+    expect((unitPanel as any).statDescriptions[DisplayedStat.MORALE]).toContain("Steady: 9-20, High: >20");
+    expect((enemyPanel as any).statDescriptions[DisplayedStat.MORALE]).toContain("Steady: 9-20, High: >20");
+  });
 });
 
 

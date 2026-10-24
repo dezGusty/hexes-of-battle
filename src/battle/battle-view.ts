@@ -1,4 +1,4 @@
-import { Container, Sprite, Text, TextStyle, BitmapText, AnimatedSprite, NineSliceSprite, Texture } from 'pixi.js';
+import { Container, Sprite, Text, TextStyle, BitmapText, AnimatedSprite, NineSliceSprite, Texture, Assets } from 'pixi.js';
 import pkg from '../../package.json';
 import { ProgressBar } from '@pixi/ui';
 import { OutlineFilter, AdvancedBloomFilter } from 'pixi-filters';
@@ -873,6 +873,36 @@ export class BattleView {
 
       // Dual Bars: Health Bar & Stamina Bar
       if (this.showHealthbars) {
+        // Morale Icon (16x16) and Squad Count Label above the bars
+        const moraleState = creature.moraleState;
+        const moraleTexture = Assets.cache.get(`morale/morale_${moraleState}.png`) || Texture.EMPTY;
+        const moraleSprite = new Sprite(moraleTexture);
+        moraleSprite.width = 16;
+        moraleSprite.height = 16;
+        moraleSprite.anchor.set(0.5, 0.5);
+
+        const countText = new Text({
+          text: `${aliveModels}/${totalModels}`,
+          style: {
+            fontFamily: 'sans-serif',
+            fontSize: 10,
+            fontWeight: 'bold',
+            fill: { color: '#ffffff', alpha: 1 },
+            stroke: { color: '#000000', width: 2 },
+          },
+        });
+        countText.anchor.set(0, 0.5);
+
+        const badgeWidth = 16 + 4 + countText.width;
+        const badgeStartX = centerPixel.x - badgeWidth / 2;
+        moraleSprite.x = badgeStartX + 8;
+        moraleSprite.y = centerPixel.y + 14;
+        countText.x = badgeStartX + 16 + 4;
+        countText.y = centerPixel.y + 14;
+
+        this.unitRenderSubgroups[creature.position.y]?.addChild(moraleSprite);
+        this.unitRenderSubgroups[creature.position.y]?.addChild(countText);
+
         // 1. Health Bar (Top)
         const healthBar = new ProgressBar({
           bg: 'thin_button_normal.png',

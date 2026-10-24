@@ -3,6 +3,7 @@ import { Creature } from '../../battle/creature';
 import { HexDirection } from '../../shared/hex-map';
 import { IUnitVisual } from './unit-visual-interface';
 import { UnitAnimationState } from '../types';
+import { MoraleState } from '../../battle/combat-rules';
 
 export interface FloatingText3D {
   sprite: THREE.Sprite;
@@ -25,6 +26,7 @@ export class SquadVisual3D {
   private modelOffsets: THREE.Vector3[] = [];
   private aliveCount: number = 0;
   private maxCount: number = 0;
+  private prevMoraleState?: MoraleState;
 
   // Overhead Status UI
   private overheadGroup: THREE.Group = new THREE.Group();
@@ -200,13 +202,31 @@ export class SquadVisual3D {
     if (!ctx) return;
 
     ctx.clearRect(0, 0, 128, 64);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 26px sans-serif';
-    ctx.textAlign = 'center';
+
+    const moraleState = this.creature.moraleState;
+    const countStr = `${this.aliveCount}/${this.maxCount}`;
+
+    ctx.font = 'bold 24px sans-serif';
+    ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
+    const textMetrics = ctx.measureText(countStr);
+    const textWidth = textMetrics.width;
+
+    const iconSize = 22; // Renders to ~16x16 screen pixels in 3D world view
+    const gap = 6;
+    const totalW = iconSize + gap + textWidth;
+    const startX = Math.round((128 - totalW) / 2);
+    const iconX = startX;
+    const iconY = Math.round((64 - iconSize) / 2);
+    const textX = startX + iconSize + gap;
+    const textY = 32;
+
+    this.drawMoraleIcon(ctx, moraleState, iconX, iconY, iconSize);
+
+    ctx.fillStyle = '#ffffff';
     ctx.shadowColor = '#000000';
     ctx.shadowBlur = 4;
-    ctx.fillText(`${this.aliveCount}/${this.maxCount}`, 64, 32);
+    ctx.fillText(countStr, textX, textY);
 
     const texture = new THREE.CanvasTexture(canvas);
     const mat = new THREE.SpriteMaterial({ map: texture, transparent: true });
@@ -214,6 +234,25 @@ export class SquadVisual3D {
     this.countSprite.scale.set(0.6, 0.3, 1);
     this.countSprite.position.set(0, 0.22, 0);
     this.overheadGroup.add(this.countSprite);
+  }
+
+  private drawMoraleIcon(
+    ctx: CanvasRenderingContext2D,
+    state: MoraleState,
+    x: number,
+    y: number,
+    size: number
+  ): void {
+    const img = getMoraleImage(state, () => {
+      this.updateCountText();
+    });
+
+    if (img && img.complete && img.naturalWidth > 0) {
+      ctx.drawImage(img, x, y, size, size);
+      return;
+    }
+
+    drawMoraleVector(ctx, state, x, y, size);
   }
 
   public get isEliminated(): boolean {
@@ -270,7 +309,9 @@ export class SquadVisual3D {
       }
     });
 
-    if (prevAlive !== this.aliveCount) {
+    const currentMorale = this.creature.moraleState;
+    if (prevAlive !== this.aliveCount || this.prevMoraleState !== currentMorale) {
+      this.prevMoraleState = currentMorale;
       this.updateCountText();
     }
   }
@@ -395,3 +436,252 @@ export class SquadVisual3D {
     }
   }
 }
+
+const MORALE_ICON_PATHS: Record<MoraleState, string> = {
+  [MoraleState.HIGH]: 'morale/morale_high.png',
+  [MoraleState.STEADY]: 'morale/morale_steady.png',
+  [MoraleState.WAVERING]: 'morale/morale_wavering.png',
+  [MoraleState.PANICKED]: 'morale/morale_panicked.png',
+  [MoraleState.ROUTING]: 'morale/morale_routing.png',
+};
+
+const moraleImageCache = new Map<string, HTMLImageElement>();
+
+function getMoraleImage(state: MoraleState, onLoaded?: () => void): HTMLImageElement | undefined {
+  if (typeof document === 'undefined') return undefined;
+  const path = MORALE_ICON_PATHS[state] || MORALE_ICON_PATHS[MoraleState.STEADY];
+  let img = moraleImageCache.get(path);
+  if (!img) {
+    img = new Image();
+    img.src = path;
+    if (onLoaded) {
+      img.onload = () => onLoaded();
+    }
+    moraleImageCache.set(path, img);
+  } else if (!img.complete && onLoaded) {
+    const prevOnload = img.onload;
+    img.onload = (e) => {
+      if (prevOnload) (prevOnload as any)(e);
+      onLoaded();
+    };
+  }
+  return img;
+}
+
+export function drawMoraleVector(
+  ctx: CanvasRenderingContext2D,
+  state: MoraleState,
+  x: number,
+  y: number,
+  size: number
+): void {
+  ctx.save();
+  ctx.translate(x, y);
+  const s = size / 48;
+  ctx.scale(s, s);
+
+  if (state === MoraleState.ROUTING) {
+    // Running figure in black
+    ctx.fillStyle = '#111111';
+    ctx.strokeStyle = '#111111';
+    ctx.lineWidth = 4.5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // Head
+    ctx.beginPath();
+    ctx.arc(30, 9, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Torso
+    ctx.beginPath();
+    ctx.moveTo(29, 14);
+    ctx.lineTo(22, 26);
+    ctx.stroke();
+
+    // Back leg
+    ctx.beginPath();
+    ctx.moveTo(22, 26);
+    ctx.lineTo(14, 28);
+    ctx.lineTo(6, 36);
+    ctx.stroke();
+
+    // Front leg
+    ctx.beginPath();
+    ctx.moveTo(22, 26);
+    ctx.lineTo(28, 33);
+    ctx.lineTo(26, 43);
+    ctx.stroke();
+
+    // Arms
+    ctx.beginPath();
+    ctx.moveTo(28, 16);
+    ctx.lineTo(18, 19);
+    ctx.lineTo(16, 26);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(28, 16);
+    ctx.lineTo(35, 19);
+    ctx.lineTo(39, 26);
+    ctx.stroke();
+  } else {
+    const color = (state === MoraleState.PANICKED) ? '#ea3838' : (state === MoraleState.WAVERING ? '#f1c40f' : '#2ecc71');
+    ctx.fillStyle = color;
+
+    const yShift = (state === MoraleState.HIGH) ? 2 : 0;
+
+    // Body & tail
+    ctx.beginPath();
+    ctx.moveTo(24, 18 + yShift);
+    ctx.lineTo(29, 24 + yShift);
+    ctx.lineTo(27, 33 + yShift);
+    ctx.lineTo(24, 37 + yShift);
+    ctx.lineTo(21, 33 + yShift);
+    ctx.lineTo(19, 24 + yShift);
+    ctx.closePath();
+    ctx.fill();
+
+    // Tail feathers
+    ctx.beginPath();
+    ctx.moveTo(20, 34 + yShift);
+    ctx.lineTo(24, 43 + yShift);
+    ctx.lineTo(28, 34 + yShift);
+    ctx.closePath();
+    ctx.fill();
+
+    // Head & beak
+    ctx.beginPath();
+    ctx.arc(24, 15 + yShift, 4.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(25, 13.5 + yShift);
+    ctx.lineTo(31, 15.5 + yShift);
+    ctx.lineTo(25, 17.5 + yShift);
+    ctx.closePath();
+    ctx.fill();
+
+    // Wings
+    if (state === MoraleState.HIGH || state === MoraleState.STEADY) {
+      // Wings raised
+      ctx.beginPath();
+      ctx.moveTo(22, 23 + yShift);
+      ctx.lineTo(16, 20 + yShift);
+      ctx.lineTo(9, 13 + yShift);
+      ctx.lineTo(4, 7 + yShift);
+      ctx.lineTo(8, 12 + yShift);
+      ctx.lineTo(6, 17 + yShift);
+      ctx.lineTo(11, 18 + yShift);
+      ctx.lineTo(9, 23 + yShift);
+      ctx.lineTo(14, 23 + yShift);
+      ctx.lineTo(12, 28 + yShift);
+      ctx.lineTo(18, 27 + yShift);
+      ctx.lineTo(22, 28 + yShift);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.moveTo(26, 23 + yShift);
+      ctx.lineTo(32, 20 + yShift);
+      ctx.lineTo(39, 13 + yShift);
+      ctx.lineTo(44, 7 + yShift);
+      ctx.lineTo(40, 12 + yShift);
+      ctx.lineTo(42, 17 + yShift);
+      ctx.lineTo(37, 18 + yShift);
+      ctx.lineTo(39, 23 + yShift);
+      ctx.lineTo(34, 23 + yShift);
+      ctx.lineTo(36, 28 + yShift);
+      ctx.lineTo(30, 27 + yShift);
+      ctx.lineTo(26, 28 + yShift);
+      ctx.closePath();
+      ctx.fill();
+
+      if (state === MoraleState.HIGH) {
+        drawStar(ctx, 24, 5, 5, 4.5, 2.0, color);
+      }
+    } else if (state === MoraleState.WAVERING) {
+      // Wings straight
+      ctx.beginPath();
+      ctx.moveTo(21, 22);
+      ctx.lineTo(14, 20);
+      ctx.lineTo(8, 20);
+      ctx.lineTo(2, 21);
+      ctx.lineTo(7, 24);
+      ctx.lineTo(4, 27);
+      ctx.lineTo(10, 27);
+      ctx.lineTo(8, 30);
+      ctx.lineTo(15, 29);
+      ctx.lineTo(13, 33);
+      ctx.lineTo(19, 30);
+      ctx.lineTo(21, 27);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.moveTo(27, 22);
+      ctx.lineTo(34, 20);
+      ctx.lineTo(40, 20);
+      ctx.lineTo(46, 21);
+      ctx.lineTo(41, 24);
+      ctx.lineTo(44, 27);
+      ctx.lineTo(38, 27);
+      ctx.lineTo(40, 30);
+      ctx.lineTo(33, 29);
+      ctx.lineTo(35, 33);
+      ctx.lineTo(29, 30);
+      ctx.lineTo(27, 27);
+      ctx.closePath();
+      ctx.fill();
+    } else if (state === MoraleState.PANICKED) {
+      // Wings lowered
+      ctx.beginPath();
+      ctx.moveTo(21, 22);
+      ctx.lineTo(16, 24);
+      ctx.lineTo(11, 28);
+      ctx.lineTo(5, 37);
+      ctx.lineTo(9, 34);
+      ctx.lineTo(7, 40);
+      ctx.lineTo(12, 36);
+      ctx.lineTo(11, 42);
+      ctx.lineTo(15, 37);
+      ctx.lineTo(18, 33);
+      ctx.lineTo(21, 27);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.moveTo(27, 22);
+      ctx.lineTo(32, 24);
+      ctx.lineTo(37, 28);
+      ctx.lineTo(43, 37);
+      ctx.lineTo(39, 34);
+      ctx.lineTo(41, 40);
+      ctx.lineTo(36, 36);
+      ctx.lineTo(37, 42);
+      ctx.lineTo(33, 37);
+      ctx.lineTo(30, 33);
+      ctx.lineTo(27, 27);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+function drawStar(ctx: CanvasRenderingContext2D, cx: number, cy: number, spikes: number, outerRadius: number, innerRadius: number, color: string): void {
+  let rot = -Math.PI / 2;
+  const step = Math.PI / spikes;
+  ctx.beginPath();
+  ctx.moveTo(cx + Math.cos(rot) * outerRadius, cy + Math.sin(rot) * outerRadius);
+  for (let i = 0; i < spikes; i++) {
+    rot += step;
+    ctx.lineTo(cx + Math.cos(rot) * innerRadius, cy + Math.sin(rot) * innerRadius);
+    rot += step;
+    ctx.lineTo(cx + Math.cos(rot) * outerRadius, cy + Math.sin(rot) * outerRadius);
+  }
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+

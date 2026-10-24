@@ -4,6 +4,7 @@ import { Ability, AbilityResourceUse } from "../battle/ability";
 import { Coords } from "../shared";
 import { getTraitInfo, TraitsConfig } from "../battle/trait-system";
 import { Battle, InputState } from "../battle";
+import { getMoraleTooltip } from "../battle/combat-rules";
 
 export interface TraitSlot {
   container: Container;
@@ -122,7 +123,7 @@ export class UnitStatsPanel {
     [DisplayedStat.COUNTER_ATTACKS]: 'The number of counterattacks the unit can\nmake in a single turn.',
     [DisplayedStat.STAMINA]: 'The unit\'s energy to perform physical activities such as\nmoving and attacking.',
     [DisplayedStat.AMMO]: 'The number of ranged attacks the unit can\nmake before running out of ammo',
-    [DisplayedStat.MORALE]: 'Morale (0-30). Dictates the squad\'s courage and discipline.\nRouting: 0, Panicked: 1-2, Wavering: 3-5, Steady: >5.\n+1 if undamaged for a full turn or upon resting.'
+    [DisplayedStat.MORALE]: 'Morale (0-30). Dictates the squad\'s courage and discipline.\nRouting: 0, Panicked: 1-2, Wavering: 3-5, Steady: 6-15, High: >15.\n+1 if undamaged for a full turn or upon resting.'
   };
 
   private statBuffDescriptions: Record<number, string> = {
@@ -188,6 +189,9 @@ export class UnitStatsPanel {
     this.buffs = creature.buffs;
     this.abilities = creature.abilities ? [...creature.abilities] : [];
     this.creatureType = Creature.CREATURE_NAMES[creature.creatureType];
+    if (creature.combatConfig?.morale?.breakpoints) {
+      this.statDescriptions[DisplayedStat.MORALE] = getMoraleTooltip(creature.combatConfig.morale.breakpoints);
+    }
   }
 
   setBannerTexture(texture: Texture | undefined) {

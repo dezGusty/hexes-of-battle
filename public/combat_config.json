@@ -81,12 +81,19 @@
     "meleeEngagedPenalty": true
   },
   "morale": {
+    "maxMorale": 30,
     "casualtyThresholdRatio": 0.25,
     "panicBaseChance": 0.30,
     "exhaustionMoraleCheckPenalty": 0.20,
     "heroAuraBonus": 25,
     "heroAuraRadius": 2,
-    "routingTurnLoss": true
+    "routingTurnLoss": true,
+    "breakpoints": {
+      "routing": 0,
+      "panicked": 2,
+      "wavering": 5,
+      "steady": 15
+    }
   },
   "hero": {
     "bodyguardRetinueAbsorption": 1.0,

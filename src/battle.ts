@@ -145,6 +145,7 @@ export class Battle {
   private onMouseOverCellPrevPrefMelee: boolean = false;
   public input_state: InputState = InputState.SELECT_UNIT_OR_TARGET;
   public abilityToApply: Ability | null = null;
+  private lastAbilityTargetCanceledTimestamp: number = 0;
 
   public combatConfig: CombatConfig = { ...DEFAULT_COMBAT_CONFIG };
   public rng: SeedableRNG = new SeedableRNG();
@@ -181,6 +182,10 @@ export class Battle {
 
   public setCombatConfig(config: CombatConfig): void {
     this.combatConfig = config;
+    this.creatures?.forEach((c) => {
+      c.combatConfig = config;
+      c.updateMoraleState();
+    });
   }
 
   public setSeed(seed: number): void {
@@ -238,6 +243,7 @@ export class Battle {
     }
 
     this.creatures = config.creatures.map((c) => {
+      c.combatConfig = this.combatConfig;
       c.updateMoraleState();
       c.updateExhaustionState();
       return c;
@@ -569,6 +575,11 @@ export class Battle {
       return true;
     }
 
+    if (Date.now() - this.lastAbilityTargetCanceledTimestamp < 400) {
+      this.lastAbilityTargetCanceledTimestamp = 0;
+      return true;
+    }
+
     const activeCreature = this.getActiveCreature();
     if (
       activeCreature &&
@@ -615,6 +626,7 @@ export class Battle {
     if (this.input_state != InputState.SELECT_ABILITY_TARGET) {
       return false;
     }
+    this.lastAbilityTargetCanceledTimestamp = Date.now();
     this.input_state = InputState.SELECT_UNIT_OR_TARGET;
     this.abilityToApply = null;
     this.reselectCurrentUnit();
@@ -717,11 +729,17 @@ export class Battle {
     this.nextRenderUpdate.hoverEnemyIndex = targetCreature.indexInArmy;
     this.nextRenderUpdate.somethingChanged = true;
 
-    if (activeCreature.live_stats.remaining_attacks <= 0 || activeCreature.exhaustionState === ExhaustionState.DEPLETED) {
+    if (
+      activeCreature.live_stats.remaining_attacks <= 0 ||
+      activeCreature.exhaustionState === ExhaustionState.DEPLETED ||
+      activeCreature.isPanickedOrRouting
+    ) {
+      this.nextRenderUpdate.setCursorHint("default");
       return;
     }
 
-    if (activeCreature.live_stats.is_ranged && activeCreature.live_stats.remaining_ammo > 0 && !meleePreference) {
+    const remainingAmmo = activeCreature.live_stats.remaining_ammo ?? activeCreature.stats.remaining_ammo ?? 0;
+    if (activeCreature.live_stats.is_ranged && remainingAmmo > 0 && !meleePreference) {
       const target = this.unitRangeData.find((element) => element.coords.x === coords.x && element.coords.y === coords.y);
       if (target) {
         const isAdjacent = this.hexMap.getNeighbours(activeCreature.position).some((n) => n.x === coords.x && n.y === coords.y);
@@ -733,11 +751,23 @@ export class Battle {
           this.nextRenderUpdate.somethingChanged = true;
           return;
         }
+      } else {
+        this.nextRenderUpdate.setCursorHint("default");
+        this.nextRenderUpdate.somethingChanged = true;
+        return;
       }
     }
 
     let neighbour = this.hexMap.getNeighbourInDirection(coords, optionalDirection);
     if (!neighbour) {
+      const target = this.unitReachData.find((e) => e.coords.x === coords.x && e.coords.y === coords.y);
+      if (target) {
+        this.nextRenderUpdate.setCursorHint("attack_melee");
+        this.nextRenderUpdate.hoverPath = this.findPathFromSelectedUnitToCell(coords);
+        this.currentHoverPath = [...this.nextRenderUpdate.hoverPath];
+      } else {
+        this.nextRenderUpdate.setCursorHint("default");
+      }
       this.nextRenderUpdate.somethingChanged = true;
       return;
     }
@@ -745,7 +775,7 @@ export class Battle {
     const neighbourInUnitReachData = this.unitReachData.find((e) => e.coords.x === neighbour!.x && e.coords.y === neighbour!.y);
     if (!neighbourInUnitReachData) {
       if (neighbour.x === activeCreature.position.x && neighbour.y === activeCreature.position.y) {
-        this.nextRenderUpdate.setCursorHint(Battle.DIRECTION_TO_ATTACK_CURSOR[reverseDirection(optionalDirection)]);
+        this.nextRenderUpdate.setCursorHint("attack_melee");
         this.nextRenderUpdate.hoverPath = [activeCreature.position];
         this.currentHoverPath = [activeCreature.position];
         this.nextRenderUpdate.somethingChanged = true;
@@ -753,26 +783,28 @@ export class Battle {
       }
       const target = this.unitReachData.find((e) => e.coords.x === coords.x && e.coords.y === coords.y);
       if (target) {
-        this.nextRenderUpdate.cursorHint = "attack_melee";
+        this.nextRenderUpdate.setCursorHint("attack_melee");
         this.nextRenderUpdate.hoverPath = this.findPathFromSelectedUnitToCell(coords);
         this.currentHoverPath = [...this.nextRenderUpdate.hoverPath];
-        if (this.nextRenderUpdate.hoverPath.length >= 2) {
-          optionalDirection = this.hexMap.getDirectionForNeighbour(coords, this.nextRenderUpdate.hoverPath[this.nextRenderUpdate.hoverPath.length - 2]);
-          this.nextRenderUpdate.setCursorHint(Battle.DIRECTION_TO_ATTACK_CURSOR[reverseDirection(optionalDirection)]);
-        }
       } else {
-        this.nextRenderUpdate.setCursorHint("");
+        this.nextRenderUpdate.setCursorHint("default");
       }
       return;
     }
 
     if (this.getCreatureAtPosition(neighbour)) {
+      const target = this.unitReachData.find((e) => e.coords.x === coords.x && e.coords.y === coords.y);
+      if (target) {
+        this.nextRenderUpdate.setCursorHint("attack_melee");
+      } else {
+        this.nextRenderUpdate.setCursorHint("default");
+      }
       return;
     }
 
     this.nextRenderUpdate.hoverPath = this.findPathFromSelectedUnitToCell(neighbour);
     this.currentHoverPath = [...this.nextRenderUpdate.hoverPath];
-    this.nextRenderUpdate.cursorHint = Battle.DIRECTION_TO_ATTACK_CURSOR[reverseDirection(optionalDirection)];
+    this.nextRenderUpdate.setCursorHint("attack_melee");
     this.nextRenderUpdate.somethingChanged = true;
   }
 

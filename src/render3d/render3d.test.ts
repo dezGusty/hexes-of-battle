@@ -12,13 +12,16 @@ import { Sprite as PixiSprite, Texture as PixiTexture, Assets as PixiAssets } fr
 import { HexBoard3D } from './hex-board-3d';
 import { HexDirection, HexFlankStatus, HexMap, checkFlankingStatus } from '../shared/hex-map';
 import { Creature, CreatureType } from '../battle/creature';
+import { MoraleState } from '../battle/combat-rules';
 import { UnitVisualFactory } from './units/unit-visual-factory';
+import { drawMoraleVector } from './units/squad-visual-3d';
 import { ProjectileSystem3D } from './projectiles/projectile-system-3d';
 import { BattleHud2D } from './battle-hud-2d';
-import { Battle } from '../battle';
+import { Battle, InputState } from '../battle';
 import { BattleSettings } from '../battle/settings';
 import { UnitStatsPanel } from '../ui/unit-stats-panel';
 import { EnemyStatsPanel } from '../ui/enemy-stats-panel';
+import { BattleView3D } from './battle-view-3d';
 import { ThreeSceneDebugger } from './debug/three-scene-debugger';
 import { BattleHexMapPath } from '../battle/battle-hex-map-path';
 import { NumMatrix } from '../shared/num-matrix';
@@ -225,6 +228,89 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       if (overhead) {
         expect(overhead.visible).toBe(false);
       }
+    });
+
+    it('should draw 48x48 morale icons in vector format across all 5 morale states', () => {
+      const mockContext = () => {
+        const calls: string[] = [];
+        return {
+          calls,
+          save: () => calls.push('save'),
+          restore: () => calls.push('restore'),
+          translate: (x: number, y: number) => calls.push(`translate:${x},${y}`),
+          scale: (sx: number, sy: number) => calls.push(`scale:${sx},${sy}`),
+          beginPath: () => calls.push('beginPath'),
+          closePath: () => calls.push('closePath'),
+          moveTo: (x: number, y: number) => calls.push(`moveTo:${x},${y}`),
+          lineTo: (x: number, y: number) => calls.push(`lineTo:${x},${y}`),
+          arc: () => calls.push('arc'),
+          fill: () => calls.push('fill'),
+          stroke: () => calls.push('stroke'),
+          fillStyle: '',
+          strokeStyle: '',
+          lineWidth: 1,
+          lineCap: '',
+          lineJoin: '',
+        } as unknown as CanvasRenderingContext2D & { calls: string[] };
+      };
+
+      // 1. High morale (green eagle with star)
+      const ctxHigh = mockContext();
+      drawMoraleVector(ctxHigh, MoraleState.HIGH, 0, 0, 24);
+      expect(ctxHigh.fillStyle).toBe('#2ecc71');
+      expect(ctxHigh.calls.filter((c) => c === 'fill').length).toBeGreaterThan(4);
+
+      // 2. Steady morale (green eagle)
+      const ctxSteady = mockContext();
+      drawMoraleVector(ctxSteady, MoraleState.STEADY, 0, 0, 24);
+      expect(ctxSteady.fillStyle).toBe('#2ecc71');
+
+      // 3. Wavering morale (yellow eagle)
+      const ctxWavering = mockContext();
+      drawMoraleVector(ctxWavering, MoraleState.WAVERING, 0, 0, 24);
+      expect(ctxWavering.fillStyle).toBe('#f1c40f');
+
+      // 4. Panicked morale (red eagle)
+      const ctxPanicked = mockContext();
+      drawMoraleVector(ctxPanicked, MoraleState.PANICKED, 0, 0, 24);
+      expect(ctxPanicked.fillStyle).toBe('#ea3838');
+
+      // 5. Routing morale (black running figure)
+      const ctxRouting = mockContext();
+      drawMoraleVector(ctxRouting, MoraleState.ROUTING, 0, 0, 24);
+      expect(ctxRouting.fillStyle).toBe('#111111');
+      expect(ctxRouting.strokeStyle).toBe('#111111');
+      expect(ctxRouting.calls.filter((c) => c === 'stroke').length).toBeGreaterThan(3);
+    });
+
+    it('should update squad morale state transitions in SquadVisual3D', () => {
+      const factory = new UnitVisualFactory();
+      const squadCreature = new Creature(CreatureType.SWORDSMAN);
+      squadCreature.stats.morale = 20; // High morale (>15)
+      expect(squadCreature.moraleState).toBe(MoraleState.HIGH);
+
+      const squad = factory.createSquadVisual(squadCreature);
+      expect(squadCreature.moraleState).toBe(MoraleState.HIGH);
+
+      // Drop to Steady (6-15)
+      squadCreature.stats.morale = 12;
+      expect(squadCreature.moraleState).toBe(MoraleState.STEADY);
+      squad.updateStats();
+
+      // Drop to Wavering (3-5)
+      squadCreature.stats.morale = 4;
+      expect(squadCreature.moraleState).toBe(MoraleState.WAVERING);
+      squad.updateStats();
+
+      // Drop to Panicked (1-2)
+      squadCreature.stats.morale = 2;
+      expect(squadCreature.moraleState).toBe(MoraleState.PANICKED);
+      squad.updateStats();
+
+      // Drop to Routing (0)
+      squadCreature.stats.morale = 0;
+      expect(squadCreature.moraleState).toBe(MoraleState.ROUTING);
+      squad.updateStats();
     });
 
     it('should correctly map multiple squads uniquely using HobGUID.toString() without overwriting', () => {
@@ -914,28 +1000,211 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       hexBoard.dispose();
     });
 
-    it('should update HUD cursor texture on setCursor calls', () => {
+    it('should update HUD cursor texture and anchor on setCursor calls', () => {
       const battle = new Battle(new HexMap(13, 9));
       const settings = new BattleSettings();
-      const defaultTex = PixiTexture.WHITE;
-      const meleeTex = PixiTexture.WHITE;
+      const defaultTex = { ...PixiTexture.WHITE, defaultAnchor: { x: 0, y: 0 } };
+      const swordTex = { ...PixiTexture.WHITE, defaultAnchor: { x: 0, y: 0 } };
+      const arrowTex = { ...PixiTexture.WHITE, defaultAnchor: { x: 0.5, y: 0.5 } };
       const assets = {
         softCursorTextures: {
           default: defaultTex,
-          attack_melee_nw: meleeTex,
+          attack_melee: swordTex,
+          attack_ranged: arrowTex,
         },
       };
 
-      const hud = new BattleHud2D(assets, settings, battle);
-      hud.softCursorSprite = new PixiSprite(defaultTex);
+      const hud = new BattleHud2D(assets as any, settings, battle);
+      hud.softCursorSprite = new PixiSprite(defaultTex as any);
 
-      hud.setCursor('attack_melee_nw');
-      expect(hud.softCursorSprite?.texture).toBe(meleeTex);
+      hud.setCursor('attack_melee');
+      expect(hud.softCursorSprite?.texture).toBe(swordTex);
+      expect(hud.softCursorSprite?.anchor.x).toBe(0);
+      expect(hud.softCursorSprite?.anchor.y).toBe(0);
+
+      hud.setCursor('attack_ranged');
+      expect(hud.softCursorSprite?.texture).toBe(arrowTex);
+      expect(hud.softCursorSprite?.anchor.x).toBe(0.5);
+      expect(hud.softCursorSprite?.anchor.y).toBe(0.5);
 
       hud.setCursor('default');
       expect(hud.softCursorSprite?.texture).toBe(defaultTex);
+      expect(hud.softCursorSprite?.anchor.x).toBe(0);
+      expect(hud.softCursorSprite?.anchor.y).toBe(0);
 
       hud.destroy();
+    });
+
+    it('should change cursor to sword (attack_melee) for melee squad and arrow (attack_ranged) for ranged squad', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const swordsman = new Creature(CreatureType.SWORDSMAN);
+      swordsman.position = { x: 2, y: 2 };
+      swordsman.armyAlignment = 0;
+      swordsman.stats.remaining_movement = 4;
+      swordsman.stats.remaining_attacks = 1;
+
+      const archer = new Creature(CreatureType.PEASANT_ARCHER);
+      archer.position = { x: 2, y: 4 };
+      archer.armyAlignment = 0;
+      archer.stats.is_ranged = true;
+      archer.stats.remaining_movement = 4;
+      archer.stats.remaining_attacks = 1;
+      archer.stats.remaining_ammo = 10;
+      archer.stats.range = 5;
+
+      const enemyNear = new Creature(CreatureType.SWORDSMAN);
+      enemyNear.position = { x: 3, y: 2 }; // adjacent to swordsman
+      enemyNear.armyAlignment = 1;
+
+      const enemyFar = new Creature(CreatureType.SWORDSMAN);
+      enemyFar.position = { x: 9, y: 7 }; // far out of reach
+      enemyFar.armyAlignment = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [swordsman, archer, enemyNear, enemyFar],
+      });
+
+      const mockHud = {
+        setCursor: vi.fn(),
+      };
+      const mockHexBoard = {
+        setHoverHex: vi.fn(),
+        setAttackPreview: vi.fn(),
+        clearAttackPreview: vi.fn(),
+        setPathPreview: vi.fn(),
+        clearPathPreview: vi.fn(),
+      };
+
+      const viewContext: any = {
+        battle,
+        hexMap,
+        hexBoard: mockHexBoard,
+        hud: mockHud,
+        hoveredHex: null,
+        hoveredDirection: HexDirection.NONE,
+        isCtrlPressed: false,
+        clearHoverState() {
+          this.hoveredHex = null;
+          this.hud.setCursor('default');
+        },
+      };
+      viewContext.computeAttackAndHoverPaths = (BattleView3D.prototype as any).computeAttackAndHoverPaths.bind(viewContext);
+      viewContext.updateHoverVisuals = (BattleView3D.prototype as any).updateHoverVisuals.bind(viewContext);
+
+      // 1. Select Swordsman (melee squad)
+      battle.handlePrimaryCellAction(swordsman.position);
+      expect(battle.getActiveCreature()).toBe(swordsman);
+
+      // Hover over adjacent enemy squad -> sword cursor (attack_melee)
+      viewContext.hoveredHex = enemyNear.position;
+      viewContext.updateHoverVisuals();
+      expect(mockHud.setCursor).toHaveBeenLastCalledWith('attack_melee');
+
+      // Hover over distant enemy squad out of reach -> default cursor
+      viewContext.hoveredHex = enemyFar.position;
+      viewContext.updateHoverVisuals();
+      expect(mockHud.setCursor).toHaveBeenLastCalledWith('default');
+
+      // Hover over empty cell -> default cursor
+      viewContext.hoveredHex = { x: 5, y: 5 };
+      viewContext.updateHoverVisuals();
+      expect(mockHud.setCursor).toHaveBeenLastCalledWith('default');
+
+      // Hover over ally squad -> default cursor
+      viewContext.hoveredHex = archer.position;
+      viewContext.updateHoverVisuals();
+      expect(mockHud.setCursor).toHaveBeenLastCalledWith('default');
+
+      // When swordsman has 0 remaining attacks -> default cursor
+      swordsman.stats.remaining_attacks = 0;
+      viewContext.hoveredHex = enemyNear.position;
+      viewContext.updateHoverVisuals();
+      expect(mockHud.setCursor).toHaveBeenLastCalledWith('default');
+      swordsman.stats.remaining_attacks = 1;
+
+      // 2. Select Archer (ranged squad)
+      battle.handlePrimaryCellAction(archer.position);
+      expect(battle.getActiveCreature()).toBe(archer);
+
+      // Hover over enemy within range (enemyNear at (3, 2)) -> arrow cursor (attack_ranged)
+      viewContext.hoveredHex = enemyNear.position;
+      viewContext.updateHoverVisuals();
+      expect(mockHud.setCursor).toHaveBeenLastCalledWith('attack_ranged');
+
+      // Hover over enemy out of range (enemyFar at (9, 7)) -> default cursor
+      viewContext.hoveredHex = enemyFar.position;
+      viewContext.updateHoverVisuals();
+      expect(mockHud.setCursor).toHaveBeenLastCalledWith('default');
+    });
+
+    it('should only cancel ability targeting and not issue attack when right-clicking over enemy in 3D view', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+      const archer = new Creature(CreatureType.ARCHER);
+      archer.position = { x: 2, y: 2 };
+      archer.armyAlignment = 0;
+
+      const enemy = new Creature(CreatureType.SWORDSMAN);
+      enemy.position = { x: 5, y: 2 };
+      enemy.armyAlignment = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [archer, enemy],
+      });
+
+      const handleSecondarySpy = vi.spyOn(battle, 'handleSecondaryCellAction');
+
+      const mockHud: any = {
+        updateTargetAcquirementHint: vi.fn(),
+        isPointerOverUI: vi.fn().mockReturnValue(false),
+        setCursor: vi.fn(),
+      };
+
+      const viewContext: any = {
+        battle,
+        hud: mockHud,
+        rightClickCanceledAbility: false,
+        hoveredHex: enemy.position,
+        hoveredDirection: HexDirection.NONE,
+        squadVisuals: new Map(),
+        getStageCoords: () => ({ x: 100, y: 100 }),
+        updateActiveUnitSelection: vi.fn(),
+        updateHoverVisuals: vi.fn(),
+        sceneManager: { raycastFromScreen: () => [] },
+      };
+
+      (BattleView3D.prototype as any).setupPointerEvents.call(viewContext, { addEventListener: vi.fn() });
+
+      // Select archer and enter ability targeting
+      battle.handlePrimaryCellAction(archer.position);
+      battle.selectActiveAbilityForCurrentUnit(0);
+      expect(battle.input_state).toBe(InputState.SELECT_ABILITY_TARGET);
+
+      // Simulate right-click pointerdown -> contextmenu -> pointerup sequence over enemy squad
+      viewContext.boundPointerDown({ clientX: 200, clientY: 200, button: 2 });
+      expect(viewContext.rightClickCanceledAbility).toBe(true);
+
+      const preventDefault = vi.fn();
+      viewContext.boundContextMenu({ preventDefault });
+      expect(preventDefault).toHaveBeenCalled();
+
+      viewContext.boundPointerUp({ clientX: 200, clientY: 200, button: 2 });
+
+      // Verify handleSecondaryCellAction was NOT called by the 3D pointerup handler
+      expect(handleSecondarySpy).not.toHaveBeenCalled();
+      // Targeting was canceled
+      expect(battle.input_state).toBe(InputState.SELECT_UNIT_OR_TARGET);
+      // Enemy was not attacked
+      expect(archer.stats.has_attacked).toBe(false);
+      expect(archer.stats.remaining_attacks).toBe(1);
     });
   });
 

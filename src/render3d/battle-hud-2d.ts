@@ -588,6 +588,10 @@ export class BattleHud2D {
     const tex = this.assets.softCursorTextures[hint] || this.assets.softCursorTextures['default'];
     if (tex && this.softCursorSprite.texture !== tex) {
       this.softCursorSprite.texture = tex;
+      const srcAnchor = (tex as any).defaultAnchor;
+      if (this.softCursorSprite.anchor) {
+        this.softCursorSprite.anchor.set(srcAnchor ? srcAnchor.x : 0, srcAnchor ? srcAnchor.y : 0);
+      }
     }
   }
 

@@ -2,7 +2,7 @@ import { HexDirection } from "../shared/hex-map";
 import { Coords, getRandomValueBetween } from "../shared";
 import { Ability } from "./ability";
 import { GuidMaker, HobGUID } from "./guid";
-import { ExhaustionState, MoraleState, getExhaustionState, getMoraleState } from "./combat-rules";
+import { ExhaustionState, MoraleState, getExhaustionState, getMoraleState, CombatConfig } from "./combat-rules";
 import { SeedableRNG } from "../shared/prng";
 
 export class CreatureStats {
@@ -200,6 +200,7 @@ export class Creature {
   ];
 
   public isQuickDrawActive: boolean = false;
+  public combatConfig?: CombatConfig;
   private guid: HobGUID;
 
   public hasQuickDrawAbility(): boolean {
@@ -388,7 +389,7 @@ export class Creature {
   }
 
   public get moraleState(): MoraleState {
-    return getMoraleState(this.stats.morale);
+    return getMoraleState(this.stats.morale, this.combatConfig?.morale?.breakpoints);
   }
 
   public get isPanickedOrRouting(): boolean {
