@@ -53,6 +53,11 @@ export interface HudConfig {
     nextUnit?: string;
     resetCamera?: string;
     toggleStats?: string;
+    skill1?: string;
+    skill2?: string;
+    skill3?: string;
+    skill4?: string;
+    skill5?: string;
   };
   keybindings?: {
     printPathPreview?: string;
@@ -61,6 +66,11 @@ export interface HudConfig {
     nextUnit?: string;
     resetCamera?: string;
     toggleStats?: string;
+    skill1?: string;
+    skill2?: string;
+    skill3?: string;
+    skill4?: string;
+    skill5?: string;
   };
   healthbars?: {
     showHealthbars?: boolean;

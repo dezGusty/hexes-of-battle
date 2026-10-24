@@ -63,6 +63,7 @@ export class BattleView3D {
 
   // Active keyboard navigation keys
   private pressedKeys: Set<string> = new Set();
+  private lastRangedAttackTimes: Map<string, number> = new Map();
   public cameraPanSpeed: number = 16.0; // world units per second
   public cameraRotateSpeed: number = 2.2; // radians per second
   public soundSystem?: ISoundSystem;
@@ -264,50 +265,66 @@ export class BattleView3D {
   }
 
   public showRangedAttackVisuals(data: RangedAttackData): void {
-    const attackerSquad = this.squadVisuals.get(data.attacker.GUID.toString());
-    const sourcePos = attackerSquad
-      ? attackerSquad.rootGroup.position.clone()
-      : this.hexBoard.hexToWorldWithElevation(data.attacker.position.x, data.attacker.position.y);
+    const fireVolley = () => {
+      const attackerSquad = this.squadVisuals.get(data.attacker.GUID.toString());
+      const sourcePos = attackerSquad
+        ? attackerSquad.rootGroup.position.clone()
+        : this.hexBoard.hexToWorldWithElevation(data.attacker.position.x, data.attacker.position.y);
 
-    if (attackerSquad) {
-      attackerSquad.playAnimation('attack_ranged', 400);
-    }
+      if (attackerSquad) {
+        attackerSquad.playAnimation('attack_ranged', 400);
+      }
 
-    if (this.soundSystem) {
-      this.soundSystem.play(SoundCategory.SOUND, SoundType.ARROW, true);
-    }
+      if (this.soundSystem) {
+        this.soundSystem.play(SoundCategory.SOUND, SoundType.ARROW, true);
+      }
 
-    // Build array of individual projectile trajectories with distinct destination hexes
-    const projectiles = data.projectiles.map((p) => {
-      const hitSquad = p.hitCreature ? this.squadVisuals.get(p.hitCreature.GUID.toString()) : undefined;
-      const targetPos = hitSquad
-        ? hitSquad.rootGroup.position.clone()
-        : this.hexBoard.hexToWorldWithElevation(p.targetHex.x, p.targetHex.y);
+      // Build array of individual projectile trajectories with distinct destination hexes
+      const projectiles = data.projectiles.map((p) => {
+        const hitSquad = p.hitCreature ? this.squadVisuals.get(p.hitCreature.GUID.toString()) : undefined;
+        const targetPos = hitSquad
+          ? hitSquad.rootGroup.position.clone()
+          : this.hexBoard.hexToWorldWithElevation(p.targetHex.x, p.targetHex.y);
 
-      return {
-        targetPos,
-        sourcePos,
+        return {
+          targetPos,
+          sourcePos,
+        };
+      });
+
+      const onImpact = () => {
+        data.targetDamages.forEach(({ target, damage, flankStatus }) => {
+          const targetSquad = this.squadVisuals.get(target.GUID.toString());
+          this.applyDamageVisuals(targetSquad, damage, flankStatus);
+        });
       };
-    });
 
-    const onImpact = () => {
-      data.targetDamages.forEach(({ target, damage, flankStatus }) => {
-        const targetSquad = this.squadVisuals.get(target.GUID.toString());
-        this.applyDamageVisuals(targetSquad, damage, flankStatus);
+      const avgTargetPos = projectiles.length > 0 ? projectiles[0].targetPos : sourcePos;
+      const dist = sourcePos.distanceTo(avgTargetPos);
+
+      this.projectileSystem.spawnVolley({
+        sourcePos,
+        projectiles,
+        projectileType: 'arrow',
+        durationMs: 480,
+        apexHeight: Math.max(1.8, dist * 0.38),
+        onImpact,
       });
     };
 
-    const avgTargetPos = projectiles.length > 0 ? projectiles[0].targetPos : sourcePos;
-    const dist = sourcePos.distanceTo(avgTargetPos);
+    const attackerKey = data.attacker.GUID.toString();
+    const now = performance.now();
+    const lastTime = this.lastRangedAttackTimes.get(attackerKey) ?? -9999;
+    const timeDelta = now - lastTime;
+    this.lastRangedAttackTimes.set(attackerKey, now);
 
-    this.projectileSystem.spawnVolley({
-      sourcePos,
-      projectiles,
-      projectileType: 'arrow',
-      durationMs: 480,
-      apexHeight: Math.max(1.8, dist * 0.38),
-      onImpact,
-    });
+    if (timeDelta < 350) {
+      setTimeout(() => {
+        fireVolley();
+      }, 450);
+    } else {
+      fireVolley();
+    }
   }
 
   public showAttackVisuals(
@@ -913,6 +930,31 @@ export class BattleView3D {
     return { hoverPath, attackPath };
   }
 
+  public triggerSkillByIndex(index: number): boolean {
+    if (this.hud?.isMenuBlockingInput()) return false;
+    if (this.battle.hasRunningActions()) return false;
+    if (this.battle.isCurrentTurnAI()) return false;
+
+    let handled = false;
+    if (this.hud) {
+      handled = this.hud.triggerSkill(index);
+    } else {
+      const active = this.battle.getActiveCreature();
+      if (active && index < active.abilities.length) {
+        const ability = active.abilities[index];
+        if (this.battle.verifyAbilityUseByCreatureHasResources(ability, active)) {
+          this.battle.selectActiveAbilityForCurrentUnit(index, active);
+          handled = true;
+        }
+      }
+    }
+    if (handled) {
+      this.updateActiveUnitSelection();
+      this.updateHoverVisuals();
+    }
+    return handled;
+  }
+
   private setupKeyboardControls(): void {
     this.boundKeyDown = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
@@ -933,6 +975,26 @@ export class BattleView3D {
 
       // Single-input hotkeys (only trigger once on initial keydown, ignore OS auto-repeat)
       if (e.repeat) return;
+      if (this.hud?.isMenuBlockingInput()) return;
+
+      // Skill hotkeys: keys 1-5 trigger skills 0-4 for the selected squad
+      const skillKeys = ['1', '2', '3', '4', '5'];
+      const digitCodes = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5'];
+      const numpadCodes = ['Numpad1', 'Numpad2', 'Numpad3', 'Numpad4', 'Numpad5'];
+
+      let skillIndex = skillKeys.indexOf(e.key);
+      if (skillIndex === -1) {
+        skillIndex = digitCodes.indexOf(e.code);
+      }
+      if (skillIndex === -1) {
+        skillIndex = numpadCodes.indexOf(e.code);
+      }
+
+      if (skillIndex !== -1) {
+        e.preventDefault();
+        this.triggerSkillByIndex(skillIndex);
+        return;
+      }
 
       const printKey = (this.settings?.hotkeys?.printPathPreview ?? 'p').toLowerCase();
       const restKey = (this.settings?.hotkeys?.rest ?? 'r').toLowerCase();

@@ -215,6 +215,9 @@ export class BattleScene3D implements Scene {
 
   private startBattle(): void {
     this.battle.start();
+    if (!this.battle.isCurrentTurnAI() && this.battle.activeCreatureIndex === -1) {
+      this.battle.selectNextUnitAndGetIndex();
+    }
     this.view.showTurnBanner(0, 0);
     this.hud.showTurnBanner(0, 0);
 

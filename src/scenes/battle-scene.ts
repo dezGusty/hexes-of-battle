@@ -135,6 +135,7 @@ export class BattleScene implements Scene {
       }),
       onToggleStats: () => this.view.toggleUnitStats(),
       onToggleHardwareCursor: () => this.view.toggleHardwareCursor(),
+      onTriggerSkill: (index: number) => this.view.triggerSkill(index),
     });
     this.inputController.attach();
 
@@ -167,6 +168,9 @@ export class BattleScene implements Scene {
 
   private startBattle(): void {
     this.battle.start();
+    if (!this.battle.isCurrentTurnAI() && this.battle.activeCreatureIndex === -1) {
+      this.battle.selectNextUnitAndGetIndex();
+    }
     this.view.showTurnBanner(0, 0);
 
     const active = this.battle.getActiveCreature();

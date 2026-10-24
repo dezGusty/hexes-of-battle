@@ -139,8 +139,10 @@ export class UnitStatsPanel {
   private skillsGroup = new Container();
   private skillSlots: SkillSlot[] = [];
 
-  public onSkillClick?: (index: number, ability: Ability) => void;
+  public onSkillClick?: (index: number, ability: Ability, creature?: Creature) => void;
   private currentCreature?: Creature = undefined;
+  private lastTriggeredSkillTime: number = 0;
+  private lastTriggeredSkillIndex: number = -1;
 
   public getSkillSlots(): readonly SkillSlot[] {
     return this.skillSlots;
@@ -606,6 +608,21 @@ export class UnitStatsPanel {
       iconSprite.position = { x: 4, y: 4 };
       slotContainer.addChild(iconSprite);
 
+      if (index < 5) {
+        const keyLabel = new Text({
+          text: `${index + 1}`,
+          style: {
+            fontFamily: 'GustysSerpents, sans-serif',
+            fontSize: 10,
+            fill: { color: '#ffffff', alpha: 0.95 },
+            stroke: { color: '#000000', width: 2 },
+          },
+        });
+        keyLabel.position = { x: 5, y: 3 };
+        keyLabel.eventMode = 'none';
+        slotContainer.addChild(keyLabel);
+      }
+
       slotContainer.on('pointerdown', () => {
         if (isUsable) {
           slotBorder.tint = 0xd4b038;
@@ -622,13 +639,16 @@ export class UnitStatsPanel {
 
       this.skillsGroup.addChild(slotContainer);
 
+      const hotkeyNotice = index < 5 ? `\nHotkey: [${index + 1}]` : '';
+      const fullDescription = description + hotkeyNotice;
+
       this.skillSlots.push({
         container: slotContainer,
         border: slotBorder,
         iconSprite,
         skillId: ability.id,
         name,
-        description,
+        description: fullDescription,
         iconPath,
         ability,
         index,
@@ -645,10 +665,18 @@ export class UnitStatsPanel {
     const slot = this.skillSlots[index];
     if (!slot) return false;
     if (!slot.isUsable) return false;
+
+    const now = Date.now();
+    if (this.lastTriggeredSkillIndex === index && now - this.lastTriggeredSkillTime < 350) {
+      return true;
+    }
+    this.lastTriggeredSkillIndex = index;
+    this.lastTriggeredSkillTime = now;
+
     if (this.onSkillClick) {
-      this.onSkillClick(index, slot.ability);
+      this.onSkillClick(index, slot.ability, this.currentCreature);
     } else if (this.battle) {
-      this.battle.selectActiveAbilityForCurrentUnit(index);
+      this.battle.selectActiveAbilityForCurrentUnit(index, this.currentCreature);
     }
     if (this.currentCreature) {
       this.update();

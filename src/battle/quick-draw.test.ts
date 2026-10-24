@@ -10,16 +10,17 @@ vi.mock("@pixi/sound", () => ({
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 import { Container, Spritesheet, Texture } from 'pixi.js';
-import { Battle } from '../battle';
+import { Battle, AnimationType } from '../battle';
 import { HexDirection, HexMap } from '../shared/hex-map';
 import { Creature, CreatureType } from './creature';
 import { CreatureRepository } from './creature-repository';
-import { Ability, AbilityResourceUse } from './ability';
+import { Ability, AbilityResourceUse, AbilityType } from './ability';
 import { BattleActionType } from './battle-action';
 import { BattleSettings } from './settings';
 import { BattleHud2D } from '../render3d/battle-hud-2d';
 import { UnitStatsPanel } from '../ui/unit-stats-panel';
 import { EnemyStatsPanel } from '../ui/enemy-stats-panel';
+import { BattleInputController } from './battle-input-controller';
 
 describe('Quick draw Skill for Archers', () => {
   describe('1. Configuration & Template Specifications', () => {
@@ -1027,7 +1028,585 @@ describe('Quick draw Skill for Archers', () => {
       // After canceling: border tint returns to normal (0xffffff)
       expect(unitStats.getSkillSlots()[0].border.tint).toBe(0xffffff);
     });
+
+    it('should activate target acquirement and display text hint banner when clicking quick draw skill button, ignoring immediate duplicate click events', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+      const settings = new BattleSettings();
+      const assets = { softCursorTextures: {} };
+
+      const archer = new Creature(CreatureType.PEASANT_ARCHER);
+      archer.position = { x: 2, y: 2 };
+      archer.armyAlignment = 0;
+      archer.stats.stamina = 12;
+      archer.stats.remaining_ammo = 10;
+      archer.stats.remaining_attacks = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [archer],
+      });
+
+      const hud = new BattleHud2D(assets, settings, battle);
+      hud.unitStats = new UnitStatsPanel(hud.uiPlusRenderGroup, dummyUiSheet as any, battle.traitsConfig, battle);
+      hud.unitStats.onSkillClick = (index: number, _ability?: Ability, creature?: Creature) => {
+        battle.selectActiveAbilityForCurrentUnit(index, creature);
+        const active = battle.getActiveCreature();
+        if (active) {
+          hud.updateUnitStats(active);
+        }
+        hud.hideEnemyStats();
+        hud.updateTargetAcquirementHint();
+      };
+
+      battle.handlePrimaryCellAction(archer.position);
+      hud.updateUnitStats(archer);
+
+      // Verify initial state
+      expect(hud.targetAcquirementBanner?.visible).toBe(false);
+      expect((battle as any).input_state).toBe(2); // SELECT_UNIT_OR_TARGET
+
+      // Trigger skill 0 (Quick draw) - e.g. via Pixi pointertap
+      hud.unitStats.triggerSkill(0);
+
+      // Verify target acquirement is activated and hint banner is displayed
+      expect((battle as any).input_state).toBe(3); // SELECT_ABILITY_TARGET
+      expect((battle as any).abilityToApply).not.toBeNull();
+      expect((battle as any).abilityToApply.name.toLowerCase()).toContain('quick draw');
+      expect(hud.targetAcquirementBanner?.visible).toBe(true);
+      expect(hud.targetAcquirementText?.text).toContain('Quick draw');
+      expect(hud.targetAcquirementText?.text).toContain('Left-click on target to use, Right-click to cancel');
+
+      // Simulate a rapid second trigger within debounce window (e.g. DOM click following pointertap)
+      hud.unitStats.triggerSkill(0);
+
+      // Must NOT have toggled/cancelled off!
+      expect((battle as any).input_state).toBe(3);
+      expect(hud.targetAcquirementBanner?.visible).toBe(true);
+
+      // Right-click secondary cell action cancels targeting
+      battle.handleSecondaryCellAction({ x: 0, y: 0 });
+      hud.updateTargetAcquirementHint();
+      expect((battle as any).input_state).toBe(2);
+      expect(hud.targetAcquirementBanner?.visible).toBe(false);
+
+      hud.destroy();
+    });
+
+    it('should synchronize activeCreatureIndex and enter targeting state even if activeCreatureIndex was not set', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+      const settings = new BattleSettings();
+      const assets = { softCursorTextures: {} };
+
+      const archer = new Creature(CreatureType.PEASANT_ARCHER);
+      archer.position = { x: 3, y: 3 };
+      archer.armyAlignment = 0;
+      archer.stats.stamina = 12;
+      archer.stats.remaining_ammo = 10;
+      archer.stats.remaining_attacks = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [archer],
+      });
+
+      // Deliberately set activeCreatureIndex to -1
+      (battle as any).activeCreatureIndex = -1;
+
+      const hud = new BattleHud2D(assets, settings, battle);
+      hud.unitStats = new UnitStatsPanel(hud.uiPlusRenderGroup, dummyUiSheet as any, battle.traitsConfig, battle);
+      hud.unitStats.onSkillClick = (index: number, _ability?: Ability, creature?: Creature) => {
+        battle.selectActiveAbilityForCurrentUnit(index, creature);
+        const active = battle.getActiveCreature();
+        if (active) {
+          hud.updateUnitStats(active);
+        }
+        hud.hideEnemyStats();
+        hud.updateTargetAcquirementHint();
+      };
+
+      hud.unitStats.setCreature(archer);
+      hud.unitStats.update();
+
+      // Trigger skill from stats panel
+      hud.unitStats.triggerSkill(0);
+
+      // Expect battle to have synchronized activeCreatureIndex to the archer and entered targeting
+      expect((battle as any).activeCreatureIndex).toBe(0);
+      expect((battle as any).input_state).toBe(3); // SELECT_ABILITY_TARGET
+      expect(hud.targetAcquirementBanner?.visible).toBe(true);
+
+      hud.destroy();
+    });
+  });
+
+  describe('8. Skill Keyboard Shortcuts (Keys 1-5)', () => {
+    const dummyUiSheet = {
+      textures: new Proxy({}, {
+        get: () => Texture.EMPTY,
+      }),
+    } as unknown as Spritesheet;
+
+    it('should trigger skill 1 when pressing "1" key for selected squad, and ignore "2"-"5" when unit only has 1 skill', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+      const settings = new BattleSettings();
+      const assets = { softCursorTextures: {} };
+
+      const archer = new Creature(CreatureType.PEASANT_ARCHER);
+      archer.position = { x: 2, y: 2 };
+      archer.armyAlignment = 0;
+      archer.stats.stamina = 12;
+      archer.stats.remaining_ammo = 10;
+      archer.stats.remaining_attacks = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [archer],
+      });
+
+      const hud = new BattleHud2D(assets, settings, battle);
+      hud.unitStats = new UnitStatsPanel(hud.uiPlusRenderGroup, dummyUiSheet as any, battle.traitsConfig, battle);
+      hud.unitStats.onSkillClick = (index: number, _ability?: Ability, creature?: Creature) => {
+        battle.selectActiveAbilityForCurrentUnit(index, creature);
+        const active = battle.getActiveCreature();
+        if (active) {
+          hud.updateUnitStats(active);
+        }
+        hud.hideEnemyStats();
+        hud.updateTargetAcquirementHint();
+      };
+
+      battle.handlePrimaryCellAction(archer.position);
+      hud.updateUnitStats(archer);
+
+      // Verify initial state
+      expect(hud.targetAcquirementBanner?.visible).toBe(false);
+      expect((battle as any).input_state).toBe(2); // SELECT_UNIT_OR_TARGET
+
+      // Pressing '2', '3', '4', '5' on a unit with only 1 skill must do nothing and return false
+      expect(hud.triggerSkill(1)).toBe(false);
+      expect(hud.triggerSkill(2)).toBe(false);
+      expect(hud.triggerSkill(3)).toBe(false);
+      expect(hud.triggerSkill(4)).toBe(false);
+      expect((battle as any).input_state).toBe(2);
+      expect(hud.targetAcquirementBanner?.visible).toBe(false);
+
+      // Pressing '1' (skill index 0) triggers Quick draw
+      const handled = hud.triggerSkill(0);
+      expect(handled).toBe(true);
+      expect((battle as any).input_state).toBe(3); // SELECT_ABILITY_TARGET
+      expect((battle as any).abilityToApply.name.toLowerCase()).toContain('quick draw');
+      expect(hud.targetAcquirementBanner?.visible).toBe(true);
+
+      // Pressing '1' again toggles/cancels target acquirement
+      // (Wait beyond debounce window or reset debounce timer)
+      (hud.unitStats as any).lastTriggeredSkillTime = 0;
+      const toggleHandled = hud.triggerSkill(0);
+      expect(toggleHandled).toBe(true);
+      expect((battle as any).input_state).toBe(2); // SELECT_UNIT_OR_TARGET
+      expect(hud.targetAcquirementBanner?.visible).toBe(false);
+
+      hud.destroy();
+    });
+
+    it('should support keys "1" and "2" when a unit has 2 active skills, while keys "3", "4", "5" do nothing', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+      const settings = new BattleSettings();
+      const assets = { softCursorTextures: {} };
+
+      const archer = new Creature(CreatureType.PEASANT_ARCHER);
+      archer.position = { x: 2, y: 2 };
+      archer.armyAlignment = 0;
+      archer.stats.stamina = 20;
+      archer.stats.remaining_ammo = 10;
+      archer.stats.remaining_attacks = 1;
+
+      // Add a second active ability to the archer
+      const secondAbility = new Ability();
+      secondAbility.id = 'throw-javelin-test';
+      secondAbility.name = 'Throw Javelin';
+      secondAbility.abilityType = AbilityType.Active;
+      secondAbility.requiresTarget = true;
+      secondAbility.resources = [
+        { resource_used: AbilityResourceUse.Stamina, resource_cost: 3 },
+      ];
+      archer.abilities.push(secondAbility);
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [archer],
+      });
+
+      const hud = new BattleHud2D(assets, settings, battle);
+      hud.unitStats = new UnitStatsPanel(hud.uiPlusRenderGroup, dummyUiSheet as any, battle.traitsConfig, battle);
+      hud.unitStats.onSkillClick = (index: number, _ability?: Ability, creature?: Creature) => {
+        battle.selectActiveAbilityForCurrentUnit(index, creature);
+        const active = battle.getActiveCreature();
+        if (active) {
+          hud.updateUnitStats(active);
+        }
+        hud.hideEnemyStats();
+        hud.updateTargetAcquirementHint();
+      };
+
+      battle.handlePrimaryCellAction(archer.position);
+      hud.updateUnitStats(archer);
+
+      // Verify unit has 2 skill slots
+      expect(hud.unitStats.getSkillSlots().length).toBe(2);
+
+      // Keys '3', '4', '5' (indices 2, 3, 4) do nothing
+      expect(hud.triggerSkill(2)).toBe(false);
+      expect(hud.triggerSkill(3)).toBe(false);
+      expect(hud.triggerSkill(4)).toBe(false);
+      expect((battle as any).input_state).toBe(2);
+
+      // Key '1' triggers skill 0 (Quick draw)
+      expect(hud.triggerSkill(0)).toBe(true);
+      expect((battle as any).input_state).toBe(3);
+      expect((battle as any).abilityToApply.name).toBe('Quick draw');
+
+      // Key '2' triggers skill 1 (Throw Javelin)
+      expect(hud.triggerSkill(1)).toBe(true);
+      expect((battle as any).input_state).toBe(3);
+      expect((battle as any).abilityToApply.name).toBe('Throw Javelin');
+
+      hud.destroy();
+    });
+
+    it('should result in no action when pressing keys 1-5 on a unit with no active skills', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+      const settings = new BattleSettings();
+      const assets = { softCursorTextures: {} };
+
+      const swordsman = new Creature(CreatureType.SWORDSMAN);
+      swordsman.position = { x: 2, y: 2 };
+      swordsman.armyAlignment = 0;
+      swordsman.abilities = []; // No active abilities
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [swordsman],
+      });
+
+      const hud = new BattleHud2D(assets, settings, battle);
+      hud.unitStats = new UnitStatsPanel(hud.uiPlusRenderGroup, dummyUiSheet as any, battle.traitsConfig, battle);
+      hud.updateUnitStats(swordsman);
+
+      expect(hud.unitStats.getSkillSlots().length).toBe(0);
+
+      for (let i = 0; i < 5; i++) {
+        expect(hud.triggerSkill(i)).toBe(false);
+      }
+      expect((battle as any).input_state).toBe(2);
+
+      hud.destroy();
+    });
+
+    it('should dispatch onTriggerSkill for keys "1" through "5" in BattleInputController', () => {
+      const prevDoc = (globalThis as any).document;
+      const docTarget = new EventTarget();
+      (globalThis as any).document = docTarget;
+
+      try {
+        const hexMap = new HexMap(10, 8);
+        const battle = new Battle(hexMap);
+
+        const triggeredIndices: number[] = [];
+        const dummyCamera = {
+          panBy: vi.fn(),
+          zoomBy: vi.fn(),
+          zoomStep: 0.1,
+        };
+
+        const controller = new BattleInputController(battle, hexMap, {
+          isMenuBlockingInput: () => false,
+          onCursorMove: vi.fn(),
+          onClearHover: vi.fn(),
+          getCamera: () => dummyCamera as any,
+          getStageOffsetAndScale: () => ({ offset: { x: 0, y: 0 }, scale: { x: 1, y: 1 } }),
+          getScreenSize: () => ({ width: 1920, height: 1080 }),
+          onTriggerSkill: (index: number) => {
+            triggeredIndices.push(index);
+            return true;
+          },
+        });
+
+        controller.attach();
+
+        // Dispatch '1' through '5' keydowns
+        const keyEvents = [
+          { key: '1', code: 'Digit1' },
+          { key: '2', code: 'Digit2' },
+          { key: '3', code: 'Digit3' },
+          { key: '4', code: 'Digit4' },
+          { key: '5', code: 'Digit5' },
+        ];
+
+        for (const ev of keyEvents) {
+          const event = new Event('keydown') as any;
+          event.key = ev.key;
+          event.code = ev.code;
+          event.preventDefault = vi.fn();
+          docTarget.dispatchEvent(event);
+        }
+
+        expect(triggeredIndices).toEqual([0, 1, 2, 3, 4]);
+
+        // Repeat key events are ignored
+        const repeatEv = new Event('keydown') as any;
+        repeatEv.key = '1';
+        repeatEv.code = 'Digit1';
+        repeatEv.repeat = true;
+        repeatEv.preventDefault = vi.fn();
+        docTarget.dispatchEvent(repeatEv);
+        expect(triggeredIndices.length).toBe(5);
+
+        controller.detach();
+      } finally {
+        (globalThis as any).document = prevDoc;
+      }
+    });
+
+    it('should display hotkey badges "1"-"5" on skill slots and in tooltip in UnitStatsPanel', () => {
+      const container = new Container();
+      const panel = new UnitStatsPanel(container, dummyUiSheet);
+      panel.show();
+
+      const archer = new Creature(CreatureType.PEASANT_ARCHER);
+      // Give archer 6 abilities to verify 1..5 have badges and 6th does not
+      for (let i = 1; i <= 5; i++) {
+        const ab = new Ability();
+        ab.id = `skill-${i}`;
+        ab.name = `Skill ${i}`;
+        ab.abilityType = AbilityType.Active;
+        archer.abilities.push(ab);
+      }
+      expect(archer.abilities.length).toBe(6);
+
+      panel.setCreature(archer);
+      panel.update();
+
+      const slots = panel.getSkillSlots();
+      expect(slots.length).toBe(6);
+
+      // Verify slots 0-4 have hotkey notice in description
+      for (let i = 0; i < 5; i++) {
+        expect(slots[i].description).toContain(`Hotkey: [${i + 1}]`);
+      }
+      // Slot 5 (the 6th skill) should not have a hotkey notice
+      expect(slots[5].description).not.toContain('Hotkey:');
+    });
+  });
+
+  describe('9. Two Distinct Attacks & Animations for Quick draw', () => {
+    it('should execute 2 distinct attacks with independent damage calculations and armor subtractions', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const archer = new Creature(CreatureType.PEASANT_ARCHER);
+      archer.position = { x: 2, y: 2 };
+      archer.armyAlignment = 0;
+      archer.facingDirection = HexDirection.EAST;
+      archer.stats.stamina = 14;
+      archer.stats.remaining_ammo = 10;
+      archer.stats.remaining_attacks = 1;
+      archer.stats.attack_ranged_low = 10;
+      archer.stats.attack_ranged_high = 10; // fixed damage for determinism
+
+      const targetSquad = new Creature(CreatureType.SWORDSMAN);
+      targetSquad.position = { x: 5, y: 2 };
+      targetSquad.armyAlignment = 1;
+      targetSquad.facingDirection = HexDirection.WEST;
+      targetSquad.stats.health = 100;
+      targetSquad.stats.remaining_health = 100;
+      targetSquad.stats.defense_ranged = 3; // 3 armor per attack
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [archer, targetSquad],
+      });
+      battle.combatConfig.ranged.scatterChance = 0;
+
+      const attacksRecorded: Array<{ damage: number; type: BattleActionType }> = [];
+      battle.hookDoingAttack = (_a, _d, damage, type) => {
+        attacksRecorded.push({ damage, type });
+      };
+
+      const rangedEvents: any[] = [];
+      battle.hookDoingAttackRanged = (data) => {
+        rangedEvents.push(data);
+      };
+
+      // Select archer and use Quick draw on target
+      battle.handlePrimaryCellAction(archer.position);
+      battle.selectActiveAbilityForCurrentUnit(0);
+      battle.selectTargetForAbility(targetSquad.position);
+      battle.stepInstant();
+
+      // Exactly 2 distinct attacks must take place
+      expect(attacksRecorded.length).toBe(2);
+      expect(rangedEvents.length).toBe(2);
+
+      // In both attacks, defender armor (3) must be subtracted independently: 10 - 3 = 7
+      expect(attacksRecorded[0].damage).toBe(7);
+      expect(attacksRecorded[1].damage).toBe(7);
+
+      // Total damage on target: 7 + 7 = 14
+      expect(targetSquad.stats.remaining_health).toBe(86);
+
+      // Both ammo spent: 10 - 2 = 8
+      expect(archer.stats.remaining_ammo).toBe(8);
+
+      // Full Quick draw stamina cost spent (6)
+      expect(archer.stats.stamina).toBe(8);
+      expect(battle.totalStaminaSpent[0]).toBe(6);
+    });
+
+    it('should execute 2 distinct visible animations with sequential delay when stepped frame-by-frame via battle.update()', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const archer = new Creature(CreatureType.PEASANT_ARCHER);
+      archer.position = { x: 2, y: 2 };
+      archer.armyAlignment = 0;
+      archer.facingDirection = HexDirection.EAST;
+      archer.stats.stamina = 12;
+      archer.stats.remaining_ammo = 10;
+      archer.stats.remaining_attacks = 1;
+      archer.stats.attack_ranged_low = 10;
+      archer.stats.attack_ranged_high = 10;
+
+      const targetSquad = new Creature(CreatureType.SWORDSMAN);
+      targetSquad.position = { x: 5, y: 2 };
+      targetSquad.armyAlignment = 1;
+      targetSquad.facingDirection = HexDirection.WEST;
+      targetSquad.stats.health = 80;
+      targetSquad.stats.remaining_health = 80;
+      targetSquad.stats.defense_ranged = 0;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [archer, targetSquad],
+      });
+      battle.combatConfig.ranged.scatterChance = 0;
+
+      const rangedEvents: Array<{ time: number; data: any }> = [];
+      let simulatedTime = 0;
+      battle.hookDoingAttackRanged = (data) => {
+        rangedEvents.push({ time: simulatedTime, data });
+      };
+
+      battle.handlePrimaryCellAction(archer.position);
+      battle.selectActiveAbilityForCurrentUnit(0);
+      battle.selectTargetForAbility(targetSquad.position);
+
+      const advanceTime = (delta: number) => {
+        simulatedTime += delta;
+        return battle.update(delta);
+      };
+
+      // Step 0: Initial frame update (first volley triggers immediately)
+      advanceTime(50);
+      expect(rangedEvents.length).toBe(1);
+      expect(battle.nextRenderUpdate.animationAtCoords.type).toBe(AnimationType.ATTACK_RANGED);
+
+      // Advance by 300ms: Volley 1 is in-flight / playing. Volley 2 has NOT fired yet!
+      advanceTime(300);
+      expect(rangedEvents.length).toBe(1);
+
+      // Advance by another 350ms (total elapsed >= 650ms): Volley 2 fires as a second distinct attack!
+      advanceTime(350);
+      expect(rangedEvents.length).toBe(2);
+      expect(battle.nextRenderUpdate.animationAtCoords.type).toBe(AnimationType.ATTACK_RANGED);
+
+      // The 2 volleys occurred at distinct simulation timestamps (separated by >= 600ms)
+      expect(rangedEvents[1].time - rangedEvents[0].time).toBeGreaterThanOrEqual(600);
+
+      // Step until action finishes
+      while (battle.hasRunningActions()) {
+        advanceTime(100);
+      }
+
+      // Attack finalized: remaining_attacks spent, ammo spent
+      expect(archer.stats.remaining_attacks).toBe(0);
+      expect(archer.stats.remaining_ammo).toBe(8);
+      expect(archer.stats.stamina).toBe(6);
+    });
+
+    it('should not fire second attack if the first attack kills the target squad', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const archer = new Creature(CreatureType.PEASANT_ARCHER);
+      archer.position = { x: 2, y: 2 };
+      archer.armyAlignment = 0;
+      archer.stats.stamina = 12;
+      archer.stats.remaining_ammo = 10;
+      archer.stats.remaining_attacks = 1;
+      archer.stats.attack_ranged_low = 25;
+      archer.stats.attack_ranged_high = 25;
+
+      const fragileTarget = new Creature(CreatureType.PEASANT);
+      fragileTarget.position = { x: 5, y: 2 };
+      fragileTarget.armyAlignment = 1;
+      fragileTarget.stats.health = 10;
+      fragileTarget.stats.remaining_health = 10; // Low HP: 10 HP, will die in Volley 1
+      fragileTarget.stats.defense_ranged = 0;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [archer, fragileTarget],
+      });
+      battle.combatConfig.ranged.scatterChance = 0;
+
+      let attacksDone = 0;
+      battle.hookDoingAttack = () => {
+        attacksDone++;
+      };
+
+      battle.handlePrimaryCellAction(archer.position);
+      battle.selectActiveAbilityForCurrentUnit(0);
+      battle.selectTargetForAbility(fragileTarget.position);
+
+      // Advance battle frame-by-frame
+      while (battle.hasRunningActions()) {
+        battle.update(100);
+      }
+
+      // Volley 1 killed the fragile target, so Volley 2 was not shot on a corpse!
+      expect(attacksDone).toBe(1);
+      expect(fragileTarget.isAlive).toBe(false);
+      expect(battle.casualties).toContain(fragileTarget);
+
+      // Only 1 ammo consumed since only 1 shot was fired
+      expect(archer.stats.remaining_ammo).toBe(9);
+      // Total Quick draw stamina was committed
+      expect(archer.stats.stamina).toBe(6);
+      expect(archer.stats.remaining_attacks).toBe(0);
+    });
   });
 });
+
 
 

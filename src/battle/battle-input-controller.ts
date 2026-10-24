@@ -13,6 +13,7 @@ export interface BattleInputDelegate {
   getScreenSize: () => { width: number; height: number };
   onToggleStats?: () => void;
   onToggleHardwareCursor?: () => void;
+  onTriggerSkill?: (index: number) => boolean;
 }
 
 export class BattleInputController {
@@ -36,6 +37,37 @@ export class BattleInputController {
 
   public attach(): void {
     this.boundKeyDown = (event: KeyboardEvent) => {
+      if (this.delegate.isMenuBlockingInput()) return;
+      if (event.repeat) return;
+
+      const skillKeys = ['1', '2', '3', '4', '5'];
+      const digitCodes = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5'];
+      const numpadCodes = ['Numpad1', 'Numpad2', 'Numpad3', 'Numpad4', 'Numpad5'];
+
+      let skillIndex = skillKeys.indexOf(event.key);
+      if (skillIndex === -1) {
+        skillIndex = digitCodes.indexOf(event.code);
+      }
+      if (skillIndex === -1) {
+        skillIndex = numpadCodes.indexOf(event.code);
+      }
+
+      if (skillIndex !== -1) {
+        event.preventDefault();
+        if (this.delegate.onTriggerSkill) {
+          this.delegate.onTriggerSkill(skillIndex);
+        } else {
+          const active = this.battle.getActiveCreature();
+          if (active && skillIndex < active.abilities.length) {
+            const ability = active.abilities[skillIndex];
+            if (this.battle.verifyAbilityUseByCreatureHasResources(ability, active)) {
+              this.battle.selectActiveAbilityForCurrentUnit(skillIndex, active);
+            }
+          }
+        }
+        return;
+      }
+
       const camera = this.delegate.getCamera();
       if (event.code === 'ArrowUp') {
         camera.panBy({ x: 0, y: -10 });
@@ -171,23 +203,27 @@ export class BattleInputController {
       }
     };
 
-    document.addEventListener('keydown', this.boundKeyDown);
-    document.addEventListener('keyup', this.boundKeyUp);
-    document.addEventListener('wheel', this.boundWheel);
-    document.addEventListener('mousedown', this.boundMouseDown);
-    document.addEventListener('mouseup', this.boundMouseUp);
-    document.addEventListener('click', this.boundClick);
-    document.addEventListener('mousemove', this.boundMouseMove);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('keydown', this.boundKeyDown);
+      document.addEventListener('keyup', this.boundKeyUp);
+      document.addEventListener('wheel', this.boundWheel);
+      document.addEventListener('mousedown', this.boundMouseDown);
+      document.addEventListener('mouseup', this.boundMouseUp);
+      document.addEventListener('click', this.boundClick);
+      document.addEventListener('mousemove', this.boundMouseMove);
+    }
   }
 
   public detach(): void {
-    if (this.boundKeyDown) document.removeEventListener('keydown', this.boundKeyDown);
-    if (this.boundKeyUp) document.removeEventListener('keyup', this.boundKeyUp);
-    if (this.boundWheel) document.removeEventListener('wheel', this.boundWheel);
-    if (this.boundMouseDown) document.removeEventListener('mousedown', this.boundMouseDown);
-    if (this.boundMouseUp) document.removeEventListener('mouseup', this.boundMouseUp);
-    if (this.boundClick) document.removeEventListener('click', this.boundClick);
-    if (this.boundMouseMove) document.removeEventListener('mousemove', this.boundMouseMove);
+    if (typeof document !== 'undefined') {
+      if (this.boundKeyDown) document.removeEventListener('keydown', this.boundKeyDown);
+      if (this.boundKeyUp) document.removeEventListener('keyup', this.boundKeyUp);
+      if (this.boundWheel) document.removeEventListener('wheel', this.boundWheel);
+      if (this.boundMouseDown) document.removeEventListener('mousedown', this.boundMouseDown);
+      if (this.boundMouseUp) document.removeEventListener('mouseup', this.boundMouseUp);
+      if (this.boundClick) document.removeEventListener('click', this.boundClick);
+      if (this.boundMouseMove) document.removeEventListener('mousemove', this.boundMouseMove);
+    }
   }
 
   private screenToHex(screenX: number, screenY: number): { cell: Coords; direction: HexDirection } {

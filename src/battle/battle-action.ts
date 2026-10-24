@@ -20,7 +20,8 @@ export class BattleAction {
     public stepDuration: number = 0,
     public remainingTime: number = 0,
     public sourceUnit?: Creature,
-    public targetUnit?: Creature
+    public targetUnit?: Creature,
+    public ability?: any
   ) {}
 
   static create(

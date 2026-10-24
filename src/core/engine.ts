@@ -188,6 +188,11 @@ export class HexesEngine {
           if (hotkeysCfg.nextUnit !== undefined) this.settings.hotkeys.nextUnit = hotkeysCfg.nextUnit;
           if (hotkeysCfg.resetCamera !== undefined) this.settings.hotkeys.resetCamera = hotkeysCfg.resetCamera;
           if (hotkeysCfg.toggleStats !== undefined) this.settings.hotkeys.toggleStats = hotkeysCfg.toggleStats;
+          if (hotkeysCfg.skill1 !== undefined) this.settings.hotkeys.skill1 = hotkeysCfg.skill1;
+          if (hotkeysCfg.skill2 !== undefined) this.settings.hotkeys.skill2 = hotkeysCfg.skill2;
+          if (hotkeysCfg.skill3 !== undefined) this.settings.hotkeys.skill3 = hotkeysCfg.skill3;
+          if (hotkeysCfg.skill4 !== undefined) this.settings.hotkeys.skill4 = hotkeysCfg.skill4;
+          if (hotkeysCfg.skill5 !== undefined) this.settings.hotkeys.skill5 = hotkeysCfg.skill5;
         }
 
         // Re-apply saved user preferences from localStorage so template defaults do not overwrite them

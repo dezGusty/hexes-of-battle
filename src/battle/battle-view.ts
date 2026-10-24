@@ -9,6 +9,7 @@ import { HexDirection, HexEdge, HexFlankStatus, HexMap } from '../shared/hex-map
 import { HexViewportCamera } from '../shared/hex-viewport-camera';
 import { Coords } from '../shared';
 import { Creature, CreatureType } from './creature';
+import { Ability } from './ability';
 import { AnimationType, ArmyControlType, Battle, InputState, MapRenderUpdate } from '../battle';
 import { BattleActionType } from './battle-action';
 import { CPUPlayer } from './cpu-player';
@@ -493,8 +494,8 @@ export class BattleView {
 
     if (this.assets.uiSheet) {
       this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet, this.battle.traitsConfig, this.battle);
-      this.unitStats.onSkillClick = (index: number) => {
-        this.battle.selectActiveAbilityForCurrentUnit(index);
+      this.unitStats.onSkillClick = (index: number, _ability?: Ability, creature?: Creature) => {
+        this.battle.selectActiveAbilityForCurrentUnit(index, creature);
         const active = this.battle.getActiveCreature();
         if (active) {
           this.showStatsForUnit(active);
@@ -1255,12 +1256,13 @@ export class BattleView {
     if (!this.assets.uiSheet) return;
     if (!this.unitStats) {
       this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet, this.battle.traitsConfig, this.battle);
-      this.unitStats.onSkillClick = (index: number) => {
-        this.battle.selectActiveAbilityForCurrentUnit(index);
+      this.unitStats.onSkillClick = (index: number, _ability?: Ability, creature?: Creature) => {
+        this.battle.selectActiveAbilityForCurrentUnit(index, creature);
         const active = this.battle.getActiveCreature();
         if (active) {
           this.showStatsForUnit(active);
         }
+        this.updateTargetAcquirementHint();
       };
     }
     this.unitStats.toggleVisibility();
@@ -1270,6 +1272,33 @@ export class BattleView {
       this.unitStats.setCreature(this.battle.creatures[this.battle.activeCreatureIndex]);
       this.unitStats.setTraitsConfig(this.battle.traitsConfig);
       this.unitStats.update();
+    }
+  }
+
+  public triggerSkill(index: number): boolean {
+    if (this.battleMenuPanel?.isVisible()) return false;
+    if (this.battle.hasRunningActions()) return false;
+    if (this.battle.isCurrentTurnAI()) return false;
+
+    const active = this.battle.getActiveCreature();
+    if (!active || !active.isAlive) return false;
+
+    if (this.unitStats) {
+      if (this.unitStats.getCurrentCreature() !== active) {
+        this.showStatsForUnit(active);
+      }
+      const handled = this.unitStats.triggerSkill(index);
+      if (handled) {
+        this.updateTargetAcquirementHint();
+      }
+      return handled;
+    } else {
+      if (index >= active.abilities.length) return false;
+      const ability = active.abilities[index];
+      if (!this.battle.verifyAbilityUseByCreatureHasResources(ability, active)) return false;
+      this.battle.selectActiveAbilityForCurrentUnit(index, active);
+      this.updateTargetAcquirementHint();
+      return true;
     }
   }
 

@@ -38,6 +38,11 @@ export class HotkeysSettings {
   public resetCamera: string = 'home';
   public toggleStats: string = 'f4';
   public toggleHardwareCursor: string = 'f8';
+  public skill1: string = '1';
+  public skill2: string = '2';
+  public skill3: string = '3';
+  public skill4: string = '4';
+  public skill5: string = '5';
 }
 
 export class BattleSettings {

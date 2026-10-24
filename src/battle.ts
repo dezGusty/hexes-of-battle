@@ -991,13 +991,23 @@ export class Battle {
   }
 
   private updateDoAttack(currentAction: BattleAction) {
+    const attacker = currentAction.sourceUnit ?? this.creatures[this.activeCreatureIndex];
+    const isQuickDraw = currentAction.type === BattleActionType.ATTACK_RANGED &&
+      attacker?.isQuickDrawActive &&
+      this.canCreatureUseQuickDraw(attacker);
+
+    if (isQuickDraw) {
+      this.updateDoQuickDrawAttack(currentAction);
+      return;
+    }
+
     if (currentAction.step === 0) {
       if (currentAction.type === BattleActionType.ATTACK_MELEE) {
-        const oneDirection = this.hexMap.getDirectionForNeighbour(this.creatures[this.activeCreatureIndex].pos, currentAction.path[0]);
-        this.creatures[this.activeCreatureIndex].facingDirection = oneDirection;
+        const oneDirection = this.hexMap.getDirectionForNeighbour(attacker.pos, currentAction.path[0]);
+        attacker.facingDirection = oneDirection;
         this.nextRenderUpdate.setUnitRenderUpdate();
       } else {
-        this.makeCreatureFaceTargetIfNeeded(this.creatures[this.activeCreatureIndex], currentAction.path[0]);
+        this.makeCreatureFaceTargetIfNeeded(attacker, currentAction.path[0]);
       }
 
       const animType = currentAction.type === BattleActionType.ATTACK_MELEE ? AnimationType.ATTACK_MELEE : AnimationType.ATTACK_RANGED;
@@ -1078,7 +1088,12 @@ export class Battle {
           break;
 
         case BattleActionType.TARGET_ABILITY:
-          this.updateDoApplyAbilityEffect(currentAction);
+          const targetAbility = currentAction.ability ?? this.abilityToApply;
+          if (this.isQuickDrawAbility(targetAbility)) {
+            this.completeQuickDrawInstant(currentAction);
+          } else {
+            this.updateDoApplyAbilityEffect(currentAction);
+          }
           this.currentActions.shift();
           break;
 
@@ -1319,7 +1334,10 @@ export class Battle {
 
     // Second shot in the same turn while attacking target
     if (!this.finished && attacker.isAlive) {
-      this.executeSingleRangedAttackVolley(attacker, targetCoords);
+      const defender = this.getCreatureAtPosition(targetCoords)?.creature;
+      if (defender && defender.isAlive) {
+        this.executeSingleRangedAttackVolley(attacker, targetCoords);
+      }
     }
 
     attacker.stats.remaining_attacks = Math.max(0, attacker.stats.remaining_attacks - 1);
@@ -1328,6 +1346,116 @@ export class Battle {
     attacker.isQuickDrawActive = false;
     this.nextRenderUpdate.setUnitRenderUpdate();
     return true;
+  }
+
+  private completeQuickDrawInstant(currentAction: BattleAction): void {
+    const attacker = currentAction.sourceUnit ?? this.creatures[this.activeCreatureIndex];
+    if (!attacker || currentAction.path.length <= 0) return;
+    const targetCoords = currentAction.path[0];
+
+    if (currentAction.step === 0) {
+      this.executeQuickDrawAttack(attacker, targetCoords);
+    } else if (currentAction.step === 1) {
+      const defender = this.getCreatureAtPosition(targetCoords)?.creature;
+      if (defender && defender.isAlive && attacker.isAlive && !this.finished) {
+        this.executeSingleRangedAttackVolley(attacker, targetCoords);
+      }
+      attacker.stats.remaining_attacks = Math.max(0, attacker.stats.remaining_attacks - 1);
+      attacker.stats.remaining_movement = 0;
+      attacker.stats.has_attacked = true;
+      attacker.isQuickDrawActive = false;
+    } else {
+      attacker.stats.remaining_attacks = Math.max(0, attacker.stats.remaining_attacks - 1);
+      attacker.stats.remaining_movement = 0;
+      attacker.stats.has_attacked = true;
+      attacker.isQuickDrawActive = false;
+    }
+    this.abilityToApply = null;
+    this.input_state = InputState.SELECT_UNIT_OR_TARGET;
+    this.nextRenderUpdate.setUnitRenderUpdate();
+  }
+
+  private updateDoQuickDrawAttack(currentAction: BattleAction) {
+    if (currentAction.path.length <= 0) {
+      this.currentActions.shift();
+      this.abilityToApply = null;
+      this.input_state = InputState.SELECT_UNIT_OR_TARGET;
+      return;
+    }
+
+    const targetCoords = currentAction.path[0];
+    const attacker = currentAction.sourceUnit ?? this.creatures[this.activeCreatureIndex];
+    if (!attacker) {
+      this.currentActions.shift();
+      this.abilityToApply = null;
+      this.input_state = InputState.SELECT_UNIT_OR_TARGET;
+      return;
+    }
+
+    if (currentAction.step === 0) {
+      if (!this.canCreatureUseQuickDraw(attacker)) {
+        this.currentActions.shift();
+        this.abilityToApply = null;
+        this.input_state = InputState.SELECT_UNIT_OR_TARGET;
+        return;
+      }
+
+      this.makeCreatureFaceTargetIfNeeded(attacker, targetCoords);
+
+      // Deduct stamina cost upfront
+      const totalStamina = this.getQuickDrawStaminaCost();
+      attacker.consumeStamina(totalStamina);
+      this.totalStaminaSpent[attacker.armyAlignment] += totalStamina;
+
+      // Volley 1: 2D animation, 3D projectiles/sound via hook, and damage calculation
+      this.nextRenderUpdate.animationAtCoords = new AnimationAtCoords(AnimationType.ATTACK_RANGED, targetCoords);
+      this.nextRenderUpdate.somethingChanged = true;
+      this.executeSingleRangedAttackVolley(attacker, targetCoords);
+
+      currentAction.step = 1;
+      currentAction.remainingTime = 650;
+      return;
+    } else if (currentAction.step === 1) {
+      // Check if target is still alive and battle continues
+      const defender = this.getCreatureAtPosition(targetCoords)?.creature;
+      if (!defender || !defender.isAlive || !attacker.isAlive || this.finished) {
+        // Target was eliminated by Volley 1 or battle finished
+        if (attacker && attacker.isAlive) {
+          attacker.stats.remaining_attacks = Math.max(0, attacker.stats.remaining_attacks - 1);
+          attacker.stats.remaining_movement = 0;
+          attacker.stats.has_attacked = true;
+          attacker.isQuickDrawActive = false;
+        }
+        this.currentActions.shift();
+        this.nextRenderUpdate.setUnitRenderUpdate();
+        this.abilityToApply = null;
+        this.input_state = InputState.SELECT_UNIT_OR_TARGET;
+        this.currentActions.push(new BattleAction(BattleActionType.SELECT_NEXT, [], 0, 500, 50));
+        return;
+      }
+
+      // Volley 2: 2D animation, 3D projectiles/sound via hook, and damage calculation
+      this.nextRenderUpdate.animationAtCoords = new AnimationAtCoords(AnimationType.ATTACK_RANGED, targetCoords);
+      this.nextRenderUpdate.somethingChanged = true;
+      this.executeSingleRangedAttackVolley(attacker, targetCoords);
+
+      currentAction.step = 2;
+      currentAction.remainingTime = 650;
+      return;
+    } else if (currentAction.step === 2) {
+      // Both volleys completed
+      if (attacker && attacker.isAlive) {
+        attacker.stats.remaining_attacks = Math.max(0, attacker.stats.remaining_attacks - 1);
+        attacker.stats.remaining_movement = 0;
+        attacker.stats.has_attacked = true;
+        attacker.isQuickDrawActive = false;
+      }
+      this.currentActions.shift();
+      this.nextRenderUpdate.setUnitRenderUpdate();
+      this.abilityToApply = null;
+      this.input_state = InputState.SELECT_UNIT_OR_TARGET;
+      this.currentActions.push(new BattleAction(BattleActionType.SELECT_NEXT, [], 0, 500, 50));
+    }
   }
 
   private updateDoCounterAttack(currentAction: BattleAction) {
@@ -1492,8 +1620,18 @@ export class Battle {
     return true;
   }
 
-  public selectActiveAbilityForCurrentUnit(abilityIndex: number) {
+  public selectActiveAbilityForCurrentUnit(abilityIndex: number, targetCreature?: Creature) {
+    if (targetCreature) {
+      const idx = this.creatures.findIndex((c) => c === targetCreature || c.GUID.equals(targetCreature.GUID));
+      if (idx !== -1 && idx !== this.activeCreatureIndex) {
+        this.setSelectedArmyAndCreatureIndex(this.creatures[idx].armyAlignment, idx);
+      }
+    }
+
     let creature = this.creatures[this.activeCreatureIndex];
+    if (!creature && targetCreature) {
+      creature = targetCreature;
+    }
     if (!creature || abilityIndex >= creature.abilities.length) return;
 
     let ability = creature.abilities[abilityIndex];
@@ -1506,15 +1644,12 @@ export class Battle {
 
     if (this.isQuickDrawAbility(ability)) {
       if (!this.canCreatureUseQuickDraw(creature)) return;
-      if (ability.abilityType === AbilityType.Active && ability.requiresTarget) {
-        this.showAbilityReachableCells(ability, creature);
-        this.input_state = InputState.SELECT_ABILITY_TARGET;
-        this.abilityToApply = ability;
-        this.nextRenderUpdate.somethingChanged = true;
-      } else {
-        creature.isQuickDrawActive = !creature.isQuickDrawActive;
-        this.nextRenderUpdate.somethingChanged = true;
-      }
+      ability.requiresTarget = true;
+      ability.abilityType = AbilityType.Active;
+      this.showAbilityReachableCells(ability, creature);
+      this.input_state = InputState.SELECT_ABILITY_TARGET;
+      this.abilityToApply = ability;
+      this.nextRenderUpdate.somethingChanged = true;
       return;
     }
 
@@ -1697,11 +1832,18 @@ export class Battle {
       return false;
     }
 
-    this.currentActions.push(new BattleAction(BattleActionType.TARGET_ABILITY, [coords], 0, 500, 50));
+    const targetCreature = this.getCreatureAtPosition(coords)?.creature;
+    this.currentActions.push(new BattleAction(BattleActionType.TARGET_ABILITY, [coords], 0, 500, 50, activeCreature, targetCreature, this.abilityToApply));
     return true;
   }
 
   private updateDoApplyAbility(currentAction: BattleAction) {
+    const ability = currentAction.ability ?? this.abilityToApply;
+    if (this.isQuickDrawAbility(ability)) {
+      this.updateDoQuickDrawAttack(currentAction);
+      return;
+    }
+
     if (currentAction.step === 0) {
       this.makeCreatureFaceTargetIfNeeded(this.creatures[this.activeCreatureIndex], currentAction.path[0]);
       this.nextRenderUpdate.animationAtCoords = new AnimationAtCoords(AnimationType.ATTACK_RANGED, currentAction.path[0]);

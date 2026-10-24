@@ -7,6 +7,7 @@ import { Battle, ArmyControlType, InputState } from "../battle";
 import pkg from "../../package.json";
 import { CPUPlayer } from "../battle/cpu-player";
 import { Creature, CreatureType } from "../battle/creature";
+import { Ability } from "../battle/ability";
 import { Coords } from "../shared";
 import { CommonControls } from "../ui/common-controls";
 import { TopSidePanel } from "../ui/top-side-panel";
@@ -109,8 +110,8 @@ export class BattleHud2D {
         this.uiCursorRenderGroup.addChild(this.softCursorSprite);
       }
       this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet, this.battle.traitsConfig, this.battle);
-      this.unitStats.onSkillClick = (index: number) => {
-        this.battle.selectActiveAbilityForCurrentUnit(index);
+      this.unitStats.onSkillClick = (index: number, _ability?: Ability, creature?: Creature) => {
+        this.battle.selectActiveAbilityForCurrentUnit(index, creature);
         const active = this.battle.getActiveCreature();
         if (active) {
           this.updateUnitStats(active);
@@ -501,8 +502,8 @@ export class BattleHud2D {
     if (!this.assets.uiSheet) return;
     if (!this.unitStats) {
       this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet, this.battle.traitsConfig, this.battle);
-      this.unitStats.onSkillClick = (index: number) => {
-        this.battle.selectActiveAbilityForCurrentUnit(index);
+      this.unitStats.onSkillClick = (index: number, _ability?: Ability, creature?: Creature) => {
+        this.battle.selectActiveAbilityForCurrentUnit(index, creature);
         const active = this.battle.getActiveCreature();
         if (active) {
           this.updateUnitStats(active);
@@ -517,6 +518,33 @@ export class BattleHud2D {
     const active = this.battle.getActiveCreature();
     if (active) {
       this.updateUnitStats(active);
+    }
+  }
+
+  public triggerSkill(index: number): boolean {
+    if (this.isMenuBlockingInput()) return false;
+    if (this.battle.hasRunningActions()) return false;
+    if (this.battle.isCurrentTurnAI()) return false;
+
+    const active = this.battle.getActiveCreature();
+    if (!active || !active.isAlive) return false;
+
+    if (this.unitStats) {
+      if (this.unitStats.getCurrentCreature() !== active) {
+        this.updateUnitStats(active);
+      }
+      const handled = this.unitStats.triggerSkill(index);
+      if (handled) {
+        this.updateTargetAcquirementHint();
+      }
+      return handled;
+    } else {
+      if (index >= active.abilities.length) return false;
+      const ability = active.abilities[index];
+      if (!this.battle.verifyAbilityUseByCreatureHasResources(ability, active)) return false;
+      this.battle.selectActiveAbilityForCurrentUnit(index, active);
+      this.updateTargetAcquirementHint();
+      return true;
     }
   }
 
