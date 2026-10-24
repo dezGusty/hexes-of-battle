@@ -246,6 +246,7 @@ export class BattleScene implements Scene {
     addUnit(CreatureType.SPEARMAN, { x: 0, y: 0 }, 0, HexDirection.EAST, 10);
     addUnit(CreatureType.PEASANT_ARCHER, { x: 1, y: 5 }, 0);
     addUnit(CreatureType.CROSSBOWMAN, { x: 0, y: 4 }, 0);
+    addUnit(CreatureType.SLINGER, { x: 2, y: 4 }, 0);
     addUnit(CreatureType.SPEARMAN, { x: 3, y: 5 }, 0);
 
     addUnit(CreatureType.SPEARMAN, { x: 5, y: 7 }, 1, HexDirection.WEST);

@@ -94,6 +94,13 @@ export interface RangedConfig {
   meleeEngagedPenalty: boolean;
 }
 
+export interface SquadDeathMoraleConfig {
+  neighbourAllyLoss: number;
+  neighbourEnemyBonus: number;
+  killerMeleeBonus: number;
+  killerRangedBonus: number;
+}
+
 export interface MoraleConfig {
   maxMorale: number;
   casualtyThresholdRatio: number;
@@ -105,6 +112,11 @@ export interface MoraleConfig {
   undamagedTurnRecovery: number;
   restRecovery: number;
   breakpoints?: MoraleBreakpoints;
+  squadDeath?: SquadDeathMoraleConfig;
+  neighbourAllyLoss?: number;
+  neighbourEnemyBonus?: number;
+  killerMeleeBonus?: number;
+  killerRangedBonus?: number;
 }
 
 export interface HeroConfig {
@@ -216,6 +228,12 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
     undamagedTurnRecovery: 1,
     restRecovery: 1,
     breakpoints: { ...DEFAULT_MORALE_BREAKPOINTS },
+    squadDeath: {
+      neighbourAllyLoss: 1,
+      neighbourEnemyBonus: 1,
+      killerMeleeBonus: 2,
+      killerRangedBonus: 1,
+    },
   },
   hero: {
     bodyguardRetinueAbsorption: 1.0,
@@ -297,10 +315,12 @@ export function getMoraleTooltip(breakpoints?: MoraleBreakpoints | any): string 
 export function getExhaustionState(currentStamina: number, maxStamina: number, config: CombatConfig = DEFAULT_COMBAT_CONFIG): ExhaustionState {
   if (maxStamina <= 0) return ExhaustionState.DEPLETED;
   const ratio = currentStamina / maxStamina;
-  if (ratio > config.stamina.exhaustionThresholds.freshMinPercent) {
+  const freshMin = config?.stamina?.exhaustionThresholds?.freshMinPercent ?? DEFAULT_COMBAT_CONFIG.stamina.exhaustionThresholds.freshMinPercent;
+  const windedMin = config?.stamina?.exhaustionThresholds?.windedMinPercent ?? DEFAULT_COMBAT_CONFIG.stamina.exhaustionThresholds.windedMinPercent;
+  if (ratio > freshMin) {
     return ExhaustionState.FRESH;
   }
-  if (ratio >= config.stamina.exhaustionThresholds.windedMinPercent) {
+  if (ratio >= windedMin) {
     return ExhaustionState.WINDED;
   }
   if (currentStamina > 0) {
@@ -311,6 +331,99 @@ export function getExhaustionState(currentStamina: number, maxStamina: number, c
 
 export function getRetaliationDamageMultiplier(retaliationIndex: number, config: CombatConfig = DEFAULT_COMBAT_CONFIG): number {
   if (retaliationIndex < 0) return 0;
-  if (retaliationIndex >= config.retaliation.multipliers.length) return 0;
-  return config.retaliation.multipliers[retaliationIndex];
+  const multipliers = config?.retaliation?.multipliers ?? DEFAULT_COMBAT_CONFIG.retaliation.multipliers;
+  if (retaliationIndex >= multipliers.length) return 0;
+  return multipliers[retaliationIndex];
+}
+
+/**
+ * Builds a dynamic tooltip string for stamina reflecting the unit's current stamina state
+ * and associated penalties (dealt damage, received damage, and text descriptions of additional penalties)
+ * derived directly from CombatConfig.
+ */
+export function getStaminaTooltip(
+  currentStaminaOrCreature?: number | any,
+  maxStaminaOrConfig?: number | CombatConfig,
+  customConfig?: CombatConfig
+): string {
+  let currentStamina = 10;
+  let maxStamina = 10;
+  let config: CombatConfig = DEFAULT_COMBAT_CONFIG;
+
+  if (typeof currentStaminaOrCreature === 'number') {
+    currentStamina = currentStaminaOrCreature;
+    if (typeof maxStaminaOrConfig === 'number') {
+      maxStamina = maxStaminaOrConfig;
+      config = customConfig ?? DEFAULT_COMBAT_CONFIG;
+    } else if (typeof maxStaminaOrConfig === 'object' && maxStaminaOrConfig !== null) {
+      config = maxStaminaOrConfig;
+    }
+  } else if (typeof currentStaminaOrCreature === 'object' && currentStaminaOrCreature !== null) {
+    const obj = currentStaminaOrCreature;
+    const stats = obj.live_stats ?? obj.stats ?? obj;
+    currentStamina = typeof stats.stamina === 'number' ? stats.stamina : 10;
+    maxStamina = typeof stats.max_stamina === 'number' ? stats.max_stamina : 10;
+    config = (typeof maxStaminaOrConfig === 'object' && maxStaminaOrConfig !== null ? maxStaminaOrConfig : (customConfig ?? obj.combatConfig)) ?? DEFAULT_COMBAT_CONFIG;
+  }
+
+  const baseDesc = "The unit's energy to perform physical activities such as\nmoving and attacking.";
+  const state = getExhaustionState(currentStamina, maxStamina, config);
+
+  if (state === ExhaustionState.FRESH) {
+    return `${baseDesc}\nCurrent state: Fresh (No penalties).`;
+  }
+
+  const stateName = state.charAt(0).toUpperCase() + state.slice(1);
+  const lines = [baseDesc, `Current state: ${stateName}.`];
+
+  const penalties = config?.stamina?.penalties?.[state] ?? DEFAULT_COMBAT_CONFIG.stamina.penalties[state];
+
+  const damageParts: string[] = [];
+  if (penalties?.damageDealtMultiplier !== undefined) {
+    const diff = Math.round((penalties.damageDealtMultiplier - 1) * 100);
+    const sign = diff > 0 ? '+' : '';
+    const mult = Math.round(penalties.damageDealtMultiplier * 100);
+    const diffStr = diff === 0 ? '+0%' : `${sign}${diff}%`;
+    damageParts.push(`Dealt damage: ${diffStr} (${mult}%)`);
+  }
+  if (penalties?.damageTakenMultiplier !== undefined) {
+    const diff = Math.round((penalties.damageTakenMultiplier - 1) * 100);
+    const sign = diff > 0 ? '+' : '';
+    const mult = Math.round(penalties.damageTakenMultiplier * 100);
+    const diffStr = diff === 0 ? '+0%' : `${sign}${diff}%`;
+    damageParts.push(`Received damage: ${diffStr} (${mult}%)`);
+  }
+
+  if (damageParts.length > 0) {
+    lines.push(damageParts.join(', ') + '.');
+  }
+
+  const additional: string[] = [];
+  if (penalties?.canMove === false) {
+    additional.push('cannot move');
+  } else if (penalties?.movementPenalty && penalties.movementPenalty > 0) {
+    additional.push('reduced movement');
+  }
+
+  if (penalties?.canAttack === false) {
+    additional.push('cannot attack');
+  }
+
+  if (penalties?.canRetaliate === false) {
+    additional.push('cannot retaliate');
+  }
+
+  if (penalties?.defenseMultiplier !== undefined && penalties.defenseMultiplier < 1.0) {
+    additional.push('reduced defense');
+  }
+
+  if (penalties?.autoMoraleCheck) {
+    additional.push('automatic morale check');
+  }
+
+  if (additional.length > 0) {
+    lines.push(`Additional penalties: ${additional.join(', ')}.`);
+  }
+
+  return lines.join('\n');
 }

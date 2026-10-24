@@ -770,6 +770,9 @@ export class BattleView {
         case CreatureType.HERO_COMMANDER:
           unitTextureName = isFacingRight ? 'swordman_right.png' : 'swordman_left.png';
           break;
+        case CreatureType.SLINGER:
+          unitTextureName = isFacingRight ? 'slinger_right.png' : 'slinger_left.png';
+          break;
       }
 
       // Direction indicator on hex tile
@@ -1240,6 +1243,10 @@ export class BattleView {
       case CreatureType.BEHEMOTH:
       case 'behemoth' as any:
         faceName = 'barbarian_face.png';
+        break;
+      case CreatureType.SLINGER:
+      case 'slinger' as any:
+        faceName = 'slinger_face.png';
         break;
       default:
         faceName = 'peasant_face.png';

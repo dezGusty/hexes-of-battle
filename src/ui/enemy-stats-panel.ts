@@ -4,7 +4,7 @@ import { Coords } from "../shared";
 import { DisplayedStat, TraitSlot, SkillSlot, getSkillIconPath, formatAbilityDescription } from "./unit-stats-panel";
 import { Ability } from "../battle/ability";
 import { getTraitInfo, TraitsConfig } from "../battle/trait-system";
-import { getMoraleState, getMoraleTooltip } from "../battle/combat-rules";
+import { getMoraleState, getMoraleTooltip, getStaminaTooltip } from "../battle/combat-rules";
 import { getMoraleTexture } from "./morale-icon-utils";
 
 /**
@@ -46,7 +46,7 @@ export class EnemyStatsPanel {
     [DisplayedStat.MELEE_DEFENSE]: "The unit's ability to defend against melee attacks.\nReduces incoming melee damage.",
     [DisplayedStat.RANGED_DEFENSE]: "The unit's ability to defend against ranged attacks.\nReduces incoming ranged damage.",
     [DisplayedStat.COUNTER_ATTACKS]: 'The number of counterattacks the unit can\nmake in a single turn.',
-    [DisplayedStat.STAMINA]: "The unit's energy to perform physical activities such as\nmoving and attacking.",
+    [DisplayedStat.STAMINA]: getStaminaTooltip(),
     [DisplayedStat.AMMO]: 'The number of ranged attacks the unit can\nmake before running out of ammo',
     [DisplayedStat.MORALE]: 'Morale (0-30). Dictates the squad\'s courage and discipline.\nRouting: 0, Panicked: 1-2, Wavering: 3-5, Steady: 6-15, High: >15.\n+1 if undamaged for a full turn or upon resting.',
   };
@@ -249,6 +249,9 @@ export class EnemyStatsPanel {
     this.creatureType = Creature.CREATURE_NAMES[creature.creatureType] || 'Unknown';
     if (creature.combatConfig?.morale?.breakpoints) {
       this.statDescriptions[DisplayedStat.MORALE] = getMoraleTooltip(creature.combatConfig.morale.breakpoints);
+    }
+    if (creature) {
+      this.statDescriptions[DisplayedStat.STAMINA] = getStaminaTooltip(creature, creature.combatConfig);
     }
   }
 
@@ -519,6 +522,15 @@ export class EnemyStatsPanel {
     if (this.currentCreature) {
       this.stats = this.currentCreature.live_stats;
       this.buffs = this.currentCreature.buffs;
+      this.statDescriptions[DisplayedStat.STAMINA] = getStaminaTooltip(
+        this.currentCreature,
+        this.currentCreature.combatConfig
+      );
+    } else if (this.stats) {
+      this.statDescriptions[DisplayedStat.STAMINA] = getStaminaTooltip(
+        this.stats.stamina,
+        this.stats.max_stamina
+      );
     }
     if (!this.stats) return;
 
@@ -765,6 +777,19 @@ export class EnemyStatsPanel {
         this.tooltipText.position = { x: tipX + 158, y: tipY + 14 };
       }
     } else if (statToDisplay !== -1) {
+      if (statToDisplay === DisplayedStat.STAMINA) {
+        if (this.currentCreature) {
+          this.statDescriptions[DisplayedStat.STAMINA] = getStaminaTooltip(
+            this.currentCreature,
+            this.currentCreature.combatConfig
+          );
+        } else if (this.stats) {
+          this.statDescriptions[DisplayedStat.STAMINA] = getStaminaTooltip(
+            this.stats.stamina,
+            this.stats.max_stamina
+          );
+        }
+      }
       this.tooltipIconSprite.visible = false;
       this.tooltipText.style.wordWrapWidth = 360;
       this.tooltipText.text =

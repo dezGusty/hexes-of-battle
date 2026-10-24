@@ -1182,6 +1182,7 @@ export class Battle {
     this.applyAttackDamage(attacker, defender, currentAction.type);
 
     if (!defender.isAlive) {
+      this.handleSquadDeath(defender, attacker, currentAction.type === BattleActionType.ATTACK_MELEE);
       this.casualties.push(defender);
       this.hookUnitDied(defender);
       const idx = this.creatures.findIndex((c) => c === defender);
@@ -1307,6 +1308,7 @@ export class Battle {
     // Process casualties
     for (const { target: defender } of targetDamages) {
       if (!defender.isAlive) {
+        this.handleSquadDeath(defender, attacker, false);
         this.casualties.push(defender);
         this.hookUnitDied(defender);
         const idx = this.creatures.findIndex((c) => c === defender);
@@ -1545,6 +1547,7 @@ export class Battle {
     if (!attacker.isAlive) {
       const idx = this.creatures.findIndex((c) => c === attacker);
       if (idx >= 0) {
+        this.handleSquadDeath(attacker, defender, true);
         this.casualties.push(this.creatures[idx]);
         this.hookUnitDied(this.creatures[idx]);
         this.creatures.splice(idx, 1);
@@ -1644,6 +1647,68 @@ export class Battle {
         this.hookMoraleBreak?.(creature, state);
       }
     }
+  }
+
+  /**
+   * Applies morale adjustments when a squad dies:
+   * - All neighbouring allies receive -1 morale (or configured neighbourAllyLoss).
+   * - All neighbouring enemy squads receive +1 morale (or configured neighbourEnemyBonus).
+   * - The unit which dealt the killing blow receives +2 morale if attacked in melee, or +1 morale if attacked in ranged combat.
+   */
+  public handleSquadDeath(victim: Creature, killer?: Creature | null, isMelee: boolean = true): void {
+    const squadDeathConfig = this.combatConfig?.morale?.squadDeath;
+    const allyLoss = squadDeathConfig?.neighbourAllyLoss
+      ?? (this.combatConfig?.morale as any)?.neighbourAllyLoss
+      ?? 1;
+    const enemyBonus = squadDeathConfig?.neighbourEnemyBonus
+      ?? (this.combatConfig?.morale as any)?.neighbourEnemyBonus
+      ?? 1;
+    const killerMeleeBonus = squadDeathConfig?.killerMeleeBonus
+      ?? (this.combatConfig?.morale as any)?.killerMeleeBonus
+      ?? 2;
+    const killerRangedBonus = squadDeathConfig?.killerRangedBonus
+      ?? (this.combatConfig?.morale as any)?.killerRangedBonus
+      ?? 1;
+
+    // Apply morale bonus to the killer unit (if killer is an enemy of the victim)
+    if (killer && killer.isAlive && killer !== victim && killer.armyAlignment !== victim.armyAlignment) {
+      const killerBonus = isMelee ? killerMeleeBonus : killerRangedBonus;
+      if (killerBonus > 0) {
+        killer.recoverMorale(killerBonus);
+      }
+    }
+
+    // Apply morale changes to all neighbouring squads
+    if (this.hexMap && victim.pos) {
+      const neighbours = this.hexMap.getNeighbours(victim.pos);
+      const neighbouringCreatures = this.creatures.filter(
+        (c) => c.isAlive && c !== victim && neighbours.some((n) => n.x === c.pos.x && n.y === c.pos.y)
+      );
+
+      for (const neighbour of neighbouringCreatures) {
+        if (neighbour.armyAlignment === victim.armyAlignment) {
+          // Neighbouring ally squad receives -1 morale (or configured loss)
+          if (allyLoss > 0) {
+            neighbour.consumeMorale(allyLoss);
+            if (neighbour.isPanickedOrRouting && (neighbour.stats.remaining_movement > 0 || neighbour.stats.remaining_attacks > 0)) {
+              neighbour.stats.remaining_movement = 0;
+              neighbour.stats.remaining_attacks = 0;
+              if (this.moraleBreaks && neighbour.armyAlignment in this.moraleBreaks) {
+                this.moraleBreaks[neighbour.armyAlignment]++;
+              }
+              this.hookMoraleBreak?.(neighbour, neighbour.stats.morale_state);
+            }
+          }
+        } else {
+          // Neighbouring enemy squad receives +1 morale (or configured bonus), unless it already received killer bonus
+          if (neighbour !== killer && enemyBonus > 0) {
+            neighbour.recoverMorale(enemyBonus);
+          }
+        }
+      }
+    }
+
+    this.nextRenderUpdate.setUnitRenderUpdate();
   }
 
   public getBattleResult(): BattleResult {
@@ -1921,6 +1986,8 @@ export class Battle {
     this.applyAbilityEffect(thisCreature, creatureInBattle.creature, currentAction.type, ability);
 
     if (!creatureInBattle.creature.isAlive && this.creatures.includes(creatureInBattle.creature)) {
+      const isMelee = (ability?.range ?? 0) <= 1;
+      this.handleSquadDeath(creatureInBattle.creature, thisCreature, isMelee);
       this.casualties.push(creatureInBattle.creature);
       this.hookUnitDied(creatureInBattle.creature);
       const idx = this.creatures.findIndex((c) => c === creatureInBattle.creature);

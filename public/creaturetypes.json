@@ -112,7 +112,7 @@
       "num_moves": 3,
       "range": 1,
       "stamina": 16,
-      "morale": 10,
+      "morale": 14,
       "flying": false
     },
     "traits": [],
@@ -125,7 +125,7 @@
     "tier": 1,
     "flying": false,
     "stats": {
-      "ammo": 10,
+      "ammo": 12,
       "attack_melee_low": 4,
       "attack_melee_high": 6,
       "attack_ranged_low": 7,
@@ -139,7 +139,7 @@
       "num_counterattacks": 1,
       "num_moves": 3,
       "range": 6,
-      "stamina": 12,
+      "stamina": 14,
       "morale": 10,
       "flying": false
     },
@@ -271,5 +271,38 @@
       "BodyguardRetinue"
     ],
     "ability_ids": []
+  },
+  {
+    "name": "slinger",
+    "model_count": 8,
+    "model_hp": 3,
+    "tier": 1,
+    "flying": false,
+    "stats": {
+      "ammo": 12,
+      "attack_melee_low": 3,
+      "attack_melee_high": 5,
+      "attack_ranged_low": 6,
+      "attack_ranged_high": 8,
+      "defense_melee": 0,
+      "defense_ranged": 0,
+      "health": 24,
+      "initiative": 3,
+      "is_ranged": true,
+      "num_attacks": 1,
+      "num_counterattacks": 1,
+      "num_moves": 3,
+      "range": 6,
+      "stamina": 14,
+      "morale": 10,
+      "flying": false
+    },
+    "traits": [
+      "FragileLine",
+      "ImpreciseVolley"
+    ],
+    "ability_ids": [
+      "quick-draw-01"
+    ]
   }
 ]

@@ -119,6 +119,12 @@
       "panicked": 3,
       "wavering": 7,
       "steady": 15
+    },
+    "squadDeath": {
+      "neighbourAllyLoss": 1,
+      "neighbourEnemyBonus": 1,
+      "killerMeleeBonus": 2,
+      "killerRangedBonus": 1
     }
   },
   "hero": {
@@ -142,6 +148,13 @@
     "spearWall": {
       "damageReduction": 2,
       "exactDirectionOnly": true
+    },
+    "impreciseVolley": {
+      "highThreshold": 0.75,
+      "highMultiplier": 1.5,
+      "midThreshold": 0.50,
+      "midMultiplier": 1.0,
+      "lowMultiplier": 0.5
     }
   }
 }

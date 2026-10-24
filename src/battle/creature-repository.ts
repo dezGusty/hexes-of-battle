@@ -15,6 +15,7 @@ export class CreatureRepository {
     [CreatureType.HEAVY_KNIGHTS, "heavy-knights"],
     [CreatureType.BEHEMOTH, "behemoth"],
     [CreatureType.HERO_COMMANDER, "hero-commander"],
+    [CreatureType.SLINGER, "slinger"],
   ]);
 
   constructor() {}

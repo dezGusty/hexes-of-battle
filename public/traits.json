@@ -28,5 +28,15 @@
     "damageMultiplier": 1.0,
     "exactDirectionOnly": true,
     "description": "Spear Wall: Reduces incoming melee damage by 2 when attacked from the direction the unit is facing."
+  },
+  "impreciseVolley": {
+    "name": "Imprecise Volley",
+    "icon": "traits/icon_volley_fire.png",
+    "highThreshold": 0.75,
+    "highMultiplier": 1.5,
+    "midThreshold": 0.50,
+    "midMultiplier": 1.0,
+    "lowMultiplier": 0.5,
+    "description": "Imprecise Volley: Inflicts 150% ranged damage to targets with >75% units, 100% to 50%-75% units, and 50% to <50% units."
   }
 }

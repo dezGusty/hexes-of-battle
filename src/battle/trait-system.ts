@@ -24,6 +24,14 @@ export interface VolleyFireTraitConfig extends TraitConfigBase {
   lowMultiplier: number;
 }
 
+export interface ImpreciseVolleyTraitConfig extends TraitConfigBase {
+  highThreshold: number;
+  highMultiplier: number;
+  midThreshold: number;
+  midMultiplier: number;
+  lowMultiplier: number;
+}
+
 export interface SpearWallTraitConfig extends TraitConfigBase {
   damageReduction: number;
   damageMultiplier?: number;
@@ -35,6 +43,7 @@ export interface TraitsConfig {
   shieldBlock: ShieldBlockTraitConfig;
   volleyFire: VolleyFireTraitConfig;
   spearWall: SpearWallTraitConfig;
+  impreciseVolley: ImpreciseVolleyTraitConfig;
   [customTrait: string]: any;
 }
 
@@ -68,6 +77,16 @@ export const DEFAULT_TRAITS_CONFIG: TraitsConfig = {
     damageMultiplier: 1.0,
     exactDirectionOnly: true,
     description: "Spear Wall: Reduces incoming melee damage by 2 when attacked from the direction the unit is facing.",
+  },
+  impreciseVolley: {
+    name: "Imprecise Volley",
+    icon: "traits/icon_volley_fire.png",
+    highThreshold: 0.75,
+    highMultiplier: 1.5,
+    midThreshold: 0.50,
+    midMultiplier: 1.0,
+    lowMultiplier: 0.5,
+    description: "Imprecise Volley: Inflicts 150% ranged damage to targets with >75% units, 100% to 50%-75% units, and 50% to <50% units.",
   },
 };
 
@@ -136,6 +155,16 @@ export function getTraitInfo(
     };
   }
 
+  if (norm === "imprecisevolley") {
+    const cfg = traitsConfig.impreciseVolley ?? DEFAULT_TRAITS_CONFIG.impreciseVolley;
+    return {
+      id: "impreciseVolley",
+      name: cfg.name ?? "Imprecise Volley",
+      icon: cfg.icon ?? "traits/icon_volley_fire.png",
+      description: cfg.description ?? `Imprecise Volley: Modifies ranged damage based on target squad size (${Math.round(cfg.highMultiplier * 100)}% for >${Math.round(cfg.highThreshold * 100)}% units, ${Math.round(cfg.midMultiplier * 100)}% for ${Math.round(cfg.midThreshold * 100)}-${Math.round(cfg.highThreshold * 100)}%, ${Math.round(cfg.lowMultiplier * 100)}% for <${Math.round(cfg.midThreshold * 100)}%).`,
+    };
+  }
+
   if (norm === "fragileline") {
     const cfg = traitsConfig.fragileLine;
     return {
@@ -196,6 +225,7 @@ export function parseTraitsConfig(raw: any): TraitsConfig {
   const sbRaw = findSection(["shieldBlock", "shield_block", "shield-block", "ShieldBlock", "Shield block"]);
   const vfRaw = findSection(["volleyFire", "volley_fire", "volley-fire", "VolleyFire", "Volley fire"]);
   const swRaw = findSection(["spearWall", "spear_wall", "spear-wall", "SpearWall", "Spear wall"]);
+  const ivRaw = findSection(["impreciseVolley", "imprecise_volley", "imprecise-volley", "ImpreciseVolley", "Imprecise Volley", "imprecise volley"]);
 
   return {
     ...DEFAULT_TRAITS_CONFIG,
@@ -230,6 +260,16 @@ export function parseTraitsConfig(raw: any): TraitsConfig {
         ? Boolean(swRaw.exactDirectionOnly)
         : DEFAULT_TRAITS_CONFIG.spearWall.exactDirectionOnly,
       description: swRaw?.description ?? DEFAULT_TRAITS_CONFIG.spearWall.description,
+    },
+    impreciseVolley: {
+      name: ivRaw?.name ?? DEFAULT_TRAITS_CONFIG.impreciseVolley.name,
+      icon: ivRaw?.icon ?? DEFAULT_TRAITS_CONFIG.impreciseVolley.icon,
+      highThreshold: Number(ivRaw?.highThreshold ?? DEFAULT_TRAITS_CONFIG.impreciseVolley.highThreshold),
+      highMultiplier: Number(ivRaw?.highMultiplier ?? DEFAULT_TRAITS_CONFIG.impreciseVolley.highMultiplier),
+      midThreshold: Number(ivRaw?.midThreshold ?? DEFAULT_TRAITS_CONFIG.impreciseVolley.midThreshold),
+      midMultiplier: Number(ivRaw?.midMultiplier ?? DEFAULT_TRAITS_CONFIG.impreciseVolley.midMultiplier),
+      lowMultiplier: Number(ivRaw?.lowMultiplier ?? DEFAULT_TRAITS_CONFIG.impreciseVolley.lowMultiplier),
+      description: ivRaw?.description ?? DEFAULT_TRAITS_CONFIG.impreciseVolley.description,
     },
   };
 }
@@ -285,22 +325,40 @@ export function calculateDamageWithTraits(params: DamageCalculationParams): Dama
     attackType === BattleActionType.ATTACK_MELEE ||
     attackType === BattleActionType.COUNTER_ATTACK_MELEE;
 
-  // 1. Volley Fire (Attacker Perk)
-  if (isRanged && creatureHasTrait(attacker, "VolleyFire")) {
-    const vfConfig = traitsConfig.volleyFire;
-    const modelRatio =
-      defender.maxModels > 1
-        ? defender.aliveModelCount / defender.maxModels
-        : defender.stats.health > 0
-          ? defender.stats.remaining_health / defender.stats.health
-          : 0;
+  // 1. Volley Fire & Imprecise Volley (Attacker Perks)
+  if (isRanged) {
+    if (creatureHasTrait(attacker, "ImpreciseVolley")) {
+      const ivConfig = traitsConfig.impreciseVolley ?? DEFAULT_TRAITS_CONFIG.impreciseVolley;
+      const modelRatio =
+        defender.maxModels > 1
+          ? defender.aliveModelCount / defender.maxModels
+          : defender.stats.health > 0
+            ? defender.stats.remaining_health / defender.stats.health
+            : 0;
 
-    if (modelRatio > vfConfig.highThreshold) {
-      volleyMultiplier = vfConfig.highMultiplier;
-    } else if (modelRatio >= vfConfig.midThreshold) {
-      volleyMultiplier = vfConfig.midMultiplier;
-    } else {
-      volleyMultiplier = vfConfig.lowMultiplier;
+      if (modelRatio > ivConfig.highThreshold) {
+        volleyMultiplier = ivConfig.highMultiplier;
+      } else if (modelRatio >= ivConfig.midThreshold) {
+        volleyMultiplier = ivConfig.midMultiplier;
+      } else {
+        volleyMultiplier = ivConfig.lowMultiplier;
+      }
+    } else if (creatureHasTrait(attacker, "VolleyFire")) {
+      const vfConfig = traitsConfig.volleyFire;
+      const modelRatio =
+        defender.maxModels > 1
+          ? defender.aliveModelCount / defender.maxModels
+          : defender.stats.health > 0
+            ? defender.stats.remaining_health / defender.stats.health
+            : 0;
+
+      if (modelRatio > vfConfig.highThreshold) {
+        volleyMultiplier = vfConfig.highMultiplier;
+      } else if (modelRatio >= vfConfig.midThreshold) {
+        volleyMultiplier = vfConfig.midMultiplier;
+      } else {
+        volleyMultiplier = vfConfig.lowMultiplier;
+      }
     }
   }
 

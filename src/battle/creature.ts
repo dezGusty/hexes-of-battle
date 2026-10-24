@@ -117,6 +117,7 @@ export enum CreatureType {
   HEAVY_KNIGHTS = 7,
   BEHEMOTH = 8,
   HERO_COMMANDER = 9,
+  SLINGER = 10,
 }
 
 export class CreatureTemplate {
@@ -197,6 +198,7 @@ export class Creature {
     "Heavy Knights",
     "Behemoth",
     "Hero Commander",
+    "Slinger",
   ];
 
   public isQuickDrawActive: boolean = false;
@@ -225,15 +227,23 @@ export class Creature {
     this.guid = GuidMaker.generateGuid();
 
     if (this.abilities.length === 0) {
-      if (this.creatureType === CreatureType.PEASANT_ARCHER || this.creatureType === CreatureType.ARCHER) {
+      if (
+        this.creatureType === CreatureType.PEASANT_ARCHER ||
+        this.creatureType === CreatureType.ARCHER ||
+        this.creatureType === CreatureType.SLINGER
+      ) {
         this.abilities = [Ability.createQuickDraw()];
       } else if (this.creatureType === CreatureType.SPEARMAN) {
         this.abilities = [Ability.createThrowJavelin()];
       }
     }
 
-    if (this.creatureType === CreatureType.PEASANT_ARCHER || this.creatureType === CreatureType.ARCHER) {
-      this.stats.is_ranged = this.stats.is_ranged ?? true;
+    if (
+      this.creatureType === CreatureType.PEASANT_ARCHER ||
+      this.creatureType === CreatureType.ARCHER ||
+      this.creatureType === CreatureType.SLINGER
+    ) {
+      this.stats.is_ranged = true;
       if (this.stats.range <= 1) {
         this.stats.range = 6;
       }
