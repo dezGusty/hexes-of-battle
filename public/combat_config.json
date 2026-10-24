@@ -15,9 +15,21 @@
       "5": 5
     },
     "buffs": {
-      "1": { "defense_ranged": 1 },
-      "2": { "defense_melee": 1, "attack_melee_low": 1, "attack_melee_high": 1, "attack_ranged_low": 1, "attack_ranged_high": 1, "range": 1 },
-      "3": { "defense_melee": -1, "defense_ranged": -1 }
+      "1": {
+        "defense_ranged": 1
+      },
+      "2": {
+        "defense_melee": 1,
+        "attack_melee_low": 1,
+        "attack_melee_high": 1,
+        "attack_ranged_low": 1,
+        "attack_ranged_high": 1,
+        "range": 1
+      },
+      "3": {
+        "defense_melee": -1,
+        "defense_ranged": -1
+      }
     }
   },
   "stamina": {
@@ -65,15 +77,29 @@
     }
   },
   "retaliation": {
-    "multipliers": [1.0, 0.6, 0.3, 0.0],
+    "multipliers": [
+      1.0,
+      0.6,
+      0.3,
+      0.0
+    ],
     "minStamina": 2,
     "maxRetaliationsPerTurn": 3,
     "closeQuartersCounterTrait": "CloseQuartersCounter"
   },
   "facing": {
-    "front": { "damageBonus": 0, "damageMultiplier": 1.0 },
-    "flank": { "damageBonus": 1, "damageMultiplier": 1.0 },
-    "rear": { "damageBonus": 2, "damageMultiplier": 1.0 }
+    "front": {
+      "damageBonus": 0,
+      "damageMultiplier": 1.0
+    },
+    "flank": {
+      "damageBonus": 1,
+      "damageMultiplier": 1.0
+    },
+    "rear": {
+      "damageBonus": 2,
+      "damageMultiplier": 1.0
+    }
   },
   "ranged": {
     "scatterChance": 0.15,
@@ -90,8 +116,8 @@
     "routingTurnLoss": true,
     "breakpoints": {
       "routing": 0,
-      "panicked": 2,
-      "wavering": 5,
+      "panicked": 3,
+      "wavering": 7,
       "steady": 15
     }
   },
