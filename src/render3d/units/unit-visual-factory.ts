@@ -7,6 +7,14 @@ import { MeshRigidVisual } from './mesh-rigid-visual';
 import { MeshSkeletalVisual } from './mesh-skeletal-visual';
 import { BillboardAnimatedVisual } from './billboard-animated-visual';
 import { SquadVisual3D } from './squad-visual-3d';
+import {
+  UNIT_SIZE_SCALE,
+  buildArticulatedUnit3DMesh,
+  instantiateGlbUnitTemplate,
+  isUnit3DModelSupported,
+  loadBlenderUnitGlbTemplates,
+  normalizeUnitKey,
+} from './unit-mesh-builder';
 
 export interface UnitAssetCatalog {
   unitsImage?: HTMLImageElement;
@@ -15,6 +23,7 @@ export interface UnitAssetCatalog {
 
 export class UnitVisualFactory {
   private textureCache: Map<string, THREE.Texture> = new Map();
+  private glbTemplates: Map<string, THREE.Object3D> = new Map();
   private catalog: UnitAssetCatalog = {};
 
   constructor(catalog?: UnitAssetCatalog) {
@@ -27,10 +36,27 @@ export class UnitVisualFactory {
     this.catalog = catalog;
   }
 
+  public setGlbTemplate(unitKey: string, template: THREE.Object3D): void {
+    this.glbTemplates.set(normalizeUnitKey(unitKey), template);
+  }
+
+  public getGlbTemplate(unitKey: string): THREE.Object3D | undefined {
+    return this.glbTemplates.get(normalizeUnitKey(unitKey));
+  }
+
   public async loadCatalogAssets(
     imageSrc: string = 'units_160x320.png',
     jsonSrc: string = 'unitsspritesheet.json'
   ): Promise<void> {
+    // Load Blender-exported GLB 3D unit templates in parallel
+    const glbPromise = loadBlenderUnitGlbTemplates()
+      .then((templates) => {
+        templates.forEach((tpl, key) => this.glbTemplates.set(key, tpl));
+      })
+      .catch(() => {
+        // Fallback articulated 3D mesh builder remains active
+      });
+
     try {
       const resp = await fetch(jsonSrc);
       const data = await resp.json();
@@ -65,6 +91,8 @@ export class UnitVisualFactory {
     } catch (e) {
       console.warn('Could not load sprite image:', e);
     }
+
+    await glbPromise;
   }
 
   public setSpritesheet(spritesheet: any): void {
@@ -96,7 +124,7 @@ export class UnitVisualFactory {
     const modelCount = Math.max(1, creature.stats.model_count);
     const visuals: IUnitVisual[] = [];
 
-    // Format can be configured per creature type or defaulted to BILLBOARD_STATIC
+    // Format can be configured per creature type or defaulted to FULL_3D_RIGID for supported units
     const format = this.determineFormat(creature);
 
     for (let i = 0; i < modelCount; i++) {
@@ -107,11 +135,18 @@ export class UnitVisualFactory {
     return new SquadVisual3D(creature, visuals);
   }
 
-  private determineFormat(creature: Creature): UnitVisualFormat {
-    // Check traits or metadata for format overrides
+  public determineFormat(creature: Creature): UnitVisualFormat {
+    // Check traits or metadata for explicit format overrides first
     if (creature.hasTrait('format_skeletal_3d')) return UnitVisualFormat.FULL_3D_SKELETAL;
     if (creature.hasTrait('format_rigid_3d')) return UnitVisualFormat.FULL_3D_RIGID;
     if (creature.hasTrait('format_animated_2d')) return UnitVisualFormat.BILLBOARD_ANIMATED;
+    if (creature.hasTrait('format_billboard_2d')) return UnitVisualFormat.BILLBOARD_STATIC;
+
+    // Use 3D models for the 7 supported unit types (excluding HEAVY_KNIGHTS, HERO_COMMANDER, BEHEMOTH)
+    if (isUnit3DModelSupported(creature.creatureType)) {
+      return UnitVisualFormat.FULL_3D_RIGID;
+    }
+
     return UnitVisualFormat.BILLBOARD_STATIC;
   }
 
@@ -141,8 +176,8 @@ export class UnitVisualFactory {
     const texture = this.getTextureForFrame(frameName, creature.creatureType);
 
     const isMonster = creature.creatureType === CreatureType.BEHEMOTH;
-    const width = isMonster ? 1.8 : isHeroCommander ? 0.9 : 0.7;
-    const height = isMonster ? 2.4 : isHeroCommander ? 1.5 : 1.3;
+    const width = (isMonster ? 1.8 : isHeroCommander ? 0.9 : 0.7) * UNIT_SIZE_SCALE;
+    const height = (isMonster ? 2.4 : isHeroCommander ? 1.5 : 1.3) * UNIT_SIZE_SCALE;
 
     return new BillboardStaticVisual({
       texture,
@@ -153,23 +188,37 @@ export class UnitVisualFactory {
   }
 
   private createRigid3DModel(creature: Creature, isHero: boolean): MeshRigidVisual {
+    if (isUnit3DModelSupported(creature.creatureType)) {
+      const unitKey = normalizeUnitKey(creature.creatureType);
+      const glbTemplate = this.glbTemplates.get(unitKey);
+      const articulatedModel = glbTemplate
+        ? instantiateGlbUnitTemplate(glbTemplate, unitKey, creature.armyAlignment, isHero)
+        : buildArticulatedUnit3DMesh(creature.creatureType, creature.armyAlignment, isHero);
+
+      return new MeshRigidVisual({
+        meshOrGroup: articulatedModel,
+        scale: (isHero ? 1.08 : 1.0) * UNIT_SIZE_SCALE,
+        initialFacing: creature.facingDirection,
+      });
+    }
+
     const group = new THREE.Group();
     const isMonster = creature.creatureType === CreatureType.BEHEMOTH;
 
-    // Procedural placeholder stylized 3D geometry
+    // Procedural placeholder stylized 3D geometry for non-standard/monster units
     const bodyColor = creature.armyAlignment === 0 ? 0x3366cc : 0xcc3333;
     const armorColor = isHero ? 0xffcc00 : 0x888899;
 
     const bodyGeo = isMonster
-      ? new THREE.ConeGeometry(0.8, 2.0, 6)
-      : new THREE.CylinderGeometry(0.2, 0.25, 0.8, 6);
+      ? new THREE.ConeGeometry(0.8, 2.0, 16)
+      : new THREE.CylinderGeometry(0.2, 0.25, 0.8, 16);
     const bodyMat = new THREE.MeshLambertMaterial({ color: bodyColor });
     const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
     bodyMesh.position.y = isMonster ? 1.0 : 0.4;
     group.add(bodyMesh);
 
     // Head
-    const headGeo = new THREE.SphereGeometry(isMonster ? 0.4 : 0.18, 8, 8);
+    const headGeo = new THREE.SphereGeometry(isMonster ? 0.4 : 0.18, 20, 14);
     const headMat = new THREE.MeshLambertMaterial({ color: armorColor });
     const headMesh = new THREE.Mesh(headGeo, headMat);
     headMesh.position.y = isMonster ? 2.2 : 0.95;
@@ -177,19 +226,20 @@ export class UnitVisualFactory {
 
     return new MeshRigidVisual({
       meshOrGroup: group,
-      scale: isMonster ? 1.2 : 0.9,
+      scale: (isMonster ? 1.2 : 0.9) * UNIT_SIZE_SCALE,
       initialFacing: creature.facingDirection,
     });
   }
 
   private createSkeletal3DModel(_creature: Creature): MeshSkeletalVisual {
     // Minimal fallback skinned mesh
-    const geometry = new THREE.CylinderGeometry(0.2, 0.25, 1.0, 6);
-    const material = new THREE.MeshStandardMaterial({ color: 0x5588cc });
+    const geometry = new THREE.CylinderGeometry(0.2, 0.25, 1.0, 16);
+    const material = new THREE.MeshStandardMaterial({ color: 0x5588cc, flatShading: false });
     const mesh = new THREE.Mesh(geometry, material);
     return new MeshSkeletalVisual({
       model: mesh,
       animations: [],
+      scale: UNIT_SIZE_SCALE,
     });
   }
 
@@ -200,6 +250,8 @@ export class UnitVisualFactory {
       animations: {
         idle: [{ texture, durationMs: 400 }],
       },
+      width: 0.8 * UNIT_SIZE_SCALE,
+      height: 1.4 * UNIT_SIZE_SCALE,
       initialFacing: creature.facingDirection,
     });
   }

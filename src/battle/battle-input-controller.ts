@@ -24,6 +24,12 @@ export class BattleInputController {
   private rightClickWasInAbilityTargeting: boolean = false;
   private pinchHandler: PinchGestureHandler;
 
+  // Mobile single-finger drag-to-action gesture tracking
+  private touchDragSourceHex: Coords | null = null;
+  private isTouchDraggingAction: boolean = false;
+  private touchDragStartPos: Coords | null = null;
+  private suppressNextClick: boolean = false;
+
   private boundKeyDown?: (e: KeyboardEvent) => void;
   private boundKeyUp?: (e: KeyboardEvent) => void;
   private boundWheel?: (e: WheelEvent) => void;
@@ -39,6 +45,10 @@ export class BattleInputController {
   ) {
     this.pinchHandler = new PinchGestureHandler({
       isEnabled: () => !this.delegate.isMenuBlockingInput(),
+      onPinchStart: () => {
+        this.touchDragSourceHex = null;
+        this.isTouchDraggingAction = false;
+      },
       onPinchZoom: (event) => {
         const screenSize = this.delegate.getScreenSize();
         const camera = this.delegate.getCamera();
@@ -146,6 +156,8 @@ export class BattleInputController {
 
     this.boundMouseDown = (event: MouseEvent) => {
       if (this.pinchHandler.shouldSuppressClick()) {
+        this.touchDragSourceHex = null;
+        this.isTouchDraggingAction = false;
         return;
       }
       if (event.button === 1) {
@@ -155,6 +167,31 @@ export class BattleInputController {
         this.mouseRightClickCoords = { x: event.clientX, y: event.clientY };
         this.rightClickWasInAbilityTargeting = this.battle.input_state === InputState.SELECT_ABILITY_TARGET;
       }
+      if (event.button === 0 && !this.delegate.isMenuBlockingInput()) {
+        const hexInfo = this.screenToHex(event.clientX, event.clientY);
+        if (this.isHexInBounds(hexInfo.cell)) {
+          const activeCreature = this.battle.getActiveCreature();
+          const creatureAtHex = this.battle.getCreatureAtPosition(hexInfo.cell);
+          const isFriendly = creatureAtHex && creatureAtHex.indexOFArmy === this.battle.currentArmyIndex;
+          const isActiveSquad =
+            activeCreature && activeCreature.position.x === hexInfo.cell.x && activeCreature.position.y === hexInfo.cell.y;
+
+          if (isActiveSquad || isFriendly) {
+            if (!isActiveSquad && isFriendly) {
+              this.battle.handlePrimaryCellAction(hexInfo.cell, hexInfo.direction);
+            }
+            this.touchDragSourceHex = { x: hexInfo.cell.x, y: hexInfo.cell.y };
+            this.touchDragStartPos = { x: event.clientX, y: event.clientY };
+            this.isTouchDraggingAction = false;
+          } else {
+            this.touchDragSourceHex = null;
+            this.isTouchDraggingAction = false;
+          }
+        } else {
+          this.touchDragSourceHex = null;
+          this.isTouchDraggingAction = false;
+        }
+      }
     };
 
     this.boundMouseUp = (event: MouseEvent) => {
@@ -162,8 +199,27 @@ export class BattleInputController {
         this.mouseDragCoords = { x: 0, y: 0 };
       }
       if (this.delegate.isMenuBlockingInput()) {
+        this.touchDragSourceHex = null;
+        this.isTouchDraggingAction = false;
         return;
       }
+
+      // Mobile single-finger drag-to-action gesture completion:
+      if (this.isTouchDraggingAction && this.touchDragSourceHex && !this.pinchHandler.isPinching()) {
+        this.suppressNextClick = true;
+        const hexInfo = this.screenToHex(event.clientX, event.clientY);
+        if (this.isHexInBounds(hexInfo.cell)) {
+          this.battle.handleSecondaryCellAction(hexInfo.cell, hexInfo.direction, this.controlPressed);
+        }
+        this.touchDragSourceHex = null;
+        this.isTouchDraggingAction = false;
+        this.touchDragStartPos = null;
+        return;
+      }
+
+      this.touchDragSourceHex = null;
+      this.isTouchDraggingAction = false;
+      this.touchDragStartPos = null;
 
       if (event.button === 2 && this.mouseRightClickCoords.x > 0 && this.mouseRightClickCoords.y > 0) {
         if (this.rightClickWasInAbilityTargeting || this.battle.input_state === InputState.SELECT_ABILITY_TARGET) {
@@ -180,6 +236,10 @@ export class BattleInputController {
     };
 
     this.boundClick = (event: MouseEvent) => {
+      if (this.suppressNextClick) {
+        this.suppressNextClick = false;
+        return;
+      }
       if (this.pinchHandler.shouldSuppressClick() || this.delegate.isMenuBlockingInput()) {
         return;
       }
@@ -216,6 +276,13 @@ export class BattleInputController {
         camera.panBy({ x: deltaX, y: deltaY });
         this.mouseDragCoords = { x: event.clientX, y: event.clientY };
         return;
+      }
+
+      if (this.touchDragSourceHex && this.touchDragStartPos) {
+        const dist = Math.hypot(event.clientX - this.touchDragStartPos.x, event.clientY - this.touchDragStartPos.y);
+        if (dist > 8) {
+          this.isTouchDraggingAction = true;
+        }
       }
 
       const stageInfo = this.delegate.getStageOffsetAndScale();

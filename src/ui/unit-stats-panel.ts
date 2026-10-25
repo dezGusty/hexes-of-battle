@@ -172,6 +172,9 @@ export enum DisplayedStat {
 export class UnitStatsPanel {
   public static readonly MAX_ABILITY_SLOTS = 5;
   public static readonly MAX_VISIBLE_PERKS = 6;
+  public static readonly NATIVE_WIDTH = 1920;
+  public static readonly NATIVE_HEIGHT = 1080;
+  public static readonly BOTTOM_MARGIN = 4;
 
   public static DEFAULT_FONT_STYLE: TextOptions = {
     style: {
@@ -392,6 +395,9 @@ export class UnitStatsPanel {
 
   public bindCommonControls(controls: CommonControls): void {
     this.boundCommonControls = controls;
+    if (typeof controls.setPanelOrigin === "function") {
+      controls.setPanelOrigin(this.window.x, this.window.y);
+    }
     // Hide the internal duplicate common-action visuals when external FancyButtons are overlaid on the same spots,
     // while keeping the medieval section header and frame visible and synchronized.
     if (this.commonActions) {
@@ -400,6 +406,41 @@ export class UnitStatsPanel {
       this.commonActions.endTurn.container.visible = true;
     }
     this.updateCommonActionsState();
+  }
+
+  /**
+   * Positions the combined Unit Stats / Abilities / Perks / Common Actions panel
+   * at the bottom of the screen and horizontally centered for any screen resolution
+   * (including square 1920x1920, portrait, ultrawide, and standard 16:9).
+   */
+  public layoutForScreenSize(
+    screenWidth: number,
+    screenHeight: number,
+    nativeWidth: number = UnitStatsPanel.NATIVE_WIDTH,
+    nativeHeight: number = UnitStatsPanel.NATIVE_HEIGHT
+  ): void {
+    const validW = screenWidth > 0 ? screenWidth : nativeWidth;
+    const validH = screenHeight > 0 ? screenHeight : nativeHeight;
+    const scaleX = validW / nativeWidth;
+    const scaleY = validH / nativeHeight;
+    const minScale = Math.min(scaleX, scaleY) || 1;
+
+    const stageViewportWidth = validW / minScale;
+    const stageViewportHeight = validH / minScale;
+
+    const targetX = Math.round((stageViewportWidth - this.panelWidth) / 2);
+    const targetY = Math.round(
+      stageViewportHeight - this.panelHeight - UnitStatsPanel.BOTTOM_MARGIN
+    );
+
+    this.window.position = { x: targetX, y: targetY };
+
+    if (
+      this.boundCommonControls &&
+      typeof this.boundCommonControls.setPanelOrigin === "function"
+    ) {
+      this.boundCommonControls.setPanelOrigin(targetX, targetY);
+    }
   }
 
   public setCreature(creature: Creature) {
@@ -481,7 +522,23 @@ export class UnitStatsPanel {
   ) {
     this.traitsConfig = traitsConfig;
 
-    this.window.position = { x: 40, y: 1080 - this.panelHeight - 4 };
+    const gameEl =
+      typeof document !== "undefined" && typeof document.getElementById === "function"
+        ? document.getElementById("game")
+        : null;
+    const initialW =
+      gameEl && gameEl.clientWidth > 0
+        ? gameEl.clientWidth
+        : typeof window !== "undefined" && window.innerWidth > 0
+          ? window.innerWidth
+          : UnitStatsPanel.NATIVE_WIDTH;
+    const initialH =
+      gameEl && gameEl.clientHeight > 0
+        ? gameEl.clientHeight
+        : typeof window !== "undefined" && window.innerHeight > 0
+          ? window.innerHeight
+          : UnitStatsPanel.NATIVE_HEIGHT;
+    this.layoutForScreenSize(initialW, initialH);
 
     // 1. Base nine-slice panel + Medieval wrought-iron, bronze & carved-stone master frame
     const windowBg = new NineSliceSprite({

@@ -25,7 +25,7 @@ export class MeshSkeletalVisual implements IUnitVisual {
 
   constructor(options: MeshSkeletalOptions) {
     this.model = options.model;
-    const scale = options.scale ?? 1.0;
+    const scale = options.scale ?? 0.7;
     this.model.scale.set(scale, scale, scale);
     this.object3D.add(this.model);
 
@@ -47,11 +47,11 @@ export class MeshSkeletalVisual implements IUnitVisual {
   public setFacing(direction: HexDirection, _cameraFacing: boolean = false): void {
     const angleMap: Record<HexDirection, number> = {
       [HexDirection.EAST]: 0,
-      [HexDirection.SOUTHEAST]: Math.PI / 3,
-      [HexDirection.SOUTHWEST]: (2 * Math.PI) / 3,
+      [HexDirection.NORTHEAST]: Math.PI / 3,
+      [HexDirection.NORTHWEST]: (2 * Math.PI) / 3,
       [HexDirection.WEST]: Math.PI,
-      [HexDirection.NORTHWEST]: (4 * Math.PI) / 3,
-      [HexDirection.NORTHEAST]: (5 * Math.PI) / 3,
+      [HexDirection.SOUTHWEST]: (4 * Math.PI) / 3,
+      [HexDirection.SOUTHEAST]: (5 * Math.PI) / 3,
       [HexDirection.NONE]: 0,
     };
     const targetAngle = angleMap[direction] ?? 0;
@@ -92,19 +92,37 @@ export class MeshSkeletalVisual implements IUnitVisual {
     }
   }
 
+  private currentOpacity: number = 1.0;
+
   public setCasualtyFade(opacity: number): void {
     const clamped = Math.max(0, Math.min(1, opacity));
+    this.model.visible = clamped > 0;
+    if (Math.abs(clamped - this.currentOpacity) < 1e-4) {
+      return;
+    }
+    this.currentOpacity = clamped;
+
+    const isOpaque = clamped >= 1.0;
     this.model.traverse((child) => {
       if ((child as THREE.Mesh).isMesh) {
         const mesh = child as THREE.Mesh;
         if (mesh.material) {
+          const curMat = mesh.material as THREE.Material;
+          if (!isOpaque && curMat.userData?.isSharedAsset) {
+            const clonedMat = curMat.clone();
+            clonedMat.userData = { ...curMat.userData, isSharedAsset: false };
+            mesh.material = clonedMat;
+          }
           const mat = mesh.material as THREE.Material;
-          mat.transparent = true;
+          const nextTransparent = !isOpaque;
+          if (mat.transparent !== nextTransparent) {
+            mat.transparent = nextTransparent;
+            mat.needsUpdate = true;
+          }
           mat.opacity = clamped;
         }
       }
     });
-    this.model.visible = clamped > 0;
   }
 
   public update(deltaMs: number): void {
@@ -116,10 +134,14 @@ export class MeshSkeletalVisual implements IUnitVisual {
     this.model.traverse((child) => {
       if ((child as THREE.Mesh).isMesh) {
         const mesh = child as THREE.Mesh;
-        mesh.geometry.dispose();
+        if (mesh.geometry && !mesh.geometry.userData?.isSharedAsset) {
+          mesh.geometry.dispose();
+        }
         if (Array.isArray(mesh.material)) {
-          mesh.material.forEach((m) => m.dispose());
-        } else if (mesh.material) {
+          mesh.material.forEach((m) => {
+            if (!m.userData?.isSharedAsset) m.dispose();
+          });
+        } else if (mesh.material && !mesh.material.userData?.isSharedAsset) {
           mesh.material.dispose();
         }
       }

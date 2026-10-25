@@ -134,3 +134,6 @@ TODO_*.png
 .agents/skills/
 
 skills-lock.json
+
+# Blender autosave/backup
+*.blend1

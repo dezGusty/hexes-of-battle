@@ -225,6 +225,7 @@ export class Creature {
     public buffs: Buff[] = []
   ) {
     this.guid = GuidMaker.generateGuid();
+    this.stats.traits = [...(this.stats.traits ?? [])];
 
     if (this.abilities.length === 0) {
       if (

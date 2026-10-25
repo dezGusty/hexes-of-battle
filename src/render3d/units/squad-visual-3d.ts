@@ -14,6 +14,31 @@ export interface FloatingText3D {
   riseSpeed: number;
 }
 
+export function getHexDirectionWorldAngle(direction: HexDirection): number {
+  switch (direction) {
+    case HexDirection.EAST:
+      return 0;
+    case HexDirection.SOUTHEAST:
+      return Math.PI / 3;
+    case HexDirection.SOUTHWEST:
+      return (2 * Math.PI) / 3;
+    case HexDirection.WEST:
+      return Math.PI;
+    case HexDirection.NORTHWEST:
+      return (4 * Math.PI) / 3;
+    case HexDirection.NORTHEAST:
+      return (5 * Math.PI) / 3;
+    case HexDirection.NONE:
+    default:
+      return 0;
+  }
+}
+
+export function getHexDirectionRotationY(direction: HexDirection): number {
+  const worldAngle = getHexDirectionWorldAngle(direction);
+  return worldAngle === 0 ? 0 : 2 * Math.PI - worldAngle;
+}
+
 /**
  * Manages the entire multi-model squad representation in 3D space,
  * including individual model positions, overhead bars, floating combat text,
@@ -23,8 +48,9 @@ export class SquadVisual3D {
   public readonly rootGroup: THREE.Group = new THREE.Group();
   public readonly creature: Creature;
 
-  private models: IUnitVisual[] = [];
+  public models: IUnitVisual[] = [];
   private modelOffsets: THREE.Vector3[] = [];
+  private currentFacing: HexDirection = HexDirection.EAST;
   private aliveCount: number = 0;
   private maxCount: number = 0;
   private prevMoraleState?: MoraleState;
@@ -59,17 +85,19 @@ export class SquadVisual3D {
     this.models = modelVisuals;
     this.maxCount = Math.max(1, creature.stats.model_count);
     this.aliveCount = creature.aliveModelCount;
+    this.currentFacing =
+      creature.facingDirection !== HexDirection.NONE ? creature.facingDirection : HexDirection.EAST;
 
     const typeName = Creature.CREATURE_NAMES[creature.creatureType] || `Type${creature.creatureType}`;
     this.rootGroup.name = `Squad_${typeName}_Army${creature.armyAlignment}`;
     this.overheadGroup.name = `OverheadUI_${typeName}`;
 
-    this.calculateFormationOffsets();
+    this.calculateFormationOffsets(this.currentFacing);
     this.setupModels();
     this.setupOverheadBars();
 
     this.rootGroup.add(this.overheadGroup);
-    this.overheadGroup.position.set(0, 1.6, 0);
+    this.overheadGroup.position.set(0, 1.2, 0);
 
     this.lastHealth = this.creature.isAlive ? Math.max(0, creature.stats.remaining_health) : 0;
     this.lastStamina = Math.max(0, creature.stats.stamina);
@@ -82,9 +110,37 @@ export class SquadVisual3D {
     return this.modelOffsets;
   }
 
-  private calculateFormationOffsets(): void {
+  public getFacing(): HexDirection {
+    return this.currentFacing;
+  }
+
+  /**
+   * Computes squad formation offsets so soldiers stand in ranks perpendicular
+   * to the squad's facing direction (`direction`).
+   * - `forwardOffset` (> 0 for front rank, < 0 for rear ranks) is along the facing vector.
+   * - `lateralOffset` (soldiers side-by-side in a rank) is along the perpendicular rank vector.
+   */
+  private calculateFormationOffsets(direction: HexDirection = this.currentFacing): void {
     const count = this.models.length;
     this.modelOffsets = [];
+
+    const effectiveDir = direction !== HexDirection.NONE ? direction : HexDirection.EAST;
+    const worldAngle = getHexDirectionWorldAngle(effectiveDir);
+
+    // Forward unit vector in world XZ plane (pointing toward target hex in facing direction)
+    const fwdX = Math.cos(worldAngle);
+    const fwdZ = Math.sin(worldAngle);
+    // Lateral / Rank unit vector in world XZ plane (perpendicular to forward vector)
+    const latX = -Math.sin(worldAngle);
+    const latZ = Math.cos(worldAngle);
+
+    const toWorldOffset = (forwardOffset: number, lateralOffset: number): THREE.Vector3 => {
+      return new THREE.Vector3(
+        forwardOffset * fwdX + lateralOffset * latX,
+        0,
+        forwardOffset * fwdZ + lateralOffset * latZ
+      );
+    };
 
     if (count <= 1) {
       this.modelOffsets.push(new THREE.Vector3(0, 0, 0));
@@ -92,69 +148,84 @@ export class SquadVisual3D {
     }
 
     if (count === 2) {
-      this.modelOffsets.push(new THREE.Vector3(-0.3, 0, 0.04));
-      this.modelOffsets.push(new THREE.Vector3(0.3, 0, -0.04));
+      // Single front rank of 2 soldiers standing side-by-side perpendicular to facing
+      this.modelOffsets.push(toWorldOffset(0.03, -0.3));
+      this.modelOffsets.push(toWorldOffset(-0.03, 0.3));
       return;
     }
 
     if (count === 3) {
-      this.modelOffsets.push(new THREE.Vector3(-0.35, 0, 0.04));
-      this.modelOffsets.push(new THREE.Vector3(0, 0, -0.04));
-      this.modelOffsets.push(new THREE.Vector3(0.35, 0, 0.04));
+      // Single front rank of 3 soldiers standing side-by-side perpendicular to facing
+      this.modelOffsets.push(toWorldOffset(0.03, -0.35));
+      this.modelOffsets.push(toWorldOffset(-0.03, 0));
+      this.modelOffsets.push(toWorldOffset(0.03, 0.35));
       return;
     }
 
     if (count === 4) {
-      // 2x2 grid with front-back offset between side-by-side units
-      const s = 0.35;
-      const dz = 0.04;
-      this.modelOffsets.push(new THREE.Vector3(-s, 0, -s + dz));
-      this.modelOffsets.push(new THREE.Vector3(s, 0, -s - dz));
-      this.modelOffsets.push(new THREE.Vector3(-s, 0, s - dz));
-      this.modelOffsets.push(new THREE.Vector3(s, 0, s + dz));
-    } else if (count === 6) {
-      // 3x2 grid (hero in center) with front-back offset between adjacent units
-      const sx = 0.32;
-      const sz = 0.28;
-      this.modelOffsets.push(new THREE.Vector3(-sx, 0, -sz + 0.04));
-      this.modelOffsets.push(new THREE.Vector3(0, 0, -sz - 0.04));
-      this.modelOffsets.push(new THREE.Vector3(sx, 0, -sz + 0.04));
-      this.modelOffsets.push(new THREE.Vector3(-sx, 0, sz - 0.04));
-      this.modelOffsets.push(new THREE.Vector3(0, 0, sz + 0.04));
-      this.modelOffsets.push(new THREE.Vector3(sx, 0, sz - 0.04));
+      // 2 ranks of 2 soldiers (rank width wider than depth)
+      const sLat = 0.34;
+      const sFwd = 0.25;
+      const df = 0.03;
+      // Front rank (r = 0, +sFwd)
+      this.modelOffsets.push(toWorldOffset(sFwd + df, -sLat));
+      this.modelOffsets.push(toWorldOffset(sFwd - df, sLat));
+      // Rear rank (r = 1, -sFwd)
+      this.modelOffsets.push(toWorldOffset(-sFwd - df, -sLat));
+      this.modelOffsets.push(toWorldOffset(-sFwd + df, sLat));
+    } else if (count <= 6) {
+      // 2 ranks of 3 soldiers (3 wide along rank perpendicular to facing, 2 deep)
+      const sLat = 0.32;
+      const sFwd = 0.25;
+      for (let r = 0; r < 2; r++) {
+        for (let c = 0; c < 3; c++) {
+          if (this.modelOffsets.length < count) {
+            const staggerFwd = (c % 2 === 0 ? 0.03 : -0.03) * (r % 2 === 0 ? 1 : -1);
+            const fwd = (0.5 - r) * (sFwd * 2) + staggerFwd;
+            const lat = (c - 1) * sLat;
+            this.modelOffsets.push(toWorldOffset(fwd, lat));
+          }
+        }
+      }
     } else if (count <= 8) {
-      // 4x2 grid
-      const sx = 0.25;
-      const sz = 0.3;
+      // 2 ranks of 4 soldiers (4 wide along rank perpendicular to facing, 2 deep)
+      const sLat = 0.25;
+      const sFwd = 0.28;
       for (let r = 0; r < 2; r++) {
         for (let c = 0; c < 4; c++) {
           if (this.modelOffsets.length < count) {
-            // Stagger adjacent units in row front-back to prevent billboard z-fighting/clipping
-            const staggerZ = ((c % 2 === 0 ? 0.04 : -0.04) + (c - 1.5) * 0.015) * (r % 2 === 0 ? 1 : -1);
-            this.modelOffsets.push(new THREE.Vector3((c - 1.5) * sx, 0, (r - 0.5) * sz + staggerZ));
+            const staggerFwd = ((c % 2 === 0 ? 0.03 : -0.03) + (c - 1.5) * 0.01) * (r % 2 === 0 ? 1 : -1);
+            const fwd = (0.5 - r) * sFwd + staggerFwd;
+            const lat = (c - 1.5) * sLat;
+            this.modelOffsets.push(toWorldOffset(fwd, lat));
           }
         }
       }
     } else if (count <= 12) {
-      // 4x3 grid
-      const sx = 0.22;
-      const sz = 0.22;
+      // 3 ranks of 4 soldiers (4 wide along rank perpendicular to facing, 3 deep)
+      const sLat = 0.23;
+      const sFwd = 0.21;
       for (let r = 0; r < 3; r++) {
         for (let c = 0; c < 4; c++) {
           if (this.modelOffsets.length < count) {
-            const staggerZ = ((c % 2 === 0 ? 0.035 : -0.035) + (c - 1.5) * 0.01) * (r % 2 === 0 ? 1 : -1);
-            this.modelOffsets.push(new THREE.Vector3((c - 1.5) * sx, 0, (r - 1.0) * sz + staggerZ));
+            const staggerFwd = ((c % 2 === 0 ? 0.025 : -0.025) + (c - 1.5) * 0.008) * (r % 2 === 0 ? 1 : -1);
+            const fwd = (1.0 - r) * sFwd + staggerFwd;
+            const lat = (c - 1.5) * sLat;
+            this.modelOffsets.push(toWorldOffset(fwd, lat));
           }
         }
       }
     } else {
-      // 4x4 grid (up to 16)
-      const s = 0.2;
+      // 4 ranks of 4 soldiers (up to 16, wider lateral rank spacing than forward depth spacing)
+      const sLat = 0.22;
+      const sFwd = 0.18;
       for (let r = 0; r < 4; r++) {
         for (let c = 0; c < 4; c++) {
           if (this.modelOffsets.length < count) {
-            const staggerZ = ((c % 2 === 0 ? 0.03 : -0.03) + (c - 1.5) * 0.008) * (r % 2 === 0 ? 1 : -1);
-            this.modelOffsets.push(new THREE.Vector3((c - 1.5) * s, 0, (r - 1.5) * s + staggerZ));
+            const staggerFwd = ((c % 2 === 0 ? 0.02 : -0.02) + (c - 1.5) * 0.006) * (r % 2 === 0 ? 1 : -1);
+            const fwd = (1.5 - r) * sFwd + staggerFwd;
+            const lat = (c - 1.5) * sLat;
+            this.modelOffsets.push(toWorldOffset(fwd, lat));
           }
         }
       }
@@ -166,6 +237,15 @@ export class SquadVisual3D {
       const offset = this.modelOffsets[index] || new THREE.Vector3(0, 0, 0);
       model.object3D.position.copy(offset);
       this.rootGroup.add(model.object3D);
+    });
+  }
+
+  private applyFormationOffsets(): void {
+    this.models.forEach((model, index) => {
+      const offset = this.modelOffsets[index];
+      if (offset) {
+        model.object3D.position.copy(offset);
+      }
     });
   }
 
@@ -387,8 +467,8 @@ export class SquadVisual3D {
     const xOffset = staggerOffsets[this.indicatorStaggerIndex % staggerOffsets.length];
     this.indicatorStaggerIndex++;
 
-    // Starting from the position of the healthbar (overheadGroup y = 1.6)
-    const startPos = new THREE.Vector3(xOffset, 1.62, 0.05);
+    // Starting from the position of the healthbar (overheadGroup y = 1.2)
+    const startPos = new THREE.Vector3(xOffset, 1.22, 0.05);
     sprite.position.copy(startPos);
     this.rootGroup.add(sprite);
 
@@ -402,7 +482,11 @@ export class SquadVisual3D {
   }
 
   public setFacing(direction: HexDirection): void {
-    this.models.forEach((m) => m.setFacing(direction));
+    const effectiveDir = direction !== HexDirection.NONE ? direction : this.currentFacing;
+    this.currentFacing = effectiveDir;
+    this.calculateFormationOffsets(effectiveDir);
+    this.applyFormationOffsets();
+    this.models.forEach((m) => m.setFacing(effectiveDir));
   }
 
   public playAnimation(state: UnitAnimationState, durationMs: number = 500): void {
@@ -436,7 +520,7 @@ export class SquadVisual3D {
     const sprite = new THREE.Sprite(mat);
     sprite.scale.set(1.2, 0.35, 1);
 
-    const startPos = new THREE.Vector3(0, 1.8, 0);
+    const startPos = new THREE.Vector3(0, 1.4, 0);
     sprite.position.copy(startPos);
     this.rootGroup.add(sprite);
 

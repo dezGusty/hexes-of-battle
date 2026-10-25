@@ -1,0 +1,673 @@
+"""
+Headless Blender 5.x script to generate stylized low-poly medieval 3D unit models
+and low-poly 3D forest trees for Hexes of Battle.
+
+Generates:
+  - public/models/units/{peasant,peasant_archer,swordsman,spearman,crossbowman,barbarian,slinger}.glb
+  - public/models/terrain/{forest_pine,forest_oak}.glb
+  - assets/blender/{peasant,peasant_archer,swordsman,spearman,crossbowman,barbarian,slinger,forest_trees}.blend
+
+Run via:
+  blender --background --python scripts/generate_blender_models.py
+"""
+
+import os
+import math
+import bpy
+import bmesh
+from mathutils import Vector, Euler
+
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+UNITS_GLB_DIR = os.path.join(ROOT_DIR, "public", "models", "units")
+TERRAIN_GLB_DIR = os.path.join(ROOT_DIR, "public", "models", "terrain")
+UNIT_TEXTURES_DIR = os.path.join(ROOT_DIR, "public", "textures", "units")
+TERRAIN_TEXTURES_DIR = os.path.join(ROOT_DIR, "public", "textures", "terrain")
+BLEND_DIR = os.path.join(ROOT_DIR, "assets", "blender")
+
+os.makedirs(UNITS_GLB_DIR, exist_ok=True)
+os.makedirs(TERRAIN_GLB_DIR, exist_ok=True)
+os.makedirs(UNIT_TEXTURES_DIR, exist_ok=True)
+os.makedirs(TERRAIN_TEXTURES_DIR, exist_ok=True)
+os.makedirs(BLEND_DIR, exist_ok=True)
+
+
+def clear_scene():
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+
+
+def make_material(name: str, rgba, metallic: float = 0.05, roughness: float = 0.75):
+    mat = bpy.data.materials.get(name)
+    if mat is None:
+        mat = bpy.data.materials.new(name=name)
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes.get("Principled BSDF")
+    if bsdf:
+        bsdf.inputs["Base Color"].default_value = rgba
+        bsdf.inputs["Metallic"].default_value = metallic
+        bsdf.inputs["Roughness"].default_value = roughness
+    mat.diffuse_color = rgba
+    return mat
+
+
+def make_textured_material(name: str, png_path: str, rgba=(1.0, 1.0, 1.0, 1.0), metallic: float = 0.08, roughness: float = 0.72):
+    mat = make_material(name, rgba, metallic=metallic, roughness=roughness)
+    if os.path.exists(png_path):
+        nodes = mat.node_tree.nodes
+        links = mat.node_tree.links
+        bsdf = nodes.get("Principled BSDF")
+        tex_node = nodes.new("ShaderNodeTexImage")
+        img = bpy.data.images.load(png_path, check_existing=True)
+        tex_node.image = img
+        if bsdf:
+            links.new(tex_node.outputs["Color"], bsdf.inputs["Base Color"])
+    return mat
+
+
+def create_mesh_object(
+    name: str,
+    bm: bmesh.types.BMesh,
+    material,
+    parent=None,
+    location=(0.0, 0.0, 0.0),
+    rotation=(0.0, 0.0, 0.0),
+    smooth: bool = True,
+):
+    for face in bm.faces:
+        face.smooth = smooth
+    mesh = bpy.data.meshes.new(name + "_Mesh")
+    bm.normal_update()
+    bm.to_mesh(mesh)
+    bm.free()
+
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    obj.location = Vector(location)
+    obj.rotation_euler = Euler(rotation, "XYZ")
+    if material is not None:
+        obj.data.materials.append(material)
+    if parent is not None:
+        obj.parent = parent
+    return obj
+
+
+def bm_add_cylinder(bm, r_bottom, r_top, depth, segments=16, center=(0, 0, 0), rot_euler=(0, 0, 0)):
+    ret = bmesh.ops.create_cone(
+        bm,
+        cap_ends=True,
+        cap_tris=True,
+        segments=max(segments, 12),
+        radius1=r_bottom,
+        radius2=r_top,
+        depth=depth,
+    )
+    verts = ret["verts"]
+    if any(rot_euler):
+        bmesh.ops.rotate(bm, verts=verts, cent=(0, 0, 0), matrix=Euler(rot_euler, "XYZ").to_matrix())
+    if any(center):
+        bmesh.ops.translate(bm, verts=verts, vec=center)
+    return verts
+
+
+def bm_add_box(bm, sx, sy, sz, center=(0, 0, 0), rot_euler=(0, 0, 0)):
+    ret = bmesh.ops.create_cube(bm, size=1.0)
+    verts = ret["verts"]
+    bmesh.ops.scale(bm, verts=verts, vec=(sx, sy, sz))
+    if any(rot_euler):
+        bmesh.ops.rotate(bm, verts=verts, cent=(0, 0, 0), matrix=Euler(rot_euler, "XYZ").to_matrix())
+    if any(center):
+        bmesh.ops.translate(bm, verts=verts, vec=center)
+    return verts
+
+
+def bm_add_sphere(bm, radius, segments=20, ring_count=14, center=(0, 0, 0), scale=(1, 1, 1)):
+    ret = bmesh.ops.create_uvsphere(
+        bm,
+        u_segments=max(segments, 16),
+        v_segments=max(ring_count, 12),
+        radius=radius,
+    )
+    verts = ret["verts"]
+    if scale != (1, 1, 1):
+        bmesh.ops.scale(bm, verts=verts, vec=scale)
+    if any(center):
+        bmesh.ops.translate(bm, verts=verts, vec=center)
+    return verts
+
+
+def bm_add_icosphere(bm, radius, subdivisions=2, center=(0, 0, 0), scale=(1, 1, 1)):
+    ret = bmesh.ops.create_icosphere(bm, subdivisions=max(subdivisions, 2), radius=radius)
+    verts = ret["verts"]
+    if scale != (1, 1, 1):
+        bmesh.ops.scale(bm, verts=verts, vec=scale)
+    if any(center):
+        bmesh.ops.translate(bm, verts=verts, vec=center)
+    return verts
+
+
+def create_common_palette():
+    return {
+        "skin": make_material("Skin", (0.87, 0.70, 0.56, 1.0), metallic=0.0, roughness=0.75),
+        "team": make_material("TeamColor", (0.22, 0.42, 0.78, 1.0), metallic=0.08, roughness=0.70),
+        "cloth_brown": make_material("ClothBrown", (0.42, 0.30, 0.19, 1.0), metallic=0.0, roughness=0.88),
+        "leather": make_material("Leather", (0.34, 0.21, 0.11, 1.0), metallic=0.05, roughness=0.75),
+        "dark_leather": make_material("DarkLeather", (0.18, 0.12, 0.08, 1.0), metallic=0.05, roughness=0.80),
+        "iron": make_material("ForgedIron", (0.48, 0.51, 0.55, 1.0), metallic=0.82, roughness=0.38),
+        "steel": make_material("PolishedSteel", (0.72, 0.75, 0.80, 1.0), metallic=0.88, roughness=0.28),
+        "chainmail": make_material("Chainmail", (0.38, 0.41, 0.45, 1.0), metallic=0.75, roughness=0.52),
+        "brass": make_material("BurnishedBrass", (0.82, 0.65, 0.24, 1.0), metallic=0.85, roughness=0.32),
+        "wood": make_material("AshWood", (0.46, 0.31, 0.16, 1.0), metallic=0.02, roughness=0.82),
+        "fur": make_material("WolfFur", (0.28, 0.24, 0.20, 1.0), metallic=0.0, roughness=0.92),
+        "feather": make_material("FeatherWhite", (0.90, 0.88, 0.82, 1.0), metallic=0.0, roughness=0.70),
+        "stone": make_material("SlingStone", (0.52, 0.50, 0.47, 1.0), metallic=0.05, roughness=0.85),
+    }
+
+
+def build_base_humanoid(unit_name: str, pal: dict, torso_mat, leg_mat, arm_mat, has_pauldrons=False, muscular=False):
+    """
+    Constructs articulated medieval humanoid hierarchy in Blender (Z-up in Blender, exported as Y-up in glTF):
+      - Torso (root object at (0,0,0), spans z = 0.38..0.82)
+      - Head (child of Torso at z = 0.88)
+      - Arm_L (child of Torso at y = +0.20, z = 0.76)
+      - Arm_R (child of Torso at y = -0.20, z = 0.76)
+      - Leg_L (child of Torso at y = +0.09, z = 0.40)
+      - Leg_R (child of Torso at y = -0.09, z = 0.40)
+    Note: Forward direction in Three.js East (angle=0) corresponds to +X in Blender (+X -> +X, +Z -> +Y).
+    """
+    # 1. Torso + Tunic Skirt + Belt
+    bm_torso = bmesh.new()
+    chest_w = 0.20 if muscular else 0.175
+    waist_w = 0.145
+    # Upper chest & waist
+    bm_add_cylinder(bm_torso, waist_w, chest_w, 0.36, segments=8, center=(0, 0, 0.62))
+    # Tunic / surcoat skirt
+    bm_add_cylinder(bm_torso, 0.175, waist_w, 0.16, segments=8, center=(0, 0, 0.38))
+    # Belt ring
+    bm_add_cylinder(bm_torso, 0.155, 0.155, 0.045, segments=8, center=(0, 0, 0.45))
+    torso_obj = create_mesh_object("Torso", bm_torso, torso_mat, parent=None, location=(0, 0, 0))
+
+    # TeamColor tabard / heraldic chest emblem on Torso so every unit carries TeamColor
+    bm_tabard = bmesh.new()
+    bm_add_box(bm_tabard, 0.23, 0.18, 0.34, center=(0.02, 0, 0.56))
+    create_mesh_object("Tabard_Team", bm_tabard, pal["team"], parent=torso_obj)
+
+    # 2. Head (centered at z = 0.90)
+    bm_head = bmesh.new()
+    bm_add_sphere(bm_head, 0.125, segments=10, ring_count=8, center=(0, 0, 0))
+    # Nose on +X (forward)
+    bm_add_box(bm_head, 0.05, 0.035, 0.045, center=(0.12, 0, -0.01))
+    head_obj = create_mesh_object("Head", bm_head, pal["skin"], parent=torso_obj, location=(0, 0, 0.91))
+
+    # 3. Left & Right Legs (pivot at hip z = 0.38, extending down to z = -0.38 => world z = 0.0)
+    for side_name, y_sign in [("Leg_L", 1.0), ("Leg_R", -1.0)]:
+        bm_leg = bmesh.new()
+        bm_add_cylinder(bm_leg, 0.055, 0.072, 0.28, segments=8, center=(0, 0, -0.14))
+        bm_leg_obj = create_mesh_object(side_name, bm_leg, leg_mat, parent=torso_obj, location=(0, y_sign * 0.085, 0.38))
+
+        # Boot at bottom of leg
+        bm_boot = bmesh.new()
+        bm_add_cylinder(bm_boot, 0.062, 0.058, 0.13, segments=8, center=(0, 0, -0.31))
+        bm_add_box(bm_boot, 0.14, 0.085, 0.06, center=(0.03, 0, -0.35))
+        create_mesh_object(side_name + "_Boot", bm_boot, pal["dark_leather"], parent=bm_leg_obj)
+        if side_name == "Leg_L":
+            leg_l = bm_leg_obj
+        else:
+            leg_r = bm_leg_obj
+
+    # 4. Left & Right Arms (pivot at shoulder z = 0.74, y = +/- 0.20)
+    for side_name, y_sign in [("Arm_L", 1.0), ("Arm_R", -1.0)]:
+        bm_arm = bmesh.new()
+        if has_pauldrons:
+            bm_add_sphere(bm_arm, 0.078, segments=8, ring_count=6, center=(0, y_sign * 0.01, 0.01), scale=(1.0, 1.0, 0.8))
+        bm_add_cylinder(bm_arm, 0.048, 0.060, 0.27, segments=8, center=(0.03, 0, -0.13), rot_euler=(0, math.radians(-14), 0))
+        arm_obj = create_mesh_object(side_name, bm_arm, arm_mat, parent=torso_obj, location=(0, y_sign * 0.195, 0.74))
+
+        # Hand at wrist
+        bm_hand = bmesh.new()
+        bm_add_sphere(bm_hand, 0.046, segments=8, ring_count=6, center=(0.065, 0, -0.26))
+        create_mesh_object(side_name + "_Hand", bm_hand, pal["skin"], parent=arm_obj)
+        if side_name == "Arm_L":
+            arm_l = arm_obj
+        else:
+            arm_r = arm_obj
+
+    return {
+        "torso": torso_obj,
+        "head": head_obj,
+        "arm_l": arm_l,
+        "arm_r": arm_r,
+        "leg_l": leg_l,
+        "leg_r": leg_r,
+    }
+
+
+def export_current_model(unit_name: str, is_terrain: bool = False):
+    blend_path = os.path.join(BLEND_DIR, f"{unit_name}.blend")
+    glb_dir = TERRAIN_GLB_DIR if is_terrain else UNITS_GLB_DIR
+    glb_path = os.path.join(glb_dir, f"{unit_name}.glb")
+
+    bpy.ops.wm.save_as_mainfile(filepath=blend_path)
+    bpy.ops.export_scene.gltf(
+        filepath=glb_path,
+        export_format="GLB",
+        export_yup=True,
+        export_apply=True,
+        export_materials="EXPORT",
+    )
+    print(f"Exported {glb_path} and {blend_path}")
+
+
+def build_peasant():
+    clear_scene()
+    pal = create_common_palette()
+
+    mat_cloth = make_textured_material(
+        "PeasantCloth",
+        os.path.join(UNIT_TEXTURES_DIR, "peasant_cloth.png"),
+        rgba=(0.42, 0.30, 0.19, 1.0),
+        metallic=0.02,
+        roughness=0.86,
+    )
+    mat_face = make_textured_material(
+        "PeasantFace",
+        os.path.join(UNIT_TEXTURES_DIR, "peasant_face.png"),
+        rgba=(1.0, 1.0, 1.0, 1.0),
+        metallic=0.04,
+        roughness=0.76,
+    )
+    mat_weapon = make_textured_material(
+        "PeasantPitchfork",
+        os.path.join(UNIT_TEXTURES_DIR, "peasant_pitchfork.png"),
+        rgba=(0.46, 0.31, 0.16, 1.0),
+        metallic=0.35,
+        roughness=0.58,
+    )
+
+    rig = build_base_humanoid("peasant", pal, mat_cloth, mat_cloth, mat_cloth)
+    rig["head"].data.materials[0] = mat_face
+
+    # Peasant cloth hood / cap
+    bm_hood = bmesh.new()
+    bm_add_sphere(bm_hood, 0.136, segments=20, ring_count=14, center=(-0.01, 0, 0.03), scale=(1.05, 1.02, 1.05))
+    bm_add_cylinder(bm_hood, 0.15, 0.13, 0.08, segments=16, center=(-0.02, 0, -0.06))
+    create_mesh_object("Helmet_Hood", bm_hood, pal["team"], parent=rig["head"])
+
+    # 3-Prong Pitchfork in Arm_R
+    bm_shaft = bmesh.new()
+    bm_add_cylinder(bm_shaft, 0.020, 0.022, 1.15, segments=12, center=(0.12, 0, -0.10), rot_euler=(0, math.radians(18), 0))
+    fork_obj = create_mesh_object("Weapon", bm_shaft, mat_weapon, parent=rig["arm_r"])
+
+    bm_tines = bmesh.new()
+    # Crossbar
+    bm_add_box(bm_tines, 0.03, 0.18, 0.03, center=(0.27, 0, 0.36), rot_euler=(0, math.radians(18), 0))
+    # 3 prongs
+    for ty in (-0.075, 0.0, 0.075):
+        bm_add_cylinder(bm_tines, 0.012, 0.003, 0.24, segments=10, center=(0.31, ty, 0.47), rot_euler=(0, math.radians(18), 0))
+    create_mesh_object("Weapon_Head", bm_tines, mat_weapon, parent=fork_obj)
+
+    export_current_model("peasant")
+
+
+def build_peasant_archer():
+    clear_scene()
+    pal = create_common_palette()
+
+    mat_cloth = make_textured_material(
+        "ArcherClothing",
+        os.path.join(UNIT_TEXTURES_DIR, "archer_clothing.png"),
+        rgba=(0.34, 0.21, 0.11, 1.0),
+        metallic=0.04,
+        roughness=0.82,
+    )
+    mat_face = make_textured_material(
+        "ArcherFace",
+        os.path.join(UNIT_TEXTURES_DIR, "archer_face.png"),
+        rgba=(1.0, 1.0, 1.0, 1.0),
+        metallic=0.04,
+        roughness=0.74,
+    )
+    mat_weapon = make_textured_material(
+        "ArcherBow",
+        os.path.join(UNIT_TEXTURES_DIR, "archer_bow.png"),
+        rgba=(0.46, 0.31, 0.16, 1.0),
+        metallic=0.15,
+        roughness=0.62,
+    )
+
+    rig = build_base_humanoid("peasant_archer", pal, mat_cloth, mat_cloth, mat_cloth)
+    rig["head"].data.materials[0] = mat_face
+
+    # Archer hooded cap with feather
+    bm_cap = bmesh.new()
+    bm_add_cylinder(bm_cap, 0.135, 0.04, 0.16, segments=16, center=(-0.01, 0, 0.09), rot_euler=(0, math.radians(-12), 0))
+    create_mesh_object("Helmet_Cap", bm_cap, pal["team"], parent=rig["head"])
+
+    bm_feather = bmesh.new()
+    bm_add_box(bm_feather, 0.12, 0.015, 0.05, center=(-0.05, 0.09, 0.12), rot_euler=(0, math.radians(25), 0))
+    create_mesh_object("Helmet_Feather", bm_feather, pal["feather"], parent=rig["head"])
+
+    # Back quiver with arrows
+    bm_quiver = bmesh.new()
+    bm_add_cylinder(bm_quiver, 0.055, 0.065, 0.38, segments=14, center=(-0.15, 0.05, 0.64), rot_euler=(math.radians(18), math.radians(-10), 0))
+    quiver_obj = create_mesh_object("Quiver", bm_quiver, mat_cloth, parent=rig["torso"])
+
+    bm_arrows = bmesh.new()
+    for ay in (-0.02, 0.02, 0.05):
+        bm_add_cylinder(bm_arrows, 0.008, 0.008, 0.14, segments=8, center=(-0.16, 0.05 + ay, 0.85))
+    create_mesh_object("Quiver_Arrows", bm_arrows, pal["feather"], parent=quiver_obj)
+
+    # Curved Longbow in Arm_L / Arm_R
+    bm_bow = bmesh.new()
+    # Upper & lower bow limbs
+    bm_add_cylinder(bm_bow, 0.018, 0.010, 0.42, segments=10, center=(0.16, 0, -0.06), rot_euler=(0, math.radians(-16), 0))
+    bm_add_cylinder(bm_bow, 0.010, 0.018, 0.42, segments=10, center=(0.16, 0, -0.44), rot_euler=(0, math.radians(16), 0))
+    bow_obj = create_mesh_object("Weapon", bm_bow, mat_weapon, parent=rig["arm_l"])
+
+    bm_string = bmesh.new()
+    bm_add_cylinder(bm_string, 0.004, 0.004, 0.76, segments=6, center=(0.10, 0, -0.25))
+    create_mesh_object("Bowstring", bm_string, pal["feather"], parent=bow_obj)
+
+    export_current_model("peasant_archer")
+
+
+def build_swordsman():
+    clear_scene()
+    pal = create_common_palette()
+    rig = build_base_humanoid("swordsman", pal, pal["chainmail"], pal["chainmail"], pal["chainmail"], has_pauldrons=True)
+
+    # Steel Bascinet / Nasal Helmet with brass trim
+    bm_helm = bmesh.new()
+    bm_add_sphere(bm_helm, 0.142, segments=10, ring_count=8, center=(0, 0, 0.03), scale=(1.04, 1.02, 1.12))
+    # Nasal guard bar
+    bm_add_box(bm_helm, 0.025, 0.022, 0.11, center=(0.138, 0, 0.0))
+    helm_obj = create_mesh_object("Helmet", bm_helm, pal["steel"], parent=rig["head"])
+
+    bm_crest = bmesh.new()
+    bm_add_cylinder(bm_crest, 0.144, 0.144, 0.025, segments=10, center=(0, 0, 0.02))
+    create_mesh_object("Helmet_Trim", bm_crest, pal["brass"], parent=helm_obj)
+
+    # Heater / Kite Shield on Arm_L
+    bm_shield = bmesh.new()
+    bm_add_box(bm_shield, 0.045, 0.30, 0.38, center=(0.10, 0.09, -0.18), rot_euler=(math.radians(10), 0, 0))
+    shield_obj = create_mesh_object("Shield", bm_shield, pal["team"], parent=rig["arm_l"])
+
+    bm_boss = bmesh.new()
+    bm_add_Box_or_rim = bm_add_box(bm_boss, 0.055, 0.32, 0.03, center=(0.10, 0.09, 0.0), rot_euler=(math.radians(10), 0, 0))
+    bm_add_sphere(bm_boss, 0.055, segments=8, ring_count=6, center=(0.12, 0.10, -0.16))
+    create_mesh_object("Shield_Boss", bm_boss, pal["brass"], parent=shield_obj)
+
+    # Arming Sword in Arm_R
+    bm_sword = bmesh.new()
+    # Blade
+    bm_add_cylinder(bm_sword, 0.032, 0.005, 0.68, segments=4, center=(0.24, 0, 0.06), rot_euler=(0, math.radians(32), 0))
+    sword_obj = create_mesh_object("Weapon", bm_sword, pal["steel"], parent=rig["arm_r"])
+
+    bm_hilt = bmesh.new()
+    # Crossguard & pommel
+    bm_add_box(bm_hilt, 0.035, 0.20, 0.032, center=(0.06, 0, -0.21), rot_euler=(0, math.radians(32), 0))
+    bm_add_sphere(bm_hilt, 0.035, segments=8, ring_count=6, center=(-0.01, 0, -0.32))
+    create_mesh_object("Weapon_Hilt", bm_hilt, pal["brass"], parent=sword_obj)
+
+    export_current_model("swordsman")
+
+
+def build_spearman():
+    clear_scene()
+    pal = create_common_palette()
+
+    mat_armor = make_textured_material(
+        "SpearmanArmor",
+        os.path.join(UNIT_TEXTURES_DIR, "spearman_armor.png"),
+        rgba=(0.34, 0.21, 0.11, 1.0),
+        metallic=0.20,
+        roughness=0.72,
+    )
+    mat_face = make_textured_material(
+        "SpearmanFace",
+        os.path.join(UNIT_TEXTURES_DIR, "spearman_face.png"),
+        rgba=(1.0, 1.0, 1.0, 1.0),
+        metallic=0.25,
+        roughness=0.68,
+    )
+    mat_gear = make_textured_material(
+        "SpearmanGear",
+        os.path.join(UNIT_TEXTURES_DIR, "spearman_gear.png"),
+        rgba=(0.72, 0.75, 0.80, 1.0),
+        metallic=0.45,
+        roughness=0.52,
+    )
+
+    rig = build_base_humanoid("spearman", pal, mat_armor, mat_armor, mat_armor, has_pauldrons=False)
+    rig["head"].data.materials[0] = mat_face
+
+    # Wide-brimmed Kettle Helm (Chapel-de-fer)
+    bm_helm = bmesh.new()
+    bm_add_sphere(bm_helm, 0.136, segments=20, ring_count=14, center=(0, 0, 0.04), scale=(1.0, 1.0, 0.95))
+    bm_add_cylinder(bm_helm, 0.21, 0.14, 0.035, segments=18, center=(0, 0, 0.02))
+    create_mesh_object("Helmet_Kettle", bm_helm, pal["iron"], parent=rig["head"])
+
+    # Round Wooden/Iron Bossed Shield on Arm_L
+    bm_shield = bmesh.new()
+    bm_add_cylinder(bm_shield, 0.22, 0.22, 0.04, segments=18, center=(0.09, 0.10, -0.18), rot_euler=(math.radians(82), 0, math.radians(15)))
+    shield_obj = create_mesh_object("Shield", bm_shield, pal["team"], parent=rig["arm_l"])
+
+    bm_boss = bmesh.new()
+    bm_add_sphere(bm_boss, 0.06, segments=16, ring_count=12, center=(0.11, 0.12, -0.18))
+    create_mesh_object("Shield_Boss", bm_boss, mat_gear, parent=shield_obj)
+
+    # Long Ash Spear with leaf blade in Arm_R
+    bm_spear = bmesh.new()
+    bm_add_cylinder(bm_spear, 0.020, 0.018, 1.42, segments=12, center=(0.18, 0, 0.05), rot_euler=(0, math.radians(22), 0))
+    spear_obj = create_mesh_object("Weapon", bm_spear, mat_gear, parent=rig["arm_r"])
+
+    bm_tip = bmesh.new()
+    bm_add_cylinder(bm_tip, 0.036, 0.002, 0.26, segments=10, center=(0.47, 0, 0.75), rot_euler=(0, math.radians(22), 0))
+    create_mesh_object("Weapon_Tip", bm_tip, mat_gear, parent=spear_obj)
+
+    # Spare Javelin on back for Throw Javelin skill
+    bm_jav = bmesh.new()
+    bm_add_cylinder(bm_jav, 0.014, 0.012, 0.88, segments=10, center=(-0.14, 0.0, 0.65), rot_euler=(math.radians(20), 0, 0))
+    create_mesh_object("Javelin_Back", bm_jav, pal["wood"], parent=rig["torso"])
+
+    export_current_model("spearman")
+
+
+def build_crossbowman():
+    clear_scene()
+    pal = create_common_palette()
+    rig = build_base_humanoid("crossbowman", pal, pal["dark_leather"], pal["cloth_brown"], pal["leather"], has_pauldrons=True)
+
+    # Kettle / Sallet Helmet
+    bm_helm = bmesh.new()
+    bm_add_sphere(bm_helm, 0.138, segments=10, ring_count=8, center=(0, 0, 0.03), scale=(1.06, 1.0, 1.0))
+    bm_add_cylinder(bm_helm, 0.18, 0.14, 0.03, segments=10, center=(-0.02, 0, 0.01))
+    create_mesh_object("Helmet", bm_helm, pal["iron"], parent=rig["head"])
+
+    # Pavise shield strapped on back
+    bm_pavise = bmesh.new()
+    bm_add_box(bm_pavise, 0.04, 0.28, 0.42, center=(-0.14, 0, 0.62))
+    create_mesh_object("Back_Pavise", bm_pavise, pal["team"], parent=rig["torso"])
+
+    # Heavy Crossbow in Arm_R
+    bm_stock = bmesh.new()
+    bm_add_box(bm_stock, 0.46, 0.055, 0.075, center=(0.24, 0, -0.22), rot_euler=(0, math.radians(10), 0))
+    xbow_obj = create_mesh_object("Weapon", bm_stock, pal["wood"], parent=rig["arm_r"])
+
+    bm_prod = bmesh.new()
+    bm_add_box(bm_prod, 0.045, 0.44, 0.032, center=(0.42, 0, -0.19), rot_euler=(0, math.radians(10), 0))
+    # Stirrup at front
+    bm_add_cylinder(bm_prod, 0.04, 0.04, 0.02, segments=6, center=(0.48, 0, -0.18))
+    create_mesh_object("Crossbow_Prod", bm_prod, pal["steel"], parent=xbow_obj)
+
+    export_current_model("crossbowman")
+
+
+def build_barbarian():
+    clear_scene()
+    pal = create_common_palette()
+
+    mat_face = make_textured_material(
+        "BarbarianFace",
+        os.path.join(UNIT_TEXTURES_DIR, "barbarian_face.png"),
+        rgba=(1.0, 1.0, 1.0, 1.0),
+        metallic=0.04,
+        roughness=0.72,
+    )
+    mat_skin = make_textured_material(
+        "BarbarianSkin",
+        os.path.join(UNIT_TEXTURES_DIR, "barbarian_skin.png"),
+        rgba=(0.87, 0.70, 0.56, 1.0),
+        metallic=0.0,
+        roughness=0.72,
+    )
+    mat_clothing = make_textured_material(
+        "BarbarianClothing",
+        os.path.join(UNIT_TEXTURES_DIR, "barbarian_clothing.png"),
+        rgba=(0.34, 0.21, 0.11, 1.0),
+        metallic=0.05,
+        roughness=0.82,
+    )
+    mat_weapon = make_textured_material(
+        "BarbarianWeapon",
+        os.path.join(UNIT_TEXTURES_DIR, "barbarian_weapon.png"),
+        rgba=(0.72, 0.75, 0.80, 1.0),
+        metallic=0.55,
+        roughness=0.42,
+    )
+
+    rig = build_base_humanoid("barbarian", pal, mat_skin, mat_clothing, mat_skin, has_pauldrons=False, muscular=True)
+    rig["head"].data.materials[0] = mat_face
+
+    # Fur Pelt Mantle over shoulders
+    bm_fur = bmesh.new()
+    bm_add_cylinder(bm_fur, 0.24, 0.19, 0.16, segments=16, center=(-0.01, 0, 0.74))
+    create_mesh_object("Fur_Mantle", bm_fur, mat_clothing, parent=rig["torso"])
+
+    # Horned Iron Helmet
+    bm_helm = bmesh.new()
+    bm_add_sphere(bm_helm, 0.138, segments=20, ring_count=14, center=(0, 0, 0.04), scale=(1.02, 1.02, 0.95))
+    helm_obj = create_mesh_object("Helmet_Horned", bm_helm, pal["iron"], parent=rig["head"])
+
+    bm_horns = bmesh.new()
+    for y_sign in (-1.0, 1.0):
+        bm_add_cylinder(
+            bm_horns,
+            0.032,
+            0.005,
+            0.18,
+            segments=12,
+            center=(0.02, y_sign * 0.15, 0.11),
+            rot_euler=(math.radians(-y_sign * 42), math.radians(15), 0),
+        )
+    create_mesh_object("Helmet_Horns", bm_horns, pal["feather"], parent=helm_obj)
+
+    # Massive Double-Bitted Battleaxe in Arm_R
+    bm_shaft = bmesh.new()
+    bm_add_cylinder(bm_shaft, 0.024, 0.022, 0.95, segments=12, center=(0.16, 0, -0.02), rot_euler=(0, math.radians(24), 0))
+    axe_obj = create_mesh_object("Weapon", bm_shaft, mat_weapon, parent=rig["arm_r"])
+
+    bm_blade = bmesh.new()
+    bm_add_box(bm_blade, 0.28, 0.035, 0.22, center=(0.30, 0, 0.30), rot_euler=(0, math.radians(24), 0))
+    create_mesh_object("Axe_Blade", bm_blade, mat_weapon, parent=axe_obj)
+
+    export_current_model("barbarian")
+
+
+def build_slinger():
+    clear_scene()
+    pal = create_common_palette()
+    rig = build_base_humanoid("slinger", pal, pal["cloth_brown"], pal["cloth_brown"], pal["skin"], has_pauldrons=False)
+
+    # Slinger Headband
+    bm_band = bmesh.new()
+    bm_add_cylinder(bm_band, 0.132, 0.132, 0.04, segments=10, center=(0, 0, 0.04))
+    create_mesh_object("Headband", bm_band, pal["team"], parent=rig["head"])
+
+    # Stone Pouch at hip
+    bm_pouch = bmesh.new()
+    bm_add_sphere(bm_pouch, 0.075, segments=8, ring_count=6, center=(0.04, -0.15, 0.42))
+    create_mesh_object("Stone_Pouch", bm_pouch, pal["leather"], parent=rig["torso"])
+
+    # Small Buckler on Arm_L
+    bm_buckler = bmesh.new()
+    bm_add_cylinder(bm_buckler, 0.13, 0.13, 0.03, segments=10, center=(0.08, 0.08, -0.20), rot_euler=(math.radians(80), 0, 0))
+    create_mesh_object("Shield", bm_buckler, pal["brass"], parent=rig["arm_l"])
+
+    # Braided Leather Sling & Stone in Arm_R
+    bm_sling = bmesh.new()
+    bm_add_cylinder(bm_sling, 0.012, 0.016, 0.34, segments=6, center=(0.08, -0.02, -0.40), rot_euler=(math.radians(15), 0, 0))
+    sling_obj = create_mesh_object("Weapon", bm_sling, pal["leather"], parent=rig["arm_r"])
+
+    bm_stone = bmesh.new()
+    bm_add_icosphere(bm_stone, 0.045, subdivisions=1, center=(0.09, -0.05, -0.56))
+    create_mesh_object("Sling_Stone", bm_stone, pal["stone"], parent=sling_obj)
+
+    export_current_model("slinger")
+
+
+def build_forest_trees():
+    """
+    Generates low-poly 3D forest trees at ~0.90 world units tall (75% of the ~1.20 average unit height).
+    Exports forest_pine.glb, forest_oak.glb, and assets/blender/forest_trees.blend.
+    """
+    bark_png = os.path.join(TERRAIN_TEXTURES_DIR, "tree_bark.png")
+    foliage_png = os.path.join(TERRAIN_TEXTURES_DIR, "tree_foliage.png")
+
+    # 1. Forest Pine (total height = 0.90)
+    clear_scene()
+    trunk_mat = make_textured_material("TreeBark", bark_png, (0.36, 0.23, 0.13, 1.0), metallic=0.0, roughness=0.92)
+    pine_dark = make_textured_material("PineFoliageDark", foliage_png, (0.14, 0.34, 0.16, 1.0), metallic=0.0, roughness=0.86)
+    pine_mid = make_textured_material("PineFoliageMid", foliage_png, (0.19, 0.43, 0.21, 1.0), metallic=0.0, roughness=0.84)
+    pine_light = make_textured_material("PineFoliageLight", foliage_png, (0.25, 0.51, 0.25, 1.0), metallic=0.0, roughness=0.82)
+
+    bm_trunk = bmesh.new()
+    bm_add_cylinder(bm_trunk, 0.065, 0.042, 0.28, segments=10, center=(0, 0, 0.14))
+    pine_root = create_mesh_object("Tree_Pine_Trunk", bm_trunk, trunk_mat)
+
+    bm_tier1 = bmesh.new()
+    bm_add_cylinder(bm_tier1, 0.26, 0.04, 0.34, segments=12, center=(0, 0, 0.40))
+    create_mesh_object("Tree_Pine_Tier1", bm_tier1, pine_dark, parent=pine_root)
+
+    bm_tier2 = bmesh.new()
+    bm_add_cylinder(bm_tier2, 0.21, 0.03, 0.30, segments=12, center=(0, 0, 0.59))
+    create_mesh_object("Tree_Pine_Tier2", bm_tier2, pine_mid, parent=pine_root)
+
+    bm_tier3 = bmesh.new()
+    bm_add_cylinder(bm_tier3, 0.15, 0.005, 0.26, segments=12, center=(0, 0, 0.77))
+    create_mesh_object("Tree_Pine_Tier3", bm_tier3, pine_light, parent=pine_root)
+
+    export_current_model("forest_pine", is_terrain=True)
+
+    # 2. Forest Oak (total height = 0.90)
+    clear_scene()
+    trunk_mat = make_textured_material("TreeBark", bark_png, (0.36, 0.23, 0.13, 1.0), metallic=0.0, roughness=0.92)
+    oak_main = make_textured_material("OakFoliageMain", foliage_png, (0.22, 0.46, 0.19, 1.0), metallic=0.0, roughness=0.85)
+    oak_accent = make_textured_material("OakFoliageAccent", foliage_png, (0.29, 0.54, 0.23, 1.0), metallic=0.0, roughness=0.82)
+
+    bm_oak_trunk = bmesh.new()
+    bm_add_cylinder(bm_oak_trunk, 0.075, 0.050, 0.36, segments=10, center=(0, 0, 0.18))
+    oak_root = create_mesh_object("Tree_Oak_Trunk", bm_oak_trunk, trunk_mat)
+
+    bm_crown_main = bmesh.new()
+    bm_add_icosphere(bm_crown_main, 0.25, subdivisions=2, center=(0, 0, 0.58), scale=(1.08, 1.05, 0.95))
+    create_mesh_object("Tree_Oak_CrownMain", bm_crown_main, oak_main, parent=oak_root)
+
+    bm_crown_sub = bmesh.new()
+    bm_add_icosphere(bm_crown_sub, 0.17, subdivisions=2, center=(0.12, 0.08, 0.52))
+    bm_add_icosphere(bm_crown_sub, 0.16, subdivisions=2, center=(-0.11, -0.09, 0.54))
+    bm_add_icosphere(bm_crown_sub, 0.15, subdivisions=2, center=(0.02, -0.04, 0.75))
+    create_mesh_object("Tree_Oak_CrownClusters", bm_crown_sub, oak_accent, parent=oak_root)
+
+    export_current_model("forest_oak", is_terrain=True)
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(BLEND_DIR, "forest_trees.blend"))
+
+
+if __name__ == "__main__":
+    build_peasant()
+    build_peasant_archer()
+    build_swordsman()
+    build_spearman()
+    build_crossbowman()
+    build_barbarian()
+    build_slinger()
+    build_forest_trees()
+    print("All Blender 3D models (.glb and .blend) generated successfully!")

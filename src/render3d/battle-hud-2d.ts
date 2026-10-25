@@ -71,6 +71,8 @@ export class BattleHud2D {
   public readonly settings: BattleSettings;
   private battle: Battle;
   private cpuPlayer?: CPUPlayer;
+  private screenWidth: number = UnitStatsPanel.NATIVE_WIDTH;
+  private screenHeight: number = UnitStatsPanel.NATIVE_HEIGHT;
   private armyNames: [string, string] = [
     "The Count of Ekkina's 1st Army",
     "Knights of The Grand Duke"
@@ -142,6 +144,42 @@ export class BattleHud2D {
     }
     this.initializeTopPanel();
     this.updateArmyNames();
+
+    const gameEl =
+      typeof document !== 'undefined' && typeof document.getElementById === 'function'
+        ? document.getElementById('game')
+        : null;
+    const initW =
+      gameEl && gameEl.clientWidth > 0
+        ? gameEl.clientWidth
+        : typeof window !== 'undefined' && window.innerWidth > 0
+          ? window.innerWidth
+          : this.screenWidth;
+    const initH =
+      gameEl && gameEl.clientHeight > 0
+        ? gameEl.clientHeight
+        : typeof window !== 'undefined' && window.innerHeight > 0
+          ? window.innerHeight
+          : this.screenHeight;
+    this.resize(initW, initH);
+  }
+
+  public resize(width: number, height: number): void {
+    if (width > 0) this.screenWidth = width;
+    if (height > 0) this.screenHeight = height;
+    if (this.unitStats) {
+      this.unitStats.layoutForScreenSize(this.screenWidth, this.screenHeight);
+    } else if (this.commonControls && typeof this.commonControls.setPanelOrigin === 'function') {
+      const scaleX = this.screenWidth / UnitStatsPanel.NATIVE_WIDTH;
+      const scaleY = this.screenHeight / UnitStatsPanel.NATIVE_HEIGHT;
+      const minScale = Math.min(scaleX, scaleY) || 1;
+      const stageW = this.screenWidth / minScale;
+      const stageH = this.screenHeight / minScale;
+      this.commonControls.setPanelOrigin(
+        Math.round((stageW - 1840) / 2),
+        Math.round(stageH - 140 - UnitStatsPanel.BOTTOM_MARGIN)
+      );
+    }
   }
 
   public setCpuPlayer(cpuPlayer: CPUPlayer | undefined): void {
@@ -563,6 +601,7 @@ export class BattleHud2D {
       if (this.commonControls) {
         this.unitStats.bindCommonControls(this.commonControls);
       }
+      this.unitStats.layoutForScreenSize(this.screenWidth, this.screenHeight);
     }
     this.unitStats.toggleVisibility();
     this.settings.hex.showStats = this.unitStats.isVisible();
@@ -660,8 +699,23 @@ export class BattleHud2D {
       return true;
     }
 
-    // Common actions dock on bottom right (Rest, Next Unit, End Turn)
-    if (stageX >= 1550 && stageX <= 1875 && stageY >= 930 && stageY <= 1080) {
+    // Common actions dock on bottom right of the panel (Rest, Next Unit, End Turn)
+    const panelX =
+      this.unitStats?.window.x ??
+      (typeof this.commonControls?.getPanelOrigin === 'function'
+        ? this.commonControls.getPanelOrigin().x
+        : CommonControls.DEFAULT_PANEL_ORIGIN.x);
+    const panelY =
+      this.unitStats?.window.y ??
+      (typeof this.commonControls?.getPanelOrigin === 'function'
+        ? this.commonControls.getPanelOrigin().y
+        : CommonControls.DEFAULT_PANEL_ORIGIN.y);
+    if (
+      stageX >= panelX + 1510 &&
+      stageX <= panelX + 1835 &&
+      stageY >= panelY - 6 &&
+      stageY <= panelY + 144
+    ) {
       return true;
     }
 

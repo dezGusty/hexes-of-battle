@@ -64,6 +64,12 @@ export class BattleView3D {
   private boundBlur?: () => void;
   private pinchHandler?: PinchGestureHandler;
 
+  // Mobile single-finger drag-to-action gesture tracking
+  private touchDragSourceHex: Coords | null = null;
+  private isTouchDraggingAction: boolean = false;
+  private touchDragStartPos: Coords | null = null;
+  private suppressNextClick: boolean = false;
+
   // Active keyboard navigation keys
   private pressedKeys: Set<string> = new Set();
   private lastRangedAttackTimes: Map<string, number> = new Map();
@@ -166,7 +172,10 @@ export class BattleView3D {
   }
 
   public applyHardwareCursorVisibility(hidden: boolean): void {
-    const gameContainer = (typeof document !== 'undefined' ? document.getElementById('game') : null) || this.container;
+    const gameContainer =
+      (typeof document !== 'undefined' && typeof document.getElementById === 'function'
+        ? document.getElementById('game')
+        : null) || this.container;
     if (gameContainer) {
       if (hidden) {
         gameContainer.classList.add('hide-hardware-cursor');
@@ -300,6 +309,7 @@ export class BattleView3D {
         : this.hexBoard.hexToWorldWithElevation(data.attacker.position.x, data.attacker.position.y);
 
       if (attackerSquad) {
+        attackerSquad.setFacing(data.attacker.facingDirection);
         attackerSquad.playAnimation('attack_ranged', 400);
       }
 
@@ -375,6 +385,7 @@ export class BattleView3D {
         : this.hexBoard.hexToWorldWithElevation(defender.position.x, defender.position.y);
 
       if (attackerSquad) {
+        attackerSquad.setFacing(attacker.facingDirection);
         attackerSquad.playAnimation('attack_ranged', 400);
       }
 
@@ -396,6 +407,7 @@ export class BattleView3D {
     } else {
       // Melee attack
       if (attackerSquad) {
+        attackerSquad.setFacing(attacker.facingDirection);
         attackerSquad.playAnimation('attack_melee', 450);
       }
 
@@ -730,11 +742,37 @@ export class BattleView3D {
     };
   }
 
+  private raycastHexAt(clientX: number, clientY: number): { hex: Coords; direction: HexDirection } | null {
+    const rayTargets =
+      typeof this.hexBoard.getTileMeshes === 'function'
+        ? this.hexBoard.getTileMeshes()
+        : [this.hexBoard.group];
+    const isGroupFallback = rayTargets.length === 1 && rayTargets[0] === this.hexBoard.group;
+    const hits = this.sceneManager.raycastFromScreen(
+      clientX,
+      clientY,
+      rayTargets,
+      isGroupFallback
+    );
+    if (hits.length > 0) {
+      const hitTile = hits.find((h) => (h.object as any).userData?.isHexTile);
+      if (hitTile) {
+        const { hexX, hexY } = (hitTile.object as any).userData;
+        const hex = { x: hexX, y: hexY };
+        const centerWorld = this.hexBoard.hexToWorld(hexX, hexY);
+        const dx = hitTile.point.x - centerWorld.x;
+        const dz = hitTile.point.z - centerWorld.z;
+        const direction = this.hexBoard.worldVectorToHexDirection(dx, dz);
+        return { hex, direction };
+      }
+    }
+    return null;
+  }
+
   private setupPointerEvents(container: HTMLElement): void {
     this.boundContextMenu = (e: MouseEvent) => {
       e.preventDefault();
-      if (this.battle.input_state === InputState.SELECT_ABILITY_TARGET || this.rightClickCanceledAbility) {
-        this.rightClickCanceledAbility = true;
+      if (this.battle.input_state === InputState.SELECT_ABILITY_TARGET) {
         this.battle.cancelTargetForAbilityIfApplicable();
         this.hud?.updateTargetAcquirementHint();
         this.updateActiveUnitSelection();
@@ -743,7 +781,9 @@ export class BattleView3D {
     };
 
     this.boundPointerDown = (e: PointerEvent) => {
-      if (this.pinchHandler?.shouldSuppressClick()) {
+      if (this.pinchHandler?.shouldSuppressClick() || this.pinchHandler?.isPinching()) {
+        this.touchDragSourceHex = null;
+        this.isTouchDraggingAction = false;
         return;
       }
       const stageCoords = this.getStageCoords(e.clientX, e.clientY);
@@ -760,12 +800,47 @@ export class BattleView3D {
       this.isPointerDown = true;
       this.pointerButton = e.button;
       this.lastPointerPos = { x: e.clientX, y: e.clientY };
+
+      // Mobile single-finger drag-to-action initiation:
+      // When pressing down on a friendly squad (or the active squad), prepare for potential drag-to-target.
+      if (e.button === 0 && !this.battle.isCurrentTurnAI()) {
+        const hit = this.raycastHexAt(e.clientX, e.clientY);
+        if (hit) {
+          this.hoveredHex = hit.hex;
+          this.hoveredDirection = hit.direction;
+
+          const activeCreature = this.battle.getActiveCreature();
+          const creatureAtHex = this.battle.getCreatureAtPosition(hit.hex);
+          const isFriendly = creatureAtHex && creatureAtHex.indexOFArmy === this.battle.currentArmyIndex;
+          const isActiveSquad =
+            activeCreature && activeCreature.position.x === hit.hex.x && activeCreature.position.y === hit.hex.y;
+
+          if (isActiveSquad || isFriendly) {
+            if (!isActiveSquad && isFriendly) {
+              // Tap/touch directly selects friendly squad
+              this.battle.handlePrimaryCellAction(hit.hex, hit.direction);
+              this.updateActiveUnitSelection();
+            }
+            this.touchDragSourceHex = { x: hit.hex.x, y: hit.hex.y };
+            this.touchDragStartPos = { x: e.clientX, y: e.clientY };
+            this.isTouchDraggingAction = false;
+          } else {
+            this.touchDragSourceHex = null;
+            this.isTouchDraggingAction = false;
+          }
+        } else {
+          this.touchDragSourceHex = null;
+          this.isTouchDraggingAction = false;
+        }
+      }
     };
 
     this.boundPointerUp = (e: PointerEvent) => {
       this.isPointerDown = false;
       const stageCoords = this.getStageCoords(e.clientX, e.clientY);
       if (this.hud?.isPointerOverUI(stageCoords.x, stageCoords.y)) {
+        this.touchDragSourceHex = null;
+        this.isTouchDraggingAction = false;
         if (e.button === 2) {
           if (this.rightClickCanceledAbility || this.battle.input_state === InputState.SELECT_ABILITY_TARGET) {
             this.battle.cancelTargetForAbilityIfApplicable();
@@ -777,7 +852,47 @@ export class BattleView3D {
         }
         return;
       }
-      if (this.battle.isCurrentTurnAI()) return;
+      if (this.battle.isCurrentTurnAI()) {
+        this.touchDragSourceHex = null;
+        this.isTouchDraggingAction = false;
+        return;
+      }
+
+      // Mobile single-finger drag-to-action gesture completion:
+      // When releasing the finger from a drag operation that started on a friendly squad,
+      // trigger the same action which would be triggered by a right mouse button click
+      // (attack, move, face different direction).
+      if (this.isTouchDraggingAction && this.touchDragSourceHex && !this.pinchHandler?.isPinching()) {
+        this.suppressNextClick = true;
+
+        if (!this.hoveredHex) {
+          const hit = this.raycastHexAt(e.clientX, e.clientY);
+          if (hit) {
+            this.hoveredHex = hit.hex;
+            this.hoveredDirection = hit.direction;
+          }
+        }
+
+        if (this.hoveredHex) {
+          this.battle.handleSecondaryCellAction(this.hoveredHex, this.hoveredDirection, !!e.ctrlKey);
+          const active = this.battle.getActiveCreature();
+          if (active) {
+            const squad = this.squadVisuals.get(active.GUID.toString());
+            squad?.setFacing(active.facingDirection);
+          }
+          this.updateActiveUnitSelection();
+          this.updateHoverVisuals();
+        }
+
+        this.touchDragSourceHex = null;
+        this.isTouchDraggingAction = false;
+        this.touchDragStartPos = null;
+        return;
+      }
+
+      this.touchDragSourceHex = null;
+      this.isTouchDraggingAction = false;
+      this.touchDragStartPos = null;
 
       // Right-click: Target for movement, attack, orientation change, or cancel ability targeting
       if (e.button === 2) {
@@ -790,22 +905,15 @@ export class BattleView3D {
           return;
         }
         if (!this.hoveredHex) {
-          const hits = this.sceneManager.raycastFromScreen(e.clientX, e.clientY, [this.hexBoard.group]);
-          if (hits.length > 0) {
-            const hitTile = hits.find((h) => (h.object as any).userData?.isHexTile);
-            if (hitTile) {
-              const { hexX, hexY } = (hitTile.object as any).userData;
-              this.hoveredHex = { x: hexX, y: hexY };
-              const centerWorld = this.hexBoard.hexToWorld(hexX, hexY);
-              const dx = hitTile.point.x - centerWorld.x;
-              const dz = hitTile.point.z - centerWorld.z;
-              this.hoveredDirection = this.hexBoard.worldVectorToHexDirection(dx, dz);
-            }
+          const hit = this.raycastHexAt(e.clientX, e.clientY);
+          if (hit) {
+            this.hoveredHex = hit.hex;
+            this.hoveredDirection = hit.direction;
           }
         }
 
         if (this.hoveredHex) {
-          this.battle.handleSecondaryCellAction(this.hoveredHex, this.hoveredDirection, e.ctrlKey);
+          this.battle.handleSecondaryCellAction(this.hoveredHex, this.hoveredDirection, !!e.ctrlKey);
           const active = this.battle.getActiveCreature();
           if (active) {
             const squad = this.squadVisuals.get(active.GUID.toString());
@@ -821,6 +929,11 @@ export class BattleView3D {
       const stageCoords = this.getStageCoords(e.clientX, e.clientY);
       this.hud?.updateCursorPosition(stageCoords);
 
+      if (this.pinchHandler?.isPinching()) {
+        this.touchDragSourceHex = null;
+        this.isTouchDraggingAction = false;
+      }
+
       if (this.isPointerDown) {
         const dx = e.clientX - this.lastPointerPos.x;
         const dy = e.clientY - this.lastPointerPos.y;
@@ -828,6 +941,11 @@ export class BattleView3D {
         if (this.pointerButton === 1) {
           // Middle-click drag: Pan camera
           this.sceneManager.panCamera(-dx * 0.02, -dy * 0.02);
+        } else if (this.touchDragSourceHex && this.touchDragStartPos) {
+          const dragDist = Math.hypot(e.clientX - this.touchDragStartPos.x, e.clientY - this.touchDragStartPos.y);
+          if (dragDist > 8) {
+            this.isTouchDraggingAction = true;
+          }
         }
         this.lastPointerPos = { x: e.clientX, y: e.clientY };
       }
@@ -837,23 +955,13 @@ export class BattleView3D {
         return;
       }
 
-      // Raycast hover hex
-      const hits = this.sceneManager.raycastFromScreen(e.clientX, e.clientY, [this.hexBoard.group]);
-      if (hits.length > 0) {
-        const hitTile = hits.find((h) => (h.object as any).userData?.isHexTile);
-        if (hitTile) {
-          const { hexX, hexY } = (hitTile.object as any).userData;
-          this.hoveredHex = { x: hexX, y: hexY };
-
-          const centerWorld = this.hexBoard.hexToWorld(hexX, hexY);
-          const dx = hitTile.point.x - centerWorld.x;
-          const dz = hitTile.point.z - centerWorld.z;
-          this.hoveredDirection = this.hexBoard.worldVectorToHexDirection(dx, dz);
-
-          this.battle.onMouseOverCell(this.hoveredHex, this.hoveredDirection, e.ctrlKey);
-          this.updateHoverVisuals();
-          return;
-        }
+      const hit = this.raycastHexAt(e.clientX, e.clientY);
+      if (hit) {
+        this.hoveredHex = hit.hex;
+        this.hoveredDirection = hit.direction;
+        this.battle.onMouseOverCell(this.hoveredHex, this.hoveredDirection, !!e.ctrlKey);
+        this.updateHoverVisuals();
+        return;
       }
       this.clearHoverState();
     };
@@ -868,6 +976,10 @@ export class BattleView3D {
     };
 
     this.boundClick = (e: MouseEvent) => {
+      if (this.suppressNextClick) {
+        this.suppressNextClick = false;
+        return;
+      }
       if (this.pinchHandler?.shouldSuppressClick()) {
         return;
       }
@@ -883,17 +995,10 @@ export class BattleView3D {
 
       if (e.button === 0) {
         if (!this.hoveredHex) {
-          const hits = this.sceneManager.raycastFromScreen(e.clientX, e.clientY, [this.hexBoard.group]);
-          if (hits.length > 0) {
-            const hitTile = hits.find((h) => (h.object as any).userData?.isHexTile);
-            if (hitTile) {
-              const { hexX, hexY } = (hitTile.object as any).userData;
-              this.hoveredHex = { x: hexX, y: hexY };
-              const centerWorld = this.hexBoard.hexToWorld(hexX, hexY);
-              const dx = hitTile.point.x - centerWorld.x;
-              const dz = hitTile.point.z - centerWorld.z;
-              this.hoveredDirection = this.hexBoard.worldVectorToHexDirection(dx, dz);
-            }
+          const hit = this.raycastHexAt(e.clientX, e.clientY);
+          if (hit) {
+            this.hoveredHex = hit.hex;
+            this.hoveredDirection = hit.direction;
           }
         }
 
@@ -927,6 +1032,11 @@ export class BattleView3D {
 
     this.pinchHandler = new PinchGestureHandler({
       isEnabled: () => !this.battle.isCurrentTurnAI(),
+      onPinchStart: () => {
+        this.touchDragSourceHex = null;
+        this.isTouchDraggingAction = false;
+        this.clearHoverState?.();
+      },
       onPinchZoom: (event) => {
         const stageCoords = this.getStageCoords(event.center.x, event.center.y);
         if (this.hud?.isPointerOverUI(stageCoords.x, stageCoords.y)) {
@@ -943,6 +1053,11 @@ export class BattleView3D {
         // Pan camera with two-finger drag
         if (Math.abs(event.deltaCenter.x) > 0.5 || Math.abs(event.deltaCenter.y) > 0.5) {
           this.sceneManager.panCamera(-event.deltaCenter.x * 0.02, -event.deltaCenter.y * 0.02);
+        }
+
+        // Rotate battle map with two-finger pinch-and-rotate gesture
+        if (Math.abs(event.deltaAngle) > 0.002) {
+          this.sceneManager.rotateCamera(event.deltaAngle);
         }
       },
     });

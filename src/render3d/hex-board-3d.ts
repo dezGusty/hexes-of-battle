@@ -1,7 +1,16 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { HexDirection, HexFlankStatus, HexMap, HexMapHelpers } from '../shared/hex-map';
 import { Coords } from '../shared';
 import { TerrainType } from '../battle/terrain-types';
+import {
+  AVERAGE_UNIT_3D_HEIGHT,
+  FOREST_TREE_TARGET_HEIGHT,
+  buildLowPolyForestTreeMesh,
+  getTreePartTexture,
+  applyTreeUVMapping,
+  smoothGeometryNormals,
+} from './units/unit-mesh-builder';
 
 export interface HexBoard3DOptions {
   showGrid?: boolean;
@@ -25,9 +34,13 @@ export class HexBoard3D {
   public readonly hexHeight: number = 0.25;
 
   private tileMeshes: Map<string, THREE.Mesh> = new Map();
+  private tileMeshList: THREE.Mesh[] = [];
   private overlayMeshes: Map<string, THREE.Mesh> = new Map();
   private gridBordersGroup: THREE.Group = new THREE.Group();
   private coordsGroup: THREE.Group = new THREE.Group();
+  public readonly forestTreesGroup: THREE.Group = new THREE.Group();
+  private forestTreesByHex: Map<string, THREE.Object3D[]> = new Map();
+  private forestTreeTemplates: { pine?: THREE.Object3D; oak?: THREE.Object3D } = {};
   private hoverMesh: THREE.Mesh;
   private selectedRingMesh: THREE.Mesh;
   private facingIndicatorGroup: THREE.Group = new THREE.Group();
@@ -86,6 +99,7 @@ export class HexBoard3D {
     this.pathPreviewGroup.name = 'PathPreview';
     this.gridBordersGroup.name = 'GridBorders';
     this.coordsGroup.name = 'CoordsLabels';
+    this.forestTreesGroup.name = 'ForestTrees';
 
     this.hoverMesh = this.createHighlightHexMesh(0xffffff, 0.4);
     this.hoverMesh.name = 'TileHoverMesh';
@@ -104,6 +118,7 @@ export class HexBoard3D {
     this.group.add(this.rangePerimeterGroup);
     this.group.add(this.gridBordersGroup);
     this.group.add(this.coordsGroup);
+    this.group.add(this.forestTreesGroup);
 
     this.buildBoard();
   }
@@ -143,6 +158,62 @@ export class HexBoard3D {
     basePath: string = 'textures/terrain/'
   ): Promise<void> {
     if (typeof document === 'undefined') return;
+
+    // Load optional Blender-exported low-poly forest tree GLB templates
+    try {
+      const gltfLoader = new GLTFLoader();
+      const applyTreeGlbMaterials = (root: THREE.Object3D, variant: 'pine' | 'oak') => {
+        root.traverse((child) => {
+          if ((child as THREE.Mesh).isMesh) {
+            const mesh = child as THREE.Mesh;
+            const isTrunk = mesh.name.toLowerCase().includes('trunk');
+            if (!mesh.geometry.getAttribute('uv')) {
+              applyTreeUVMapping(
+                mesh.geometry,
+                isTrunk ? 'trunk' : variant === 'pine' ? 'pine_foliage' : 'oak_foliage'
+              );
+            }
+            smoothGeometryNormals(mesh.geometry);
+            const mat = mesh.material as THREE.MeshStandardMaterial;
+            if (mat) {
+              mat.flatShading = false;
+              if (!mat.map) {
+                mat.map = getTreePartTexture(isTrunk ? 'bark' : 'foliage');
+                if (isTrunk) {
+                  mat.color.setHex(0xffffff);
+                }
+              }
+              mat.needsUpdate = true;
+            }
+          }
+        });
+      };
+      const loadTreeGlb = (url: string) =>
+        new Promise<THREE.Object3D>((resolve, reject) => {
+          gltfLoader.load(
+            url,
+            (gltf) => resolve(gltf.scene),
+            undefined,
+            (err) => reject(err)
+          );
+        });
+      await Promise.all([
+        loadTreeGlb('models/terrain/forest_pine.glb')
+          .then((scene) => {
+            applyTreeGlbMaterials(scene, 'pine');
+            this.forestTreeTemplates.pine = scene;
+          })
+          .catch(() => {}),
+        loadTreeGlb('models/terrain/forest_oak.glb')
+          .then((scene) => {
+            applyTreeGlbMaterials(scene, 'oak');
+            this.forestTreeTemplates.oak = scene;
+          })
+          .catch(() => {}),
+      ]);
+    } catch {
+      // Fallback procedural low-poly tree builder remains active
+    }
 
     try {
       const loader = new THREE.TextureLoader();
@@ -187,13 +258,21 @@ export class HexBoard3D {
     }
   }
 
+  public getTileMeshes(): THREE.Object3D[] {
+    return this.tileMeshList;
+  }
+
   public rebuildBoard(): void {
     // Remove existing tile meshes
     this.tileMeshes.forEach((m) => {
       this.group.remove(m);
-      m.geometry.dispose();
+      if (!m.geometry.userData?.isSharedAsset) {
+        m.geometry.dispose();
+      }
     });
     this.tileMeshes.clear();
+    this.tileMeshList = [];
+    this.clearForestTrees();
     this.buildBoard();
   }
 
@@ -523,6 +602,19 @@ export class HexBoard3D {
       this.hexHeight,
       6
     );
+    hexGeometry.userData = { isSharedAsset: true };
+
+    const sharedHexEdges = new THREE.EdgesGeometry(hexGeometry);
+    sharedHexEdges.userData = { isSharedAsset: true };
+
+    const sharedEdgeLineMat = new THREE.LineBasicMaterial({
+      color: 0x182a20,
+      transparent: true,
+      opacity: 0.6,
+    });
+    sharedEdgeLineMat.userData = { isSharedAsset: true };
+
+    this.tileMeshList = [];
 
     for (let x = 0; x < this.hexMap.width; x++) {
       for (let y = 0; y < this.hexMap.height; y++) {
@@ -546,10 +638,9 @@ export class HexBoard3D {
 
           // Crease wireframe outlining the mesa plateau rim
           const edges = new THREE.EdgesGeometry(hillGeometry, 25);
-          const line = new THREE.LineSegments(
-            edges,
-            new THREE.LineBasicMaterial({ color: 0x182a20, transparent: true, opacity: 0.6 })
-          );
+          const line = new THREE.LineSegments(edges, sharedEdgeLineMat);
+          line.updateMatrix();
+          line.matrixAutoUpdate = false;
           mesh.add(line);
         } else {
           let elevation = 0;
@@ -564,22 +655,124 @@ export class HexBoard3D {
           mesh.receiveShadow = true;
           mesh.userData = { hexX: x, hexY: y, isHexTile: true };
 
-          // Subtle edge wireframe
-          const edges = new THREE.EdgesGeometry(hexGeometry);
-          const line = new THREE.LineSegments(
-            edges,
-            new THREE.LineBasicMaterial({ color: 0x182a20, transparent: true, opacity: 0.6 })
-          );
+          // Subtle edge wireframe sharing geometry and material
+          const line = new THREE.LineSegments(sharedHexEdges, sharedEdgeLineMat);
+          line.updateMatrix();
+          line.matrixAutoUpdate = false;
           mesh.add(line);
         }
 
+        mesh.updateMatrix();
+        mesh.matrixAutoUpdate = false;
         this.group.add(mesh);
+        mesh.updateMatrixWorld(true);
+
         this.tileMeshes.set(`${x},${y}`, mesh);
+        this.tileMeshList.push(mesh);
+
+        if (terrain === TerrainType.FOREST) {
+          this.populateForestTreesForHex(x, y, pos, this.getHexElevation(x, y));
+        }
       }
     }
 
     this.rebuildGridBorders();
     this.rebuildCoords();
+  }
+
+  /**
+   * Populates a deterministic cluster of 3 to 5 low-poly 3D trees on a FOREST hex.
+   * Each tree is ~75% as tall as the average humanoid unit (FOREST_TREE_TARGET_HEIGHT = 0.90
+   * vs AVERAGE_UNIT_3D_HEIGHT = 1.20), arranged toward the outer ring of the hex so
+   * units occupying the forest remain clearly visible.
+   */
+  private populateForestTreesForHex(
+    x: number,
+    y: number,
+    worldPos: THREE.Vector3,
+    elevation: number
+  ): void {
+    const key = `${x},${y}`;
+    const tileSeed = ((x * 73856093) ^ (y * 19349663)) >>> 0;
+    const treeCount = 3 + (tileSeed % 3); // 3, 4, or 5 trees per forest hex
+    const baseAngleOffset = ((tileSeed % 360) * Math.PI) / 180;
+    const treesForHex: THREE.Object3D[] = [];
+
+    // Symmetric scale variations around 1.0 so the average height is exactly 0.75 * AVERAGE_UNIT_3D_HEIGHT
+    const scaleOffsets = [0.0, -0.06, 0.06, -0.04, 0.04];
+
+    for (let i = 0; i < treeCount; i++) {
+      const subSeed = (((tileSeed + i * 2654435761) >>> 0) % 1000) / 1000;
+      const variant: 'pine' | 'oak' = (tileSeed + i) % 2 === 0 ? 'pine' : 'oak';
+      const heightScale = 1.0 + scaleOffsets[i % scaleOffsets.length];
+      const treeHeight = FOREST_TREE_TARGET_HEIGHT * heightScale;
+
+      let treeObj: THREE.Object3D;
+      const glbTpl = variant === 'pine' ? this.forestTreeTemplates.pine : this.forestTreeTemplates.oak;
+      if (glbTpl) {
+        treeObj = glbTpl.clone(true);
+        treeObj.scale.set(heightScale, heightScale, heightScale);
+      } else {
+        treeObj = buildLowPolyForestTreeMesh(variant, heightScale);
+      }
+
+      // Place trees along the outer ring (0.50 .. 0.74 * hexRadius) with angular spacing
+      const angle =
+        baseAngleOffset + (i * 2 * Math.PI) / treeCount + (subSeed - 0.5) * 0.32;
+      const radialDist = this.hexRadius * (0.52 + (subSeed * 0.22));
+      const tx = worldPos.x + Math.cos(angle) * radialDist;
+      const tz = worldPos.z + Math.sin(angle) * radialDist;
+
+      treeObj.position.set(tx, worldPos.y + elevation, tz);
+      treeObj.rotation.y = subSeed * Math.PI * 2;
+      treeObj.userData = {
+        ...treeObj.userData,
+        isForestTree: true,
+        treeVariant: variant,
+        hexX: x,
+        hexY: y,
+        treeHeight,
+        averageUnitHeight: AVERAGE_UNIT_3D_HEIGHT,
+        relativeToUnitHeight: treeHeight / AVERAGE_UNIT_3D_HEIGHT,
+      };
+
+      treeObj.traverse((child) => {
+        child.updateMatrix();
+        child.matrixAutoUpdate = false;
+      });
+      this.forestTreesGroup.add(treeObj);
+      treeObj.updateMatrixWorld(true);
+      treesForHex.push(treeObj);
+    }
+
+    this.forestTreesByHex.set(key, treesForHex);
+  }
+
+  public getForestTreesForHex(x: number, y: number): THREE.Object3D[] {
+    return this.forestTreesByHex.get(`${x},${y}`) ?? [];
+  }
+
+  private clearForestTrees(): void {
+    while (this.forestTreesGroup.children.length > 0) {
+      const child = this.forestTreesGroup.children[0];
+      this.forestTreesGroup.remove(child);
+      child.traverse((node) => {
+        if ((node as THREE.Mesh).isMesh) {
+          const mesh = node as THREE.Mesh;
+          if (mesh.geometry && !mesh.geometry.userData?.isSharedAsset) {
+            mesh.geometry.dispose();
+          }
+          if (Array.isArray(mesh.material)) {
+            mesh.material.forEach((m) => {
+              if (!m.userData?.isSharedAsset) m.dispose();
+            });
+          } else if (mesh.material && !mesh.material.userData?.isSharedAsset) {
+            mesh.material.dispose();
+          }
+        }
+      });
+    }
+    this.forestTreesByHex.clear();
   }
 
   public setGridVisible(visible: boolean): void {
@@ -630,6 +823,10 @@ export class HexBoard3D {
 
     if (typeof document === 'undefined') return;
 
+    const sharedCoordGeo = new THREE.PlaneGeometry(0.85, 0.42);
+    sharedCoordGeo.rotateX(-Math.PI * 0.5);
+    sharedCoordGeo.userData = { isSharedAsset: true };
+
     for (let x = 0; x < this.hexMap.width; x++) {
       for (let y = 0; y < this.hexMap.height; y++) {
         const elevation = this.getHexElevation(x, y);
@@ -666,12 +863,11 @@ export class HexBoard3D {
             depthTest: true,
           });
 
-          const geo = new THREE.PlaneGeometry(0.85, 0.42);
-          geo.rotateX(-Math.PI * 0.5);
-
-          const mesh = new THREE.Mesh(geo, mat);
+          const mesh = new THREE.Mesh(sharedCoordGeo, mat);
           const pos = this.hexToWorld(x, y);
           mesh.position.set(pos.x, pos.y + elevation + 0.005, pos.z);
+          mesh.updateMatrix();
+          mesh.matrixAutoUpdate = false;
           this.coordsGroup.add(mesh);
         }
       }
@@ -717,10 +913,14 @@ export class HexBoard3D {
 
           const hillBorderMesh = new THREE.Mesh(hillRingGeo, borderMat);
           hillBorderMesh.position.set(pos.x, pos.y + elevation + 0.003, pos.z);
+          hillBorderMesh.updateMatrix();
+          hillBorderMesh.matrixAutoUpdate = false;
           this.gridBordersGroup.add(hillBorderMesh);
         } else {
           const borderMesh = new THREE.Mesh(ringGeo, borderMat);
           borderMesh.position.set(pos.x, pos.y + elevation + 0.003, pos.z);
+          borderMesh.updateMatrix();
+          borderMesh.matrixAutoUpdate = false;
           this.gridBordersGroup.add(borderMesh);
         }
       }
@@ -799,14 +999,14 @@ export class HexBoard3D {
     const arrowMat = new THREE.MeshBasicMaterial({ color: 0xffe066 });
     const arrowMesh = new THREE.Mesh(arrowGeo, arrowMat);
 
-    // Position arrow on outer edge of hex in facing direction (pointy-topped)
+    // Position arrow on outer edge midpoint of hex in facing direction (pointy-topped)
     const angleMap: Record<HexDirection, number> = {
       [HexDirection.EAST]: 0,
-      [HexDirection.SOUTHEAST]: Math.PI / 6,
-      [HexDirection.SOUTHWEST]: (5 * Math.PI) / 6,
+      [HexDirection.SOUTHEAST]: Math.PI / 3,
+      [HexDirection.SOUTHWEST]: (2 * Math.PI) / 3,
       [HexDirection.WEST]: Math.PI,
-      [HexDirection.NORTHWEST]: (7 * Math.PI) / 6,
-      [HexDirection.NORTHEAST]: (11 * Math.PI) / 6,
+      [HexDirection.NORTHWEST]: (4 * Math.PI) / 3,
+      [HexDirection.NORTHEAST]: (5 * Math.PI) / 3,
       [HexDirection.NONE]: 0,
     };
     const angle = angleMap[facing] ?? 0;
@@ -1254,6 +1454,8 @@ export class HexBoard3D {
       this.group.remove(m);
       m.geometry.dispose();
     });
+    this.tileMeshes.clear();
+    this.tileMeshList = [];
     while (this.gridBordersGroup.children.length > 0) {
       const child = this.gridBordersGroup.children[0] as THREE.Mesh;
       this.gridBordersGroup.remove(child);
@@ -1275,6 +1477,7 @@ export class HexBoard3D {
         }
       }
     }
+    this.clearForestTrees();
     this.clearReachOverlays();
     this.clearRangePerimeter();
     this.clearAttackPreview();

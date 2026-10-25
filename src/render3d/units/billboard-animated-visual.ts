@@ -40,8 +40,8 @@ export class BillboardAnimatedVisual implements IUnitVisual {
 
   constructor(options: BillboardAnimatedOptions) {
     this.options = options;
-    const width = options.width ?? 0.8;
-    const height = options.height ?? 1.4;
+    const width = options.width ?? 0.56;
+    const height = options.height ?? 0.98;
 
     const geometry = new THREE.PlaneGeometry(width, height);
     geometry.translate(0, height * 0.5, 0);

@@ -1101,8 +1101,57 @@ describe("Redesigned Medieval Battle UI (Combined Stats, Abilities, Scrollable P
     expect(panel.triggerRest()).toBe(true);
     expect(restClicked).toBe(1);
   });
+
+  it("should position the combined panel and common action buttons at the bottom of the screen and horizontally centered across all resolutions (including square 1920x1920)", () => {
+    Assets.cache.set("thin_button_normal.png", Texture.WHITE);
+    Assets.cache.set("thin_button_hover.png", Texture.WHITE);
+    Assets.cache.set("thin_button_pressed.png", Texture.WHITE);
+
+    const container = new Container();
+    const panel = new UnitStatsPanel(container, createDummyUiSheet());
+    const controls = new CommonControls({ zoomMin: 75, zoomMax: 200, zoomStep: 5, zoomValue: 100 });
+    controls.initializeButtons();
+    panel.bindCommonControls(controls);
+
+    // 1. Standard 1920x1080 (minScale = 1): stage viewport is 1920x1080
+    panel.layoutForScreenSize(1920, 1080);
+    expect(panel.window.x).toBe(40); // (1920 - 1840) / 2
+    expect(panel.window.y).toBe(936); // 1080 - 140 - 4
+    expect(controls.restButton!.x).toBe(40 + 1520);
+    expect(controls.restButton!.y).toBe(936 + 30);
+    expect(controls.nextUnitButton!.x).toBe(40 + 1520);
+    expect(controls.nextUnitButton!.y).toBe(936 + 82);
+    expect(controls.nextTurnButton!.x).toBe(40 + 1662);
+    expect(controls.nextTurnButton!.y).toBe(936 + 26);
+
+    // 2. Square 1920x1920 (minScale = min(1920/1920, 1920/1080) = 1): stage viewport is 1920x1920
+    panel.layoutForScreenSize(1920, 1920);
+    expect(panel.window.x).toBe(40); // Horizontally centered: (1920 - 1840) / 2
+    expect(panel.window.y).toBe(1776); // Bottom of 1920x1920 screen: 1920 - 140 - 4
+    expect(controls.restButton!.x).toBe(40 + 1520);
+    expect(controls.restButton!.y).toBe(1776 + 30);
+    expect(controls.nextUnitButton!.x).toBe(40 + 1520);
+    expect(controls.nextUnitButton!.y).toBe(1776 + 82);
+    expect(controls.nextTurnButton!.x).toBe(40 + 1662);
+    expect(controls.nextTurnButton!.y).toBe(1776 + 26);
+
+    // Ensure setRestApplicable preserves the bottom-anchored Y coordinate on 1920x1920
+    controls.setRestApplicable(false);
+    expect(controls.restButton!.x).toBe(40 + 1520);
+    expect(controls.restButton!.y).toBe(1776 + 30);
+
+    // 3. Smaller square 960x960 (minScale = min(960/1920, 960/1080) = 0.5): stage viewport is 1920x1920
+    panel.layoutForScreenSize(960, 960);
+    expect(panel.window.x).toBe(40);
+    expect(panel.window.y).toBe(1776);
+
+    // 4. Ultrawide 2560x1080 (minScale = min(2560/1920, 1080/1080) = 1): stage viewport is 2560x1080
+    panel.layoutForScreenSize(2560, 1080);
+    expect(panel.window.x).toBe(360); // Horizontally centered: (2560 - 1840) / 2
+    expect(panel.window.y).toBe(936); // Bottom of 1080 height: 1080 - 140 - 4
+    expect(controls.restButton!.x).toBe(360 + 1520);
+    expect(controls.restButton!.y).toBe(936 + 30);
+    expect(controls.nextTurnButton!.x).toBe(360 + 1662);
+    expect(controls.nextTurnButton!.y).toBe(936 + 26);
+  });
 });
-
-
-
-

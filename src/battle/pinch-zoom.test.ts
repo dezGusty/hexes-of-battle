@@ -9,7 +9,8 @@ vi.mock("@pixi/sound", () => ({
 
 import { BattleInputController } from './battle-input-controller';
 import { Battle } from '../battle';
-import { HexMap } from '../shared/hex-map';
+import { HexDirection, HexMap } from '../shared/hex-map';
+import { Creature, CreatureType } from './creature';
 import { BattleView3D } from '../render3d/battle-view-3d';
 
 describe('Pinch Gesture Zoom Functionality', () => {
@@ -190,6 +191,96 @@ describe('Pinch Gesture Zoom Functionality', () => {
 
       controller.detach();
     });
+
+    it('should allow mobile users to select a friendly squad, drag finger onto target hex, and release to execute move/attack in 2D mode', () => {
+      const docTarget = new EventTarget();
+      (globalThis as any).document = docTarget;
+
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+      battle.initializeToSize(10, 8);
+
+      const swordsman = new Creature(CreatureType.SWORDSMAN);
+      swordsman.armyAlignment = 0;
+      swordsman.position = { x: 2, y: 2 };
+
+      const enemy = new Creature(CreatureType.ARCHER);
+      enemy.armyAlignment = 1;
+      enemy.position = { x: 3, y: 2 };
+
+      battle.creatures = [swordsman, enemy];
+      battle.currentArmyIndex = 0;
+      battle.activeCreatureIndex = -1;
+
+      const secondaryActionSpy = vi.spyOn(battle, 'handleSecondaryCellAction');
+      const mouseOverSpy = vi.spyOn(battle, 'onMouseOverCell');
+      const primaryActionSpy = vi.spyOn(battle, 'handlePrimaryCellAction');
+
+      const dummyCamera = {
+        panBy: vi.fn(),
+        zoomBy: vi.fn(),
+        zoomStep: 0.1,
+        screenToWorldCoords: (coords: { x: number; y: number }) => {
+          if (Math.hypot(coords.x - 100, coords.y - 100) < 30) {
+            return { x: 200, y: 200 };
+          }
+          return { x: 300, y: 200 };
+        },
+        screenToStageCoords: (coords: { x: number; y: number }) => coords,
+        stageToWorldCoords: (coords: { x: number; y: number }) => {
+          if (Math.hypot(coords.x - 100, coords.y - 100) < 30) {
+            return { x: 200, y: 200 };
+          }
+          return { x: 300, y: 200 };
+        },
+      };
+
+      vi.spyOn(hexMap, 'pixelToHexWithDirectionalDetail').mockImplementation((x: number, y: number) => {
+        if (x === 200 && y === 200) {
+          return { cell: { x: 2, y: 2 }, direction: HexDirection.EAST };
+        }
+        return { cell: { x: 3, y: 2 }, direction: HexDirection.EAST };
+      });
+
+      const controller = new BattleInputController(battle, hexMap, {
+        isMenuBlockingInput: () => false,
+        onCursorMove: vi.fn(),
+        onClearHover: vi.fn(),
+        getCamera: () => dummyCamera as any,
+        getStageOffsetAndScale: () => ({ offset: { x: 0, y: 0 }, scale: { x: 1, y: 1 } }),
+        getScreenSize: () => ({ width: 1000, height: 800 }),
+      });
+
+      controller.attach();
+
+      const createMouseEvent = (type: string, clientX: number, clientY: number, button = 0) => {
+        const ev = new Event(type, { cancelable: true }) as any;
+        ev.clientX = clientX;
+        ev.clientY = clientY;
+        ev.button = button;
+        return ev;
+      };
+
+      // 1. Touch start / mousedown on friendly unit at (100, 100) -> selects unit
+      docTarget.dispatchEvent(createMouseEvent('mousedown', 100, 100, 0));
+      expect(primaryActionSpy).toHaveBeenCalledWith({ x: 2, y: 2 }, HexDirection.EAST);
+      expect(battle.activeCreatureIndex).toBe(0);
+
+      // 2. Drag finger onto target hex (3, 2) at (300, 100)
+      docTarget.dispatchEvent(createMouseEvent('mousemove', 300, 100));
+      expect(mouseOverSpy).toHaveBeenCalledWith({ x: 3, y: 2 }, HexDirection.EAST, false);
+
+      // 3. Lift finger on target hex -> triggers secondary action
+      docTarget.dispatchEvent(createMouseEvent('mouseup', 300, 100, 0));
+      expect(secondaryActionSpy).toHaveBeenCalledWith({ x: 3, y: 2 }, HexDirection.EAST, false);
+
+      // 4. Subsequent click is suppressed
+      primaryActionSpy.mockClear();
+      docTarget.dispatchEvent(createMouseEvent('click', 300, 100, 0));
+      expect(primaryActionSpy).not.toHaveBeenCalled();
+
+      controller.detach();
+    });
   });
 
   describe('3D BattleView3D Pinch-to-Zoom', () => {
@@ -204,6 +295,7 @@ describe('Pinch Gesture Zoom Functionality', () => {
         battle: { isCurrentTurnAI: () => false },
         hud: { isPointerOverUI: () => false },
         getStageCoords: () => ({ x: 500, y: 300 }),
+        clearHoverState: vi.fn(),
         sceneManager: {
           zoomCamera: zoomCameraSpy,
           panCamera: panCameraSpy,

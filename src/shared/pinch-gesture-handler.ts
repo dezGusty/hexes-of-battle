@@ -6,6 +6,8 @@ export interface PinchZoomEvent {
   center: Coords;
   deltaCenter: Coords;
   scale: number;
+  deltaAngle: number; // rotation in radians between current and previous touch frames (normalized [-PI, PI])
+  currentAngle: number; // current angle in radians between touch fingers
   originalEvent: TouchEvent;
 }
 
@@ -20,6 +22,7 @@ export interface PinchGestureOptions {
 export class PinchGestureHandler {
   private lastDistance: number | null = null;
   private lastCenter: Coords | null = null;
+  private lastAngle: number | null = null;
   private isPinchActive: boolean = false;
   private suppressClickUntil: number = 0;
 
@@ -76,8 +79,10 @@ export class PinchGestureHandler {
         x: (t0.clientX + t1.clientX) / 2,
         y: (t0.clientY + t1.clientY) / 2,
       };
+      const angle = Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX);
       this.lastDistance = dist;
       this.lastCenter = center;
+      this.lastAngle = angle;
       this.isPinchActive = true;
       this.options.onPinchStart?.(center, dist);
     } else {
@@ -100,6 +105,7 @@ export class PinchGestureHandler {
         x: (t0.clientX + t1.clientX) / 2,
         y: (t0.clientY + t1.clientY) / 2,
       };
+      const curAngle = Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX);
 
       const deltaDistance = curDist - this.lastDistance;
       const deltaCenter: Coords = {
@@ -107,6 +113,10 @@ export class PinchGestureHandler {
         y: curCenter.y - this.lastCenter.y,
       };
       const scale = this.lastDistance > 0 ? curDist / this.lastDistance : 1;
+
+      let deltaAngle = curAngle - (this.lastAngle ?? curAngle);
+      while (deltaAngle > Math.PI) deltaAngle -= Math.PI * 2;
+      while (deltaAngle < -Math.PI) deltaAngle += Math.PI * 2;
 
       const suppression = this.options.clickSuppressionTimeMs ?? 300;
       this.suppressClickUntil = Date.now() + suppression;
@@ -118,11 +128,14 @@ export class PinchGestureHandler {
         center: curCenter,
         deltaCenter,
         scale,
+        deltaAngle,
+        currentAngle: curAngle,
         originalEvent: e,
       });
 
       this.lastDistance = curDist;
       this.lastCenter = curCenter;
+      this.lastAngle = curAngle;
     }
   }
 
@@ -144,6 +157,7 @@ export class PinchGestureHandler {
   public reset(): void {
     this.lastDistance = null;
     this.lastCenter = null;
+    this.lastAngle = null;
     this.isPinchActive = false;
   }
 }

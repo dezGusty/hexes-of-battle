@@ -167,6 +167,10 @@ export class BattleScene3D implements Scene {
         }
       },
     });
+    this.hud.resize?.(
+      context.app?.screen?.width || (typeof window !== 'undefined' && window.innerWidth > 0 ? window.innerWidth : 1920),
+      context.app?.screen?.height || (typeof window !== 'undefined' && window.innerHeight > 0 ? window.innerHeight : 1080)
+    );
 
     this.view.setHud(this.hud, () => ({
       offset: this.context.stage.position,
@@ -212,7 +216,8 @@ export class BattleScene3D implements Scene {
   }
 
   public resize(width: number, height: number): void {
-    this.view?.resize(width, height);
+    this.view?.resize?.(width, height);
+    this.hud?.resize?.(width, height);
   }
 
   public exit(): void {

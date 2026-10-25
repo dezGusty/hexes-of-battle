@@ -9,10 +9,17 @@ import { drawMedievalBestiaryMotif, drawMetallicRivet } from "./medieval-ui-deco
  * - Menu, Reset
  */
 export class CommonControls {
+  public static readonly DEFAULT_PANEL_ORIGIN = { x: 40, y: 936 };
+  public static readonly REST_LOCAL_OFFSET = { x: 1520, y: 30 };
+  public static readonly NEXT_UNIT_LOCAL_OFFSET = { x: 1520, y: 82 };
+  public static readonly END_TURN_LOCAL_OFFSET = { x: 1662, y: 26 };
+
   public static readonly COMMON_ACTIONS_STAGE_ORIGIN = { x: 1560, y: 962 };
   public static readonly REST_BUTTON_BOUNDS = { x: 1560, y: 966, width: 132, height: 46 };
   public static readonly NEXT_UNIT_BUTTON_BOUNDS = { x: 1560, y: 1018, width: 132, height: 46 };
   public static readonly END_TURN_BUTTON_BOUNDS = { x: 1702, y: 962, width: 160, height: 104 };
+
+  private panelOrigin: { x: number; y: number } = { ...CommonControls.DEFAULT_PANEL_ORIGIN };
 
   public menuButton?: FancyButton;
 
@@ -222,16 +229,42 @@ export class CommonControls {
     });
   }
 
+  public getPanelOrigin(): { x: number; y: number } {
+    return { ...this.panelOrigin };
+  }
+
+  public setPanelOrigin(panelX: number, panelY: number): void {
+    this.panelOrigin = { x: panelX, y: panelY };
+    if (this.restButton) {
+      this.restButton.position.set(
+        panelX + CommonControls.REST_LOCAL_OFFSET.x,
+        panelY + CommonControls.REST_LOCAL_OFFSET.y
+      );
+    }
+    if (this.nextUnitButton) {
+      this.nextUnitButton.position.set(
+        panelX + CommonControls.NEXT_UNIT_LOCAL_OFFSET.x,
+        panelY + CommonControls.NEXT_UNIT_LOCAL_OFFSET.y
+      );
+    }
+    if (this.nextTurnButton) {
+      this.nextTurnButton.position.set(
+        panelX + CommonControls.END_TURN_LOCAL_OFFSET.x,
+        panelY + CommonControls.END_TURN_LOCAL_OFFSET.y
+      );
+    }
+  }
+
   /**
    * Updates the Rest button's active/deactivated state while keeping it visible and in the same spot.
    */
   public setRestApplicable(canRest: boolean): void {
     this.isRestEnabled = canRest;
     if (!this.restButton) return;
-    // Always keep Rest button in the exact same spot and always shown
+    // Always keep Rest button in the exact same spot inside the panel and always shown
     this.restButton.position.set(
-      CommonControls.REST_BUTTON_BOUNDS.x,
-      CommonControls.REST_BUTTON_BOUNDS.y
+      this.panelOrigin.x + CommonControls.REST_LOCAL_OFFSET.x,
+      this.panelOrigin.y + CommonControls.REST_LOCAL_OFFSET.y
     );
     this.restButton.visible = true;
     this.restButton.enabled = canRest;

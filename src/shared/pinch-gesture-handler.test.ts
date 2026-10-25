@@ -212,4 +212,84 @@ describe('PinchGestureHandler', () => {
 
     handler.detach();
   });
+
+  it('should track two-finger rotation gesture and report currentAngle and deltaAngle', () => {
+    let lastZoomEvent: PinchZoomEvent | undefined;
+    const handler = new PinchGestureHandler({
+      onPinchZoom: (ev) => {
+        lastZoomEvent = ev;
+      },
+    });
+    handler.attach(target);
+
+    // Initial fingers: horizontal from (100, 100) to (200, 100) -> angle = 0 radians
+    target.dispatchEvent(
+      createMockTouchEvent('touchstart', [
+        { clientX: 100, clientY: 100 },
+        { clientX: 200, clientY: 100 },
+      ])
+    );
+
+    // Rotate fingers 45 degrees clockwise: (114.64, 64.64) to (185.36, 135.36)
+    // dx = 70.71, dy = 70.71 -> angle = PI / 4 (~0.785 rad)
+    target.dispatchEvent(
+      createMockTouchEvent('touchmove', [
+        { clientX: 114.64, clientY: 64.64 },
+        { clientX: 185.36, clientY: 135.36 },
+      ])
+    );
+
+    expect(lastZoomEvent).toBeDefined();
+    expect(lastZoomEvent!.currentAngle).toBeCloseTo(Math.PI / 4, 2);
+    expect(lastZoomEvent!.deltaAngle).toBeCloseTo(Math.PI / 4, 2);
+
+    // Further rotate to vertical: (150, 50) to (150, 150) -> angle = PI / 2 (~1.57 rad)
+    target.dispatchEvent(
+      createMockTouchEvent('touchmove', [
+        { clientX: 150, clientY: 50 },
+        { clientX: 150, clientY: 150 },
+      ])
+    );
+
+    expect(lastZoomEvent!.currentAngle).toBeCloseTo(Math.PI / 2, 2);
+    expect(lastZoomEvent!.deltaAngle).toBeCloseTo(Math.PI / 4, 2);
+
+    handler.detach();
+  });
+
+  it('should correctly normalize deltaAngle across the +/- PI boundary', () => {
+    let lastZoomEvent: PinchZoomEvent | undefined;
+    const handler = new PinchGestureHandler({
+      onPinchZoom: (ev) => {
+        lastZoomEvent = ev;
+      },
+    });
+    handler.attach(target);
+
+    // Start near +PI (e.g. angle = 3.0 rad): t0 at (200, 100), t1 at (100, 114)
+    // dx = -100, dy = 14 -> angle ~ 3.0 rad
+    target.dispatchEvent(
+      createMockTouchEvent('touchstart', [
+        { clientX: 200, clientY: 100 },
+        { clientX: 100, clientY: 114 },
+      ])
+    );
+
+    // Small rotation crossing the -PI/+PI seam to angle ~ -3.0 rad: t0 at (200, 100), t1 at (100, 86)
+    // dx = -100, dy = -14 -> angle ~ -3.0 rad
+    // Raw diff is (-3.0 - 3.0) = -6.0 rad, but normalized deltaAngle is around +0.28 rad
+    target.dispatchEvent(
+      createMockTouchEvent('touchmove', [
+        { clientX: 200, clientY: 100 },
+        { clientX: 100, clientY: 86 },
+      ])
+    );
+
+    expect(lastZoomEvent).toBeDefined();
+    expect(lastZoomEvent!.deltaAngle).toBeGreaterThan(-Math.PI);
+    expect(lastZoomEvent!.deltaAngle).toBeLessThan(Math.PI);
+    expect(Math.abs(lastZoomEvent!.deltaAngle)).toBeLessThan(0.5);
+
+    handler.detach();
+  });
 });

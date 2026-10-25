@@ -110,6 +110,10 @@ export class BattleScene implements Scene {
         }
       },
     });
+    this.view.resize?.(
+      context.app?.screen?.width || (typeof window !== 'undefined' && window.innerWidth > 0 ? window.innerWidth : 1920),
+      context.app?.screen?.height || (typeof window !== 'undefined' && window.innerHeight > 0 ? window.innerHeight : 1080)
+    );
 
     this.hookBattleEvents();
 
@@ -147,7 +151,8 @@ export class BattleScene implements Scene {
     this.cpuPlayer.update(deltaMS);
   }
 
-  public resize(_width: number, _height: number): void {
+  public resize(width: number, height: number): void {
+    this.view.resize?.(width, height);
     this.view.camera.applyTransform();
   }
 

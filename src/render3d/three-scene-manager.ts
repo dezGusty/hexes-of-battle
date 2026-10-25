@@ -51,20 +51,33 @@ export class ThreeSceneManager {
 
     this.containerElement.appendChild(this.canvas);
 
-    this.renderer = new THREE.WebGLRenderer({
-      canvas: this.canvas,
-      antialias: true,
-      alpha: false,
-      powerPreference: 'high-performance',
-    });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.renderer.setClearColor(0x0a141d, 1.0);
-
     const width = this.containerElement.clientWidth || 1920;
     const height = this.containerElement.clientHeight || 1080;
-    this.renderer.setSize(width, height, false);
+
+    try {
+      this.renderer = new THREE.WebGLRenderer({
+        canvas: this.canvas,
+        antialias: true,
+        alpha: false,
+        powerPreference: 'high-performance',
+      });
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+      this.renderer.shadowMap.enabled = true;
+      this.renderer.shadowMap.type = THREE.PCFShadowMap;
+      this.renderer.setClearColor(0x0a141d, 1.0);
+      this.renderer.setSize(width, height, false);
+    } catch {
+      // In headless environments or environments lacking WebGL2/WebGL context
+      this.renderer = {
+        domElement: this.canvas,
+        setPixelRatio: () => {},
+        setSize: () => {},
+        setClearColor: () => {},
+        render: () => {},
+        dispose: () => {},
+        shadowMap: { enabled: true, type: THREE.PCFShadowMap },
+      } as any;
+    }
 
     this.camera = new THREE.PerspectiveCamera(
       this.cameraConfig.fov,
@@ -89,13 +102,13 @@ export class ThreeSceneManager {
     this.hemiLight.name = 'HemisphereLight';
     this.scene.add(this.hemiLight);
 
-    // Directional Sunlight with soft shadows
+    // Directional Sunlight with shadows
     this.dirLight = new THREE.DirectionalLight(0xfff5e6, 1.2);
     this.dirLight.name = 'DirectionalLight';
     this.dirLight.position.set(12, 22, 10);
     this.dirLight.castShadow = true;
-    this.dirLight.shadow.mapSize.width = 2048;
-    this.dirLight.shadow.mapSize.height = 2048;
+    this.dirLight.shadow.mapSize.width = 1024;
+    this.dirLight.shadow.mapSize.height = 1024;
     this.dirLight.shadow.camera.near = 0.5;
     this.dirLight.shadow.camera.far = 50;
     const shadowSize = 14;
@@ -236,14 +249,15 @@ export class ThreeSceneManager {
   public raycastFromScreen(
     screenX: number,
     screenY: number,
-    objects: THREE.Object3D[]
+    objects: THREE.Object3D[],
+    recursive: boolean = true
   ): THREE.Intersection[] {
     const rect = this.canvas.getBoundingClientRect();
     this.mouseVec.x = ((screenX - rect.left) / rect.width) * 2 - 1;
     this.mouseVec.y = -((screenY - rect.top) / rect.height) * 2 + 1;
 
     this.raycaster.setFromCamera(this.mouseVec, this.camera);
-    return this.raycaster.intersectObjects(objects, true);
+    return this.raycaster.intersectObjects(objects, recursive);
   }
 
   /**

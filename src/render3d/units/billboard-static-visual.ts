@@ -31,8 +31,8 @@ export class BillboardStaticVisual implements IUnitVisual {
   private yOffset: number = 0;
 
   constructor(options: BillboardStaticOptions) {
-    const width = options.width ?? 0.7;
-    const height = options.height ?? 1.3;
+    const width = options.width ?? 0.49;
+    const height = options.height ?? 0.91;
     this.yOffset = options.yOffset ?? height * 0.5;
 
     const geometry = new THREE.PlaneGeometry(width, height);

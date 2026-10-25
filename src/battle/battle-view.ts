@@ -90,6 +90,10 @@ export class BattleView {
   private hexUiRenderGroup: Container = new Container({ isRenderGroup: true });
 
   public camera!: HexViewportCamera;
+  private screenWidth: number =
+    typeof window !== 'undefined' && window.innerWidth > 0 ? window.innerWidth : 1920;
+  private screenHeight: number =
+    typeof window !== 'undefined' && window.innerHeight > 0 ? window.innerHeight : 1080;
 
   constructor(
     private assets: GameAssets,
@@ -553,6 +557,8 @@ export class BattleView {
         this.uiPlusRenderGroup.addChild(control);
       }
     });
+
+    this.resize(this.screenWidth, this.screenHeight);
   }
 
   private initializeTopPanel(): void {
@@ -834,44 +840,44 @@ export class BattleView {
 
       let rows = 2;
       let cols = 4;
-      let scale = 0.38;
+      let scale = 0.266;
       let stepX = 14;
       let stepY = 12;
 
       if (totalModels >= 16) {
         rows = 4;
         cols = 4;
-        scale = 0.26;
+        scale = 0.182;
         stepX = 12;
         stepY = 9;
       } else if (totalModels >= 12) {
         rows = 3;
         cols = 4;
-        scale = 0.30;
+        scale = 0.21;
         stepX = 13;
         stepY = 10;
       } else if (totalModels >= 8) {
         rows = 2;
         cols = 4;
-        scale = 0.36;
+        scale = 0.252;
         stepX = 14;
         stepY = 12;
       } else if (totalModels >= 6) {
         rows = 2;
         cols = 3;
-        scale = 0.42;
+        scale = 0.294;
         stepX = 16;
         stepY = 14;
       } else if (totalModels >= 4) {
         rows = 2;
         cols = 2;
-        scale = 0.48;
+        scale = 0.336;
         stepX = 18;
         stepY = 16;
       } else {
         rows = 1;
         cols = 1;
-        scale = 0.85;
+        scale = 0.595;
         stepX = 0;
         stepY = 0;
       }
@@ -1352,6 +1358,7 @@ export class BattleView {
       if (this.commonControls) {
         this.unitStats.bindCommonControls(this.commonControls);
       }
+      this.unitStats.layoutForScreenSize(this.screenWidth, this.screenHeight);
     }
     this.unitStats.toggleVisibility();
     this.settings.hex.showStats = this.unitStats.isVisible();
@@ -1360,6 +1367,21 @@ export class BattleView {
       this.unitStats.setCreature(this.battle.creatures[this.battle.activeCreatureIndex]);
       this.unitStats.setTraitsConfig(this.battle.traitsConfig);
       this.unitStats.update();
+    }
+  }
+
+  public resize(width: number, height: number): void {
+    if (width > 0 && height > 0) {
+      this.screenWidth = width;
+      this.screenHeight = height;
+    }
+    if (this.unitStats) {
+      this.unitStats.layoutForScreenSize(this.screenWidth, this.screenHeight);
+    } else if (this.commonControls && typeof this.commonControls.setPanelOrigin === 'function') {
+      const minScale = Math.min(this.screenWidth / 1920, this.screenHeight / 1080) || 1;
+      const stageW = this.screenWidth / minScale;
+      const stageH = this.screenHeight / minScale;
+      this.commonControls.setPanelOrigin(Math.round((stageW - 1840) / 2), Math.round(stageH - 140 - 4));
     }
   }
 

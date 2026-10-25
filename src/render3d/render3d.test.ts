@@ -26,7 +26,32 @@ import { ThreeSceneDebugger } from './debug/three-scene-debugger';
 import { BattleHexMapPath } from '../battle/battle-hex-map-path';
 import { NumMatrix } from '../shared/num-matrix';
 import { CommonControls } from '../ui/common-controls';
+import * as fs from 'fs';
+import * as path from 'path';
 import { TerrainType } from '../battle/terrain-types';
+import { UnitVisualFormat } from './types';
+import {
+  AVERAGE_UNIT_3D_HEIGHT,
+  BARBARIAN_TEXTURE_PATHS,
+  BARBARIAN_TEXTURE_SIZE,
+  FOREST_TREE_TARGET_HEIGHT,
+  HUMANOID_TEXTURE_PATHS,
+  HUMANOID_TEXTURE_SIZE,
+  TREE_TEXTURE_PATHS,
+  TREE_TEXTURE_SIZE,
+  IGNORED_3D_UNIT_KEYS,
+  SUPPORTED_3D_UNIT_KEYS,
+  UNIT_SIZE_SCALE,
+  getBarbarianPartMaterial,
+  getBarbarianPartTexture,
+  getHumanoidPartMaterial,
+  getHumanoidPartTexture,
+  getTreePartTexture,
+  buildLowPolyForestTreeMesh,
+  getSharedTreeMaterials,
+  isUnit3DModelSupported,
+  smoothGeometryNormals,
+} from './units/unit-mesh-builder';
 import pkg from '../../package.json';
 
 describe('3D Graphics Engine & Rendering Systems', () => {
@@ -1673,7 +1698,810 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       hexBoard.dispose();
     });
   });
+
+  describe('11. 3D Unit Models (Blender Pipeline) & Low-Poly 3D Forest Terrain Trees', () => {
+    it('should have valid binary glTF 2.0 (.glb) files exported by Blender for all 7 supported units and 2 forest tree variants', () => {
+      const rootDir = path.resolve(__dirname, '../..');
+      for (const unitKey of SUPPORTED_3D_UNIT_KEYS) {
+        const glbPath = path.join(rootDir, 'public/models/units', `${unitKey}.glb`);
+        expect(fs.existsSync(glbPath)).toBe(true);
+        const buf = fs.readFileSync(glbPath);
+        expect(buf.byteLength).toBeGreaterThan(1024);
+        // Binary glTF magic header: 'glTF' (0x46546C67) and version 2
+        expect(buf.toString('ascii', 0, 4)).toBe('glTF');
+        expect(buf.readUInt32LE(4)).toBe(2);
+      }
+
+      for (const treeKey of ['forest_pine', 'forest_oak']) {
+        const glbPath = path.join(rootDir, 'public/models/terrain', `${treeKey}.glb`);
+        expect(fs.existsSync(glbPath)).toBe(true);
+        const buf = fs.readFileSync(glbPath);
+        expect(buf.byteLength).toBeGreaterThan(512);
+        expect(buf.toString('ascii', 0, 4)).toBe('glTF');
+        expect(buf.readUInt32LE(4)).toBe(2);
+      }
+    });
+
+    it('should build FULL_3D_RIGID articulated 3D models for the 7 supported units and keep HEAVY_KNIGHTS, HERO_COMMANDER, and BEHEMOTH excluded', () => {
+      const factory = new UnitVisualFactory();
+
+      const supportedTypes = [
+        CreatureType.PEASANT,
+        CreatureType.PEASANT_ARCHER,
+        CreatureType.SWORDSMAN,
+        CreatureType.SPEARMAN,
+        CreatureType.CROSSBOWMAN,
+        CreatureType.BARBARIAN,
+        CreatureType.SLINGER,
+      ];
+
+      for (const cType of supportedTypes) {
+        expect(isUnit3DModelSupported(cType)).toBe(true);
+        const creature = new Creature(cType);
+        creature.armyAlignment = 0;
+        expect(factory.determineFormat(creature)).toBe(UnitVisualFormat.FULL_3D_RIGID);
+
+        const squad = factory.createSquadVisual(creature);
+        expect(squad.models.length).toBeGreaterThan(0);
+        const firstModel = squad.models[0];
+        expect(firstModel.format).toBe(UnitVisualFormat.FULL_3D_RIGID);
+
+        // Verify articulated hierarchy nodes (Torso, Head, Arm_L, Arm_R, Leg_L, Leg_R, Weapon)
+        const nodeNames = new Set<string>();
+        firstModel.object3D.traverse((node) => {
+          if (node.name) nodeNames.add(node.name);
+        });
+        expect(nodeNames.has('Torso')).toBe(true);
+        expect(nodeNames.has('Head')).toBe(true);
+        expect(nodeNames.has('Arm_L')).toBe(true);
+        expect(nodeNames.has('Arm_R')).toBe(true);
+        expect(nodeNames.has('Leg_L')).toBe(true);
+        expect(nodeNames.has('Leg_R')).toBe(true);
+        expect(nodeNames.has('Weapon')).toBe(true);
+
+        squad.dispose();
+      }
+
+      // Ignored units must NOT be marked as supported 3D models and default to BILLBOARD_STATIC
+      const ignoredTypes = [
+        CreatureType.HEAVY_KNIGHTS,
+        CreatureType.HERO_COMMANDER,
+        CreatureType.BEHEMOTH,
+      ];
+      expect(IGNORED_3D_UNIT_KEYS).toEqual(['heavy_knights', 'hero_commander', 'behemoth']);
+
+      for (const cType of ignoredTypes) {
+        expect(isUnit3DModelSupported(cType)).toBe(false);
+        const creature = new Creature(cType);
+        expect(factory.determineFormat(creature)).toBe(UnitVisualFormat.BILLBOARD_STATIC);
+        const squad = factory.createSquadVisual(creature);
+        expect(squad.models[0].format).toBe(UnitVisualFormat.BILLBOARD_STATIC);
+        squad.dispose();
+      }
+    });
+
+    it('should animate articulated limb pivots during walk, melee attack, ranged attack, and reset on idle', () => {
+      const factory = new UnitVisualFactory();
+      const swordsman = new Creature(CreatureType.SWORDSMAN);
+      const squad = factory.createSquadVisual(swordsman);
+      const visual = squad.models[0];
+
+      let legL: THREE.Object3D | null = null;
+      let armR: THREE.Object3D | null = null;
+      visual.object3D.traverse((child) => {
+        if (child.name === 'Leg_L') legL = child;
+        if (child.name === 'Arm_R') armR = child;
+      });
+      expect(legL).not.toBeNull();
+      expect(armR).not.toBeNull();
+
+      // Walk animation swings legs and arms
+      visual.playAnimation('walk', 500);
+      visual.update(150);
+      expect(Math.abs(legL!.rotation.z)).toBeGreaterThan(0.05);
+
+      // Melee attack swings right weapon arm
+      visual.playAnimation('attack_melee', 500);
+      visual.update(100);
+      expect(Math.abs(armR!.rotation.z)).toBeGreaterThan(0.1);
+
+      // Returning to idle resets limb rotations
+      visual.playAnimation('idle');
+      expect(legL!.rotation.z).toBeCloseTo(0, 4);
+
+      squad.dispose();
+    });
+
+    it('should render low-poly 3D trees on FOREST hexes that are ~75% as tall as the average units', () => {
+      const hexMap = new HexMap(6, 6);
+      const getTerrain = (x: number, y: number): TerrainType => {
+        if ((x === 2 && y === 2) || (x === 4 && y === 3)) {
+          return TerrainType.FOREST;
+        }
+        return TerrainType.PLAIN;
+      };
+
+      const hexBoard = new HexBoard3D(hexMap, { getTerrain });
+
+      // Plain hexes have no forest trees
+      expect(hexBoard.getForestTreesForHex(0, 0).length).toBe(0);
+
+      // Forest hexes have 3 to 5 low-poly 3D trees each
+      const trees22 = hexBoard.getForestTreesForHex(2, 2);
+      const trees43 = hexBoard.getForestTreesForHex(4, 3);
+      expect(trees22.length).toBeGreaterThanOrEqual(3);
+      expect(trees22.length).toBeLessThanOrEqual(5);
+      expect(trees43.length).toBeGreaterThanOrEqual(3);
+      expect(trees43.length).toBeLessThanOrEqual(5);
+      expect(hexBoard.forestTreesGroup.children.length).toBe(trees22.length + trees43.length);
+
+      // Verify target height ratio: FOREST_TREE_TARGET_HEIGHT (0.90) is 75% of AVERAGE_UNIT_3D_HEIGHT (1.20)
+      expect(FOREST_TREE_TARGET_HEIGHT / AVERAGE_UNIT_3D_HEIGHT).toBeCloseTo(0.75, 4);
+
+      const allTrees = [...trees22, ...trees43];
+      const avgRelativeHeight =
+        allTrees.reduce((sum, t) => sum + (t.userData.relativeToUnitHeight as number), 0) /
+        allTrees.length;
+
+      // Average tree height across the forest is ~75% of average unit height
+      expect(avgRelativeHeight).toBeGreaterThan(0.70);
+      expect(avgRelativeHeight).toBeLessThan(0.80);
+
+      // Verify each tree contains Trunk and Foliage meshes
+      for (const tree of allTrees) {
+        let hasTrunk = false;
+        let hasFoliage = false;
+        tree.traverse((node) => {
+          if (node.name === 'Trunk') hasTrunk = true;
+          if (node.name.startsWith('Foliage')) hasFoliage = true;
+        });
+        expect(hasTrunk).toBe(true);
+        expect(hasFoliage).toBe(true);
+      }
+
+      hexBoard.dispose();
+      expect(hexBoard.forestTreesGroup.children.length).toBe(0);
+    });
+
+    it('should rotate 3D unit meshes so their forward (+X) axis points toward the exact neighbor hex for all 6 facing directions', () => {
+      const hexMap = new HexMap(6, 6);
+      const hexBoard = new HexBoard3D(hexMap);
+      const factory = new UnitVisualFactory();
+      const swordsman = new Creature(CreatureType.SWORDSMAN);
+      const squad = factory.createSquadVisual(swordsman);
+      const model = squad.models[0];
+
+      const centerHex = { x: 2, y: 2 };
+      const centerWorld = hexBoard.hexToWorld(centerHex.x, centerHex.y);
+
+      const allDirections = [
+        HexDirection.EAST,
+        HexDirection.SOUTHEAST,
+        HexDirection.SOUTHWEST,
+        HexDirection.WEST,
+        HexDirection.NORTHWEST,
+        HexDirection.NORTHEAST,
+      ];
+
+      for (const dir of allDirections) {
+        squad.setFacing(dir);
+
+        const neighborHex = hexMap.getNeighbourInDirection(centerHex, dir);
+        expect(neighborHex).toBeDefined();
+        const neighborWorld = hexBoard.hexToWorld(neighborHex!.x, neighborHex!.y);
+        const expectedDir = new THREE.Vector3(
+          neighborWorld.x - centerWorld.x,
+          0,
+          neighborWorld.z - centerWorld.z
+        ).normalize();
+
+        // Model's local forward vector is +X (1, 0, 0)
+        const modelForward = new THREE.Vector3(1, 0, 0).applyEuler(model.object3D.rotation).normalize();
+
+        expect(modelForward.x).toBeCloseTo(expectedDir.x, 4);
+        expect(modelForward.z).toBeCloseTo(expectedDir.z, 4);
+
+        // Specifically verify North/South sign is never inverted:
+        if (dir === HexDirection.SOUTHEAST || dir === HexDirection.SOUTHWEST) {
+          expect(modelForward.z).toBeGreaterThan(0.8); // South is +Z
+        } else if (dir === HexDirection.NORTHEAST || dir === HexDirection.NORTHWEST) {
+          expect(modelForward.z).toBeLessThan(-0.8); // North is -Z
+        }
+      }
+
+      squad.dispose();
+      hexBoard.dispose();
+    });
+
+    it('should arrange squad models in ranks perpendicular to the facing direction and dynamically rotate ranks when facing changes', () => {
+      const hexMap = new HexMap(6, 6);
+      const hexBoard = new HexBoard3D(hexMap);
+      const factory = new UnitVisualFactory();
+      const spearman = new Creature(CreatureType.SPEARMAN);
+      spearman.stats.model_count = 8; // 2 ranks of 4 soldiers
+      const squad = factory.createSquadVisual(spearman);
+
+      const centerHex = { x: 2, y: 2 };
+      const centerWorld = hexBoard.hexToWorld(centerHex.x, centerHex.y);
+
+      const allDirections = [
+        HexDirection.EAST,
+        HexDirection.SOUTHEAST,
+        HexDirection.SOUTHWEST,
+        HexDirection.WEST,
+        HexDirection.NORTHWEST,
+        HexDirection.NORTHEAST,
+      ];
+
+      for (const dir of allDirections) {
+        squad.setFacing(dir);
+
+        const neighborHex = hexMap.getNeighbourInDirection(centerHex, dir)!;
+        const neighborWorld = hexBoard.hexToWorld(neighborHex.x, neighborHex.y);
+        // Unit forward vector pointing toward the hex the squad wants to attack
+        const fwd = new THREE.Vector3(
+          neighborWorld.x - centerWorld.x,
+          0,
+          neighborWorld.z - centerWorld.z
+        ).normalize();
+        // Unit lateral vector perpendicular to facing direction (along the rank line)
+        const lat = new THREE.Vector3(-fwd.z, 0, fwd.x).normalize();
+
+        const offsets = squad.getModelOffsets();
+        expect(offsets.length).toBe(8);
+
+        // Verify each model's actual object3D position matches its updated formation offset
+        squad.models.forEach((m, idx) => {
+          expect(m.object3D.position.x).toBeCloseTo(offsets[idx].x, 5);
+          expect(m.object3D.position.z).toBeCloseTo(offsets[idx].z, 5);
+        });
+
+        // Front rank (indices 0..3) must be ahead of rear rank (indices 4..7) along the facing vector
+        for (let c = 0; c < 4; c++) {
+          const frontProj = offsets[c].dot(fwd);
+          const rearProj = offsets[c + 4].dot(fwd);
+          expect(frontProj).toBeGreaterThan(0.08);
+          expect(rearProj).toBeLessThan(-0.08);
+          expect(frontProj).toBeGreaterThan(rearProj);
+        }
+
+        // Soldiers in the front rank (indices 0..3) must be spread out along the perpendicular lateral axis
+        const frontLatProjections = [0, 1, 2, 3].map((c) => offsets[c].dot(lat));
+        const frontLatSpan = Math.max(...frontLatProjections) - Math.min(...frontLatProjections);
+        const frontFwdProjections = [0, 1, 2, 3].map((c) => offsets[c].dot(fwd));
+        const frontFwdSpread = Math.max(...frontFwdProjections) - Math.min(...frontFwdProjections);
+
+        // The front rank line is wide perpendicular to facing (~0.75) and aligned in depth (< 0.1)
+        expect(frontLatSpan).toBeGreaterThan(0.7);
+        expect(frontFwdSpread).toBeLessThan(0.1);
+
+        // Overall squad width along the perpendicular rank axis is wider than its depth along the facing axis
+        const allFwd = offsets.map((o) => o.dot(fwd));
+        const totalDepth = Math.max(...allFwd) - Math.min(...allFwd);
+        expect(frontLatSpan).toBeGreaterThan(totalDepth);
+      }
+
+      squad.dispose();
+      hexBoard.dispose();
+    });
+
+    it('should keep all living 3D units in the opaque render pass, share compacted limb geometries/materials across soldiers, and expose flat tileMeshes for non-recursive raycasting', () => {
+      const factory = new UnitVisualFactory();
+      const swordsman1 = new Creature(CreatureType.SWORDSMAN);
+      swordsman1.armyAlignment = 0;
+      swordsman1.stats.model_count = 8;
+
+      const swordsman2 = new Creature(CreatureType.SWORDSMAN);
+      swordsman2.armyAlignment = 0;
+      swordsman2.stats.model_count = 8;
+
+      const squad1 = factory.createSquadVisual(swordsman1);
+      const squad2 = factory.createSquadVisual(swordsman2);
+
+      // 1. All living soldiers must have transparent = false and share the opaque vertex-colored material
+      const m0 = squad1.models[0] as any;
+      const m1 = squad1.models[1] as any;
+      const mOtherSquad = squad2.models[0] as any;
+
+      let meshCountPerSoldier = 0;
+      m0.object3D.traverse((node: THREE.Object3D) => {
+        if ((node as THREE.Mesh).isMesh) {
+          meshCountPerSoldier++;
+          const mesh = node as THREE.Mesh;
+          const mat = mesh.material as THREE.MeshStandardMaterial;
+          expect(mat.transparent).toBe(false);
+          expect(mat.opacity).toBe(1.0);
+          expect(mat.vertexColors).toBe(true);
+          expect(mat.userData?.isSharedAsset).toBe(true);
+          expect(mesh.geometry.userData?.isSharedAsset).toBe(true);
+          expect(mesh.geometry.getAttribute('color')).toBeDefined();
+        }
+      });
+
+      // Decorative parts are merged into the 8 articulated limbs (Torso, Head, Arm_L, Arm_R, Leg_L, Leg_R, Weapon, Shield)
+      expect(meshCountPerSoldier).toBeLessThanOrEqual(8);
+
+      // Geometries and materials are shared by reference across soldiers and squads of the same faction/type
+      expect(m0.mesh.geometry).toBe(m1.mesh.geometry);
+      expect(m0.mesh.material).toBe(m1.mesh.material);
+      expect(m0.mesh.geometry).toBe(mOtherSquad.mesh.geometry);
+
+      // 2. When a casualty fades out (0 < opacity < 1), its material is lazily cloned so living units remain opaque
+      m0.setCasualtyFade(0.5);
+      expect((m0.mesh.material as THREE.Material).transparent).toBe(true);
+      expect((m0.mesh.material as THREE.Material).opacity).toBeCloseTo(0.5, 4);
+      expect((m1.mesh.material as THREE.Material).transparent).toBe(false);
+      expect((m1.mesh.material as THREE.Material).opacity).toBe(1.0);
+
+      // Disposing squad1 must not corrupt shared assets used by squad2
+      squad1.dispose();
+      expect(mOtherSquad.mesh.geometry.getAttribute('position').count).toBeGreaterThan(0);
+
+      // 3. HexBoard3D exposes flat tileMeshes with frozen matrices (matrixAutoUpdate = false) for fast non-recursive raycasting
+      const hexMap = new HexMap(6, 5);
+      const hexBoard = new HexBoard3D(hexMap, {
+        getTerrain: (x, y) => (x === 2 && y === 2 ? TerrainType.FOREST : TerrainType.PLAIN),
+      });
+      const tileMeshes = hexBoard.getTileMeshes();
+      expect(tileMeshes.length).toBe(30);
+      for (const tile of tileMeshes) {
+        expect(tile.userData?.isHexTile).toBe(true);
+        expect(tile.matrixAutoUpdate).toBe(false);
+      }
+
+      squad2.dispose();
+      hexBoard.dispose();
+    });
+
+    it('should scale all unit visuals to 70% of their original size so squad models do not protrude into each other', () => {
+      expect(UNIT_SIZE_SCALE).toBeCloseTo(0.7, 4);
+      const factory = new UnitVisualFactory();
+
+      // 1. Standard 3D Rigid unit (Swordsman): scale = 1.0 * 0.7 = 0.7
+      const swordsman = new Creature(CreatureType.SWORDSMAN);
+      const squadRigid = factory.createSquadVisual(swordsman);
+      const rigidModel = squadRigid.models[0].object3D.children[0];
+      expect(rigidModel.scale.x).toBeCloseTo(0.7, 4);
+      expect(rigidModel.scale.y).toBeCloseTo(0.7, 4);
+      expect(rigidModel.scale.z).toBeCloseTo(0.7, 4);
+
+      // 2. Hero Commander in 3D Rigid squad: scale = 1.08 * 0.7 = 0.756
+      const heroSwordsman = new Creature(CreatureType.SWORDSMAN);
+      heroSwordsman.stats.is_hero = true;
+      const squadHero = factory.createSquadVisual(heroSwordsman);
+      const heroModel = squadHero.models[0].object3D.children[0];
+      expect(heroModel.scale.x).toBeCloseTo(1.08 * 0.7, 4);
+
+      // 3. Static 2D Billboard unit (Heavy Knights): width = 0.7 * 0.7 = 0.49, height = 1.3 * 0.7 = 0.91
+      const knights = new Creature(CreatureType.HEAVY_KNIGHTS);
+      const squadBillboard = factory.createSquadVisual(knights);
+      const billboardMesh = squadBillboard.models[0].object3D.children[0] as THREE.Mesh;
+      billboardMesh.geometry.computeBoundingBox();
+      const bbox = billboardMesh.geometry.boundingBox!;
+      expect(bbox.max.x - bbox.min.x).toBeCloseTo(0.49, 4);
+      expect(bbox.max.y - bbox.min.y).toBeCloseTo(0.91, 4);
+
+      squadRigid.dispose();
+      squadHero.dispose();
+      squadBillboard.dispose();
+    });
+
+    it('should smooth unit mesh normals across spherical surfaces like helmets and heads while keeping flatShading disabled', () => {
+      // 1. Verify smoothGeometryNormals welds split/unindexed spherical triangles into smooth radial normals
+      const unindexedSphere = new THREE.SphereGeometry(0.14, 16, 12).toNonIndexed();
+      unindexedSphere.computeVertexNormals(); // flat per-triangle normals before smoothing
+      smoothGeometryNormals(unindexedSphere);
+
+      const posAttr = unindexedSphere.getAttribute('position');
+      const normAttr = unindexedSphere.getAttribute('normal');
+      for (let i = 0; i < posAttr.count; i++) {
+        const px = posAttr.getX(i);
+        const py = posAttr.getY(i);
+        const pz = posAttr.getZ(i);
+        const plen = Math.hypot(px, py, pz);
+        const nx = normAttr.getX(i);
+        const ny = normAttr.getY(i);
+        const nz = normAttr.getZ(i);
+        // Smoothed normal on a sphere points radially outward (dot product ~ 1.0)
+        const dot = (px / plen) * nx + (py / plen) * ny + (pz / plen) * nz;
+        expect(dot).toBeGreaterThan(0.98);
+      }
+      unindexedSphere.dispose();
+
+      // 2. Verify all 7 supported 3D units have flatShading = false and high-segment smoothed Head/Helmet meshes
+      const factory = new UnitVisualFactory();
+      const swordsman = new Creature(CreatureType.SWORDSMAN);
+      const squad = factory.createSquadVisual(swordsman);
+      let headMesh: THREE.Mesh | null = null;
+      squad.models[0].object3D.traverse((node) => {
+        if ((node as THREE.Mesh).isMesh) {
+          const mat = (node as THREE.Mesh).material as THREE.MeshStandardMaterial;
+          expect(mat.flatShading).toBe(false);
+          if (node.name === 'Head') {
+            headMesh = node as THREE.Mesh;
+          }
+        }
+      });
+      expect(headMesh).not.toBeNull();
+      // 20x14 sphere head + 20x14 sphere helmet has > 500 vertices for smooth curvature
+      expect(headMesh!.geometry.getAttribute('position').count).toBeGreaterThan(500);
+
+      squad.dispose();
+    });
+
+    it('should apply 256x256 detail textures to the Barbarian unit for face, weapon, clothing, and skin', () => {
+      expect(BARBARIAN_TEXTURE_SIZE).toBe(256);
+
+      const parts = ['face', 'skin', 'clothing', 'weapon'] as const;
+      for (const part of parts) {
+        const tex = getBarbarianPartTexture(part);
+        expect(tex.image.width).toBe(256);
+        expect(tex.image.height).toBe(256);
+        expect(tex.image.data!.length).toBe(256 * 256 * 4);
+        expect(tex.colorSpace).toBe(THREE.SRGBColorSpace);
+
+        // Verify texture has rich multi-tone detail (not a flat solid color)
+        let minLum = 255;
+        let maxLum = 0;
+        const data = tex.image.data as Uint8Array;
+        for (let i = 0; i < data.length; i += 16) {
+          const lum = (data[i] + data[i + 1] + data[i + 2]) / 3;
+          if (lum < minLum) minLum = lum;
+          if (lum > maxLum) maxLum = lum;
+        }
+        expect(maxLum - minLum).toBeGreaterThan(45);
+
+        // Verify 256x256 PNG asset exists on disk in public/textures/units/
+        const pngPath = path.resolve(__dirname, '../../public', BARBARIAN_TEXTURE_PATHS[part]);
+        expect(fs.existsSync(pngPath)).toBe(true);
+        const pngBuf = fs.readFileSync(pngPath);
+        // PNG signature + IHDR width/height at bytes 16..23
+        expect(pngBuf[0]).toBe(0x89);
+        expect(pngBuf.toString('ascii', 1, 4)).toBe('PNG');
+        expect(pngBuf.readUInt32BE(16)).toBe(256);
+        expect(pngBuf.readUInt32BE(20)).toBe(256);
+      }
+
+      // Build Barbarian squad and verify each limb receives its 256x256 texture & valid UVs
+      const factory = new UnitVisualFactory();
+      const barbarian = new Creature(CreatureType.BARBARIAN);
+      barbarian.armyAlignment = 0;
+      const squad = factory.createSquadVisual(barbarian);
+
+      const limbMap = new Map<string, THREE.Mesh>();
+      squad.models[0].object3D.traverse((node) => {
+        if ((node as THREE.Mesh).isMesh) {
+          limbMap.set(node.name, node as THREE.Mesh);
+        }
+      });
+
+      expect(limbMap.size).toBeLessThanOrEqual(8);
+      expect(limbMap.get('Head')?.material).toBe(getBarbarianPartMaterial('face'));
+      expect(limbMap.get('Weapon')?.material).toBe(getBarbarianPartMaterial('weapon'));
+      expect(limbMap.get('Clothing')?.material).toBe(getBarbarianPartMaterial('clothing'));
+      expect(limbMap.get('Leg_L')?.material).toBe(getBarbarianPartMaterial('clothing'));
+      expect(limbMap.get('Leg_R')?.material).toBe(getBarbarianPartMaterial('clothing'));
+      expect(limbMap.get('Torso')?.material).toBe(getBarbarianPartMaterial('skin'));
+      expect(limbMap.get('Arm_L')?.material).toBe(getBarbarianPartMaterial('skin'));
+      expect(limbMap.get('Arm_R')?.material).toBe(getBarbarianPartMaterial('skin'));
+
+      for (const [, mesh] of limbMap) {
+        const mat = mesh.material as THREE.MeshStandardMaterial;
+        expect(mat.map).toBeDefined();
+        const img = mat.map!.image as { width: number; height: number };
+        expect(img.width).toBe(256);
+        expect(img.height).toBe(256);
+        expect(mat.transparent).toBe(false);
+        expect(mat.vertexColors).toBe(true);
+
+        const uvAttr = mesh.geometry.getAttribute('uv');
+        expect(uvAttr).toBeDefined();
+        expect(uvAttr.count).toBe(mesh.geometry.getAttribute('position').count);
+      }
+
+      squad.dispose();
+    });
+
+    it('should apply 256x256 detail textures to peasant, archer, and spearman units with reused skin texture', () => {
+      expect(HUMANOID_TEXTURE_SIZE).toBe(256);
+
+      // Verify skin texture is reused across all humanoids
+      const reusedSkinTex = getHumanoidPartTexture('skin');
+      const barbarianSkinTex = getBarbarianPartTexture('skin');
+      expect(reusedSkinTex).toBe(barbarianSkinTex);
+
+      const humanoidKeys = [
+        'peasant_face',
+        'peasant_cloth',
+        'peasant_pitchfork',
+        'archer_face',
+        'archer_clothing',
+        'archer_bow',
+        'spearman_face',
+        'spearman_armor',
+        'spearman_gear',
+      ];
+
+      for (const key of humanoidKeys) {
+        const tex = getHumanoidPartTexture(key);
+        expect(tex.image.width).toBe(256);
+        expect(tex.image.height).toBe(256);
+        expect(tex.image.data!.length).toBe(256 * 256 * 4);
+        expect(tex.colorSpace).toBe(THREE.SRGBColorSpace);
+
+        // Verify multi-tone contrast / detail
+        let minLum = 255;
+        let maxLum = 0;
+        const data = tex.image.data as Uint8Array;
+        for (let i = 0; i < data.length; i += 16) {
+          const lum = (data[i] + data[i + 1] + data[i + 2]) / 3;
+          if (lum < minLum) minLum = lum;
+          if (lum > maxLum) maxLum = lum;
+        }
+        expect(maxLum - minLum).toBeGreaterThan(40);
+
+        // Verify 256x256 PNG asset exists on disk with valid IHDR
+        const pngPath = path.resolve(__dirname, '../../public', HUMANOID_TEXTURE_PATHS[key]);
+        expect(fs.existsSync(pngPath)).toBe(true);
+        const pngBuf = fs.readFileSync(pngPath);
+        expect(pngBuf[0]).toBe(0x89);
+        expect(pngBuf.toString('ascii', 1, 4)).toBe('PNG');
+        expect(pngBuf.readUInt32BE(16)).toBe(256);
+        expect(pngBuf.readUInt32BE(20)).toBe(256);
+      }
+
+      const factory = new UnitVisualFactory();
+
+      // 1. Peasant unit squad
+      const peasant = new Creature(CreatureType.PEASANT);
+      peasant.armyAlignment = 0;
+      const peasantSquad = factory.createSquadVisual(peasant);
+      const peasantLimbs = new Map<string, THREE.Mesh>();
+      peasantSquad.models[0].object3D.traverse((node) => {
+        if ((node as THREE.Mesh).isMesh) peasantLimbs.set(node.name, node as THREE.Mesh);
+      });
+      expect(peasantLimbs.size).toBeLessThanOrEqual(8);
+      expect(peasantLimbs.get('Head')?.material).toBe(getHumanoidPartMaterial('peasant_face', 0.76, 0.05));
+      expect(peasantLimbs.get('Weapon')?.material).toBe(getHumanoidPartMaterial('peasant_pitchfork', 0.58, 0.35));
+      expect(peasantLimbs.get('Torso')?.material).toBe(getHumanoidPartMaterial('peasant_cloth', 0.86, 0.02));
+      expect(peasantLimbs.get('Arm_L')?.material).toBe(getHumanoidPartMaterial('peasant_cloth', 0.86, 0.02));
+      expect(peasantLimbs.get('Leg_L')?.material).toBe(getHumanoidPartMaterial('peasant_cloth', 0.86, 0.02));
+      peasantSquad.dispose();
+
+      // 2. Archer unit squad
+      const archer = new Creature(CreatureType.ARCHER);
+      archer.armyAlignment = 1;
+      const archerSquad = factory.createSquadVisual(archer);
+      const archerLimbs = new Map<string, THREE.Mesh>();
+      archerSquad.models[0].object3D.traverse((node) => {
+        if ((node as THREE.Mesh).isMesh) archerLimbs.set(node.name, node as THREE.Mesh);
+      });
+      expect(archerLimbs.size).toBeLessThanOrEqual(8);
+      expect(archerLimbs.get('Head')?.material).toBe(getHumanoidPartMaterial('archer_face', 0.74, 0.05));
+      expect(archerLimbs.get('Weapon')?.material).toBe(getHumanoidPartMaterial('archer_bow', 0.62, 0.15));
+      expect(archerLimbs.get('Torso')?.material).toBe(getHumanoidPartMaterial('archer_clothing', 0.82, 0.04));
+      expect(archerLimbs.get('Arm_R')?.material).toBe(getHumanoidPartMaterial('archer_clothing', 0.82, 0.04));
+      expect(archerLimbs.get('Leg_R')?.material).toBe(getHumanoidPartMaterial('archer_clothing', 0.82, 0.04));
+      archerSquad.dispose();
+
+      // 3. Spearman unit squad
+      const spearman = new Creature(CreatureType.SPEARMAN);
+      spearman.armyAlignment = 0;
+      const spearmanSquad = factory.createSquadVisual(spearman);
+      const spearmanLimbs = new Map<string, THREE.Mesh>();
+      spearmanSquad.models[0].object3D.traverse((node) => {
+        if ((node as THREE.Mesh).isMesh) spearmanLimbs.set(node.name, node as THREE.Mesh);
+      });
+      expect(spearmanLimbs.size).toBeLessThanOrEqual(8);
+      expect(spearmanLimbs.get('Head')?.material).toBe(getHumanoidPartMaterial('spearman_face', 0.68, 0.25));
+      expect(spearmanLimbs.get('Weapon')?.material).toBe(getHumanoidPartMaterial('spearman_gear', 0.52, 0.45));
+      expect(spearmanLimbs.get('Shield')?.material).toBe(getHumanoidPartMaterial('spearman_gear', 0.52, 0.45));
+      expect(spearmanLimbs.get('Torso')?.material).toBe(getHumanoidPartMaterial('spearman_armor', 0.72, 0.20));
+      expect(spearmanLimbs.get('Arm_L')?.material).toBe(getHumanoidPartMaterial('spearman_armor', 0.72, 0.20));
+      expect(spearmanLimbs.get('Leg_L')?.material).toBe(getHumanoidPartMaterial('spearman_armor', 0.72, 0.20));
+      spearmanSquad.dispose();
+    });
+
+    it('should apply 256x256 detail textures to forest trees (bark and foliage) with smooth normals', () => {
+      expect(TREE_TEXTURE_SIZE).toBe(256);
+
+      const treeParts = ['bark', 'foliage'] as const;
+      for (const part of treeParts) {
+        const tex = getTreePartTexture(part);
+        expect(tex.image.width).toBe(256);
+        expect(tex.image.height).toBe(256);
+        expect(tex.image.data!.length).toBe(256 * 256 * 4);
+        expect(tex.colorSpace).toBe(THREE.SRGBColorSpace);
+
+        // Verify texture has multi-tone detail (contrast > 40)
+        let minLum = 255;
+        let maxLum = 0;
+        const data = tex.image.data as Uint8Array;
+        for (let i = 0; i < data.length; i += 16) {
+          const lum = (data[i] + data[i + 1] + data[i + 2]) / 3;
+          if (lum < minLum) minLum = lum;
+          if (lum > maxLum) maxLum = lum;
+        }
+        expect(maxLum - minLum).toBeGreaterThan(40);
+
+        // Verify 256x256 PNG asset exists on disk in public/textures/terrain/
+        const pngPath = path.resolve(__dirname, '../../public', TREE_TEXTURE_PATHS[part]);
+        expect(fs.existsSync(pngPath)).toBe(true);
+        const pngBuf = fs.readFileSync(pngPath);
+        expect(pngBuf[0]).toBe(0x89);
+        expect(pngBuf.toString('ascii', 1, 4)).toBe('PNG');
+        expect(pngBuf.readUInt32BE(16)).toBe(256);
+        expect(pngBuf.readUInt32BE(20)).toBe(256);
+      }
+
+      // Verify shared tree materials use the 256x256 textures and disable flat shading
+      const { trunkMat, foliageMat } = getSharedTreeMaterials();
+      expect(trunkMat.map).toBe(getTreePartTexture('bark'));
+      expect(foliageMat.map).toBe(getTreePartTexture('foliage'));
+      expect(trunkMat.flatShading).toBe(false);
+      expect(foliageMat.flatShading).toBe(false);
+      expect(foliageMat.vertexColors).toBe(true);
+
+      // Verify Pine and Oak low-poly forest tree meshes contain valid UV coordinates and smooth normals
+      for (const variant of ['pine', 'oak'] as const) {
+        const tree = buildLowPolyForestTreeMesh(variant);
+        let trunkMesh: THREE.Mesh | null = null;
+        let foliageMesh: THREE.Mesh | null = null;
+
+        tree.traverse((node) => {
+          if ((node as THREE.Mesh).isMesh) {
+            if (node.name === 'Trunk') trunkMesh = node as THREE.Mesh;
+            if (node.name.startsWith('Foliage')) foliageMesh = node as THREE.Mesh;
+          }
+        });
+
+        expect(trunkMesh).not.toBeNull();
+        expect(foliageMesh).not.toBeNull();
+
+        const trunkUv = trunkMesh!.geometry.getAttribute('uv');
+        expect(trunkUv).toBeDefined();
+        expect(trunkUv.count).toBe(trunkMesh!.geometry.getAttribute('position').count);
+
+        const foliageUv = foliageMesh!.geometry.getAttribute('uv');
+        expect(foliageUv).toBeDefined();
+        expect(foliageUv.count).toBe(foliageMesh!.geometry.getAttribute('position').count);
+      }
+    });
+
+    it('should rotate 3D battle map camera when mobile users perform a two-finger pinch-and-rotate gesture', () => {
+      const hexMap = new HexMap(10, 6);
+      const battle = new Battle(hexMap);
+      const settings = new BattleSettings();
+      const container = document.createElement('div');
+      container.style.width = '800px';
+      container.style.height = '600px';
+      document.body.appendChild(container);
+
+      const battleView = new BattleView3D(container, hexMap, battle, settings);
+      const initialYaw = battleView.sceneManager.getCameraYaw();
+
+      const createTouch = (x: number, y: number) => ({ clientX: x, clientY: y });
+      const createTouchEvent = (type: string, touches: any[]) => {
+        const ev = new Event(type, { cancelable: true }) as any;
+        ev.touches = touches;
+        ev.preventDefault = vi.fn();
+        return ev;
+      };
+
+      // 1. Start two touches along horizontal line: (200, 300) and (400, 300) -> angle = 0
+      const pinchHandler = (battleView as any).pinchHandler;
+      expect(pinchHandler).toBeDefined();
+
+      pinchHandler.handleTouchStart(
+        createTouchEvent('touchstart', [createTouch(200, 300), createTouch(400, 300)])
+      );
+
+      // 2. Rotate fingers clockwise by ~0.25 radians
+      const angle = 0.25;
+      const radius = 100;
+      const t0 = createTouch(300 - Math.cos(angle) * radius, 300 - Math.sin(angle) * radius);
+      const t1 = createTouch(300 + Math.cos(angle) * radius, 300 + Math.sin(angle) * radius);
+
+      pinchHandler.handleTouchMove(createTouchEvent('touchmove', [t0, t1]));
+
+      // Camera yaw must have rotated by ~0.25 rad
+      const updatedYaw = battleView.sceneManager.getCameraYaw();
+      expect(updatedYaw - initialYaw).toBeCloseTo(0.25, 2);
+
+      // 3. Lift fingers
+      pinchHandler.handleTouchEnd(createTouchEvent('touchend', []));
+
+      battleView.destroy();
+      document.body.removeChild(container);
+    });
+
+    it('should allow mobile users to select a friendly squad, drag finger onto target hex to preview path, and release to execute move/attack', () => {
+      const hexMap = new HexMap(10, 6);
+      const battle = new Battle(hexMap);
+      battle.initializeToSize(hexMap.width, hexMap.height);
+      const settings = new BattleSettings();
+      const container = document.createElement('div');
+      container.style.width = '800px';
+      container.style.height = '600px';
+      document.body.appendChild(container);
+
+      const swordsman = new Creature(CreatureType.SWORDSMAN);
+      swordsman.armyAlignment = 0;
+      swordsman.position = { x: 2, y: 2 };
+
+      const enemyArcher = new Creature(CreatureType.ARCHER);
+      enemyArcher.armyAlignment = 1;
+      enemyArcher.position = { x: 3, y: 2 };
+
+      battle.creatures = [swordsman, enemyArcher];
+      battle.currentArmyIndex = 0;
+      battle.activeCreatureIndex = -1;
+
+      const battleView = new BattleView3D(container, hexMap, battle, settings);
+
+      const secondaryActionSpy = vi.spyOn(battle, 'handleSecondaryCellAction');
+      const mouseOverSpy = vi.spyOn(battle, 'onMouseOverCell');
+      const primaryActionSpy = vi.spyOn(battle, 'handlePrimaryCellAction');
+
+      // Mock screen-to-hex raycasting for tests
+      (battleView as any).raycastHexAt = vi.fn((clientX: number, clientY: number) => {
+        if (Math.hypot(clientX - 100, clientY - 100) < 30) {
+          return { hex: { x: 2, y: 2 }, direction: HexDirection.EAST };
+        }
+        if (Math.hypot(clientX - 260, clientY - 100) < 30) {
+          return { hex: { x: 3, y: 2 }, direction: HexDirection.EAST };
+        }
+        return null;
+      });
+
+      const createPointerEvent = (type: string, clientX: number, clientY: number, button = 0) => {
+        const ev = new Event(type, { cancelable: true }) as any;
+        ev.clientX = clientX;
+        ev.clientY = clientY;
+        ev.button = button;
+        ev.pointerType = 'touch';
+        ev.preventDefault = vi.fn();
+        return ev;
+      };
+
+      // 1. Single finger tap selects a friendly squad at (100, 100) -> hex (2, 2)
+      (battleView as any).boundPointerDown(createPointerEvent('pointerdown', 100, 100));
+      (battleView as any).boundPointerUp(createPointerEvent('pointerup', 100, 100));
+      (battleView as any).boundClick(createPointerEvent('click', 100, 100));
+      expect(primaryActionSpy).toHaveBeenCalledWith({ x: 2, y: 2 }, HexDirection.EAST);
+      expect(battle.activeCreatureIndex).toBe(0);
+
+      // 2. Subsequent finger drag operation starts from squad's initial position (100, 100)
+      primaryActionSpy.mockClear();
+      (battleView as any).boundPointerDown(createPointerEvent('pointerdown', 100, 100));
+      expect((battleView as any).touchDragSourceHex).toEqual({ x: 2, y: 2 });
+      expect((battleView as any).isTouchDraggingAction).toBe(false);
+
+      // 3. Dragging finger onto target hex (3, 2) at (260, 100) previews path to target
+      (battleView as any).boundPointerMove(createPointerEvent('pointermove', 260, 100));
+      expect((battleView as any).isTouchDraggingAction).toBe(true);
+      expect(mouseOverSpy).toHaveBeenCalledWith({ x: 3, y: 2 }, HexDirection.EAST, false);
+
+      // 4. Releasing finger issues the same action triggered by a right mouse button click
+      (battleView as any).boundPointerUp(createPointerEvent('pointerup', 260, 100));
+      expect(secondaryActionSpy).toHaveBeenCalledWith({ x: 3, y: 2 }, HexDirection.EAST, false);
+      expect((battleView as any).touchDragSourceHex).toBeNull();
+      expect((battleView as any).isTouchDraggingAction).toBe(false);
+
+      // 5. Subsequent synthetic click event is suppressed so target hex is not accidentally clicked
+      (battleView as any).boundClick(createPointerEvent('click', 260, 100));
+      expect(primaryActionSpy).not.toHaveBeenCalled();
+
+      // 6. Normal tap without dragging (moved <= 8px) does NOT trigger secondary action
+      secondaryActionSpy.mockClear();
+      (battleView as any).boundPointerDown(createPointerEvent('pointerdown', 100, 100));
+      (battleView as any).boundPointerMove(createPointerEvent('pointermove', 102, 101)); // moved 2px (< 8px)
+      expect((battleView as any).isTouchDraggingAction).toBe(false);
+      (battleView as any).boundPointerUp(createPointerEvent('pointerup', 102, 101));
+      expect(secondaryActionSpy).not.toHaveBeenCalled();
+
+      battleView.destroy();
+      document.body.removeChild(container);
+    });
+  });
 });
-
-
-
