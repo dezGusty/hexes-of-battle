@@ -401,8 +401,10 @@ describe('Quick draw Skill for Archers', () => {
       expect(slot.description).toContain('Stamina');
       expect(slot.width).toBe(48);
       expect(slot.height).toBe(48);
-      // Sits on top of the unit stats panel (y = -36 relative to panel)
-      expect(slot.y).toBe(-36);
+      // Combined inside the unit stats panel within the ability placeholder socket (y = 58 relative to panel)
+      expect(slot.y).toBe(58);
+      expect(slot.y).toBeGreaterThanOrEqual(0);
+      expect(slot.y + slot.height).toBeLessThanOrEqual(panel.panelHeight);
 
       // Unit without abilities has empty skill slots
       const swordsman = new Creature(CreatureType.SWORDSMAN);
@@ -1519,14 +1521,14 @@ describe('Quick draw Skill for Archers', () => {
       panel.update();
 
       const slots = panel.getSkillSlots();
-      expect(slots.length).toBe(6);
+      expect(slots.length).toBe(5);
+      expect(panel.getAbilityPlaceholders().length).toBe(5);
 
-      // Verify slots 0-4 have hotkey notice in description
+      // Verify slots 0-4 have hotkey notice in description and are placed in placeholders
       for (let i = 0; i < 5; i++) {
         expect(slots[i].description).toContain(`Hotkey: [${i + 1}]`);
+        expect(panel.getAbilityPlaceholders()[i].isOccupied).toBe(true);
       }
-      // Slot 5 (the 6th skill) should not have a hotkey notice
-      expect(slots[5].description).not.toContain('Hotkey:');
     });
   });
 

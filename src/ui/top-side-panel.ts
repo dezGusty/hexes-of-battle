@@ -1,4 +1,5 @@
-import { TextOptions, Container, Sprite, Texture, Text, Spritesheet, NineSliceSprite } from "pixi.js";
+import { TextOptions, Container, Sprite, Texture, Text, Spritesheet, NineSliceSprite, Graphics } from "pixi.js";
+import { drawBestiaryRelief, MEDIEVAL_PALETTE } from "./medieval-ui-decorations";
 
 export class TopSidePanel {
 
@@ -14,6 +15,7 @@ export class TopSidePanel {
   private bannerRightBg?: NineSliceSprite = undefined;
   private leftArmyText?: Text = undefined;
   private rightArmyText?: Text = undefined;
+  private metalworkFrame?: Graphics = undefined;
 
   setActiveArmyIndex(index: number) {
     if (index === 0) {
@@ -124,7 +126,18 @@ export class TopSidePanel {
 
     windowBg.width = 1200;
     windowBg.height = TopSidePanel.DEFAULT_BANNER_SIZE - 5;
+    windowBg.tint = 0x9a8e7a;
     this.window.addChild(windowBg);
+
+    // Medieval metalwork trim with center heraldic eagle & flanking lions
+    this.metalworkFrame = new Graphics();
+    this.metalworkFrame.eventMode = 'none';
+    this.metalworkFrame.roundRect(2, 5, 1196, TopSidePanel.DEFAULT_BANNER_SIZE - 8, 4);
+    this.metalworkFrame.stroke({ color: MEDIEVAL_PALETTE.bronzeMid, width: 1.5, alpha: 0.85 });
+    drawBestiaryRelief(this.metalworkFrame, 'eagle', 600, 21, 0.72, false, MEDIEVAL_PALETTE.goldBright);
+    drawBestiaryRelief(this.metalworkFrame, 'lion', 562, 22, 0.58, false, MEDIEVAL_PALETTE.bronzeLight);
+    drawBestiaryRelief(this.metalworkFrame, 'lion', 638, 22, 0.58, true, MEDIEVAL_PALETTE.bronzeLight);
+    this.window.addChild(this.metalworkFrame);
 
     this.bannerLeftBg = new NineSliceSprite({
       texture: this.uiSheet.textures['progress_bg.png'],

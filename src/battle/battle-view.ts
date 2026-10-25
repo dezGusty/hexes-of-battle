@@ -338,7 +338,15 @@ export class BattleView {
     }
     if (this.commonControls.activeAbility1Button) {
       this.commonControls.activeAbility1Button.text = description;
-      this.commonControls.activeAbility1Button.visible = false; // Replaced by skill icon buttons on top of unit stats panel
+      this.commonControls.activeAbility1Button.visible = false; // Replaced by skill icon buttons in unit stats panel
+    }
+    if (this.commonControls) {
+      const canRest = creature ? (this.unitStats ? this.unitStats.isRestApplicable(creature) : creature.canRest()) : false;
+      if (typeof this.commonControls.setRestApplicable === 'function') {
+        this.commonControls.setRestApplicable(canRest);
+      } else if (this.commonControls.restButton) {
+        this.commonControls.restButton.alpha = canRest ? 1.0 : 0.4;
+      }
     }
     if (this.unitStats?.isVisible()) {
       this.showStatsForUnit(creature);
@@ -397,8 +405,15 @@ export class BattleView {
     }
     this.applyHardwareCursorVisibility(this.settings.hideHardwareCursor);
 
+    const dockedButtons = new Set<any>([
+      this.commonControls.restButton,
+      this.commonControls.nextUnitButton,
+      this.commonControls.nextTurnButton,
+    ]);
     this.commonControls.getControls().forEach((control) => {
-      this.uiRenderGroup.addChild(control);
+      if (!dockedButtons.has(control)) {
+        this.uiRenderGroup.addChild(control);
+      }
     });
 
     this.commonControls.menuButton?.onPress.connect(() => {
@@ -432,7 +447,11 @@ export class BattleView {
 
     this.commonControls.nextTurnButton?.onPress.connect(() => events.onNextTurn());
     this.commonControls.nextUnitButton?.onPress.connect(() => events.onNextUnit());
-    this.commonControls.restButton?.onPress.connect(() => events.onRest?.());
+    this.commonControls.restButton?.onPress.connect(() => {
+      if (this.commonControls.isRestEnabled !== false) {
+        events.onRest?.();
+      }
+    });
 
     this.battleMenuPanel?.showHealthbarsButton?.onPress.connect(() => {
       this.showHealthbars = !this.showHealthbars;
@@ -501,6 +520,7 @@ export class BattleView {
 
     if (this.assets.uiSheet) {
       this.unitStats = new UnitStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet, this.battle.traitsConfig, this.battle);
+      this.unitStats.bindCommonControls(this.commonControls);
       this.unitStats.onSkillClick = (index: number, _ability?: Ability, creature?: Creature) => {
         this.battle.selectActiveAbilityForCurrentUnit(index, creature);
         const active = this.battle.getActiveCreature();
@@ -509,6 +529,13 @@ export class BattleView {
         }
         this.updateTargetAcquirementHint();
       };
+      this.unitStats.onRestClick = () => {
+        if (this.commonControls.isRestEnabled !== false) {
+          events.onRest?.();
+        }
+      };
+      this.unitStats.onNextUnitClick = () => events.onNextUnit();
+      this.unitStats.onEndTurnClick = () => events.onNextTurn();
       if (this.settings.hex.showStats) {
         this.unitStats.show();
         if (this.battle.activeCreatureIndex >= 0) {
@@ -520,6 +547,12 @@ export class BattleView {
         this.unitStats.hide();
       }
     }
+
+    dockedButtons.forEach((control) => {
+      if (control) {
+        this.uiPlusRenderGroup.addChild(control);
+      }
+    });
   }
 
   private initializeTopPanel(): void {
@@ -1263,6 +1296,10 @@ export class BattleView {
     const faceTexture = this.assets.unitsSheet?.textures[faceName];
     this.unitStats.setFaceTexture(faceTexture);
     this.unitStats.update();
+
+    if (this.commonControls) {
+      this.commonControls.setRestApplicable(this.unitStats.isRestApplicable(creature));
+    }
   }
 
   private directionToSpriteName(direction: HexDirection): string {
@@ -1312,6 +1349,9 @@ export class BattleView {
         }
         this.updateTargetAcquirementHint();
       };
+      if (this.commonControls) {
+        this.unitStats.bindCommonControls(this.commonControls);
+      }
     }
     this.unitStats.toggleVisibility();
     this.settings.hex.showStats = this.unitStats.isVisible();

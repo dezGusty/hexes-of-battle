@@ -21,6 +21,10 @@ import { Creature, CreatureType } from "./creature";
 import { BattleMenuPanel } from "../ui/battle-menu";
 import { MoraleState } from "./combat-rules";
 import { getMoraleTexture } from "../ui/morale-icon-utils";
+import { Ability, AbilityType } from "./ability";
+import { CommonControls } from "../ui/common-controls";
+import { BESTIARY_MOTIFS, drawBestiaryRelief } from "../ui/medieval-ui-decorations";
+import { Graphics } from "pixi.js";
 import pkg from "../../package.json";
 
 describe("BattleView Army Names Formatting", () => {
@@ -792,6 +796,313 @@ describe("UnitStatsPanel & EnemyStatsPanel Ammo Display", () => {
     expect(foundMoraleSprite!.height).toBe(20);
   });
 });
+
+describe("Redesigned Medieval Battle UI (Combined Stats, Abilities, Scrollable Perks, Common Actions)", () => {
+  const createDummyUiSheet = (): Spritesheet =>
+    ({
+      textures: new Proxy(
+        {},
+        {
+          get: () => Texture.WHITE,
+        }
+      ),
+    }) as unknown as Spritesheet;
+
+  it("should render medieval metalwork frame and bird/wild animal reliefs across all bestiary motifs", () => {
+    const container = new Container();
+    const panel = new UnitStatsPanel(container, createDummyUiSheet());
+
+    const motifs = panel.getBestiaryMotifsRendered();
+    expect(motifs).toEqual(BESTIARY_MOTIFS);
+    expect(motifs).toContain("falcon");
+    expect(motifs).toContain("eagle");
+    expect(motifs).toContain("raven");
+    expect(motifs).toContain("songbird");
+    expect(motifs).toContain("wolf");
+    expect(motifs).toContain("lion");
+    expect(motifs).toContain("stag");
+    expect(motifs).toContain("boar");
+
+    // Verify drawBestiaryRelief draws cleanly for every motif (normal and mirrored)
+    for (const motif of BESTIARY_MOTIFS) {
+      const g = new Graphics();
+      drawBestiaryRelief(g, motif, 50, 50, 1.0, false);
+      drawBestiaryRelief(g, motif, 100, 50, 1.0, true);
+      expect(g).toBeDefined();
+    }
+  });
+
+  it("should display all 12 unit stats with an icon, current value label, and hover tooltip", () => {
+    const container = new Container();
+    const panel = new UnitStatsPanel(container, createDummyUiSheet());
+    panel.show();
+
+    const creature = new Creature(CreatureType.PEASANT_ARCHER);
+    panel.setCreature(creature);
+    panel.update();
+
+    const statIcons = (panel as any).statIcons as Sprite[];
+    const statValues = (panel as any).statValues as any[];
+    const statAreas = (panel as any).statTooltipAreas as Container[];
+    const tooltipText = (panel as any).tooltipText;
+    const tooltipWindow = (panel as any).tooltipWindow;
+
+    expect(statIcons.length).toBe(DisplayedStat.NUM_STATS);
+    expect(statValues.length).toBe(DisplayedStat.NUM_STATS);
+    expect(statAreas.length).toBe(DisplayedStat.NUM_STATS);
+
+    for (let i = 0; i < DisplayedStat.NUM_STATS; i++) {
+      expect(statIcons[i]).toBeDefined();
+      expect(statIcons[i].width).toBeGreaterThan(0);
+      expect(statValues[i]).toBeDefined();
+      expect(statValues[i].text.length).toBeGreaterThan(0);
+
+      // Hover over the stat cell to verify its tooltip appears
+      const area = statAreas[i];
+      const hoverX = panel.window.x + area.x + area.width / 2;
+      const hoverY = panel.window.y + area.y + area.height / 2;
+      panel.mousemove({ x: hoverX, y: hoverY });
+
+      expect(tooltipWindow.visible).toBe(true);
+      expect(tooltipText.visible).toBe(true);
+      expect(tooltipText.text.length).toBeGreaterThan(5);
+    }
+  });
+
+  it("should show 5 permanent stylized circular ability placeholders and place up to 5 ability buttons inside them", () => {
+    const container = new Container();
+    const panel = new UnitStatsPanel(container, createDummyUiSheet());
+    panel.show();
+
+    const placeholders = panel.getAbilityPlaceholders();
+    expect(placeholders.length).toBe(UnitStatsPanel.MAX_ABILITY_SLOTS);
+    expect(placeholders.length).toBe(5);
+
+    // Initially with a unit that has 0 abilities, all 5 placeholders are visible and unoccupied
+    const swordsman = new Creature(CreatureType.SWORDSMAN);
+    swordsman.abilities = [];
+    panel.setCreature(swordsman);
+    panel.update();
+
+    expect(panel.getSkillSlots().length).toBe(0);
+    for (let i = 0; i < 5; i++) {
+      expect(placeholders[i].container.visible).toBe(true);
+      expect(placeholders[i].isOccupied).toBe(false);
+    }
+
+    // With 3 abilities, slots 0..2 are placed at the exact coordinates of placeholders 0..2
+    const archer = new Creature(CreatureType.PEASANT_ARCHER);
+    archer.abilities = [];
+    for (let i = 0; i < 3; i++) {
+      const ab = new Ability();
+      ab.id = `ab-${i}`;
+      ab.name = `Ability ${i + 1}`;
+      ab.abilityType = AbilityType.Active;
+      archer.abilities.push(ab);
+    }
+    panel.setCreature(archer);
+    panel.update();
+
+    const skillSlots = panel.getSkillSlots();
+    expect(skillSlots.length).toBe(3);
+    for (let i = 0; i < 5; i++) {
+      expect(placeholders[i].container.visible).toBe(true);
+      if (i < 3) {
+        expect(placeholders[i].isOccupied).toBe(true);
+        expect(skillSlots[i].x).toBe(placeholders[i].x);
+        expect(skillSlots[i].y).toBe(placeholders[i].y);
+        expect(skillSlots[i].width).toBe(placeholders[i].width);
+        expect(skillSlots[i].height).toBe(placeholders[i].height);
+      } else {
+        expect(placeholders[i].isOccupied).toBe(false);
+      }
+    }
+
+    // With 7 abilities on a unit, at most 5 buttons are created and placed in the 5 sockets
+    for (let i = 3; i < 7; i++) {
+      const ab = new Ability();
+      ab.id = `ab-${i}`;
+      ab.name = `Ability ${i + 1}`;
+      ab.abilityType = AbilityType.Active;
+      archer.abilities.push(ab);
+    }
+    panel.setCreature(archer);
+    panel.update();
+
+    expect(panel.getSkillSlots().length).toBe(5);
+    for (let i = 0; i < 5; i++) {
+      expect(placeholders[i].isOccupied).toBe(true);
+    }
+  });
+
+  it("should display up to 6 perks at a time with 2 scroll buttons to scroll through additional perks", () => {
+    const container = new Container();
+    const panel = new UnitStatsPanel(container, createDummyUiSheet());
+    panel.show();
+
+    const perkPlaceholders = panel.getPerkPlaceholders();
+    expect(perkPlaceholders.length).toBe(UnitStatsPanel.MAX_VISIBLE_PERKS);
+    expect(perkPlaceholders.length).toBe(6);
+
+    const leftBtn = panel.getPerkScrollLeftButton();
+    const rightBtn = panel.getPerkScrollRightButton();
+    expect(leftBtn).toBeDefined();
+    expect(rightBtn).toBeDefined();
+    expect(leftBtn.direction).toBe("left");
+    expect(rightBtn.direction).toBe("right");
+
+    // Unit with 8 traits
+    const veteran = new Creature(CreatureType.SWORDSMAN);
+    veteran.stats.traits = [
+      "shielded",
+      "armored",
+      "close_combat_specialist",
+      "Spearwall",
+      "Cleaving",
+      "Unruly",
+      "charge",
+      "fearsome",
+    ];
+    panel.setCreature(veteran);
+    panel.update();
+
+    // At offset 0: displays first 6 perks; left button disabled, right button enabled
+    expect(panel.getPerkScrollOffset()).toBe(0);
+    expect(panel.getTraitSlots().length).toBe(6);
+    expect(panel.getTraitSlots().map((s) => s.traitName)).toEqual([
+      "shielded",
+      "armored",
+      "close_combat_specialist",
+      "Spearwall",
+      "Cleaving",
+      "Unruly",
+    ]);
+    expect(leftBtn.enabled).toBe(false);
+    expect(rightBtn.enabled).toBe(true);
+
+    // Click right scroll button -> offset becomes 1
+    const rightClickX = panel.window.x + rightBtn.x + rightBtn.width / 2;
+    const rightClickY = panel.window.y + rightBtn.y + rightBtn.height / 2;
+    expect(panel.click({ x: rightClickX, y: rightClickY })).toBe(true);
+    expect(panel.getPerkScrollOffset()).toBe(1);
+    expect(panel.getTraitSlots().map((s) => s.traitName)).toEqual([
+      "armored",
+      "close_combat_specialist",
+      "Spearwall",
+      "Cleaving",
+      "Unruly",
+      "charge",
+    ]);
+    expect(leftBtn.enabled).toBe(true);
+    expect(rightBtn.enabled).toBe(true);
+
+    // Click right scroll button again -> offset becomes 2 (max offset for 8 traits with 6 visible)
+    expect(panel.click({ x: rightClickX, y: rightClickY })).toBe(true);
+    expect(panel.getPerkScrollOffset()).toBe(2);
+    expect(panel.getTraitSlots().map((s) => s.traitName)).toEqual([
+      "close_combat_specialist",
+      "Spearwall",
+      "Cleaving",
+      "Unruly",
+      "charge",
+      "fearsome",
+    ]);
+    expect(leftBtn.enabled).toBe(true);
+    expect(rightBtn.enabled).toBe(false);
+
+    // Clicking right again when at max offset does not advance past 2
+    expect(panel.scrollPerksRight()).toBe(false);
+    expect(panel.getPerkScrollOffset()).toBe(2);
+
+    // Click left scroll button -> offset returns to 1
+    const leftClickX = panel.window.x + leftBtn.x + leftBtn.width / 2;
+    const leftClickY = panel.window.y + leftBtn.y + leftBtn.height / 2;
+    expect(panel.click({ x: leftClickX, y: leftClickY })).toBe(true);
+    expect(panel.getPerkScrollOffset()).toBe(1);
+  });
+
+  it("should render Common Actions (Rest, Next Unit, and a larger standout End Turn) with Rest always in the same spot and deactivated when not applicable", () => {
+    Assets.cache.set("thin_button_normal.png", Texture.WHITE);
+    Assets.cache.set("thin_button_hover.png", Texture.WHITE);
+    Assets.cache.set("thin_button_pressed.png", Texture.WHITE);
+
+    const container = new Container();
+    const hexMap = new HexMap(10, 8);
+    const battle = new Battle(hexMap);
+    const unit = new Creature(CreatureType.SWORDSMAN);
+    unit.armyAlignment = 0;
+    unit.stats.stamina = 6;
+    unit.stats.max_stamina = 12;
+    battle.creatures.push(unit);
+    battle.activeCreatureIndex = 0;
+
+    const panel = new UnitStatsPanel(container, createDummyUiSheet(), undefined, battle);
+    const controls = new CommonControls({ zoomMin: 75, zoomMax: 200, zoomStep: 5, zoomValue: 100 });
+    controls.initializeButtons();
+    panel.bindCommonControls(controls);
+    panel.show();
+    panel.setCreature(unit);
+    panel.update();
+
+    const commonActions = panel.getCommonActions()!;
+    expect(commonActions).toBeDefined();
+    expect(commonActions.rest).toBeDefined();
+    expect(commonActions.nextUnit).toBeDefined();
+    expect(commonActions.endTurn).toBeDefined();
+
+    // End Turn is larger and stands out compared to Rest and Next Unit
+    expect(commonActions.endTurn.width).toBeGreaterThan(commonActions.rest.width);
+    expect(commonActions.endTurn.height).toBeGreaterThan(commonActions.rest.height);
+    expect(commonActions.endTurn.width).toBeGreaterThan(commonActions.nextUnit.width);
+    expect(commonActions.endTurn.height).toBeGreaterThan(commonActions.nextUnit.height);
+    expect(controls.nextTurnButton!.width).toBeGreaterThan(controls.restButton!.width);
+    expect(controls.nextTurnButton!.height).toBeGreaterThan(controls.restButton!.height);
+
+    // Record initial Rest button position and visibility when unit can rest
+    const initialPanelRestPos = { x: commonActions.rest.container.x, y: commonActions.rest.container.y };
+    const initialControlRestPos = { x: controls.restButton!.x, y: controls.restButton!.y };
+    expect(unit.canRest()).toBe(true);
+    expect(commonActions.rest.enabled).toBe(true);
+    expect(commonActions.rest.container.visible).toBe(true);
+    expect(commonActions.rest.container.alpha).toBe(1.0);
+    expect(controls.restButton!.visible).toBe(true);
+    expect(controls.restButton!.enabled).toBe(true);
+    expect(controls.restButton!.alpha).toBe(1.0);
+
+    // Make Rest not applicable (unit moved this turn)
+    unit.stats.remaining_movement = 0;
+    expect(unit.canRest()).toBe(false);
+    panel.update();
+
+    // Rest button must remain in the exact same spot and visible, but deactivated
+    expect(commonActions.rest.container.visible).toBe(true);
+    expect(commonActions.rest.container.x).toBe(initialPanelRestPos.x);
+    expect(commonActions.rest.container.y).toBe(initialPanelRestPos.y);
+    expect(commonActions.rest.enabled).toBe(false);
+    expect(commonActions.rest.container.alpha).toBeCloseTo(0.4);
+
+    expect(controls.restButton!.visible).toBe(true);
+    expect(controls.restButton!.x).toBe(initialControlRestPos.x);
+    expect(controls.restButton!.y).toBe(initialControlRestPos.y);
+    expect(controls.restButton!.enabled).toBe(false);
+    expect(controls.restButton!.alpha).toBeCloseTo(0.4);
+
+    // Clicking deactivated Rest does not invoke onRestClick
+    let restClicked = 0;
+    panel.onRestClick = () => {
+      restClicked++;
+    };
+    expect(panel.triggerRest()).toBe(false);
+    expect(restClicked).toBe(0);
+
+    // Re-enable Rest and verify triggerRest invokes callback
+    unit.stats.remaining_movement = unit.stats.num_moves;
+    panel.update();
+    expect(panel.triggerRest()).toBe(true);
+    expect(restClicked).toBe(1);
+  });
+});
+
 
 
 

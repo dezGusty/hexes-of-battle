@@ -1,4 +1,4 @@
-import { Assets, Container, NineSliceSprite, Sprite, Spritesheet, Text, TextOptions, Texture } from "pixi.js";
+import { Assets, Container, Graphics, NineSliceSprite, Sprite, Spritesheet, Text, TextOptions, Texture } from "pixi.js";
 import { Buff, Creature, CreatureStats } from "../battle/creature";
 import { Coords } from "../shared";
 import { DisplayedStat, TraitSlot, SkillSlot, getSkillIconPath, formatAbilityDescription } from "./unit-stats-panel";
@@ -6,6 +6,7 @@ import { Ability } from "../battle/ability";
 import { getTraitInfo, TraitsConfig } from "../battle/trait-system";
 import { getMoraleState, getMoraleTooltip, getStaminaTooltip } from "../battle/combat-rules";
 import { getMoraleTexture } from "./morale-icon-utils";
+import { drawBestiaryRelief, MEDIEVAL_PALETTE } from "./medieval-ui-decorations";
 
 /**
  * Secondary compact stats display panel for enemy units.
@@ -114,7 +115,16 @@ export class EnemyStatsPanel {
 
     windowBg.width = this.panelWidth;
     windowBg.height = this.panelHeight;
+    windowBg.tint = 0x8a7d6d;
     this.window.addChild(windowBg);
+
+    const metalworkBorder = new Graphics();
+    metalworkBorder.eventMode = 'none';
+    metalworkBorder.roundRect(2, 2, this.panelWidth - 4, this.panelHeight - 4, 5);
+    metalworkBorder.stroke({ color: MEDIEVAL_PALETTE.bronzeMid, width: 2 });
+    drawBestiaryRelief(metalworkBorder, 'raven', this.panelWidth - 38, 16, 0.58, true, MEDIEVAL_PALETTE.bronzeLight);
+    drawBestiaryRelief(metalworkBorder, 'boar', this.panelWidth - 16, 16, 0.58, true, MEDIEVAL_PALETTE.goldBright);
+    this.window.addChild(metalworkBorder);
 
     // Position panel in top right area
     this.window.position = { x: 1920 - this.panelWidth - 20, y: 75 };

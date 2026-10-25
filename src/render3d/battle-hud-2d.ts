@@ -120,6 +120,13 @@ export class BattleHud2D {
         this.hideEnemyStats();
         this.updateTargetAcquirementHint();
       };
+      this.unitStats.onRestClick = () => {
+        if (this.commonControls?.isRestEnabled !== false) {
+          events.onRest();
+        }
+      };
+      this.unitStats.onNextUnitClick = () => events.onNextUnit();
+      this.unitStats.onEndTurnClick = () => events.onNextTurn();
       if (this.settings.hex.showStats) {
         this.unitStats.show();
       } else {
@@ -130,6 +137,9 @@ export class BattleHud2D {
     }
 
     this.initializeCommonControls(events);
+    if (this.unitStats && this.commonControls) {
+      this.unitStats.bindCommonControls(this.commonControls);
+    }
     this.initializeTopPanel();
     this.updateArmyNames();
   }
@@ -178,6 +188,19 @@ export class BattleHud2D {
     });
     this.commonControls.initializeButtons();
 
+    const dockedButtons = new Set<any>([
+      this.commonControls.restButton,
+      this.commonControls.nextUnitButton,
+      this.commonControls.nextTurnButton,
+    ]);
+    this.commonControls.getControls().forEach((control) => {
+      if (dockedButtons.has(control)) {
+        this.uiPlusRenderGroup.addChild(control);
+      } else {
+        this.uiRenderGroup.addChild(control);
+      }
+    });
+
     if (this.assets.uiSheet) {
       this.battleMenuPanel = new BattleMenuPanel(this.uiPlusRenderGroup, this.assets.uiSheet);
       this.battleMenuPanel.battle = this.battle;
@@ -199,10 +222,6 @@ export class BattleHud2D {
       this.battleMenuPanel.setHardwareCursorHidden(this.settings.hideHardwareCursor);
       this.battleMenuPanel.hide();
     }
-
-    this.commonControls.getControls().forEach((control) => {
-      this.uiRenderGroup.addChild(control);
-    });
 
     this.commonControls.menuButton?.onPress.connect(() => {
       this.battleMenuPanel?.toggleVisibility();
@@ -311,7 +330,11 @@ export class BattleHud2D {
 
     this.commonControls.nextTurnButton?.onPress.connect(() => events.onNextTurn());
     this.commonControls.nextUnitButton?.onPress.connect(() => events.onNextUnit());
-    this.commonControls.restButton?.onPress.connect(() => events.onRest());
+    this.commonControls.restButton?.onPress.connect(() => {
+      if (this.commonControls?.isRestEnabled !== false) {
+        events.onRest();
+      }
+    });
     this.commonControls.resetButton?.onPress.connect(() => events.onReset());
 
     if (events.onActiveAbility1) {
@@ -430,13 +453,17 @@ export class BattleHud2D {
 
     if (this.commonControls?.activeAbility1Button) {
       this.commonControls.activeAbility1Button.text = description;
-      this.commonControls.activeAbility1Button.visible = false; // Replaced by skill icon buttons on top of unit stats panel
+      this.commonControls.activeAbility1Button.visible = false; // Replaced by skill icon buttons in unit stats panel
       this.commonControls.activeAbility1Button.alpha = canUse ? 1.0 : 0.4;
     }
 
-    if (this.commonControls?.restButton) {
-      const canRest = creature ? creature.canRest() : false;
-      this.commonControls.restButton.alpha = canRest ? 1.0 : 0.4;
+    if (this.commonControls) {
+      const canRest = creature ? (this.unitStats ? this.unitStats.isRestApplicable(creature) : creature.canRest()) : false;
+      if (typeof this.commonControls.setRestApplicable === 'function') {
+        this.commonControls.setRestApplicable(canRest);
+      } else if (this.commonControls.restButton) {
+        this.commonControls.restButton.alpha = canRest ? 1.0 : 0.4;
+      }
     }
 
     if (creature && this.unitStats?.isVisible()) {
@@ -509,6 +536,15 @@ export class BattleHud2D {
     const faceTexture = this.getFaceTextureForCreature(creature);
     this.unitStats.setFaceTexture(faceTexture);
     this.unitStats.update();
+
+    if (this.commonControls) {
+      const canRest = this.unitStats.isRestApplicable(creature);
+      if (typeof this.commonControls.setRestApplicable === 'function') {
+        this.commonControls.setRestApplicable(canRest);
+      } else if (this.commonControls.restButton) {
+        this.commonControls.restButton.alpha = canRest ? 1.0 : 0.4;
+      }
+    }
   }
 
   public toggleUnitStats(): void {
@@ -524,6 +560,9 @@ export class BattleHud2D {
         this.hideEnemyStats();
         this.updateTargetAcquirementHint();
       };
+      if (this.commonControls) {
+        this.unitStats.bindCommonControls(this.commonControls);
+      }
     }
     this.unitStats.toggleVisibility();
     this.settings.hex.showStats = this.unitStats.isVisible();
@@ -616,12 +655,17 @@ export class BattleHud2D {
       return true;
     }
 
-    // Unit stats panel (including skill icon buttons on top)
+    // Unit stats panel (combined with abilities, perks, and common actions)
     if (this.unitStats?.isVisible() && this.unitStats.containsPoint(stageX, stageY)) {
       return true;
     }
 
-    // Left sidebar controls (Menu at top, toggle buttons, Rest, Next Unit, End Turn)
+    // Common actions dock on bottom right (Rest, Next Unit, End Turn)
+    if (stageX >= 1550 && stageX <= 1875 && stageY >= 930 && stageY <= 1080) {
+      return true;
+    }
+
+    // Left sidebar controls (Menu at top)
     if (stageX >= 0 && stageX <= 165) {
       if ((stageY >= 0 && stageY <= 65) || (stageY >= 295 && stageY <= 890)) {
         return true;
