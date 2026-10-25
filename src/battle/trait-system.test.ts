@@ -735,6 +735,64 @@ describe("Trait & Perk System", () => {
       enemyPanel.hide();
       expect(enemyPanel.containsPoint(wx + 100, wy + 100)).toBe(false);
     });
+
+    it("should render Cavalry, Charge, and Armor Penetration icons in UnitStatsPanel and EnemyStatsPanel", () => {
+      const fs = require("fs");
+      const path = require("path");
+
+      // Verify PNG files exist and are valid non-empty PNGs
+      const traitIcons = [
+        "traits/icon_armor_penetration.png",
+        "traits/icon_cavalry.png",
+        "traits/icon_charge.png",
+      ];
+
+      for (const icon of traitIcons) {
+        const fullPath = path.resolve(__dirname, "../../public", icon);
+        expect(fs.existsSync(fullPath)).toBe(true);
+        const buffer = fs.readFileSync(fullPath);
+        expect(buffer.length).toBeGreaterThan(1000);
+        // PNG header magic bytes
+        expect(buffer[0]).toBe(0x89);
+        expect(buffer[1]).toBe(0x50);
+        expect(buffer[2]).toBe(0x4e);
+        expect(buffer[3]).toBe(0x47);
+      }
+
+      // Verify UnitStatsPanel renders slots and icons for knight perks
+      const knight = new Creature(CreatureType.ARMORED_KNIGHT);
+      knight.stats.traits = ["Cavalry", "Charge", "ArmorPenetration"];
+      const container = new Container();
+      const dummyUiSheet = createDummyUiSheet();
+      const unitPanel = new UnitStatsPanel(container, dummyUiSheet);
+      unitPanel.setCreature(knight);
+      unitPanel.update();
+
+      const unitSlots = unitPanel.getTraitSlots();
+      expect(unitSlots.length).toBe(3);
+      expect(unitSlots.some((s) => s.traitName === "Cavalry")).toBe(true);
+      expect(unitSlots.some((s) => s.traitName === "Charge")).toBe(true);
+      expect(unitSlots.some((s) => s.traitName === "ArmorPenetration")).toBe(true);
+      for (const slot of unitSlots) {
+        expect(slot.iconSprite).toBeDefined();
+        expect(slot.iconSprite.texture).toBeDefined();
+      }
+
+      // Verify EnemyStatsPanel renders slots and icons for knight perks
+      const enemyPanel = new EnemyStatsPanel(container, dummyUiSheet);
+      enemyPanel.setCreature(knight);
+      enemyPanel.update();
+
+      const enemySlots = enemyPanel.getTraitSlots();
+      expect(enemySlots.length).toBe(3);
+      expect(enemySlots.some((s) => s.traitName === "Cavalry")).toBe(true);
+      expect(enemySlots.some((s) => s.traitName === "Charge")).toBe(true);
+      expect(enemySlots.some((s) => s.traitName === "ArmorPenetration")).toBe(true);
+      for (const slot of enemySlots) {
+        expect(slot.iconSprite).toBeDefined();
+        expect(slot.iconSprite.texture).toBeDefined();
+      }
+    });
   });
 });
 

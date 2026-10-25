@@ -34,4 +34,26 @@ describe('HexesEngine scaling and positioning', () => {
     expect(engine.renderContainer.position.x).toBe(0);
     expect(engine.renderContainer.position.y).toBe(0);
   });
+
+  it('should request preloading of all trait icons including Cavalry, Charge, and Armor Penetration', async () => {
+    const mockApp = {
+      stage: { addChild: vi.fn() },
+      screen: { width: 1920, height: 1080 },
+    } as unknown as Application;
+
+    const engine = new HexesEngine(mockApp);
+    const { Assets } = await import('pixi.js');
+    const loadSpy = vi.spyOn(Assets, 'load').mockResolvedValue({} as any);
+
+    await engine.loadAssets();
+
+    expect(loadSpy).toHaveBeenCalled();
+    const loadedFiles = loadSpy.mock.calls.flatMap((call) => call[0] as string[]);
+    expect(loadedFiles).toContain('traits/icon_armor_penetration.png');
+    expect(loadedFiles).toContain('traits/icon_cavalry.png');
+    expect(loadedFiles).toContain('traits/icon_charge.png');
+    expect(loadedFiles).toContain('skills/icon_mend_wounds.png');
+
+    loadSpy.mockRestore();
+  });
 });

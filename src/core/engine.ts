@@ -218,7 +218,7 @@ export class HexesEngine {
     this.assets.uiSheet2 = await Assets.load('ui/hexes_blue_ui_sheet.json');
     this.assets.bannersSheet = await Assets.load('bannersspritesheet.json');
 
-    if (this.assets.uiSheet) {
+    if (this.assets.uiSheet?.textures) {
       this.assets.softCursorTextures['default'] = this.assets.uiSheet.textures['cur_gs_arrow.png'];
       this.assets.softCursorTextures['attack_melee'] = this.assets.uiSheet.textures['cursor_sword.png'];
       this.assets.softCursorTextures['attack_melee_e'] = this.assets.uiSheet.textures['cursor_sword_e.png'];
@@ -236,10 +236,14 @@ export class HexesEngine {
         'traits/icon_spear_wall.png',
         'traits/icon_volley_fire.png',
         'traits/icon_fragile_line.png',
+        'traits/icon_armor_penetration.png',
+        'traits/icon_cavalry.png',
+        'traits/icon_charge.png',
         'skills/icon_patch_up.png',
         'skills/icon_pickup_ammo.png',
         'skills/icon_throw_javelin.png',
         'skills/icon_quick_draw.png',
+        'skills/icon_mend_wounds.png',
         'morale/morale_high.png',
         'morale/morale_steady.png',
         'morale/morale_wavering.png',

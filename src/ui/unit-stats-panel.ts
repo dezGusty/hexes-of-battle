@@ -1317,7 +1317,7 @@ export class UnitStatsPanel {
     this.traitsConfig = traitsConfig;
   }
 
-  private getTextureForIcon(iconPath: string): Texture {
+  private getTextureForIcon(iconPath: string, targetSprite?: Sprite): Texture {
     try {
       if (typeof Assets !== "undefined" && Assets.get) {
         const cached = Assets.get(iconPath);
@@ -1332,6 +1332,30 @@ export class UnitStatsPanel {
     try {
       if (this.uiSheet?.textures?.[iconPath]) {
         return this.uiSheet.textures[iconPath];
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      if (typeof Assets !== "undefined" && Assets.load) {
+        Assets.load(iconPath)
+          .then((loaded) => {
+            if (targetSprite) {
+              const tex =
+                loaded instanceof Texture
+                  ? loaded
+                  : (loaded as any)?.baseTexture || (loaded as any)?.source
+                  ? (loaded as Texture)
+                  : null;
+              if (tex) {
+                targetSprite.texture = tex;
+              }
+            }
+          })
+          .catch(() => {
+            // ignore
+          });
       }
     } catch {
       // ignore
@@ -1435,8 +1459,8 @@ export class UnitStatsPanel {
       slotBorder.height = slotSize;
       slotContainer.addChild(slotBorder);
 
-      const iconTex = this.getTextureForIcon(iconPath);
-      const iconSprite = new Sprite(iconTex);
+      const iconSprite = new Sprite(Texture.EMPTY);
+      iconSprite.texture = this.getTextureForIcon(iconPath, iconSprite);
       iconSprite.width = slotSize - 8;
       iconSprite.height = slotSize - 8;
       iconSprite.position = { x: 4, y: 4 };
@@ -1547,8 +1571,8 @@ export class UnitStatsPanel {
       }
       slotContainer.addChild(slotBorder);
 
-      const iconTex = this.getTextureForIcon(iconPath);
-      const iconSprite = new Sprite(iconTex);
+      const iconSprite = new Sprite(Texture.EMPTY);
+      iconSprite.texture = this.getTextureForIcon(iconPath, iconSprite);
       iconSprite.width = slotSize - 8;
       iconSprite.height = slotSize - 8;
       iconSprite.position = { x: 4, y: 4 };
@@ -1977,7 +2001,8 @@ export class UnitStatsPanel {
         // Left aligned 128x128 icon inside tooltip
         this.tooltipIconSprite.visible = true;
         this.tooltipIconSprite.texture = this.getTextureForIcon(
-          hoveredSkill.iconPath || getSkillIconPath(hoveredSkill.ability)
+          hoveredSkill.iconPath || getSkillIconPath(hoveredSkill.ability),
+          this.tooltipIconSprite
         );
         this.tooltipIconSprite.width = 128;
         this.tooltipIconSprite.height = 128;
@@ -2031,7 +2056,7 @@ export class UnitStatsPanel {
           hoveredTrait.iconPath ||
           getTraitInfo(hoveredTrait.traitName, this.traitsConfig)?.icon ||
           "traits/icon_shield_block.png";
-        this.tooltipIconSprite.texture = this.getTextureForIcon(traitIcon);
+        this.tooltipIconSprite.texture = this.getTextureForIcon(traitIcon, this.tooltipIconSprite);
         this.tooltipIconSprite.width = 128;
         this.tooltipIconSprite.height = 128;
         this.tooltipIconSprite.position = {
