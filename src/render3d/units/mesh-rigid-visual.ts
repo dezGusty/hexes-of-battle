@@ -27,12 +27,18 @@ export class MeshRigidVisual implements IUnitVisual {
 
   // Articulated sub-part references (populated if present on 3D unit mesh)
   private headPart: THREE.Object3D | null = null;
+  private torsoPart: THREE.Object3D | null = null;
   private armLPart: THREE.Object3D | null = null;
   private armRPart: THREE.Object3D | null = null;
   private legLPart: THREE.Object3D | null = null;
   private legRPart: THREE.Object3D | null = null;
   public weaponPart: THREE.Object3D | null = null;
   public shieldPart: THREE.Object3D | null = null;
+  private horseFrontLPart: THREE.Object3D | null = null;
+  private horseFrontRPart: THREE.Object3D | null = null;
+  private horseRearLPart: THREE.Object3D | null = null;
+  private horseRearRPart: THREE.Object3D | null = null;
+  public isMounted: boolean = false;
   private restRotations: Map<THREE.Object3D, THREE.Euler> = new Map();
 
   constructor(options: MeshRigidOptions) {
@@ -77,6 +83,9 @@ export class MeshRigidVisual implements IUnitVisual {
   private cacheArticulatedParts(): void {
     this.model.traverse((child) => {
       switch (child.name) {
+        case 'Torso':
+          this.torsoPart = child;
+          break;
         case 'Head':
           this.headPart = child;
           break;
@@ -98,6 +107,18 @@ export class MeshRigidVisual implements IUnitVisual {
         case 'Shield':
           this.shieldPart = child;
           break;
+        case 'Horse_Leg_Front_L':
+          this.horseFrontLPart = child;
+          break;
+        case 'Horse_Leg_Front_R':
+          this.horseFrontRPart = child;
+          break;
+        case 'Horse_Leg_Rear_L':
+          this.horseRearLPart = child;
+          break;
+        case 'Horse_Leg_Rear_R':
+          this.horseRearRPart = child;
+          break;
       }
       if (
         child.name === 'Head' ||
@@ -106,11 +127,19 @@ export class MeshRigidVisual implements IUnitVisual {
         child.name === 'Leg_L' ||
         child.name === 'Leg_R' ||
         child.name === 'Weapon' ||
-        child.name === 'Shield'
+        child.name === 'Shield' ||
+        child.name === 'Torso' ||
+        child.name.startsWith('Horse_Leg_')
       ) {
         this.restRotations.set(child, child.rotation.clone());
       }
     });
+
+    this.isMounted =
+      this.horseFrontLPart !== null ||
+      this.model.name === 'Root' ||
+      this.model.name.toLowerCase().includes('horse') ||
+      (this.model.userData?.unitKey === 'armored_knight');
   }
 
   private resetLimbRotations(): void {
@@ -208,17 +237,61 @@ export class MeshRigidVisual implements IUnitVisual {
       }
 
       case 'walk': {
-        const stride = Math.sin(sec * 10.0);
-        const bounce = Math.abs(stride) * 0.08;
-        const tilt = stride * 0.06;
-        this.model.position.y = bounce;
-        this.model.rotation.z = tilt;
-        this.model.rotation.x = stride * 0.04;
+        if (this.isMounted) {
+          // Cavalry gallop / trot animation
+          const stride = Math.sin(sec * 10.0);
+          const bounce = Math.abs(stride) * 0.08;
+          const pitch = Math.sin(sec * 10.0) * 0.05;
+          const roll = Math.cos(sec * 5.0) * 0.03;
 
-        if (this.legLPart) this.legLPart.rotation.z = stride * 0.52;
-        if (this.legRPart) this.legRPart.rotation.z = -stride * 0.52;
-        if (this.armLPart) this.armLPart.rotation.z = -stride * 0.42;
-        if (this.armRPart) this.armRPart.rotation.z = stride * 0.42;
+          this.model.position.y = bounce;
+          this.model.rotation.z = pitch;
+          this.model.rotation.x = roll;
+
+          // Diagonal pairs trot/gallop gait for horse legs
+          if (this.horseFrontLPart) {
+            const rz = this.restRotations.get(this.horseFrontLPart)?.z ?? 0;
+            this.horseFrontLPart.rotation.z = rz + stride * 0.52;
+          }
+          if (this.horseRearRPart) {
+            const rz = this.restRotations.get(this.horseRearRPart)?.z ?? 0;
+            this.horseRearRPart.rotation.z = rz + stride * 0.48;
+          }
+          if (this.horseFrontRPart) {
+            const rz = this.restRotations.get(this.horseFrontRPart)?.z ?? 0;
+            this.horseFrontRPart.rotation.z = rz - stride * 0.52;
+          }
+          if (this.horseRearLPart) {
+            const rz = this.restRotations.get(this.horseRearLPart)?.z ?? 0;
+            this.horseRearLPart.rotation.z = rz - stride * 0.48;
+          }
+
+          // Knight rider absorbs motion in saddle: rider torso counter-pitches, arms sway, legs stay in stirrups
+          if (this.torsoPart) {
+            const rz = this.restRotations.get(this.torsoPart)?.z ?? 0;
+            this.torsoPart.rotation.z = rz - pitch * 0.6;
+          }
+          if (this.armRPart) {
+            const rz = this.restRotations.get(this.armRPart)?.z ?? 0;
+            this.armRPart.rotation.z = rz + stride * 0.35;
+          }
+          if (this.armLPart) {
+            const rz = this.restRotations.get(this.armLPart)?.z ?? 0;
+            this.armLPart.rotation.z = rz - stride * 0.20;
+          }
+        } else {
+          const stride = Math.sin(sec * 10.0);
+          const bounce = Math.abs(stride) * 0.08;
+          const tilt = stride * 0.06;
+          this.model.position.y = bounce;
+          this.model.rotation.z = tilt;
+          this.model.rotation.x = stride * 0.04;
+
+          if (this.legLPart) this.legLPart.rotation.z = stride * 0.52;
+          if (this.legRPart) this.legRPart.rotation.z = -stride * 0.52;
+          if (this.armLPart) this.armLPart.rotation.z = -stride * 0.42;
+          if (this.armRPart) this.armRPart.rotation.z = stride * 0.42;
+        }
         break;
       }
 
@@ -230,12 +303,20 @@ export class MeshRigidVisual implements IUnitVisual {
           this.model.rotation.z = -p * 0.25;
           if (this.armRPart) this.armRPart.rotation.z = p * 1.15;
           if (this.armLPart) this.armLPart.rotation.z = -p * 0.35;
+          if (this.isMounted) {
+            if (this.horseFrontLPart) this.horseFrontLPart.rotation.z = -p * 0.35;
+            if (this.horseFrontRPart) this.horseFrontRPart.rotation.z = -p * 0.35;
+          }
         } else {
           const p = (progress - 0.35) / 0.65;
           this.model.position.x = Math.cos(p * Math.PI * 0.5) * 0.45;
           this.model.rotation.z = -(1.0 - p) * 0.25;
           if (this.armRPart) this.armRPart.rotation.z = (1.0 - p) * -0.85;
           if (this.armLPart) this.armLPart.rotation.z = (1.0 - p) * -0.35;
+          if (this.isMounted) {
+            if (this.horseFrontLPart) this.horseFrontLPart.rotation.z = -(1.0 - p) * 0.35;
+            if (this.horseFrontRPart) this.horseFrontRPart.rotation.z = -(1.0 - p) * 0.35;
+          }
         }
         if (progress >= 1) this.playAnimation('idle');
         break;

@@ -325,7 +325,7 @@ export class BattleScene3D implements Scene {
     };
 
     addUnit(CreatureType.PEASANT, { x: 3, y: 4 }, 0);
-    addUnit(CreatureType.ARMORED_KNIGHT, { x: 0, y: 0 }, 0, HexDirection.EAST, 10);
+    addUnit(CreatureType.ARMORED_KNIGHT, { x: 2, y: 2 }, 0, HexDirection.EAST, 6);
     addUnit(CreatureType.PEASANT_ARCHER, { x: 1, y: 5 }, 0);
     addUnit(CreatureType.CROSSBOWMAN, { x: 0, y: 4 }, 0);
     addUnit(CreatureType.SLINGER, { x: 2, y: 4 }, 0);
@@ -338,5 +338,6 @@ export class BattleScene3D implements Scene {
     addUnit(CreatureType.BARBARIAN, { x: 4, y: 6 }, 1, HexDirection.WEST);
     addUnit(CreatureType.PEASANT, { x: 4, y: 3 }, 1, HexDirection.WEST);
     addUnit(CreatureType.PEASANT_ARCHER, { x: 7, y: 4 }, 1, HexDirection.WEST);
+    addUnit(CreatureType.ARMORED_KNIGHT, { x: 7, y: 6 }, 1, HexDirection.WEST);
   }
 }

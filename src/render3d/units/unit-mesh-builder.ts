@@ -241,6 +241,10 @@ export const ARTICULATED_LIMB_NAMES: ReadonlySet<string> = new Set([
   'Leg_R',
   'Weapon',
   'Shield',
+  'Horse_Leg_Front_L',
+  'Horse_Leg_Front_R',
+  'Horse_Leg_Rear_L',
+  'Horse_Leg_Rear_R',
 ]);
 
 /**
@@ -638,8 +642,16 @@ function getUnitLimbMaterial(
         case 'Weapon':
           return getHumanoidPartMaterial('armored_knight_gear', 0.40, 0.72);
         case 'Root':
+        case 'Horse_Body':
+        case 'Horse_Head':
+        case 'Horse_Neck':
         case 'Horse_Barding':
+        case 'Horse_Tail':
         case 'Saddle':
+        case 'Horse_Leg_Front_L':
+        case 'Horse_Leg_Front_R':
+        case 'Horse_Leg_Rear_L':
+        case 'Horse_Leg_Rear_R':
           return getHumanoidPartMaterial('armored_knight_gear', 0.65, 0.20);
         case 'Torso':
         case 'Head':
@@ -807,6 +819,7 @@ export function mergeMeshesWithVertexColors(
     const cb = matColor.b;
 
     const posAttr = g.getAttribute('position');
+    if (!posAttr || posAttr.count === 0) continue;
     const normAttr = g.getAttribute('normal');
     const uvAttr = g.getAttribute('uv');
     const colAttr = g.getAttribute('color');
@@ -998,27 +1011,39 @@ export function instantiateGlbUnitTemplate(
     }
   });
 
-  // Find Torso mesh as the primary root mesh so object3D.children[0] is a THREE.Mesh
-  let torsoMesh: THREE.Mesh | null = null;
-  cloned.traverse((node) => {
-    if (!torsoMesh && (node as THREE.Mesh).isMesh && node.name.startsWith('Torso')) {
-      torsoMesh = node as THREE.Mesh;
-    }
-  });
+  // Find primary root mesh: for mounted cavalry (armored_knight), use the warhorse Root mesh; otherwise use Torso
+  let rootMeshCandidate: THREE.Mesh | null = null;
+  if (unitKey === 'armored_knight') {
+    cloned.traverse((node) => {
+      if (!rootMeshCandidate && (node as THREE.Mesh).isMesh && (node.name === 'Root' || node.name.startsWith('Horse'))) {
+        rootMeshCandidate = node as THREE.Mesh;
+      }
+    });
+  }
+
+  if (!rootMeshCandidate) {
+    cloned.traverse((node) => {
+      if (!rootMeshCandidate && (node as THREE.Mesh).isMesh && node.name.startsWith('Torso')) {
+        rootMeshCandidate = node as THREE.Mesh;
+      }
+    });
+  }
 
   let rootMesh: THREE.Mesh;
-  if (torsoMesh) {
-    rootMesh = torsoMesh as THREE.Mesh;
+  if (rootMeshCandidate) {
+    rootMesh = rootMeshCandidate as THREE.Mesh;
     if (rootMesh.parent) {
       rootMesh.parent.remove(rootMesh);
     }
-    rootMesh.name = 'Torso';
+    if (unitKey !== 'armored_knight') {
+      rootMesh.name = 'Torso';
+    }
   } else {
-    // Fallback wrapper mesh if Torso wasn't top-level
+    // Fallback wrapper mesh if Torso/Root wasn't top-level
     const wrapperGeo = new THREE.CylinderGeometry(0.14, 0.16, 0.36, 8);
     wrapperGeo.translate(0, 0.56, 0);
     rootMesh = new THREE.Mesh(wrapperGeo, makeMat(teamHex));
-    rootMesh.name = 'Torso';
+    rootMesh.name = unitKey === 'armored_knight' ? 'Root' : 'Torso';
     rootMesh.add(cloned);
   }
 
@@ -1073,6 +1098,230 @@ export async function loadBlenderUnitGlbTemplates(
  * for the 7 supported unit types:
  * peasant, peasant_archer, swordsman, spearman, crossbowman, barbarian, slinger.
  */
+function createProceduralArmoredKnightTemplate(teamColor: number, _isHero: boolean): THREE.Mesh {
+  const matSteel = getHumanoidPartMaterial('armored_knight_armor', 0.28, 0.88);
+  const matGear = getHumanoidPartMaterial('armored_knight_gear', 0.65, 0.20);
+  const matWeapon = getHumanoidPartMaterial('armored_knight_gear', 0.40, 0.72);
+  const matTeam = makeMat(teamColor, 0.65, 0.15);
+
+  // 1. Warhorse Root Body (center at y = 0.44)
+  const horseBodyGeo = new THREE.CylinderGeometry(0.17, 0.19, 0.62, 14);
+  horseBodyGeo.rotateZ(Math.PI * 0.5);
+  horseBodyGeo.translate(0, 0.44, 0);
+  const horseRoot = new THREE.Mesh(horseBodyGeo, matGear);
+  horseRoot.name = 'Root';
+
+  // Front chest sphere & rear rump sphere
+  const chestGeo = new THREE.SphereGeometry(0.185, 14, 10);
+  chestGeo.scale(1.05, 0.95, 1.0);
+  chestGeo.translate(0.28, 0.45, 0);
+  horseRoot.add(new THREE.Mesh(chestGeo, matGear));
+
+  const rumpGeo = new THREE.SphereGeometry(0.180, 14, 10);
+  rumpGeo.scale(1.05, 0.95, 1.0);
+  rumpGeo.translate(-0.28, 0.46, 0);
+  horseRoot.add(new THREE.Mesh(rumpGeo, matGear));
+
+  // Barding / Caparison draped over the horse flank
+  const bardingGeo = new THREE.BoxGeometry(0.68, 0.28, 0.38);
+  bardingGeo.translate(0, 0.36, 0);
+  const bardingMesh = new THREE.Mesh(bardingGeo, matTeam);
+  bardingMesh.name = 'Horse_Barding';
+  horseRoot.add(bardingMesh);
+
+  // Steel Crinet / Neck Armor & Neck
+  const neckGeo = new THREE.CylinderGeometry(0.13, 0.09, 0.38, 12);
+  neckGeo.rotateZ(-0.73);
+  neckGeo.translate(0.32, 0.62, 0);
+  const neckMesh = new THREE.Mesh(neckGeo, matGear);
+  neckMesh.name = 'Horse_Neck';
+  horseRoot.add(neckMesh);
+
+  // Horse Head & Muzzle
+  const headGeo = new THREE.CylinderGeometry(0.095, 0.055, 0.28, 12);
+  headGeo.rotateZ(0.84);
+  headGeo.translate(0.48, 0.76, 0);
+  const horseHeadMesh = new THREE.Mesh(headGeo, matGear);
+  horseHeadMesh.name = 'Horse_Head';
+
+  // Armored Chanfron plate over forehead & nose
+  const chanfronGeo = new THREE.BoxGeometry(0.11, 0.22, 0.14);
+  chanfronGeo.rotateZ(0.84);
+  chanfronGeo.translate(0.50, 0.79, 0);
+  horseHeadMesh.add(new THREE.Mesh(chanfronGeo, matSteel));
+
+  // Forehead Chanfron spike
+  const spikeGeo = new THREE.CylinderGeometry(0.002, 0.02, 0.12, 8);
+  spikeGeo.rotateZ(0.84);
+  spikeGeo.translate(0.57, 0.88, 0);
+  horseHeadMesh.add(new THREE.Mesh(spikeGeo, matSteel));
+
+  // Horse Ears
+  for (const zSign of [-1, 1]) {
+    const earGeo = new THREE.CylinderGeometry(0.022, 0.004, 0.09, 6);
+    earGeo.rotateZ(-0.31);
+    earGeo.rotateX(zSign * 0.24);
+    earGeo.translate(0.38, 0.86, zSign * 0.065);
+    horseHeadMesh.add(new THREE.Mesh(earGeo, matGear));
+  }
+  horseRoot.add(horseHeadMesh);
+
+  // Horse Tail
+  const tailGeo = new THREE.CylinderGeometry(0.045, 0.015, 0.32, 8);
+  tailGeo.rotateZ(0.38);
+  tailGeo.translate(-0.04, -0.11, 0);
+  const tailMesh = new THREE.Mesh(tailGeo, matGear);
+  tailMesh.name = 'Horse_Tail';
+  tailMesh.position.set(-0.36, 0.46, 0);
+  horseRoot.add(tailMesh);
+
+  // Saddle & Stirrup Straps
+  const saddleGeo = new THREE.BoxGeometry(0.26, 0.10, 0.28);
+  saddleGeo.translate(0.02, 0.55, 0);
+  const saddleMesh = new THREE.Mesh(saddleGeo, matGear);
+  saddleMesh.name = 'Saddle';
+  horseRoot.add(saddleMesh);
+
+  // 4 Horse Legs as articulated limbs (pivots at shoulder/hip height y = 0.44 extending to ground y = 0.0)
+  const legPositions: Array<[string, number, number]> = [
+    ['Horse_Leg_Front_L', 0.24, 0.14],
+    ['Horse_Leg_Front_R', 0.24, -0.14],
+    ['Horse_Leg_Rear_L', -0.25, 0.14],
+    ['Horse_Leg_Rear_R', -0.25, -0.14],
+  ];
+  for (const [legName, lx, lz] of legPositions) {
+    const legGeo = new THREE.CylinderGeometry(0.058, 0.042, 0.24, 10);
+    legGeo.translate(0, -0.12, 0);
+    const legMesh = new THREE.Mesh(legGeo, matGear);
+    legMesh.name = legName;
+    legMesh.position.set(lx, 0.44, lz);
+
+    const lowerLegGeo = new THREE.CylinderGeometry(0.040, 0.032, 0.22, 10);
+    lowerLegGeo.translate(0, -0.32, 0);
+    legMesh.add(new THREE.Mesh(lowerLegGeo, matGear));
+
+    const hoofGeo = new THREE.CylinderGeometry(0.042, 0.038, 0.05, 10);
+    hoofGeo.translate(0, -0.42, 0);
+    legMesh.add(new THREE.Mesh(hoofGeo, matGear));
+
+    horseRoot.add(legMesh);
+  }
+
+  // 2. Armored Knight Rider (seated in saddle at y = 0.74)
+  const torsoGeo = new THREE.BoxGeometry(0.18, 0.28, 0.26);
+  const torsoMesh = new THREE.Mesh(torsoGeo, matSteel);
+  torsoMesh.name = 'Torso';
+  torsoMesh.position.set(0.02, 0.74, 0);
+
+  // Team tabard / surcoat over cuirass
+  const tabardGeo = new THREE.BoxGeometry(0.19, 0.26, 0.27);
+  const tabardMesh = new THREE.Mesh(tabardGeo, matTeam);
+  tabardMesh.name = 'Tabard_Team';
+  torsoMesh.add(tabardMesh);
+
+  // Pauldrons on shoulders
+  for (const zSign of [-1, 1]) {
+    const pGeo = new THREE.SphereGeometry(0.085, 12, 8);
+    pGeo.scale(1.1, 1.0, 0.9);
+    pGeo.translate(0, 0.11, zSign * 0.18);
+    const pMesh = new THREE.Mesh(pGeo, matSteel);
+    pMesh.name = 'Pauldrons';
+    torsoMesh.add(pMesh);
+  }
+
+  // Knight Great Helm on Head
+  const helmGeo = new THREE.SphereGeometry(0.115, 16, 12);
+  helmGeo.scale(1.02, 1.12, 1.0);
+  const headMesh = new THREE.Mesh(helmGeo, matSteel);
+  headMesh.name = 'Head';
+  headMesh.position.set(0, 0.29, 0);
+
+  const bucketGeo = new THREE.CylinderGeometry(0.115, 0.115, 0.12, 14);
+  bucketGeo.translate(0, -0.04, 0);
+  headMesh.add(new THREE.Mesh(bucketGeo, matSteel));
+
+  const visorSlitGeo = new THREE.BoxGeometry(0.02, 0.016, 0.13);
+  visorSlitGeo.translate(0.11, -0.01, 0);
+  headMesh.add(new THREE.Mesh(visorSlitGeo, matWeapon));
+  torsoMesh.add(headMesh);
+
+  // Knight Mounted Legs (Left & Right astride horse in stirrups)
+  for (const [legName, zSign] of [['Leg_L', 1], ['Leg_R', -1]] as const) {
+    const thighGeo = new THREE.CylinderGeometry(0.065, 0.052, 0.26, 10);
+    thighGeo.rotateX(zSign * 0.61);
+    thighGeo.rotateY(zSign * 0.26);
+    thighGeo.translate(0.06, -0.12, zSign * 0.18);
+    const legMesh = new THREE.Mesh(thighGeo, matSteel);
+    legMesh.name = legName;
+
+    const greaveGeo = new THREE.CylinderGeometry(0.050, 0.040, 0.24, 10);
+    greaveGeo.rotateX(zSign * 0.17);
+    greaveGeo.translate(0.12, -0.31, zSign * 0.19);
+    legMesh.add(new THREE.Mesh(greaveGeo, matSteel));
+
+    const bootGeo = new THREE.BoxGeometry(0.06, 0.09, 0.07);
+    bootGeo.translate(0.14, -0.42, zSign * 0.19);
+    legMesh.add(new THREE.Mesh(bootGeo, matSteel));
+
+    torsoMesh.add(legMesh);
+  }
+
+  // Arm_L (holding reins / shield)
+  const armLGeo = new THREE.CylinderGeometry(0.052, 0.042, 0.26, 10);
+  armLGeo.rotateZ(0.61);
+  armLGeo.rotateX(-0.44);
+  armLGeo.translate(0.10, 0.01, 0.17);
+  const armLMesh = new THREE.Mesh(armLGeo, matSteel);
+  armLMesh.name = 'Arm_L';
+  torsoMesh.add(armLMesh);
+
+  // Arm_R (holding heavy flanged mace)
+  const armRGeo = new THREE.CylinderGeometry(0.052, 0.042, 0.26, 10);
+  armRGeo.rotateZ(-0.61);
+  armRGeo.rotateX(0.35);
+  armRGeo.translate(0.06, 0.06, -0.18);
+  const armRMesh = new THREE.Mesh(armRGeo, matSteel);
+  armRMesh.name = 'Arm_R';
+
+  // Mace
+  const maceGeo = new THREE.CylinderGeometry(0.018, 0.020, 0.72, 10);
+  maceGeo.rotateZ(0.70);
+  maceGeo.translate(0.14, 0.20, -0.04);
+  const weaponMesh = new THREE.Mesh(maceGeo, matWeapon);
+  weaponMesh.name = 'Weapon';
+
+  const maceHeadGeo = new THREE.CylinderGeometry(0.038, 0.034, 0.16, 12);
+  maceHeadGeo.rotateZ(0.70);
+  maceHeadGeo.translate(0.36, 0.46, -0.04);
+  weaponMesh.add(new THREE.Mesh(maceHeadGeo, matWeapon));
+
+  for (let i = 0; i < 6; i++) {
+    const flangeGeo = new THREE.BoxGeometry(0.075, 0.14, 0.014);
+    flangeGeo.rotateX((i * Math.PI) / 3);
+    flangeGeo.rotateZ(0.70);
+    flangeGeo.translate(0.36, 0.46, -0.04);
+    weaponMesh.add(new THREE.Mesh(flangeGeo, matWeapon));
+  }
+
+  const pommelGeo = new THREE.SphereGeometry(0.034, 10, 8);
+  pommelGeo.translate(-0.11, -0.11, -0.04);
+  weaponMesh.add(new THREE.Mesh(pommelGeo, matWeapon));
+
+  armRMesh.add(weaponMesh);
+  torsoMesh.add(armRMesh);
+
+  horseRoot.add(torsoMesh);
+
+  compactArticulatedUnitHierarchy(horseRoot, 'armored_knight');
+  horseRoot.userData = {
+    unitKey: 'armored_knight',
+    source: 'procedural_3d',
+    height: AVERAGE_UNIT_3D_HEIGHT,
+  };
+
+  return horseRoot;
+}
+
 export function buildArticulatedUnit3DMesh(
   creatureType: CreatureType | string | number,
   armyAlignment: number = 0,
@@ -1086,6 +1335,12 @@ export function buildArticulatedUnit3DMesh(
   }
 
   const teamColor = getTeamColorHex(armyAlignment, isHero);
+
+  if (unitKey === 'armored_knight') {
+    const template = createProceduralArmoredKnightTemplate(teamColor, isHero);
+    proceduralUnitTemplateCache.set(cacheKey, template);
+    return cloneCompactedUnitTemplate(template);
+  }
 
   const matSkin = makeMat(0xdeb38e, 0.75, 0.0);
   const matTeam = makeMat(teamColor, 0.68, 0.08);
@@ -1655,55 +1910,7 @@ export function buildArticulatedUnit3DMesh(
       break;
     }
 
-    case 'armored_knight': {
-      // Warhorse Root body
-      const horseBodyGeo = new THREE.CylinderGeometry(0.18, 0.18, 0.62, 12);
-      horseBodyGeo.rotateZ(Math.PI * 0.5);
-      horseBodyGeo.translate(0, -0.28, 0);
-      const horseMesh = new THREE.Mesh(horseBodyGeo, matWood);
-      horseMesh.name = 'Horse_Body';
 
-      // 4 Horse legs
-      const legPositions = [
-        [0.24, 0.14],
-        [0.24, -0.14],
-        [-0.24, 0.14],
-        [-0.24, -0.14],
-      ];
-      for (const [lx, lz] of legPositions) {
-        const hlegGeo = new THREE.CylinderGeometry(0.045, 0.035, 0.44, 8);
-        hlegGeo.translate(lx, -0.50, lz);
-        horseMesh.add(new THREE.Mesh(hlegGeo, matWood));
-      }
-
-      // Horse Head & Neck
-      const hneckGeo = new THREE.CylinderGeometry(0.12, 0.08, 0.38, 8);
-      hneckGeo.rotateZ(-0.65);
-      hneckGeo.translate(0.32, -0.10, 0);
-      horseMesh.add(new THREE.Mesh(hneckGeo, matWood));
-
-      torsoMesh.add(horseMesh);
-
-      // Knight Great Helm on head
-      const helmGeo = new THREE.SphereGeometry(0.13, 16, 12);
-      helmGeo.translate(0, 0.04, 0);
-      headMesh.add(new THREE.Mesh(helmGeo, matSteel));
-
-      // Right Arm raised with Heavy Flanged Mace
-      armR.rotation.set(0.35, -0.30, 0.45);
-      const maceGeo = new THREE.CylinderGeometry(0.02, 0.018, 0.72, 8);
-      maceGeo.translate(0.18, -0.22, 0.90);
-      maceGeo.rotateZ(-0.45);
-      const maceMesh = new THREE.Mesh(maceGeo, matWood);
-      maceMesh.name = 'Weapon';
-
-      const mheadGeo = new THREE.CylinderGeometry(0.04, 0.035, 0.16, 8);
-      mheadGeo.translate(0.36, 0.25, 0);
-      mheadGeo.rotateZ(-0.45);
-      maceMesh.add(new THREE.Mesh(mheadGeo, matSteel));
-      armR.add(maceMesh);
-      break;
-    }
   }
 
   compactArticulatedUnitHierarchy(torsoMesh, unitKey);

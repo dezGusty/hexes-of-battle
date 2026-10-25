@@ -50,6 +50,8 @@ import {
   getHumanoidPartTexture,
   getTreePartTexture,
   buildLowPolyForestTreeMesh,
+  buildArticulatedUnit3DMesh,
+  instantiateGlbUnitTemplate,
   getSharedTreeMaterials,
   isUnit3DModelSupported,
   smoothGeometryNormals,
@@ -2009,6 +2011,7 @@ describe('3D Graphics Engine & Rendering Systems', () => {
         CreatureType.SLINGER,
         CreatureType.HEALER,
         CreatureType.MACEMAN,
+        CreatureType.ARMORED_KNIGHT,
       ];
 
       for (const cType of supportedTypes) {
@@ -3033,6 +3036,197 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       // sin reaches -1.0, so group.position.y reaches -0.005
       visual.update(2094.395);
       expect(group.position.y).toBeCloseTo(-0.005, 4);
+    });
+  });
+
+  describe('14. Armored Knight Mounted Cavalry (Warhorse Mesh, Textures & Articulated Mounted Animations)', () => {
+    it('should instantiate Armored Knight with FULL_3D_RIGID format, 5 models, and mounted status', () => {
+      const factory = new UnitVisualFactory();
+      const knight = new Creature(CreatureType.ARMORED_KNIGHT);
+      knight.armyAlignment = 0;
+
+      expect(isUnit3DModelSupported(CreatureType.ARMORED_KNIGHT)).toBe(true);
+      expect(factory.determineFormat(knight)).toBe(UnitVisualFormat.FULL_3D_RIGID);
+
+      const squad = factory.createSquadVisual(knight);
+      expect(squad.models.length).toBe(5);
+
+      const firstModel = squad.models[0] as MeshRigidVisual;
+      expect(firstModel.format).toBe(UnitVisualFormat.FULL_3D_RIGID);
+      expect(firstModel.isMounted).toBe(true);
+
+      squad.dispose();
+    });
+
+    it('should build warhorse root hierarchy containing horse legs, saddle, barding, and knight rider limbs', () => {
+      const mesh = buildArticulatedUnit3DMesh(CreatureType.ARMORED_KNIGHT, 0, false);
+      expect(mesh.name).toBe('Root');
+
+      const nodeNames = new Set<string>();
+      mesh.traverse((node) => {
+        if (node.name) nodeNames.add(node.name);
+      });
+
+      // Warhorse parts
+      expect(nodeNames.has('Root')).toBe(true);
+      expect(nodeNames.has('Horse_Leg_Front_L')).toBe(true);
+      expect(nodeNames.has('Horse_Leg_Front_R')).toBe(true);
+      expect(nodeNames.has('Horse_Leg_Rear_L')).toBe(true);
+      expect(nodeNames.has('Horse_Leg_Rear_R')).toBe(true);
+
+      // Knight rider limbs
+      expect(nodeNames.has('Torso')).toBe(true);
+      expect(nodeNames.has('Head')).toBe(true);
+      expect(nodeNames.has('Arm_L')).toBe(true);
+      expect(nodeNames.has('Arm_R')).toBe(true);
+      expect(nodeNames.has('Leg_L')).toBe(true);
+      expect(nodeNames.has('Leg_R')).toBe(true);
+      expect(nodeNames.has('Weapon')).toBe(true);
+    });
+
+    it('should assign gear texture to warhorse and armor texture to knight plate rider', () => {
+      const mesh = buildArticulatedUnit3DMesh(CreatureType.ARMORED_KNIGHT, 0, false);
+
+      const partMaterials = new Map<string, THREE.MeshStandardMaterial>();
+      mesh.traverse((node) => {
+        if ((node as THREE.Mesh).isMesh && node.name) {
+          partMaterials.set(node.name, (node as THREE.Mesh).material as THREE.MeshStandardMaterial);
+        }
+      });
+
+      // Warhorse body and horse legs use gear texture atlas
+      const rootMat = partMaterials.get('Root');
+      expect(rootMat?.userData?.humanoidTexturePart).toBe('armored_knight_gear');
+
+      const horseLegMat = partMaterials.get('Horse_Leg_Front_L');
+      expect(horseLegMat?.userData?.humanoidTexturePart).toBe('armored_knight_gear');
+
+      // Rider plate torso and limbs use armor texture atlas
+      const torsoMat = partMaterials.get('Torso');
+      expect(torsoMat?.userData?.humanoidTexturePart).toBe('armored_knight_armor');
+
+      const armMat = partMaterials.get('Arm_R');
+      expect(armMat?.userData?.humanoidTexturePart).toBe('armored_knight_armor');
+
+      // Mace weapon uses gear texture atlas
+      const weaponMat = partMaterials.get('Weapon');
+      expect(weaponMat?.userData?.humanoidTexturePart).toBe('armored_knight_gear');
+    });
+
+    it('should animate cavalry gallop with horse leg trot, horse body pitch and bounce, without human pedestrian leg walk', () => {
+      const mesh = buildArticulatedUnit3DMesh(CreatureType.ARMORED_KNIGHT, 0, false);
+      const visual = new MeshRigidVisual({
+        meshOrGroup: mesh,
+        scale: 1.0,
+        animOffsetMs: 0,
+      });
+
+      expect(visual.isMounted).toBe(true);
+
+      visual.playAnimation('walk');
+
+      let frontL: THREE.Object3D | null = null;
+      let frontR: THREE.Object3D | null = null;
+      let rearL: THREE.Object3D | null = null;
+      let rearR: THREE.Object3D | null = null;
+      let knightLegL: THREE.Object3D | null = null;
+      let knightLegR: THREE.Object3D | null = null;
+
+      mesh.traverse((node) => {
+        if (node.name === 'Horse_Leg_Front_L') frontL = node;
+        if (node.name === 'Horse_Leg_Front_R') frontR = node;
+        if (node.name === 'Horse_Leg_Rear_L') rearL = node;
+        if (node.name === 'Horse_Leg_Rear_R') rearR = node;
+        if (node.name === 'Leg_L') knightLegL = node;
+        if (node.name === 'Leg_R') knightLegR = node;
+      });
+
+      expect(frontL).not.toBeNull();
+      expect(frontR).not.toBeNull();
+      expect(rearL).not.toBeNull();
+      expect(rearR).not.toBeNull();
+      expect(knightLegL).not.toBeNull();
+      expect(knightLegR).not.toBeNull();
+
+      // Quarter-cycle stride at t = (PI / 2) / 10.0 = 0.15708s (157.08ms)
+      visual.update(157.08);
+
+      // Horse body pitches and bounces
+      expect(mesh.position.y).toBeGreaterThan(0.05); // gallop bounce
+      expect(Math.abs(mesh.rotation.z)).toBeGreaterThan(0.02); // gallop pitch
+
+      // Diagonal pairs gait: front left and rear right swing forward (+z), front right and rear left swing back (-z)
+      expect(frontL!.rotation.z).toBeGreaterThan(0.3);
+      expect(rearR!.rotation.z).toBeGreaterThan(0.3);
+      expect(frontR!.rotation.z).toBeLessThan(-0.3);
+      expect(rearL!.rotation.z).toBeLessThan(-0.3);
+
+      // Crucial: Knight rider's legs stay mounted in the stirrups (they do NOT walk/swing back and forth!)
+      expect(knightLegL!.rotation.z).toBeCloseTo(0);
+      expect(knightLegR!.rotation.z).toBeCloseTo(0);
+    });
+
+    it('should preserve warhorse root and knight rider during GLB instantiation without discarding the horse', () => {
+      // Simulate a loaded GLB scene hierarchy for Armored Knight
+      const glbScene = new THREE.Group();
+      glbScene.name = 'Scene';
+
+      const horseRootMesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), new THREE.MeshStandardMaterial());
+      horseRootMesh.name = 'Root';
+
+      const horseLegFL = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.4, 0.1), new THREE.MeshStandardMaterial());
+      horseLegFL.name = 'Horse_Leg_Front_L';
+      horseRootMesh.add(horseLegFL);
+
+      const horseLegFR = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.4, 0.1), new THREE.MeshStandardMaterial());
+      horseLegFR.name = 'Horse_Leg_Front_R';
+      horseRootMesh.add(horseLegFR);
+
+      const torsoMesh = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.3, 0.2), new THREE.MeshStandardMaterial());
+      torsoMesh.name = 'Torso';
+
+      const headMesh = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), new THREE.MeshStandardMaterial());
+      headMesh.name = 'Head';
+      torsoMesh.add(headMesh);
+
+      const armLMesh = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.2, 0.1), new THREE.MeshStandardMaterial());
+      armLMesh.name = 'Arm_L';
+      torsoMesh.add(armLMesh);
+
+      const armRMesh = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.2, 0.1), new THREE.MeshStandardMaterial());
+      armRMesh.name = 'Arm_R';
+      const weaponMesh = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.5, 0.05), new THREE.MeshStandardMaterial());
+      weaponMesh.name = 'Weapon';
+      armRMesh.add(weaponMesh);
+      torsoMesh.add(armRMesh);
+
+      const legLMesh = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 0.1), new THREE.MeshStandardMaterial());
+      legLMesh.name = 'Leg_L';
+      torsoMesh.add(legLMesh);
+
+      const legRMesh = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 0.1), new THREE.MeshStandardMaterial());
+      legRMesh.name = 'Leg_R';
+      torsoMesh.add(legRMesh);
+
+      horseRootMesh.add(torsoMesh);
+      glbScene.add(horseRootMesh);
+
+      const instantiated = instantiateGlbUnitTemplate(glbScene, 'armored_knight', 0, false);
+
+      // Root of instantiated model MUST be the horse Root, retaining both horse and rider
+      expect(instantiated.name).toBe('Root');
+
+      const instantiatedNodes = new Set<string>();
+      instantiated.traverse((n) => {
+        if (n.name) instantiatedNodes.add(n.name);
+      });
+
+      expect(instantiatedNodes.has('Root')).toBe(true);
+      expect(instantiatedNodes.has('Horse_Leg_Front_L')).toBe(true);
+      expect(instantiatedNodes.has('Torso')).toBe(true);
+      expect(instantiatedNodes.has('Head')).toBe(true);
+      expect(instantiatedNodes.has('Arm_R')).toBe(true);
+      expect(instantiatedNodes.has('Weapon')).toBe(true);
     });
   });
 });

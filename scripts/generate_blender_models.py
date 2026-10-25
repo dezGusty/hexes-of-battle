@@ -790,7 +790,7 @@ def build_armored_knight():
     bm_add_cylinder(bm_hhead, 0.022, 0.004, 0.09, segments=6, center=(0.38, -0.065, 0.86), rot_euler=(math.radians(-14), math.radians(-18), 0))
     create_mesh_object("Horse_Head", bm_hhead, mat_armor, parent=horse_root)
 
-    # 4 Horse Legs
+    # 4 Horse Legs (pivots at shoulder/hip height z = 0.44 extending to ground z = 0.0)
     leg_positions = [
         ("Front_L", 0.24, 0.14),
         ("Front_R", 0.24, -0.14),
@@ -799,15 +799,15 @@ def build_armored_knight():
     ]
     for leg_name, lx, ly in leg_positions:
         bm_leg = bmesh.new()
-        bm_add_cylinder(bm_leg, 0.058, 0.042, 0.24, segments=10, center=(lx, ly, 0.32))
-        bm_add_cylinder(bm_leg, 0.040, 0.032, 0.22, segments=10, center=(lx, ly, 0.12))
-        bm_add_cylinder(bm_leg, 0.042, 0.038, 0.05, segments=10, center=(lx, ly, 0.025))
-        create_mesh_object(f"Horse_Leg_{leg_name}", bm_leg, mat_horse, parent=horse_root)
+        bm_add_cylinder(bm_leg, 0.058, 0.042, 0.24, segments=10, center=(0, 0, -0.12))
+        bm_add_cylinder(bm_leg, 0.040, 0.032, 0.22, segments=10, center=(0, 0, -0.32))
+        bm_add_cylinder(bm_leg, 0.042, 0.038, 0.05, segments=10, center=(0, 0, -0.42))
+        create_mesh_object(f"Horse_Leg_{leg_name}", bm_leg, mat_horse, parent=horse_root, location=(lx, ly, 0.44))
 
     # Horse Tail
     bm_tail = bmesh.new()
-    bm_add_cylinder(bm_tail, 0.045, 0.015, 0.32, segments=8, center=(-0.40, 0, 0.35), rot_euler=(0, math.radians(22), 0))
-    create_mesh_object("Horse_Tail", bm_tail, pal["cloth_brown"], parent=horse_root)
+    bm_add_cylinder(bm_tail, 0.045, 0.015, 0.32, segments=8, center=(-0.04, 0, -0.11), rot_euler=(0, math.radians(22), 0))
+    create_mesh_object("Horse_Tail", bm_tail, pal["cloth_brown"], parent=horse_root, location=(-0.36, 0, 0.46))
 
     # Saddle & Stirrup Straps
     bm_saddle = bmesh.new()
