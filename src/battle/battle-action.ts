@@ -13,6 +13,8 @@ export enum BattleActionType {
 }
 
 export class BattleAction {
+  public traveledHexes: number = 0;
+
   constructor(
     public type: BattleActionType,
     public path: Coords[],
@@ -38,12 +40,16 @@ export class BattleAction {
     return new BattleAction(type, path, data.step, data.stepDuration, data.remainingTime, data.sourceUnit, data.targetUnit);
   }
 
-  static CreateAttackMelee(source: Creature, target: Creature): BattleAction {
-    return new BattleAction(BattleActionType.ATTACK_MELEE, [target.pos], 0, 500, 50, source, target);
+  static CreateAttackMelee(source: Creature, target: Creature, traveledHexes: number = 0): BattleAction {
+    const action = new BattleAction(BattleActionType.ATTACK_MELEE, [target.pos], 0, 500, 50, source, target);
+    action.traveledHexes = traveledHexes;
+    return action;
   }
 
-  static CounterAttack(source: Creature, target: Creature): BattleAction {
-    return new BattleAction(BattleActionType.COUNTER_ATTACK_MELEE, [], 0, 500, 50, source, target);
+  static CounterAttack(source: Creature, target: Creature, traveledHexes: number = 0): BattleAction {
+    const action = new BattleAction(BattleActionType.COUNTER_ATTACK_MELEE, [], 0, 500, 50, source, target);
+    action.traveledHexes = traveledHexes;
+    return action;
   }
 
   static Rest(source: Creature): BattleAction {

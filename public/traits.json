@@ -38,5 +38,23 @@
     "midMultiplier": 1.0,
     "lowMultiplier": 0.5,
     "description": "Imprecise Volley: Inflicts 150% ranged damage to targets with >75% units, 100% to 50%-75% units, and 50% to <50% units."
+  },
+  "armorPenetration": {
+    "name": "Armor Penetration",
+    "icon": "traits/icon_armor_penetration.png",
+    "armorIgnoredPercent": 0.5,
+    "description": "Armor Penetration: Reduces target armor by 50% during damage calculation."
+  },
+  "cavalry": {
+    "name": "Cavalry",
+    "icon": "traits/icon_cavalry.png",
+    "description": "Cavalry: Mounted unit. Vulnerable to anti-cavalry tactics like spear walls and polearms."
+  },
+  "charge": {
+    "name": "Charge",
+    "icon": "traits/icon_charge.png",
+    "damageBonusPerHex": 0.08,
+    "retaliationDamageTakenPerHex": 0.08,
+    "description": "Charge: For each traveled hex during an attack, gains +8% bonus damage dealt, but suffers +8% bonus damage taken from retaliation."
   }
 }

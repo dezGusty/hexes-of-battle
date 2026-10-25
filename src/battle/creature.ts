@@ -121,6 +121,8 @@ export enum CreatureType {
   HERO_COMMANDER = 9,
   SLINGER = 10,
   HEALER = 11,
+  MACEMAN = 12,
+  ARMORED_KNIGHT = 13,
 }
 
 export class CreatureTemplate {
@@ -189,6 +191,9 @@ export class Creature {
   public get isFlying(): boolean {
     return this.stats.flying === true || this.stats.traits.includes('flying') || this.stats.traits.includes('Floating');
   }
+  public get name(): string {
+    return Creature.CREATURE_NAMES[this.creatureType] ?? "Unknown";
+  }
   public facingDirection: HexDirection = HexDirection.EAST;
   public armyAlignment: number = 0;
   static CREATURE_NAMES: string[] = [
@@ -204,10 +209,13 @@ export class Creature {
     "Hero Commander",
     "Slinger",
     "Healer",
+    "Mace Man",
+    "Armored Knight",
   ];
 
   public isQuickDrawActive: boolean = false;
   public combatConfig?: CombatConfig;
+  public traveledHexesThisAttack: number = 0;
   private guid: HobGUID;
 
   public hasQuickDrawAbility(): boolean {
@@ -255,6 +263,51 @@ export class Creature {
       this.stats.remaining_health = 32;
       this.stats.attack_melee_low = 3;
       this.stats.attack_melee_high = 5;
+    }
+
+    if (this.creatureType === CreatureType.MACEMAN) {
+      this.stats.defense_melee = 1;
+      this.stats.defense_ranged = 0;
+      this.stats.model_count = 8;
+      this.stats.model_hp = 5;
+      this.stats.health = 40;
+      this.stats.remaining_health = 40;
+      this.stats.attack_melee_low = 7;
+      this.stats.attack_melee_high = 10;
+      this.stats.stamina = 24;
+      this.stats.max_stamina = 24;
+      if (!this.stats.traits.includes("ArmorPenetration")) {
+        this.stats.traits.push("ArmorPenetration");
+      }
+    }
+
+    if (this.creatureType === CreatureType.ARMORED_KNIGHT) {
+      this.stats.defense_melee = 4;
+      this.stats.defense_ranged = 3;
+      this.stats.model_count = 5;
+      this.stats.model_hp = 12;
+      this.stats.health = 60;
+      this.stats.remaining_health = 60;
+      this.stats.attack_melee_low = 12;
+      this.stats.attack_melee_high = 16;
+      this.stats.num_moves = 4;
+      this.stats.stamina = 44;
+      this.stats.max_stamina = 44;
+      if (!this.stats.traits.includes("Cavalry")) {
+        this.stats.traits.push("Cavalry");
+      }
+      if (!this.stats.traits.includes("Charge")) {
+        this.stats.traits.push("Charge");
+      }
+      if (!this.stats.traits.includes("ArmorPenetration")) {
+        this.stats.traits.push("ArmorPenetration");
+      }
+    }
+
+    if (this.creatureType === CreatureType.SLINGER) {
+      if (!this.stats.traits.includes("ArmorPenetration")) {
+        this.stats.traits.push("ArmorPenetration");
+      }
     }
 
     if (

@@ -911,6 +911,8 @@ describe("Tactical Systems Validation", () => {
         "hero-commander": 26,
         "slinger": 22,
         "healer": 22,
+        "maceman": 24,
+        "armored-knight": 44,
       };
 
       for (const unit of content) {

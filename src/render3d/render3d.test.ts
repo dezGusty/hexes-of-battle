@@ -8,7 +8,7 @@ vi.mock("@pixi/sound", () => ({
 }));
 
 import * as THREE from 'three';
-import { Sprite as PixiSprite, Texture as PixiTexture, Assets as PixiAssets } from 'pixi.js';
+import { Container as PixiContainer, Sprite as PixiSprite, Texture as PixiTexture, Assets as PixiAssets } from 'pixi.js';
 import { HexBoard3D } from './hex-board-3d';
 import { HexDirection, HexFlankStatus, HexMap, checkFlankingStatus } from '../shared/hex-map';
 import { Creature, CreatureType } from '../battle/creature';
@@ -53,6 +53,7 @@ import {
   isUnit3DModelSupported,
   smoothGeometryNormals,
 } from './units/unit-mesh-builder';
+import { generateSelectedHaloPixels, SELECTED_HALO_TEXTURE_SIZE } from './units/selected-halo-texture';
 import pkg from '../../package.json';
 
 describe('3D Graphics Engine & Rendering Systems', () => {
@@ -180,6 +181,95 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(selectedMesh.scale.x).toBeLessThan(1.0);
 
       hexBoard.dispose();
+    });
+
+    it('should initialize selectedHaloMesh with stylized golden disc texture and rotate 360 degrees in 30 seconds', () => {
+      const hexMap = new HexMap(10, 8);
+      const hexBoard = new HexBoard3D(hexMap);
+
+      expect(hexBoard.selectedHaloMesh).toBeDefined();
+      expect(hexBoard.selectedHaloMesh.name).toBe('TileSelectedHalo');
+      expect(hexBoard.selectedHaloMesh.visible).toBe(false);
+
+      const mat = hexBoard.selectedHaloMesh.material as THREE.MeshBasicMaterial;
+      expect(mat.transparent).toBe(true);
+      expect(mat.map).toBeDefined();
+
+      // Select unit at (4, 4) - halo is raised above reach overlay hex highlights (elev + 0.05) with renderOrder 5
+      hexBoard.setSelectedUnitHex({ x: 4, y: 4 }, HexDirection.EAST);
+      expect(hexBoard.selectedHaloMesh.visible).toBe(true);
+      expect(hexBoard.selectedHaloMesh.position.y).toBeCloseTo(hexBoard.getHexElevation(4, 4) + 0.05, 3);
+      expect(hexBoard.selectedHaloMesh.renderOrder).toBe(5);
+
+      // Verify rotation over time:
+      // In 15,000 ms (15 seconds), it should rotate exactly 180 degrees (Math.PI radians)
+      const initialRotation = hexBoard.selectedHaloMesh.rotation.y;
+      hexBoard.update(15000);
+      expect(hexBoard.selectedHaloMesh.rotation.y).toBeCloseTo(initialRotation + Math.PI, 2);
+
+      // In another 15,000 ms (30 seconds total), it should complete a full 360-degree rotation (2*Math.PI radians)
+      hexBoard.update(15000);
+      expect(hexBoard.selectedHaloMesh.rotation.y).toBeCloseTo((initialRotation + Math.PI * 2) % (Math.PI * 2), 2);
+
+      // Verify halo elevation is above reachable hex highlights
+      hexBoard.setSelectedUnitHex({ x: 2, y: 2 }, HexDirection.EAST);
+      hexBoard.updateReachOverlays([{ x: 2, y: 2 }], [{ x: 3, y: 2 }]);
+      const walkableOverlay = hexBoard.getOverlayMesh('2,2')!;
+      const attackableOverlay = hexBoard.getOverlayMesh('atk_3,2')!;
+
+      expect(walkableOverlay).toBeDefined();
+      expect(attackableOverlay).toBeDefined();
+
+      const elev22 = hexBoard.getHexElevation(2, 2);
+      // Reachable hex highlights have cylinder height 0.04 (top surface at elev + pos.y + 0.02)
+      const walkableTop = walkableOverlay.position.y + 0.02; // elev + 0.015 + 0.02 = elev + 0.035
+      expect(hexBoard.selectedHaloMesh.position.y).toBeGreaterThan(walkableTop);
+      expect(hexBoard.selectedHaloMesh.position.y).toBeCloseTo(elev22 + 0.05, 3);
+      expect(hexBoard.selectedHaloMesh.renderOrder).toBeGreaterThan(walkableOverlay.renderOrder);
+
+      // Deselecting unit hides halo
+      hexBoard.setSelectedUnitHex(null);
+      expect(hexBoard.selectedHaloMesh.visible).toBe(false);
+
+      hexBoard.dispose();
+    });
+
+    it('should generate golden halo disc texture with empty center, transparent background, and swords/shields motifs', () => {
+      const pixels = generateSelectedHaloPixels(SELECTED_HALO_TEXTURE_SIZE);
+      const size = SELECTED_HALO_TEXTURE_SIZE;
+
+      // Center (r = 0 at x=256, y=256) must be completely transparent (alpha = 0)
+      const centerIdx = (256 * size + 256) * 4;
+      expect(pixels[centerIdx + 3]).toBe(0);
+
+      // Inner empty region (r = 50px from center at x=256, y=206) must be completely transparent
+      const innerIdx = (206 * size + 256) * 4;
+      expect(pixels[innerIdx + 3]).toBe(0);
+
+      // Outer background (corner at x=10, y=10) must be completely transparent
+      const cornerIdx = (10 * size + 10) * 4;
+      expect(pixels[cornerIdx + 3]).toBe(0);
+
+      // Outer edge (x=256, y=5) must be completely transparent
+      const outerIdx = (5 * size + 256) * 4;
+      expect(pixels[outerIdx + 3]).toBe(0);
+
+      // Golden ring track at 20° where disc body runs (neither shield nor sword):
+      const goldX = 256 + Math.round(168 * Math.cos((20 * Math.PI) / 180));
+      const goldY = 256 + Math.round(168 * Math.sin((20 * Math.PI) / 180));
+      const goldIdx = (goldY * size + goldX) * 4;
+      expect(pixels[goldIdx + 3]).toBe(255);
+      expect(pixels[goldIdx]).toBeGreaterThan(pixels[goldIdx + 2]); // R > B (warm gold)
+      expect(pixels[goldIdx + 1]).toBeGreaterThan(pixels[goldIdx + 2]); // G > B
+
+      // Cardinal angle motif (Shield at 0° / East: x=256+168=424, y=256) has heraldic content (Royal Crimson)
+      const shieldIdx = (256 * size + 424) * 4;
+      expect(pixels[shieldIdx + 3]).toBe(255);
+      expect(pixels[shieldIdx]).toBeGreaterThan(pixels[shieldIdx + 1]); // R > G (royal crimson)
+
+      // Diagonal angle motif (Crossed swords at 45°: x=256 + round(168*cos(45))=375, y=256 + round(168*sin(45))=375)
+      const diagIdx = (375 * size + 375) * 4;
+      expect(pixels[diagIdx + 3]).toBe(255);
     });
   });
 
@@ -1698,6 +1788,188 @@ describe('3D Graphics Engine & Rendering Systems', () => {
 
       hexBoard.dispose();
     });
+
+    it('should initialize empty enemyRangePerimeterGroup on HexBoard3D and generate red perimeter wall for enemy archers', () => {
+      const hexMap = new HexMap(10, 8);
+      const hexBoard = new HexBoard3D(hexMap);
+
+      expect(hexBoard.enemyRangePerimeterGroup).toBeDefined();
+      expect(hexBoard.enemyRangePerimeterGroup.name).toBe('EnemyRangePerimeter');
+      expect(hexBoard.enemyRangePerimeterGroup.children.length).toBe(0);
+
+      // Enemy archer at (7, 4) with range 4
+      const enemyMatrix = Array.from({ length: 10 }, () => Array(8).fill(0));
+      HexMap.fillRadiusInMatrix({ x: 7, y: 4 }, 4, enemyMatrix, 10, 8, 501, 500);
+
+      // Render enemy range perimeter in red tint
+      hexBoard.updateEnemyRangePerimeter(enemyMatrix, 0xff4444, 0.35);
+
+      expect(hexBoard.enemyRangePerimeterGroup.children.length).toBe(2);
+      const wall = hexBoard.enemyRangePerimeterGroup.children.find((c) => c.name === 'EnemyRangePerimeterWall') as THREE.Mesh;
+      const lines = hexBoard.enemyRangePerimeterGroup.children.find((c) => c.name === 'EnemyRangePerimeterLines') as THREE.LineSegments;
+
+      expect(wall).toBeDefined();
+      expect(lines).toBeDefined();
+
+      const wallMat = wall.material as THREE.MeshBasicMaterial;
+      expect(wallMat.color.getHex()).toBe(0xff4444);
+      expect(wallMat.transparent).toBe(true);
+      expect(wallMat.opacity).toBeCloseTo(0.22);
+
+      const lineMat = lines.material as THREE.LineBasicMaterial;
+      expect(lineMat.color.getHex()).toBe(0xff4444);
+      expect(lineMat.transparent).toBe(true);
+      expect(lineMat.opacity).toBeCloseTo(0.85);
+
+      // Clear enemy perimeter
+      hexBoard.clearEnemyRangePerimeter();
+      expect(hexBoard.enemyRangePerimeterGroup.children.length).toBe(0);
+
+      hexBoard.dispose();
+    });
+
+    it('should allow friendly (cyan) and enemy (red) range perimeters to co-exist simultaneously', () => {
+      const hexMap = new HexMap(12, 10);
+      const hexBoard = new HexBoard3D(hexMap);
+
+      const friendlyRange = Array.from({ length: 12 }, () => Array(10).fill(0));
+      HexMap.fillRadiusInMatrix({ x: 2, y: 2 }, 3, friendlyRange, 12, 10, 501, 500);
+
+      const enemyRange = Array.from({ length: 12 }, () => Array(10).fill(0));
+      HexMap.fillRadiusInMatrix({ x: 9, y: 7 }, 4, enemyRange, 12, 10, 501, 500);
+
+      hexBoard.updateRangePerimeter(friendlyRange, 0x44aacc, 0.35);
+      hexBoard.updateEnemyRangePerimeter(enemyRange, 0xff4444, 0.35);
+
+      expect(hexBoard.rangePerimeterGroup.children.length).toBe(2);
+      expect(hexBoard.enemyRangePerimeterGroup.children.length).toBe(2);
+
+      const friendlyWall = hexBoard.rangePerimeterGroup.children.find((c) => c.name === 'RangePerimeterWall') as THREE.Mesh;
+      const enemyWall = hexBoard.enemyRangePerimeterGroup.children.find((c) => c.name === 'EnemyRangePerimeterWall') as THREE.Mesh;
+
+      expect((friendlyWall.material as THREE.MeshBasicMaterial).color.getHex()).toBe(0x44aacc);
+      expect((enemyWall.material as THREE.MeshBasicMaterial).color.getHex()).toBe(0xff4444);
+
+      hexBoard.dispose();
+      expect(hexBoard.rangePerimeterGroup.children.length).toBe(0);
+      expect(hexBoard.enemyRangePerimeterGroup.children.length).toBe(0);
+    });
+
+    it('should calculate range matrix for creatures via battle.getRangeMatrixForCreature', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+      battle.initializeToSize(10, 8);
+
+      const archer = new Creature(CreatureType.ARCHER);
+      archer.armyAlignment = 0;
+      archer.position = { x: 5, y: 4 };
+      archer.stats.is_ranged = true;
+      archer.stats.range = 3;
+      archer.stats.ammo = 10;
+
+      const archerMatrix = battle.getRangeMatrixForCreature(archer);
+      expect(archerMatrix[5][4]).toBeGreaterThan(0);
+      expect(archerMatrix[5][7]).toBeGreaterThan(0); // within distance 3
+      expect(archerMatrix[0][0]).toBe(0); // outside distance 3
+
+      const swordsman = new Creature(CreatureType.SWORDSMAN);
+      swordsman.armyAlignment = 0;
+      swordsman.position = { x: 5, y: 4 };
+      swordsman.stats.is_ranged = false;
+
+      const swordsmanMatrix = battle.getRangeMatrixForCreature(swordsman);
+      for (let x = 0; x < 10; x++) {
+        for (let y = 0; y < 8; y++) {
+          expect(swordsmanMatrix[x][y]).toBe(0);
+        }
+      }
+    });
+
+    it('should display red enemy range perimeter while enemy archer is selected in EnemyStatsPanel and clear when hidden or melee enemy', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+      battle.initializeToSize(10, 8);
+
+      const friendlyArcher = new Creature(CreatureType.ARCHER);
+      friendlyArcher.armyAlignment = 0;
+      friendlyArcher.position = { x: 1, y: 1 };
+      friendlyArcher.stats.is_ranged = true;
+      friendlyArcher.stats.range = 4;
+      friendlyArcher.stats.ammo = 10;
+
+      const enemyArcher = new Creature(CreatureType.ARCHER);
+      enemyArcher.armyAlignment = 1;
+      enemyArcher.position = { x: 7, y: 5 };
+      enemyArcher.stats.is_ranged = true;
+      enemyArcher.stats.range = 5;
+      enemyArcher.stats.ammo = 12;
+
+      const enemySwordsman = new Creature(CreatureType.SWORDSMAN);
+      enemySwordsman.armyAlignment = 1;
+      enemySwordsman.position = { x: 6, y: 4 };
+      enemySwordsman.stats.is_ranged = false;
+
+      battle.creatures = [friendlyArcher, enemyArcher, enemySwordsman];
+
+      const hexBoard = new HexBoard3D(hexMap);
+      const dummyUiSheet = { textures: { 'panel.png': PixiTexture.EMPTY, 'thin_panel_semitransparent.png': PixiTexture.EMPTY, 'progress_bg.png': PixiTexture.EMPTY } } as any;
+
+      const hud = {
+        enemyStats: new EnemyStatsPanel(new PixiContainer(), dummyUiSheet),
+        onShowEnemyStats: undefined as ((creature: Creature) => void) | undefined,
+        onHideEnemyStats: undefined as (() => void) | undefined,
+        showEnemyStats(creature: Creature) {
+          this.enemyStats.setCreature(creature);
+          this.enemyStats.show();
+          this.onShowEnemyStats?.(creature);
+        },
+        hideEnemyStats() {
+          this.enemyStats.hide();
+          this.onHideEnemyStats?.();
+        },
+        getSelectedEnemyCreature() {
+          return this.enemyStats.isVisible() ? this.enemyStats.getCreature() : undefined;
+        },
+      };
+
+      const view = {
+        battle,
+        hexMap,
+        hexBoard,
+        hud: null as any,
+        setHud: BattleView3D.prototype.setHud,
+        updateEnemyRangePerimeter: BattleView3D.prototype.updateEnemyRangePerimeter,
+        clearEnemyRangePerimeter: BattleView3D.prototype.clearEnemyRangePerimeter,
+      };
+
+      view.setHud(hud, () => ({ offset: { x: 0, y: 0 }, scale: { x: 1, y: 1 } }));
+
+      // 1. Initial state: enemyRangePerimeterGroup is empty
+      expect(hexBoard.enemyRangePerimeterGroup.children.length).toBe(0);
+
+      // 2. Select enemy archer to view stats in enemy stats panel
+      hud.showEnemyStats(enemyArcher);
+      expect(hud.getSelectedEnemyCreature()).toBe(enemyArcher);
+      expect(hexBoard.enemyRangePerimeterGroup.children.length).toBe(2);
+      const enemyWall = hexBoard.enemyRangePerimeterGroup.children.find((c) => c.name === 'EnemyRangePerimeterWall') as THREE.Mesh;
+      expect((enemyWall.material as THREE.MeshBasicMaterial).color.getHex()).toBe(0xff4444);
+
+      // 3. Select enemy melee unit (swordsman): range perimeter should clear
+      hud.showEnemyStats(enemySwordsman);
+      expect(hud.getSelectedEnemyCreature()).toBe(enemySwordsman);
+      expect(hexBoard.enemyRangePerimeterGroup.children.length).toBe(0);
+
+      // 4. Reselect enemy archer: perimeter displays again
+      hud.showEnemyStats(enemyArcher);
+      expect(hexBoard.enemyRangePerimeterGroup.children.length).toBe(2);
+
+      // 5. Hide enemy stats panel: perimeter is cleared
+      hud.hideEnemyStats();
+      expect(hud.getSelectedEnemyCreature()).toBeUndefined();
+      expect(hexBoard.enemyRangePerimeterGroup.children.length).toBe(0);
+
+      hexBoard.dispose();
+    });
   });
 
   describe('11. 3D Unit Models (Blender Pipeline) & Low-Poly 3D Forest Terrain Trees', () => {
@@ -1723,7 +1995,7 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       }
     });
 
-    it('should build FULL_3D_RIGID articulated 3D models for the 7 supported units and keep HEAVY_KNIGHTS, HERO_COMMANDER, and BEHEMOTH excluded', () => {
+    it('should build FULL_3D_RIGID articulated 3D models for the supported units and keep HEAVY_KNIGHTS, HERO_COMMANDER, and BEHEMOTH excluded', () => {
       const factory = new UnitVisualFactory();
 
       const supportedTypes = [
@@ -1734,6 +2006,8 @@ describe('3D Graphics Engine & Rendering Systems', () => {
         CreatureType.CROSSBOWMAN,
         CreatureType.BARBARIAN,
         CreatureType.SLINGER,
+        CreatureType.HEALER,
+        CreatureType.MACEMAN,
       ];
 
       for (const cType of supportedTypes) {
@@ -2058,33 +2332,33 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       hexBoard.dispose();
     });
 
-    it('should scale all unit visuals to 70% of their original size so squad models do not protrude into each other', () => {
-      expect(UNIT_SIZE_SCALE).toBeCloseTo(0.7, 4);
+    it('should scale all unit visuals to 75% of their previous 0.7 size (scale = 0.525) so squad models do not protrude into each other', () => {
+      expect(UNIT_SIZE_SCALE).toBeCloseTo(0.525, 4);
       const factory = new UnitVisualFactory();
 
-      // 1. Standard 3D Rigid unit (Swordsman): scale = 1.0 * 0.7 = 0.7
+      // 1. Standard 3D Rigid unit (Swordsman): scale = 1.0 * 0.525 = 0.525
       const swordsman = new Creature(CreatureType.SWORDSMAN);
       const squadRigid = factory.createSquadVisual(swordsman);
       const rigidModel = squadRigid.models[0].object3D.children[0];
-      expect(rigidModel.scale.x).toBeCloseTo(0.7, 4);
-      expect(rigidModel.scale.y).toBeCloseTo(0.7, 4);
-      expect(rigidModel.scale.z).toBeCloseTo(0.7, 4);
+      expect(rigidModel.scale.x).toBeCloseTo(0.525, 4);
+      expect(rigidModel.scale.y).toBeCloseTo(0.525, 4);
+      expect(rigidModel.scale.z).toBeCloseTo(0.525, 4);
 
-      // 2. Hero Commander in 3D Rigid squad: scale = 1.08 * 0.7 = 0.756
+      // 2. Hero Commander in 3D Rigid squad: scale = 1.08 * 0.525 = 0.567
       const heroSwordsman = new Creature(CreatureType.SWORDSMAN);
       heroSwordsman.stats.is_hero = true;
       const squadHero = factory.createSquadVisual(heroSwordsman);
       const heroModel = squadHero.models[0].object3D.children[0];
-      expect(heroModel.scale.x).toBeCloseTo(1.08 * 0.7, 4);
+      expect(heroModel.scale.x).toBeCloseTo(1.08 * 0.525, 4);
 
-      // 3. Static 2D Billboard unit (Heavy Knights): width = 0.7 * 0.7 = 0.49, height = 1.3 * 0.7 = 0.91
+      // 3. Static 2D Billboard unit (Heavy Knights): width = 0.7 * 0.525 = 0.3675, height = 1.3 * 0.525 = 0.6825
       const knights = new Creature(CreatureType.HEAVY_KNIGHTS);
       const squadBillboard = factory.createSquadVisual(knights);
       const billboardMesh = squadBillboard.models[0].object3D.children[0] as THREE.Mesh;
       billboardMesh.geometry.computeBoundingBox();
       const bbox = billboardMesh.geometry.boundingBox!;
-      expect(bbox.max.x - bbox.min.x).toBeCloseTo(0.49, 4);
-      expect(bbox.max.y - bbox.min.y).toBeCloseTo(0.91, 4);
+      expect(bbox.max.x - bbox.min.x).toBeCloseTo(0.7 * 0.525, 4);
+      expect(bbox.max.y - bbox.min.y).toBeCloseTo(1.3 * 0.525, 4);
 
       squadRigid.dispose();
       squadHero.dispose();

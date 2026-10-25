@@ -136,6 +136,14 @@ export class BattleView3D {
   public setHud(hud: any, getStageInfo: () => { offset: Coords; scale: Coords }): void {
     this.hud = hud;
     this.getStageInfo = getStageInfo;
+    if (this.hud) {
+      this.hud.onShowEnemyStats = (creature: Creature) => {
+        this.updateEnemyRangePerimeter(creature);
+      };
+      this.hud.onHideEnemyStats = () => {
+        this.clearEnemyRangePerimeter();
+      };
+    }
   }
 
   public setGridVisible(visible: boolean): void {
@@ -298,7 +306,33 @@ export class BattleView3D {
       this.hexBoard.setSelectedUnitHex(null);
       this.hexBoard.clearReachOverlays();
       this.hexBoard.clearRangePerimeter();
+      this.hexBoard.clearEnemyRangePerimeter();
     }
+
+    this.updateEnemyRangePerimeter();
+  }
+
+  /**
+   * Renders or clears the attack range outline/perimeter of the currently selected enemy archer/ranged squad.
+   */
+  public updateEnemyRangePerimeter(enemyCreature?: Creature | null): void {
+    const creature = enemyCreature ?? this.hud?.getSelectedEnemyCreature();
+    if (
+      creature &&
+      creature.isAlive &&
+      creature.live_stats?.is_ranged &&
+      creature.live_stats.remaining_ammo > 0 &&
+      !creature.isPanickedOrRouting
+    ) {
+      const enemyRangeMatrix = this.battle.getRangeMatrixForCreature(creature);
+      this.hexBoard.updateEnemyRangePerimeter(enemyRangeMatrix, 0xff4444, 0.35);
+    } else {
+      this.hexBoard.clearEnemyRangePerimeter();
+    }
+  }
+
+  public clearEnemyRangePerimeter(): void {
+    this.hexBoard.clearEnemyRangePerimeter();
   }
 
   public showRangedAttackVisuals(data: RangedAttackData): void {
@@ -476,6 +510,9 @@ export class BattleView3D {
   public update(deltaMS: number): void {
     // 0. Update smooth continuous camera keyboard inputs (W, A, S, D, Q, E)
     this.updateCameraKeyboardInput(deltaMS);
+
+    // 0.5. Update hex board animations (slowly rotating selected unit halo disc)
+    this.hexBoard.update(deltaMS);
 
     // 1. Process battle engine actions and updates
     const mapUpdate: MapRenderUpdate = this.battle.update(deltaMS);
@@ -1013,6 +1050,7 @@ export class BattleView3D {
         if (this.hoveredHex) {
           if (this.battle.input_state === InputState.SELECT_ABILITY_TARGET) {
             this.hud?.hideEnemyStats();
+            this.clearEnemyRangePerimeter();
             this.battle.handlePrimaryCellAction(this.hoveredHex, this.hoveredDirection);
             this.hud?.updateTargetAcquirementHint();
             this.updateActiveUnitSelection();
@@ -1023,15 +1061,18 @@ export class BattleView3D {
             if (creatureInBattle && creatureInBattle.indexOFArmy !== this.battle.currentArmyIndex) {
               // Clicked an enemy squad: show secondary enemy stats panel
               this.hud?.showEnemyStats(creatureInBattle.creature);
+              this.updateEnemyRangePerimeter(creatureInBattle.creature);
             } else {
               // Clicked own squad or empty hex: close enemy stats panel
               this.hud?.hideEnemyStats();
+              this.clearEnemyRangePerimeter();
               this.battle.handlePrimaryCellAction(this.hoveredHex, this.hoveredDirection);
             }
           }
         } else {
           // Clicked outside of board
           this.hud?.hideEnemyStats();
+          this.clearEnemyRangePerimeter();
         }
         this.updateActiveUnitSelection();
         this.updateHoverVisuals();

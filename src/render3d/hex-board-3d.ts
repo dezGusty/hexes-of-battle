@@ -11,6 +11,7 @@ import {
   applyTreeUVMapping,
   smoothGeometryNormals,
 } from './units/unit-mesh-builder';
+import { createSelectedHaloTexture } from './units/selected-halo-texture';
 
 export interface HexBoard3DOptions {
   showGrid?: boolean;
@@ -45,10 +46,12 @@ export class HexBoard3D {
   private forestTreeTemplates: { pine?: THREE.Object3D; oak?: THREE.Object3D } = {};
   private hoverMesh: THREE.Mesh;
   private selectedRingMesh: THREE.Mesh;
+  public readonly selectedHaloMesh: THREE.Mesh;
   private facingIndicatorGroup: THREE.Group = new THREE.Group();
   private attackPreviewGroup: THREE.Group = new THREE.Group();
   private pathPreviewGroup: THREE.Group = new THREE.Group();
   public readonly rangePerimeterGroup: THREE.Group = new THREE.Group();
+  public readonly enemyRangePerimeterGroup: THREE.Group = new THREE.Group();
 
   private showGrid: boolean = true;
   private borderThickness: number = 2.5;
@@ -119,11 +122,30 @@ export class HexBoard3D {
     this.selectedRingMesh.visible = false;
     this.group.add(this.selectedRingMesh);
 
+    const haloTexture = createSelectedHaloTexture();
+    const haloDiameter = this.hexRadius * 2.0;
+    const haloGeo = new THREE.PlaneGeometry(haloDiameter, haloDiameter);
+    haloGeo.rotateX(-Math.PI * 0.5);
+    const haloMat = new THREE.MeshBasicMaterial({
+      map: haloTexture,
+      transparent: true,
+      opacity: 0.95,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    this.selectedHaloMesh = new THREE.Mesh(haloGeo, haloMat);
+    this.selectedHaloMesh.name = 'TileSelectedHalo';
+    this.selectedHaloMesh.renderOrder = 5;
+    this.selectedHaloMesh.visible = false;
+    this.group.add(this.selectedHaloMesh);
+
     this.group.add(this.facingIndicatorGroup);
     this.group.add(this.attackPreviewGroup);
     this.group.add(this.pathPreviewGroup);
     this.rangePerimeterGroup.name = 'RangePerimeter';
     this.group.add(this.rangePerimeterGroup);
+    this.enemyRangePerimeterGroup.name = 'EnemyRangePerimeter';
+    this.group.add(this.enemyRangePerimeterGroup);
     this.group.add(this.gridBordersGroup);
     this.group.add(this.coordsGroup);
     this.group.add(this.forestTreesGroup);
@@ -1177,6 +1199,7 @@ float terrainEdgeNoise(vec2 p) {
   public setSelectedUnitHex(coords: Coords | null, facing?: HexDirection): void {
     if (!coords) {
       this.selectedRingMesh.visible = false;
+      this.selectedHaloMesh.visible = false;
       this.facingIndicatorGroup.visible = false;
       return;
     }
@@ -1185,15 +1208,31 @@ float terrainEdgeNoise(vec2 p) {
     const elev = this.getHexElevation(coords.x, coords.y);
     const isHill = this.isHill(coords.x, coords.y);
     const scale = isHill ? this.getHillMesaRadius(coords.x, coords.y) / (this.hexRadius * 0.95) : 1.0;
+
     this.selectedRingMesh.scale.set(scale, 1, scale);
     this.selectedRingMesh.position.set(worldPos.x, elev + 0.02, worldPos.z);
-    this.selectedRingMesh.visible = true;
+    this.selectedRingMesh.visible = false;
+
+    this.selectedHaloMesh.scale.set(scale, 1, scale);
+    this.selectedHaloMesh.position.set(worldPos.x, elev + 0.05, worldPos.z);
+    this.selectedHaloMesh.visible = true;
 
     if (facing !== undefined && facing !== HexDirection.NONE) {
       const topWorldPos = new THREE.Vector3(worldPos.x, elev, worldPos.z);
       this.updateFacingIndicator(topWorldPos, facing, isHill ? this.getHillMesaRadius(coords.x, coords.y) : undefined);
     } else {
       this.facingIndicatorGroup.visible = false;
+    }
+  }
+
+  /**
+   * Updates animations on the board, including rotating the selected unit halo disc
+   * (30 seconds for a full 360 degree rotation).
+   */
+  public update(deltaMS: number): void {
+    if (this.selectedHaloMesh && this.selectedHaloMesh.visible) {
+      const deltaAngle = (2 * Math.PI * deltaMS) / 30000;
+      this.selectedHaloMesh.rotation.y = (this.selectedHaloMesh.rotation.y + deltaAngle) % (2 * Math.PI);
     }
   }
 
@@ -1222,7 +1261,7 @@ float terrainEdgeNoise(vec2 p) {
     const baseRadius = mesaRadius ?? this.hexRadius;
     const dist = baseRadius * 0.72;
 
-    arrowMesh.position.set(Math.cos(angle) * dist, 0.04, Math.sin(angle) * dist);
+    arrowMesh.position.set(Math.cos(angle) * dist, 0.065, Math.sin(angle) * dist);
     arrowMesh.rotation.y = -angle + Math.PI * 0.5;
 
     this.facingIndicatorGroup.position.copy(worldPos);
@@ -1281,6 +1320,10 @@ float terrainEdgeNoise(vec2 p) {
     this.updateReachOverlays([], []);
   }
 
+  public getOverlayMesh(key: string): THREE.Mesh | undefined {
+    return this.overlayMeshes.get(key);
+  }
+
   /**
    * Renders a semi-transparent perimeter wall and glowing boundary rim along the outer perimeter
    * of a given range matrix (e.g. ranged squad weapon attack range or active ranged skill reach).
@@ -1294,6 +1337,47 @@ float terrainEdgeNoise(vec2 p) {
 
     if (!rangeMatrix || rangeMatrix.length === 0) return;
 
+    this.buildRangePerimeterMeshesIntoGroup(
+      this.rangePerimeterGroup,
+      rangeMatrix,
+      colorHex,
+      wallHeight,
+      'RangePerimeterWall',
+      'RangePerimeterLines'
+    );
+  }
+
+  /**
+   * Renders a semi-transparent perimeter wall and rim lines along the outer attack range
+   * perimeter of an enemy archer when selected in the enemy stats panel.
+   */
+  public updateEnemyRangePerimeter(
+    rangeMatrix: number[][],
+    colorHex: number = 0xff4444,
+    wallHeight: number = 0.35
+  ): void {
+    this.clearEnemyRangePerimeter();
+
+    if (!rangeMatrix || rangeMatrix.length === 0) return;
+
+    this.buildRangePerimeterMeshesIntoGroup(
+      this.enemyRangePerimeterGroup,
+      rangeMatrix,
+      colorHex,
+      wallHeight,
+      'EnemyRangePerimeterWall',
+      'EnemyRangePerimeterLines'
+    );
+  }
+
+  private buildRangePerimeterMeshesIntoGroup(
+    targetGroup: THREE.Group,
+    rangeMatrix: number[][],
+    colorHex: number,
+    wallHeight: number,
+    wallName: string,
+    linesName: string
+  ): void {
     const edgeDirections: HexDirection[] = [
       HexDirection.EAST,       // Edge 0: Corner 5 (330°) to Corner 0 (30°)
       HexDirection.SOUTHEAST,  // Edge 1: Corner 0 (30°) to Corner 1 (90°)
@@ -1381,9 +1465,9 @@ float terrainEdgeNoise(vec2 p) {
       });
 
       const wallMesh = new THREE.Mesh(wallGeo, wallMat);
-      wallMesh.name = 'RangePerimeterWall';
+      wallMesh.name = wallName;
       wallMesh.raycast = () => {};
-      this.rangePerimeterGroup.add(wallMesh);
+      targetGroup.add(wallMesh);
 
       const lineGeo = new THREE.BufferGeometry();
       lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(linePositions, 3));
@@ -1396,16 +1480,24 @@ float terrainEdgeNoise(vec2 p) {
       });
 
       const lineSegments = new THREE.LineSegments(lineGeo, lineMat);
-      lineSegments.name = 'RangePerimeterLines';
+      lineSegments.name = linesName;
       lineSegments.raycast = () => {};
-      this.rangePerimeterGroup.add(lineSegments);
+      targetGroup.add(lineSegments);
     }
   }
 
   public clearRangePerimeter(): void {
-    while (this.rangePerimeterGroup.children.length > 0) {
-      const obj = this.rangePerimeterGroup.children[0] as THREE.Mesh | THREE.LineSegments;
-      this.rangePerimeterGroup.remove(obj);
+    this.clearPerimeterGroup(this.rangePerimeterGroup);
+  }
+
+  public clearEnemyRangePerimeter(): void {
+    this.clearPerimeterGroup(this.enemyRangePerimeterGroup);
+  }
+
+  private clearPerimeterGroup(group: THREE.Group): void {
+    while (group.children.length > 0) {
+      const obj = group.children[0] as THREE.Mesh | THREE.LineSegments;
+      group.remove(obj);
       if (obj.geometry) obj.geometry.dispose();
       if (obj.material) {
         if (Array.isArray(obj.material)) {
@@ -1692,7 +1784,24 @@ float terrainEdgeNoise(vec2 p) {
     this.clearForestTrees();
     this.clearReachOverlays();
     this.clearRangePerimeter();
+    this.clearEnemyRangePerimeter();
     this.clearAttackPreview();
     this.clearPathPreview();
+
+    if (this.selectedHaloMesh) {
+      this.group.remove(this.selectedHaloMesh);
+      this.selectedHaloMesh.geometry?.dispose();
+      if (this.selectedHaloMesh.material) {
+        if (Array.isArray(this.selectedHaloMesh.material)) {
+          this.selectedHaloMesh.material.forEach((m) => {
+            (m as THREE.MeshBasicMaterial).map?.dispose();
+            m.dispose();
+          });
+        } else {
+          ((this.selectedHaloMesh.material as THREE.MeshBasicMaterial).map)?.dispose();
+          (this.selectedHaloMesh.material as THREE.Material).dispose();
+        }
+      }
+    }
   }
 }

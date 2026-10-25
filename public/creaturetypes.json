@@ -299,7 +299,8 @@
     },
     "traits": [
       "FragileLine",
-      "ImpreciseVolley"
+      "ImpreciseVolley",
+      "ArmorPenetration"
     ],
     "ability_ids": [
       "quick-draw-01"
@@ -336,5 +337,67 @@
     "ability_ids": [
       "mend-wounds-01"
     ]
+  },
+  {
+    "name": "maceman",
+    "model_count": 8,
+    "model_hp": 5,
+    "tier": 2,
+    "flying": false,
+    "stats": {
+      "ammo": 0,
+      "attack_melee_low": 7,
+      "attack_melee_high": 10,
+      "attack_ranged_low": 0,
+      "attack_ranged_high": 0,
+      "defense_melee": 1,
+      "defense_ranged": 0,
+      "health": 40,
+      "initiative": 5,
+      "is_ranged": false,
+      "num_attacks": 1,
+      "num_counterattacks": 1,
+      "num_moves": 3,
+      "range": 1,
+      "stamina": 24,
+      "morale": 10,
+      "flying": false
+    },
+    "traits": [
+      "ArmorPenetration"
+    ],
+    "ability_ids": []
+  },
+  {
+    "name": "armored-knight",
+    "model_count": 5,
+    "model_hp": 12,
+    "tier": 3,
+    "flying": false,
+    "stats": {
+      "ammo": 0,
+      "attack_melee_low": 12,
+      "attack_melee_high": 16,
+      "attack_ranged_low": 0,
+      "attack_ranged_high": 0,
+      "defense_melee": 4,
+      "defense_ranged": 3,
+      "health": 60,
+      "initiative": 7,
+      "is_ranged": false,
+      "num_attacks": 1,
+      "num_counterattacks": 1,
+      "num_moves": 4,
+      "range": 1,
+      "stamina": 44,
+      "morale": 12,
+      "flying": false
+    },
+    "traits": [
+      "Cavalry",
+      "Charge",
+      "ArmorPenetration"
+    ],
+    "ability_ids": []
   }
 ]

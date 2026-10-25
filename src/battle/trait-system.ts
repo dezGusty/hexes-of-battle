@@ -38,12 +38,29 @@ export interface SpearWallTraitConfig extends TraitConfigBase {
   exactDirectionOnly?: boolean;
 }
 
+export interface ArmorPenetrationTraitConfig extends TraitConfigBase {
+  armorIgnoredPercent?: number;
+  armorReduction?: number;
+}
+
+export interface CavalryTraitConfig extends TraitConfigBase {
+  antiCavalryMultiplier?: number;
+}
+
+export interface ChargeTraitConfig extends TraitConfigBase {
+  damageBonusPerHex?: number;
+  retaliationDamageTakenPerHex?: number;
+}
+
 export interface TraitsConfig {
   fragileLine: FragileLineTraitConfig;
   shieldBlock: ShieldBlockTraitConfig;
   volleyFire: VolleyFireTraitConfig;
   spearWall: SpearWallTraitConfig;
   impreciseVolley: ImpreciseVolleyTraitConfig;
+  armorPenetration?: ArmorPenetrationTraitConfig;
+  cavalry?: CavalryTraitConfig;
+  charge?: ChargeTraitConfig;
   [customTrait: string]: any;
 }
 
@@ -87,6 +104,24 @@ export const DEFAULT_TRAITS_CONFIG: TraitsConfig = {
     midMultiplier: 1.0,
     lowMultiplier: 0.5,
     description: "Imprecise Volley: Inflicts 150% ranged damage to targets with >75% units, 100% to 50%-75% units, and 50% to <50% units.",
+  },
+  armorPenetration: {
+    name: "Armor Penetration",
+    icon: "traits/icon_armor_penetration.png",
+    armorIgnoredPercent: 0.5,
+    description: "Armor Penetration: Reduces target armor by 50% during damage calculation.",
+  },
+  cavalry: {
+    name: "Cavalry",
+    icon: "traits/icon_cavalry.png",
+    description: "Cavalry: Mounted unit. Vulnerable to anti-cavalry tactics like spear walls and polearms.",
+  },
+  charge: {
+    name: "Charge",
+    icon: "traits/icon_charge.png",
+    damageBonusPerHex: 0.08,
+    retaliationDamageTakenPerHex: 0.08,
+    description: "Charge: For each traveled hex during an attack, gains +8% bonus damage dealt, but suffers +8% bonus damage taken from retaliation.",
   },
 };
 
@@ -175,6 +210,36 @@ export function getTraitInfo(
     };
   }
 
+  if (norm === "armorpenetration") {
+    const cfg = traitsConfig.armorPenetration ?? DEFAULT_TRAITS_CONFIG.armorPenetration;
+    return {
+      id: "armorPenetration",
+      name: cfg?.name ?? "Armor Penetration",
+      icon: cfg?.icon ?? "traits/icon_armor_penetration.png",
+      description: cfg?.description ?? "Armor Penetration: Reduces target armor by 50% during damage calculation.",
+    };
+  }
+
+  if (norm === "cavalry") {
+    const cfg = traitsConfig.cavalry ?? DEFAULT_TRAITS_CONFIG.cavalry;
+    return {
+      id: "cavalry",
+      name: cfg?.name ?? "Cavalry",
+      icon: cfg?.icon ?? "traits/icon_cavalry.png",
+      description: cfg?.description ?? "Cavalry: Mounted unit.",
+    };
+  }
+
+  if (norm === "charge") {
+    const cfg = traitsConfig.charge ?? DEFAULT_TRAITS_CONFIG.charge;
+    return {
+      id: "charge",
+      name: cfg?.name ?? "Charge",
+      icon: cfg?.icon ?? "traits/icon_charge.png",
+      description: cfg?.description ?? "Charge: For each traveled hex during an attack, gains +8% bonus damage dealt, but suffers +8% bonus damage taken from retaliation.",
+    };
+  }
+
   if (norm === "closequarterscounter") {
     return {
       id: "closeQuartersCounter",
@@ -226,6 +291,9 @@ export function parseTraitsConfig(raw: any): TraitsConfig {
   const vfRaw = findSection(["volleyFire", "volley_fire", "volley-fire", "VolleyFire", "Volley fire"]);
   const swRaw = findSection(["spearWall", "spear_wall", "spear-wall", "SpearWall", "Spear wall"]);
   const ivRaw = findSection(["impreciseVolley", "imprecise_volley", "imprecise-volley", "ImpreciseVolley", "Imprecise Volley", "imprecise volley"]);
+  const apRaw = findSection(["armorPenetration", "armor_penetration", "armor-penetration", "ArmorPenetration", "Armor Penetration"]);
+  const cavRaw = findSection(["cavalry", "Cavalry"]);
+  const chgRaw = findSection(["charge", "Charge"]);
 
   return {
     ...DEFAULT_TRAITS_CONFIG,
@@ -271,6 +339,25 @@ export function parseTraitsConfig(raw: any): TraitsConfig {
       lowMultiplier: Number(ivRaw?.lowMultiplier ?? DEFAULT_TRAITS_CONFIG.impreciseVolley.lowMultiplier),
       description: ivRaw?.description ?? DEFAULT_TRAITS_CONFIG.impreciseVolley.description,
     },
+    armorPenetration: {
+      name: apRaw?.name ?? DEFAULT_TRAITS_CONFIG.armorPenetration?.name ?? "Armor Penetration",
+      icon: apRaw?.icon ?? DEFAULT_TRAITS_CONFIG.armorPenetration?.icon ?? "traits/icon_armor_penetration.png",
+      armorIgnoredPercent: Number(apRaw?.armorIgnoredPercent ?? DEFAULT_TRAITS_CONFIG.armorPenetration?.armorIgnoredPercent ?? 0.5),
+      armorReduction: apRaw?.armorReduction !== undefined ? Number(apRaw.armorReduction) : DEFAULT_TRAITS_CONFIG.armorPenetration?.armorReduction,
+      description: apRaw?.description ?? DEFAULT_TRAITS_CONFIG.armorPenetration?.description ?? "Armor Penetration: Reduces target armor by 50% during damage calculation.",
+    },
+    cavalry: {
+      name: cavRaw?.name ?? DEFAULT_TRAITS_CONFIG.cavalry?.name ?? "Cavalry",
+      icon: cavRaw?.icon ?? DEFAULT_TRAITS_CONFIG.cavalry?.icon ?? "traits/icon_cavalry.png",
+      description: cavRaw?.description ?? DEFAULT_TRAITS_CONFIG.cavalry?.description ?? "Cavalry: Mounted unit.",
+    },
+    charge: {
+      name: chgRaw?.name ?? DEFAULT_TRAITS_CONFIG.charge?.name ?? "Charge",
+      icon: chgRaw?.icon ?? DEFAULT_TRAITS_CONFIG.charge?.icon ?? "traits/icon_charge.png",
+      damageBonusPerHex: Number(chgRaw?.damageBonusPerHex ?? DEFAULT_TRAITS_CONFIG.charge?.damageBonusPerHex ?? 0.08),
+      retaliationDamageTakenPerHex: Number(chgRaw?.retaliationDamageTakenPerHex ?? DEFAULT_TRAITS_CONFIG.charge?.retaliationDamageTakenPerHex ?? 0.08),
+      description: chgRaw?.description ?? DEFAULT_TRAITS_CONFIG.charge?.description ?? "Charge: For each traveled hex during an attack, gains +8% bonus damage dealt, but suffers +8% bonus damage taken from retaliation.",
+    },
   };
 }
 
@@ -286,6 +373,7 @@ export interface DamageCalculationParams {
   customMultiplier?: number;
   traitsConfig?: TraitsConfig;
   commit?: boolean;
+  traveledHexes?: number;
 }
 
 export interface DamageCalculationResult {
@@ -295,6 +383,9 @@ export interface DamageCalculationResult {
   shieldBlockReduction: number;
   spearWallReduction: number;
   extraMoraleLoss: number;
+  armorPenetrated?: number;
+  chargeMultiplier?: number;
+  chargeRetaliationMultiplier?: number;
 }
 
 /**
@@ -317,6 +408,7 @@ export function calculateDamageWithTraits(params: DamageCalculationParams): Dama
     customMultiplier = 1.0,
     traitsConfig = DEFAULT_TRAITS_CONFIG,
     commit = false,
+    traveledHexes = 0,
   } = params;
 
   let volleyMultiplier = 1.0;
@@ -362,9 +454,37 @@ export function calculateDamageWithTraits(params: DamageCalculationParams): Dama
     }
   }
 
+  // 1.5. Armor Penetration (Attacker Perk: Melee & Ranged)
+  let effectiveTargetArmor = targetArmor;
+  if (creatureHasTrait(attacker, "ArmorPenetration")) {
+    const apConfig = traitsConfig.armorPenetration ?? DEFAULT_TRAITS_CONFIG.armorPenetration;
+    const ignorePct = apConfig?.armorIgnoredPercent ?? 0.5;
+    const flatRed = apConfig?.armorReduction ?? 0;
+    if (flatRed > 0) {
+      effectiveTargetArmor = Math.max(0, effectiveTargetArmor - flatRed);
+    } else {
+      effectiveTargetArmor = Math.max(0, effectiveTargetArmor * (1.0 - ignorePct));
+    }
+  }
+
+  // 1.7. Charge (Attacker Perk on Melee Attack, and Defender Vulnerability on Retaliation)
+  let chargeMultiplier = 1.0;
+  if (attackType === BattleActionType.ATTACK_MELEE && creatureHasTrait(attacker, "Charge")) {
+    const chargeCfg = traitsConfig.charge ?? DEFAULT_TRAITS_CONFIG.charge;
+    const bonusPerHex = chargeCfg?.damageBonusPerHex ?? 0.08;
+    chargeMultiplier = 1.0 + Math.max(0, traveledHexes ?? 0) * bonusPerHex;
+  }
+
+  let chargeRetaliationMultiplier = 1.0;
+  if (attackType === BattleActionType.COUNTER_ATTACK_MELEE && creatureHasTrait(defender, "Charge")) {
+    const chargeCfg = traitsConfig.charge ?? DEFAULT_TRAITS_CONFIG.charge;
+    const penaltyPerHex = chargeCfg?.retaliationDamageTakenPerHex ?? 0.08;
+    chargeRetaliationMultiplier = 1.0 + Math.max(0, traveledHexes ?? 0) * penaltyPerHex;
+  }
+
   // Net damage before defender defensive traits
-  const netBase = baseDamage + facingBonus - targetArmor;
-  let currentDamage = Math.round(netBase * customMultiplier * volleyMultiplier);
+  const netBase = baseDamage + facingBonus - effectiveTargetArmor;
+  let currentDamage = Math.round(netBase * customMultiplier * volleyMultiplier * chargeMultiplier * chargeRetaliationMultiplier);
   if (currentDamage < 0) currentDamage = 0;
   const rawDamage = currentDamage;
 
@@ -417,5 +537,8 @@ export function calculateDamageWithTraits(params: DamageCalculationParams): Dama
     shieldBlockReduction,
     spearWallReduction,
     extraMoraleLoss,
+    armorPenetrated: targetArmor - effectiveTargetArmor,
+    chargeMultiplier,
+    chargeRetaliationMultiplier,
   };
 }

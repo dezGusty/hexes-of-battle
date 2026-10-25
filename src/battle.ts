@@ -392,6 +392,28 @@ export class Battle {
     return this.unitRangeData;
   }
 
+  /**
+   * Generates a reach/range matrix of hex cells within the creature's attack range.
+   */
+  public getRangeMatrixForCreature(creature: Creature): number[][] {
+    const matrix = NumMatrix.createZeroMatrix(this.hexMap.width, this.hexMap.height);
+    if (!creature || !creature.live_stats?.is_ranged || creature.live_stats.range <= 0) {
+      return matrix;
+    }
+    const occupied_value = BattleHexMapPath.CELL_PATH_OFFSET + 1;
+    const border_value = BattleHexMapPath.CELL_PATH_OFFSET;
+    HexMap.fillRadiusInMatrix(
+      creature.position,
+      creature.live_stats.range,
+      matrix,
+      this.hexMap.width,
+      this.hexMap.height,
+      occupied_value,
+      border_value
+    );
+    return matrix;
+  }
+
   public getReachableMeleeEnemies(): ReachData[] {
     let pathfindingData: ReachData[] = [];
     for (let i = 0; i < this.pathfinding_tiles.length; i++) {
@@ -478,6 +500,7 @@ export class Battle {
 
       const moveSteps = (path.length > 1 && path[0].x === creature.position.x && path[0].y === creature.position.y) ? path.slice(1) : path;
       if (moveSteps.length > 0) {
+        creature.traveledHexesThisAttack = (creature.traveledHexesThisAttack ?? 0) + moveSteps.length;
         this.currentActions.push(new BattleAction(BattleActionType.MOVE, moveSteps, 0, 50, 50, creature));
       }
       this.nextRenderUpdate.hoverOverCell = null;
@@ -557,10 +580,12 @@ export class Battle {
       creature.stats.remaining_movement = Math.max(0, creature.stats.remaining_movement - moveCost);
       creature.consumeStamina(staminaCost);
       this.totalStaminaSpent[this.currentArmyIndex] += staminaCost;
+      creature.traveledHexesThisAttack = (creature.traveledHexesThisAttack ?? 0) + moveSteps.length;
       this.currentActions.push(new BattleAction(BattleActionType.MOVE, moveSteps, 0, 50, 50, creature, creatureAtTarget.creature));
     }
 
-    this.currentActions.push(BattleAction.CreateAttackMelee(creature, creatureAtTarget.creature));
+    const attackAction = BattleAction.CreateAttackMelee(creature, creatureAtTarget.creature, creature.traveledHexesThisAttack ?? 0);
+    this.currentActions.push(attackAction);
     creature.stats.has_attacked = true;
   }
 
@@ -1203,7 +1228,8 @@ export class Battle {
     }
 
     let defender = hitCreatureInBattle.creature;
-    this.applyAttackDamage(attacker, defender, currentAction.type);
+    const traveledHexes = currentAction.traveledHexes ?? attacker.traveledHexesThisAttack ?? 0;
+    this.applyAttackDamage(attacker, defender, currentAction.type, 1.0, traveledHexes);
 
     if (!defender.isAlive) {
       this.handleSquadDeath(defender, attacker, currentAction.type === BattleActionType.ATTACK_MELEE);
@@ -1227,10 +1253,11 @@ export class Battle {
         !defender.isPanickedOrRouting;
 
       if (canRetaliate) {
-        counterattacking = this.queueCounterattack(defender, attacker);
+        counterattacking = this.queueCounterattack(defender, attacker, traveledHexes);
       }
     }
 
+    attacker.traveledHexesThisAttack = 0;
     attacker.stats.remaining_attacks = Math.max(0, attacker.stats.remaining_attacks - 1);
     attacker.stats.remaining_movement = 0;
     attacker.stats.has_attacked = true;
@@ -1599,7 +1626,8 @@ export class Battle {
     defender.stats.retaliations_done++;
     defender.stats.remaining_counterattacks = Math.max(0, defender.stats.remaining_counterattacks - 1);
 
-    this.applyAttackDamage(defender, attacker, BattleActionType.COUNTER_ATTACK_MELEE, retalMult);
+    const traveledHexes = currentAction.traveledHexes ?? 0;
+    this.applyAttackDamage(defender, attacker, BattleActionType.COUNTER_ATTACK_MELEE, retalMult, traveledHexes);
 
     if (!attacker.isAlive) {
       const idx = this.creatures.findIndex((c) => c === attacker);
@@ -1617,7 +1645,8 @@ export class Battle {
     source: Creature,
     target: Creature,
     attackType: BattleActionType,
-    customMultiplier: number = 1.0
+    customMultiplier: number = 1.0,
+    traveledHexes: number = 0
   ) {
     let baseDamage = 0;
     let targetArmor = 0;
@@ -1652,6 +1681,7 @@ export class Battle {
       customMultiplier,
       traitsConfig: this.traitsConfig,
       commit: true,
+      traveledHexes,
     });
     let damage = traitResult.damage;
 
@@ -1782,8 +1812,8 @@ export class Battle {
     };
   }
 
-  private queueCounterattack(creatureCounterAttackFrom: Creature, creatureCounterAttackTo: Creature): boolean {
-    this.currentActions.push(BattleAction.CounterAttack(creatureCounterAttackFrom, creatureCounterAttackTo));
+  private queueCounterattack(creatureCounterAttackFrom: Creature, creatureCounterAttackTo: Creature, traveledHexes: number = 0): boolean {
+    this.currentActions.push(BattleAction.CounterAttack(creatureCounterAttackFrom, creatureCounterAttackTo, traveledHexes));
     return true;
   }
 

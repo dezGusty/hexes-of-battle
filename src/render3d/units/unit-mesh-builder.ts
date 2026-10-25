@@ -69,7 +69,11 @@ export {
  * Average 3D height of standard humanoid units in world space (feet at y=0 to helmet top at y=1.20).
  * Forest trees are scaled to ~75% of this height (~0.90 world units).
  */
-export const UNIT_SIZE_SCALE = 0.7;
+/**
+ * Global size scale for unit visuals.
+ * Resized down from 0.7 to 75% of current size (0.7 * 0.75 = 0.525).
+ */
+export const UNIT_SIZE_SCALE = 0.525;
 export const AVERAGE_UNIT_3D_HEIGHT = 1.20;
 export const FOREST_TREE_TARGET_HEIGHT = AVERAGE_UNIT_3D_HEIGHT * 0.75; // 0.90
 
@@ -86,6 +90,8 @@ export const SUPPORTED_3D_UNIT_KEYS: readonly string[] = [
   'barbarian',
   'slinger',
   'healer',
+  'maceman',
+  'armored_knight',
 ];
 
 export const IGNORED_3D_UNIT_KEYS: readonly string[] = [
@@ -133,6 +139,14 @@ export function normalizeUnitKey(type: CreatureType | string | number): string {
     case '11':
     case 'healer':
       return 'healer';
+    case '12':
+    case 'maceman':
+      return 'maceman';
+    case '13':
+    case 'armored_knight':
+    case 'armoredknight':
+    case 'armored-knight':
+      return 'armored_knight';
     default:
       return raw;
   }
@@ -153,6 +167,8 @@ export const UNIT_GLB_PATHS: Record<string, string> = {
   barbarian: 'models/units/barbarian.glb',
   slinger: 'models/units/slinger.glb',
   healer: 'models/units/healer.glb',
+  maceman: 'models/units/maceman.glb',
+  armored_knight: 'models/units/armored_knight.glb',
 };
 
 let sharedWhiteMap: THREE.DataTexture | null = null;
@@ -473,6 +489,49 @@ function prepareHumanoidHierarchyBeforeCompaction(
       } else if (mesh.name === 'Shield' || rawName.includes('shield') || rawName.includes('buckler') || rawName.includes('boss') || rawName.includes('rim')) {
         applyHumanoidUVMapping(mesh.geometry, 'healer_shield');
       }
+    } else if (unitKey === 'maceman') {
+      if (mesh.name === 'Head') {
+        applyHumanoidUVMapping(mesh.geometry, 'spearman_head_face');
+        mesh.material = makeMat(0xffffff, 0.76, 0.05);
+      } else if (rawName.includes('coif') || rawName.includes('cap') || rawName.includes('hood') || rawName.includes('helmet')) {
+        applyHumanoidUVMapping(mesh.geometry, 'maceman_coif');
+      } else if (rawName.includes('collar')) {
+        applyHumanoidUVMapping(mesh.geometry, 'maceman_gambeson_collar');
+      } else if (mesh.name === 'Torso' || rawName.includes('tabard') || rawName.includes('gambeson')) {
+        applyHumanoidUVMapping(mesh.geometry, 'maceman_gambeson_torso');
+      } else if (rawName.includes('hand')) {
+        applyHumanoidUVMapping(mesh.geometry, 'humanoid_hand');
+      } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R') {
+        applyHumanoidUVMapping(mesh.geometry, 'maceman_gambeson_arm');
+      } else if (mesh.name === 'Leg_L' || mesh.name === 'Leg_R' || rawName.includes('boot')) {
+        applyHumanoidUVMapping(mesh.geometry, 'maceman_gambeson_leg');
+      } else if (mesh.name === 'Weapon' || rawName.includes('mace') || rawName.includes('flange') || rawName.includes('spike') || rawName.includes('pommel') || rawName.includes('haft') || rawName.includes('shaft')) {
+        applyHumanoidUVMapping(mesh.geometry, 'maceman_mace');
+      }
+    } else if (unitKey === 'armored_knight') {
+      if (mesh.name === 'Head' || rawName.includes('helm') || rawName.includes('visor')) {
+        applyHumanoidUVMapping(mesh.geometry, 'knight_great_helm');
+      } else if (mesh.name === 'Torso' || rawName.includes('cuirass') || rawName.includes('gorget')) {
+        applyHumanoidUVMapping(mesh.geometry, 'knight_plate_torso');
+      } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R' || rawName.includes('pauldron')) {
+        applyHumanoidUVMapping(mesh.geometry, 'knight_plate_arm');
+      } else if (mesh.name === 'Leg_L' || mesh.name === 'Leg_R') {
+        applyHumanoidUVMapping(mesh.geometry, 'knight_plate_leg');
+      } else if (rawName.includes('horse_leg')) {
+        applyHumanoidUVMapping(mesh.geometry, 'knight_horse_leg');
+      } else if (rawName.includes('barding')) {
+        applyHumanoidUVMapping(mesh.geometry, 'knight_horse_barding');
+      } else if (rawName.includes('saddle')) {
+        applyHumanoidUVMapping(mesh.geometry, 'knight_saddle');
+      } else if (rawName.includes('neck')) {
+        applyHumanoidUVMapping(mesh.geometry, 'knight_horse_neck');
+      } else if (rawName.includes('horse_head')) {
+        applyHumanoidUVMapping(mesh.geometry, 'knight_horse_head');
+      } else if (rawName.includes('weapon') || rawName.includes('mace')) {
+        applyHumanoidUVMapping(mesh.geometry, 'knight_mace');
+      } else if (mesh.name === 'Root' || rawName.includes('horse')) {
+        applyHumanoidUVMapping(mesh.geometry, 'knight_horse_body');
+      }
     }
   });
 }
@@ -559,6 +618,37 @@ function getUnitLimbMaterial(
         case 'Leg_R':
         default:
           return getHumanoidPartMaterial('peasant_cloth', 0.86, 0.02);
+      }
+    case 'maceman':
+      switch (limbName) {
+        case 'Head':
+          return getHumanoidPartMaterial('spearman_face', 0.76, 0.05);
+        case 'Weapon':
+          return getHumanoidPartMaterial('maceman_gear', 0.40, 0.65);
+        case 'Torso':
+        case 'Arm_L':
+        case 'Arm_R':
+        case 'Leg_L':
+        case 'Leg_R':
+        default:
+          return getHumanoidPartMaterial('maceman_armor', 0.82, 0.05);
+      }
+    case 'armored_knight':
+      switch (limbName) {
+        case 'Weapon':
+          return getHumanoidPartMaterial('armored_knight_gear', 0.40, 0.72);
+        case 'Root':
+        case 'Horse_Barding':
+        case 'Saddle':
+          return getHumanoidPartMaterial('armored_knight_gear', 0.65, 0.20);
+        case 'Torso':
+        case 'Head':
+        case 'Arm_L':
+        case 'Arm_R':
+        case 'Leg_L':
+        case 'Leg_R':
+        default:
+          return getHumanoidPartMaterial('armored_knight_armor', 0.28, 0.88);
       }
     default:
       return getSharedUnitOpaqueMaterial();
@@ -782,7 +872,9 @@ export function compactArticulatedUnitHierarchy(
     effectiveUnitKey === 'peasant_archer' ||
     effectiveUnitKey === 'spearman' ||
     effectiveUnitKey === 'swordsman' ||
-    effectiveUnitKey === 'healer';
+    effectiveUnitKey === 'healer' ||
+    effectiveUnitKey === 'maceman' ||
+    effectiveUnitKey === 'armored_knight';
 
   if (isBarbarian) {
     prepareBarbarianHierarchyBeforeCompaction(rootMesh);
@@ -1501,6 +1593,115 @@ export function buildArticulatedUnit3DMesh(
       gripGeo.translate(0.015, -0.21, 0);
       knifeMesh.add(new THREE.Mesh(gripGeo, matDarkLeather));
       armR.add(knifeMesh);
+      break;
+    }
+
+    case 'maceman': {
+      // 1. Padded Arming Cap / Gambeson Coif on Head
+      const coifGeo = new THREE.SphereGeometry(0.138, 20, 14);
+      coifGeo.translate(-0.01, 0.02, 0);
+      const coifMesh = new THREE.Mesh(coifGeo, matCloth);
+      coifMesh.name = 'Helmet_Coif';
+      headMesh.add(coifMesh);
+
+      // Gambeson Collar / Padded Shoulder Mantle on Torso
+      const collarGeo = new THREE.CylinderGeometry(0.20, 0.22, 0.12, 14);
+      collarGeo.translate(0, 0.72, 0);
+      const collarMesh = new THREE.Mesh(collarGeo, matCloth);
+      collarMesh.name = 'Gambeson_Collar';
+      torsoMesh.add(collarMesh);
+
+      // Two-handed stance (no shield, holds mace with both hands):
+      // Left Arm angled forward across chest towards the mace haft
+      armL.rotation.set(0.35, 0.45, -0.65);
+      // Right Arm angled forward holding the upper haft
+      armR.rotation.set(0.40, -0.25, 0.50);
+
+      // 2. Two-Handed Heavy Flanged Mace on Arm_R:
+      const maceHaftGeo = new THREE.CylinderGeometry(0.022, 0.020, 0.95, 12);
+      maceHaftGeo.translate(0.14, 0.08, -0.06);
+      maceHaftGeo.rotateZ(-0.45);
+      const maceMesh = new THREE.Mesh(maceHaftGeo, matWood);
+      maceMesh.name = 'Weapon';
+
+      // Flanged head core
+      const headCoreGeo = new THREE.CylinderGeometry(0.045, 0.040, 0.18, 12);
+      headCoreGeo.translate(0.38, 0.32, -0.06);
+      headCoreGeo.rotateZ(-0.45);
+      maceMesh.add(new THREE.Mesh(headCoreGeo, matSteel));
+
+      // 6 steel flanges
+      for (let i = 0; i < 6; i++) {
+        const flangeAngle = (i * Math.PI) / 3;
+        const flangeGeo = new THREE.BoxGeometry(0.08, 0.16, 0.018);
+        flangeGeo.rotateY(flangeAngle);
+        flangeGeo.translate(0.38, 0.32, -0.06);
+        flangeGeo.rotateZ(-0.45);
+        maceMesh.add(new THREE.Mesh(flangeGeo, matSteel));
+      }
+
+      // Piercing top spike
+      const spikeGeo = new THREE.ConeGeometry(0.024, 0.14, 8);
+      spikeGeo.translate(0.48, 0.44, -0.06);
+      spikeGeo.rotateZ(-0.45);
+      maceMesh.add(new THREE.Mesh(spikeGeo, matSteel));
+
+      // Weighted pommel counterweight
+      const pommelGeo = new THREE.SphereGeometry(0.038, 10, 8);
+      pommelGeo.translate(-0.14, -0.42, -0.06);
+      maceMesh.add(new THREE.Mesh(pommelGeo, matSteel));
+
+      armR.add(maceMesh);
+      break;
+    }
+
+    case 'armored_knight': {
+      // Warhorse Root body
+      const horseBodyGeo = new THREE.CylinderGeometry(0.18, 0.18, 0.62, 12);
+      horseBodyGeo.rotateZ(Math.PI * 0.5);
+      horseBodyGeo.translate(0, -0.28, 0);
+      const horseMesh = new THREE.Mesh(horseBodyGeo, matWood);
+      horseMesh.name = 'Horse_Body';
+
+      // 4 Horse legs
+      const legPositions = [
+        [0.24, 0.14],
+        [0.24, -0.14],
+        [-0.24, 0.14],
+        [-0.24, -0.14],
+      ];
+      for (const [lx, lz] of legPositions) {
+        const hlegGeo = new THREE.CylinderGeometry(0.045, 0.035, 0.44, 8);
+        hlegGeo.translate(lx, -0.50, lz);
+        horseMesh.add(new THREE.Mesh(hlegGeo, matWood));
+      }
+
+      // Horse Head & Neck
+      const hneckGeo = new THREE.CylinderGeometry(0.12, 0.08, 0.38, 8);
+      hneckGeo.rotateZ(-0.65);
+      hneckGeo.translate(0.32, -0.10, 0);
+      horseMesh.add(new THREE.Mesh(hneckGeo, matWood));
+
+      torsoMesh.add(horseMesh);
+
+      // Knight Great Helm on head
+      const helmGeo = new THREE.SphereGeometry(0.13, 16, 12);
+      helmGeo.translate(0, 0.04, 0);
+      headMesh.add(new THREE.Mesh(helmGeo, matSteel));
+
+      // Right Arm raised with Heavy Flanged Mace
+      armR.rotation.set(0.35, -0.30, 0.45);
+      const maceGeo = new THREE.CylinderGeometry(0.02, 0.018, 0.72, 8);
+      maceGeo.translate(0.18, -0.22, 0.90);
+      maceGeo.rotateZ(-0.45);
+      const maceMesh = new THREE.Mesh(maceGeo, matWood);
+      maceMesh.name = 'Weapon';
+
+      const mheadGeo = new THREE.CylinderGeometry(0.04, 0.035, 0.16, 8);
+      mheadGeo.translate(0.36, 0.25, 0);
+      mheadGeo.rotateZ(-0.45);
+      maceMesh.add(new THREE.Mesh(mheadGeo, matSteel));
+      armR.add(maceMesh);
       break;
     }
   }

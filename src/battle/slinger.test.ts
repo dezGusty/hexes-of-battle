@@ -80,9 +80,10 @@ describe("Slinger Unit and Imprecise Volley Perk", () => {
       expect(slingerTemplate.stats.defense_melee).toBe(archerTemplate.stats.defense_melee);
       expect(slingerTemplate.stats.defense_ranged).toBe(archerTemplate.stats.defense_ranged);
 
-      // Traits: FragileLine, ImpreciseVolley
+      // Traits: FragileLine, ImpreciseVolley, ArmorPenetration
       expect(slingerTemplate.traits).toContain("FragileLine");
       expect(slingerTemplate.traits).toContain("ImpreciseVolley");
+      expect(slingerTemplate.traits).toContain("ArmorPenetration");
     });
 
     it("should instantiate slinger from CreatureRepository by type and by name", () => {
@@ -216,6 +217,56 @@ describe("Slinger Unit and Imprecise Volley Perk", () => {
 
       expect(result.volleyMultiplier).toBe(1.0);
       expect(result.damage).toBe(10);
+    });
+
+    it("should reduce target armor by 50% during damage calculation with Armor Penetration", () => {
+      const slinger = new Creature(CreatureType.SLINGER);
+      slinger.stats.traits = ["ArmorPenetration"];
+
+      // Target with 8 armor (e.g. heavily armored unit)
+      const armoredDefender = new Creature(CreatureType.HEAVY_KNIGHTS);
+      armoredDefender.stats.model_count = 1;
+      armoredDefender.stats.health = 40;
+      armoredDefender.stats.remaining_health = 40;
+
+      // Base damage 20, targetArmor 8:
+      // With ArmorPenetration, 8 armor is reduced by 50% to 4 effective armor
+      // Net damage: 20 - 4 = 16 (bypassed 4 armor)
+      const hitArmored = calculateDamageWithTraits({
+        attacker: slinger,
+        defender: armoredDefender,
+        attackType: BattleActionType.ATTACK_RANGED,
+        baseDamage: 20,
+        targetArmor: 8,
+      });
+      expect(hitArmored.damage).toBe(16);
+      expect(hitArmored.armorPenetrated).toBe(4);
+
+      // Target with 4 armor:
+      // 4 armor reduced by 50% to 2 effective armor
+      // Net damage: 20 - 2 = 18 (bypassed 2 armor)
+      const hitMidArmor = calculateDamageWithTraits({
+        attacker: slinger,
+        defender: armoredDefender,
+        attackType: BattleActionType.ATTACK_RANGED,
+        baseDamage: 20,
+        targetArmor: 4,
+      });
+      expect(hitMidArmor.damage).toBe(18);
+      expect(hitMidArmor.armorPenetrated).toBe(2);
+
+      // Target with 0 armor (has no effect on unarmored units):
+      // 0 armor reduced by 50% is still 0
+      // Net damage: 20 - 0 = 20 (bypassed 0 armor)
+      const hitUnarmored = calculateDamageWithTraits({
+        attacker: slinger,
+        defender: armoredDefender,
+        attackType: BattleActionType.ATTACK_RANGED,
+        baseDamage: 20,
+        targetArmor: 0,
+      });
+      expect(hitUnarmored.damage).toBe(20);
+      expect(hitUnarmored.armorPenetrated).toBe(0);
     });
   });
 

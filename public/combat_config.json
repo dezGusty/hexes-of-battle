@@ -156,6 +156,14 @@
       "midThreshold": 0.50,
       "midMultiplier": 1.0,
       "lowMultiplier": 0.5
+    },
+    "armorPenetration": {
+      "armorIgnoredPercent": 0.5
+    },
+    "cavalry": {},
+    "charge": {
+      "damageBonusPerHex": 0.08,
+      "retaliationDamageTakenPerHex": 0.08
     }
   }
 }

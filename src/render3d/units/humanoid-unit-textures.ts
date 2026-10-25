@@ -3,7 +3,7 @@ import { getBarbarianPartTexture, getBarbarianPartMaterial } from './barbarian-t
 
 export const HUMANOID_TEXTURE_SIZE = 256;
 
-export type SupportedHumanoidTexturedUnit = 'peasant' | 'peasant_archer' | 'spearman' | 'swordsman' | 'healer';
+export type SupportedHumanoidTexturedUnit = 'peasant' | 'peasant_archer' | 'spearman' | 'swordsman' | 'healer' | 'maceman' | 'armored_knight';
 
 export const HUMANOID_TEXTURE_PATHS: Record<string, string> = {
   skin: 'textures/units/barbarian_skin.png',
@@ -20,6 +20,10 @@ export const HUMANOID_TEXTURE_PATHS: Record<string, string> = {
   swordsman_armor: 'textures/units/swordsman_armor.png',
   swordsman_gear: 'textures/units/swordsman_gear.png',
   healer_gear: 'textures/units/healer_gear.png',
+  maceman_armor: 'textures/units/maceman_armor.png',
+  maceman_gear: 'textures/units/maceman_gear.png',
+  armored_knight_armor: 'textures/units/armored_knight_armor.png',
+  armored_knight_gear: 'textures/units/armored_knight_gear.png',
 };
 
 function clampByte(v: number): number {
@@ -1364,6 +1368,472 @@ export function generateHealerGearPixels(): Uint8Array {
 }
 
 // ==========================================
+// 6. MACEMAN TEXTURES (GAMBESON & TWO-HANDED MACE)
+// ==========================================
+
+/**
+ * Generates a 256x256 RGBA pixel buffer for the Maceman's Gambeson armor:
+ * - Rows y = 0..140: Padded linen gambeson body with diamond-quilted stitching,
+ *   pillowed diamond cushions, linen weave texture, and front leather strapping clasps with brass buckles.
+ * - Rows y = 141..162: Heavy leather combat waist belt with brass buckle and belt loop rivets.
+ * - Rows y = 163..210: Gambeson skirt with vertical fluted channels and stitched hem piping.
+ * - Rows y = 211..255: Quilted sleeves and reinforced leather boots.
+ */
+export function generateMacemanArmorPixels(): Uint8Array {
+  const size = HUMANOID_TEXTURE_SIZE;
+  const data = new Uint8Array(size * size * 4);
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const idx = (y * size + x) * 4;
+      const n = fbm(x, y, 7, 831);
+      const fine = hash2D(x, y, 839);
+
+      if (y >= 141 && y <= 162) {
+        // Waist Belt
+        const beltY = y - 141;
+        const beltDistCenter = Math.abs(x - 128);
+
+        if (beltDistCenter < 14 && beltY >= 3 && beltY <= 18) {
+          // Polished Brass Buckle
+          const isFrame = beltDistCenter >= 10 || beltY <= 5 || beltY >= 15;
+          const isProng = beltDistCenter <= 2;
+          const brassLum = isFrame || isProng ? 210 : 70;
+          data[idx] = clampByte(brassLum + 35);
+          data[idx + 1] = clampByte(brassLum + 12);
+          data[idx + 2] = clampByte(brassLum - 60);
+        } else {
+          // Thick tanned saddle leather
+          const edge = beltY <= 2 || beltY >= 19 ? -35 : 0;
+          const leatherR = 95 + edge + (n - 0.5) * 20;
+          const leatherG = 58 + edge + (n - 0.5) * 15;
+          const leatherB = 34 + edge + (n - 0.5) * 12;
+          data[idx] = clampByte(leatherR);
+          data[idx + 1] = clampByte(leatherG);
+          data[idx + 2] = clampByte(leatherB);
+        }
+      } else if (y < 141) {
+        // Padded Gambeson Torso / Body (Diamond Quilted Linen)
+        const d1 = (x + y) % 18;
+        const d2 = ((x - y) % 18 + 18) % 18;
+        const isSeam = d1 <= 2 || d2 <= 2;
+        const isPuncture = d1 <= 1 && d2 <= 1;
+
+        // Center puffiness of diamond cell
+        const distFromSeam = Math.min(Math.min(d1, 18 - d1), Math.min(d2, 18 - d2));
+        const pillowBulge = (distFromSeam / 9) * 28;
+
+        let baseR = 196 + (n - 0.5) * 22;
+        let baseG = 176 + (n - 0.5) * 20;
+        let baseB = 142 + (n - 0.5) * 18;
+
+        if (isPuncture) {
+          baseR -= 60;
+          baseG -= 55;
+          baseB -= 45;
+        } else if (isSeam) {
+          baseR -= 38;
+          baseG -= 34;
+          baseB -= 28;
+        } else {
+          baseR += pillowBulge;
+          baseG += pillowBulge * 0.95;
+          baseB += pillowBulge * 0.85;
+        }
+
+        // Front central lacing / leather straps (x = 122..134)
+        if (Math.abs(x - 128) < 6) {
+          const strapBand = y % 20 < 6;
+          if (strapBand) {
+            baseR = 105 + (fine - 0.5) * 15;
+            baseG = 65 + (fine - 0.5) * 12;
+            baseB = 38 + (fine - 0.5) * 10;
+          } else {
+            baseR -= 30;
+            baseG -= 28;
+            baseB -= 24;
+          }
+        }
+
+        data[idx] = clampByte(baseR);
+        data[idx + 1] = clampByte(baseG);
+        data[idx + 2] = clampByte(baseB);
+      } else if (y < 210) {
+        // Gambeson Skirt (Vertical fluted quilting tubes)
+        const tubeX = x % 16;
+        const tubeDist = Math.abs(tubeX - 8);
+        const tubeShade = (tubeDist / 8) * 35;
+
+        let baseR = 192 - tubeShade + (n - 0.5) * 20;
+        let baseG = 172 - tubeShade + (n - 0.5) * 18;
+        let baseB = 138 - tubeShade + (n - 0.5) * 16;
+
+        if (y >= 204) {
+          baseR -= 25;
+          baseG -= 22;
+          baseB -= 18;
+        }
+
+        data[idx] = clampByte(baseR);
+        data[idx + 1] = clampByte(baseG);
+        data[idx + 2] = clampByte(baseB);
+      } else {
+        // Arms / Boots (y = 211..255)
+        if (y > 236) {
+          const bootR = 62 + (n - 0.5) * 18;
+          const bootG = 42 + (n - 0.5) * 14;
+          const bootB = 28 + (n - 0.5) * 10;
+          data[idx] = clampByte(bootR);
+          data[idx + 1] = clampByte(bootG);
+          data[idx + 2] = clampByte(bootB);
+        } else {
+          const d1 = (x + y) % 14;
+          const isSeam = d1 <= 2;
+          const r = 188 + (n - 0.5) * 20 - (isSeam ? 32 : -10);
+          const g = 168 + (n - 0.5) * 18 - (isSeam ? 28 : -8);
+          const b = 136 + (n - 0.5) * 16 - (isSeam ? 24 : -6);
+          data[idx] = clampByte(r);
+          data[idx + 1] = clampByte(g);
+          data[idx + 2] = clampByte(b);
+        }
+      }
+
+      data[idx + 3] = 255;
+    }
+  }
+
+  return data;
+}
+
+/**
+ * Generates a 256x256 RGBA pixel buffer for the Maceman's Gear:
+ * - x = 0..127: Two-Handed Heavy Flanged Mace:
+ *   - y = 0..22: Piercing steel top spike
+ *   - y = 23..90: Heavy forged flanged steel head with bevel edges
+ *   - y = 91..115: Steel socket collar & reinforced iron langets
+ *   - y = 116..185: Seasoned ash hardwood haft with straight wood grain
+ *   - y = 186..240: Wrapped dark leather spiral grip for two-handed swinging purchase
+ *   - y = 241..255: Solid steel round pommel counterweight
+ * - x = 128..255: Padded Arming Cap / Gambeson Coif:
+ *   - Quilted linen coif hood fabric, stitched ear flaps, chin laces, and padded brow band.
+ */
+export function generateMacemanGearPixels(): Uint8Array {
+  const size = HUMANOID_TEXTURE_SIZE;
+  const data = new Uint8Array(size * size * 4);
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const idx = (y * size + x) * 4;
+      const n = fbm(x, y, 7, 941);
+      const fine = hash2D(x, y, 947);
+
+      if (x < 128) {
+        // --- TWO-HANDED MACE (x = 0..127) ---
+        const distFromCenter = Math.abs(x - 64);
+
+        if (y < 22) {
+          const spikeEdge = distFromCenter < 12 ? 35 : -30;
+          const steelLum = 210 + spikeEdge + (n - 0.5) * 25;
+          data[idx] = clampByte(steelLum);
+          data[idx + 1] = clampByte(steelLum + 2);
+          data[idx + 2] = clampByte(steelLum + 8);
+        } else if (y < 90) {
+          const flangeRidge = (x % 24 < 4) ? 45 : (x % 24 > 20 ? -35 : 0);
+          const rivet = (y % 16 < 3 && distFromCenter < 30) ? 35 : 0;
+          const steelLum = 175 + flangeRidge + rivet + (n - 0.5) * 25;
+          data[idx] = clampByte(steelLum);
+          data[idx + 1] = clampByte(steelLum + 3);
+          data[idx + 2] = clampByte(steelLum + 9);
+        } else if (y < 116) {
+          const isLanget = distFromCenter < 6 || distFromCenter > 38;
+          const steelLum = isLanget ? 190 + (fine - 0.5) * 20 : 155;
+          data[idx] = clampByte(steelLum);
+          data[idx + 1] = clampByte(steelLum + 2);
+          data[idx + 2] = clampByte(steelLum + 6);
+        } else if (y < 186) {
+          const grain = Math.sin(x * 0.8 + n * 5.0) * 22;
+          const woodLum = 180 + grain + (n - 0.5) * 15;
+          data[idx] = clampByte(woodLum + 12);
+          data[idx + 1] = clampByte(woodLum);
+          data[idx + 2] = clampByte(woodLum - 22);
+        } else if (y < 241) {
+          const spiral = Math.sin((x * 0.6 + y * 0.8)) * 32;
+          const gripR = 64 + spiral + (n - 0.5) * 16;
+          const gripG = 44 + spiral * 0.8 + (n - 0.5) * 12;
+          const gripB = 30 + spiral * 0.6 + (n - 0.5) * 10;
+          data[idx] = clampByte(gripR);
+          data[idx + 1] = clampByte(gripG);
+          data[idx + 2] = clampByte(gripB);
+        } else {
+          const pommelDome = (1 - distFromCenter / 40) * 45;
+          const brassCenter = distFromCenter < 8;
+          if (brassCenter) {
+            data[idx] = 220;
+            data[idx + 1] = 180;
+            data[idx + 2] = 70;
+          } else {
+            const steelLum = 180 + pommelDome + (n - 0.5) * 20;
+            data[idx] = clampByte(steelLum);
+            data[idx + 1] = clampByte(steelLum + 3);
+            data[idx + 2] = clampByte(steelLum + 8);
+          }
+        }
+      } else {
+        // --- PADDED ARMING CAP / GAMBESON COIF (x = 128..255) ---
+        const relX = x - 128;
+        const d1 = (relX + y) % 15;
+        const d2 = ((relX - y) % 15 + 15) % 15;
+        const isSeam = d1 <= 2 || d2 <= 2;
+        const distFromSeam = Math.min(Math.min(d1, 15 - d1), Math.min(d2, 15 - d2));
+        const pillowBulge = (distFromSeam / 7.5) * 26;
+
+        let baseR = 198 + (n - 0.5) * 20;
+        let baseG = 178 + (n - 0.5) * 18;
+        let baseB = 144 + (n - 0.5) * 16;
+
+        if (isSeam) {
+          baseR -= 36;
+          baseG -= 32;
+          baseB -= 26;
+        } else {
+          baseR += pillowBulge;
+          baseG += pillowBulge * 0.95;
+          baseB += pillowBulge * 0.85;
+        }
+
+        if (y > 230) {
+          const leatherR = 100 + (fine - 0.5) * 15;
+          const leatherG = 62 + (fine - 0.5) * 12;
+          const leatherB = 38 + (fine - 0.5) * 10;
+          data[idx] = clampByte(leatherR);
+          data[idx + 1] = clampByte(leatherG);
+          data[idx + 2] = clampByte(leatherB);
+        } else {
+          data[idx] = clampByte(baseR);
+          data[idx + 1] = clampByte(baseG);
+          data[idx + 2] = clampByte(baseB);
+        }
+      }
+
+      data[idx + 3] = 255;
+    }
+  }
+
+  return data;
+}
+
+
+// ==========================================
+// 7. ARMORED KNIGHT TEXTURES (WARHORSE & HEAVY PLATE)
+// ==========================================
+
+export function generateArmoredKnightArmorPixels(): Uint8Array {
+  const size = HUMANOID_TEXTURE_SIZE;
+  const data = new Uint8Array(size * size * 4);
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const idx = (y * size + x) * 4;
+      const n = (Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1;
+      const fine = (Math.sin(x * 93.123 + y * 41.567) * 23421.631) % 1;
+
+      if (y < 128) {
+        if (x < 128) {
+          // --- STEEL CUIRASS / BREASTPLATE ---
+          const ridgeDist = Math.abs(x - 64);
+          const ridgeHighlight = Math.max(0, 1 - ridgeDist / 12) * 45;
+          const domeCurvature = Math.cos((ridgeDist / 64) * (Math.PI * 0.5)) * 30;
+          let lum = 185 + ridgeHighlight + domeCurvature + (n - 0.5) * 15;
+
+          const isEdgeTrim = x < 6 || x > 122 || y < 6 || y > 122;
+          const isRivet = (x % 24 < 3 && (y === 10 || y === 118)) || (y % 28 < 3 && (x === 10 || x === 118));
+
+          if (isEdgeTrim) {
+            data[idx] = clampByte(215 + (fine - 0.5) * 20);
+            data[idx + 1] = clampByte(175 + (fine - 0.5) * 15);
+            data[idx + 2] = clampByte(65 + (fine - 0.5) * 10);
+          } else if (isRivet) {
+            data[idx] = 240;
+            data[idx + 1] = 230;
+            data[idx + 2] = 210;
+          } else {
+            data[idx] = clampByte(lum);
+            data[idx + 1] = clampByte(lum + 2);
+            data[idx + 2] = clampByte(lum + 8);
+          }
+        } else {
+          // --- STEEL GREAT HELM / ARMET ---
+          const rx = x - 128;
+          const helmDome = Math.cos(((rx - 64) / 64) * (Math.PI * 0.5)) * 35;
+          let lum = 180 + helmDome + (n - 0.5) * 16;
+
+          const isVisorSlit = y >= 58 && y <= 66 && rx >= 24 && rx <= 104;
+          const isBreathingHole = y >= 76 && y <= 106 && rx >= 36 && rx <= 92 && (rx % 10 < 3) && (y % 10 < 3);
+          const isBrowBand = (y >= 48 && y <= 56) || (rx >= 60 && rx <= 68 && y < 116);
+
+          if (isVisorSlit) {
+            data[idx] = 20;
+            data[idx + 1] = 22;
+            data[idx + 2] = 26;
+          } else if (isBreathingHole) {
+            data[idx] = 30;
+            data[idx + 1] = 32;
+            data[idx + 2] = 38;
+          } else if (isBrowBand) {
+            data[idx] = clampByte(220 + (fine - 0.5) * 20);
+            data[idx + 1] = clampByte(180 + (fine - 0.5) * 15);
+            data[idx + 2] = clampByte(70 + (fine - 0.5) * 10);
+          } else {
+            data[idx] = clampByte(lum);
+            data[idx + 1] = clampByte(lum + 3);
+            data[idx + 2] = clampByte(lum + 9);
+          }
+        }
+      } else {
+        if (x < 128) {
+          // --- ARTICULATED LAMES (Pauldrons, Couters, Greaves) ---
+          const lameStep = (y - 128) % 24;
+          const isLameOverlap = lameStep < 4;
+          const lameShading = (lameStep / 24) * 25;
+          let lum = 175 + lameShading + (n - 0.5) * 18;
+
+          if (isLameOverlap) {
+            lum -= 45;
+          }
+
+          const isRivet = (lameStep >= 10 && lameStep <= 13) && (x % 32 >= 14 && x % 32 <= 17);
+          if (isRivet) {
+            data[idx] = 230;
+            data[idx + 1] = 190;
+            data[idx + 2] = 75;
+          } else {
+            data[idx] = clampByte(lum);
+            data[idx + 1] = clampByte(lum + 3);
+            data[idx + 2] = clampByte(lum + 8);
+          }
+        } else {
+          // --- CHAINMAIL COIF / HAUBERK ---
+          const rx = x - 128;
+          const ry = y - 128;
+          const ringX = rx % 8;
+          const ringY = ry % 8;
+          const ringDist = Math.hypot(ringX - 4, ringY - 4);
+          const isWire = ringDist > 1.8 && ringDist < 3.8;
+          const isHole = ringDist <= 1.8;
+
+          if (isHole) {
+            data[idx] = 40;
+            data[idx + 1] = 42;
+            data[idx + 2] = 48;
+          } else if (isWire) {
+            const wireLum = 180 + (fine - 0.5) * 35;
+            data[idx] = clampByte(wireLum);
+            data[idx + 1] = clampByte(wireLum + 2);
+            data[idx + 2] = clampByte(wireLum + 6);
+          } else {
+            const bgLum = 85 + (n - 0.5) * 20;
+            data[idx] = clampByte(bgLum);
+            data[idx + 1] = clampByte(bgLum + 2);
+            data[idx + 2] = clampByte(bgLum + 5);
+          }
+        }
+      }
+
+      data[idx + 3] = 255;
+    }
+  }
+
+  return data;
+}
+
+export function generateArmoredKnightGearPixels(): Uint8Array {
+  const size = HUMANOID_TEXTURE_SIZE;
+  const data = new Uint8Array(size * size * 4);
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const idx = (y * size + x) * 4;
+      const n = (Math.sin(x * 15.345 + y * 63.891) * 31415.926) % 1;
+      const fine = (Math.sin(x * 87.654 + y * 23.456) * 54321.098) % 1;
+
+      if (y < 128) {
+        if (x < 128) {
+          // --- HORSE BARDING / CHANFRON STEEL PLATES ---
+          const cx = Math.abs(x - 64);
+          const chanfronCurve = Math.cos((cx / 64) * (Math.PI * 0.5)) * 32;
+          let lum = 175 + chanfronCurve + (n - 0.5) * 16;
+          const isSpike = y >= 54 && y <= 74 && cx <= 7;
+          const isGoldBorder = x < 6 || x > 122 || y < 6 || y > 122;
+
+          if (isSpike || isGoldBorder) {
+            data[idx] = clampByte(225 + (fine - 0.5) * 20);
+            data[idx + 1] = clampByte(185 + (fine - 0.5) * 15);
+            data[idx + 2] = clampByte(70 + (fine - 0.5) * 10);
+          } else {
+            data[idx] = clampByte(lum);
+            data[idx + 1] = clampByte(lum + 3);
+            data[idx + 2] = clampByte(lum + 8);
+          }
+        } else {
+          // --- HORSE COAT (Dark Bay Warhorse with sleek sheen) ---
+          const furWave = Math.sin((x + y * 0.5) * 0.25) * 10;
+          const horseR = 75 + furWave + (n - 0.5) * 18;
+          const horseG = 45 + furWave * 0.8 + (n - 0.5) * 14;
+          const horseB = 30 + furWave * 0.6 + (n - 0.5) * 10;
+          data[idx] = clampByte(horseR);
+          data[idx + 1] = clampByte(horseG);
+          data[idx + 2] = clampByte(horseB);
+        }
+      } else {
+        if (x < 128) {
+          // --- HEAVY FLANGED MACE ---
+          const relY = y - 128;
+          if (relY < 48) {
+            const flangeX = Math.abs((x % 32) - 16);
+            const isFlangeEdge = flangeX < 4;
+            const steelLum = 185 + (isFlangeEdge ? 45 : 0) + (n - 0.5) * 15;
+            data[idx] = clampByte(steelLum);
+            data[idx + 1] = clampByte(steelLum + 3);
+            data[idx + 2] = clampByte(steelLum + 8);
+          } else {
+            const spiral = Math.sin((x * 0.8 + relY * 0.5) * 0.8) > 0 ? 25 : -20;
+            const woodR = 105 + spiral + (fine - 0.5) * 15;
+            const woodG = 65 + spiral * 0.8 + (fine - 0.5) * 12;
+            const woodB = 38 + spiral * 0.6 + (fine - 0.5) * 10;
+            data[idx] = clampByte(woodR);
+            data[idx + 1] = clampByte(woodG);
+            data[idx + 2] = clampByte(woodB);
+          }
+        } else {
+          // --- SADDLE LEATHER & BRASS BUCKLES ---
+          const rx = x - 128;
+          const ry = y - 128;
+          const isStrap = rx >= 48 && rx <= 80;
+          const isBuckle = isStrap && ry >= 52 && ry <= 76;
+
+          if (isBuckle) {
+            data[idx] = 230;
+            data[idx + 1] = 190;
+            data[idx + 2] = 75;
+          } else {
+            const leatherR = (isStrap ? 65 : 85) + (n - 0.5) * 16;
+            const leatherG = (isStrap ? 38 : 52) + (n - 0.5) * 12;
+            const leatherB = (isStrap ? 22 : 32) + (n - 0.5) * 10;
+            data[idx] = clampByte(leatherR);
+            data[idx + 1] = clampByte(leatherG);
+            data[idx + 2] = clampByte(leatherB);
+          }
+        }
+      }
+
+      data[idx + 3] = 255;
+    }
+  }
+
+  return data;
+}
+
+// ==========================================
 // MATERIAL & TEXTURE CACHES
 // ==========================================
 
@@ -1420,6 +1890,18 @@ export function getHumanoidPartTexture(partKey: string): THREE.DataTexture {
         break;
       case 'healer_gear':
         pixels = generateHealerGearPixels();
+        break;
+      case 'maceman_armor':
+        pixels = generateMacemanArmorPixels();
+        break;
+      case 'maceman_gear':
+        pixels = generateMacemanGearPixels();
+        break;
+      case 'armored_knight_armor':
+        pixels = generateArmoredKnightArmorPixels();
+        break;
+      case 'armored_knight_gear':
+        pixels = generateArmoredKnightGearPixels();
         break;
       default:
         pixels = generatePeasantClothPixels();
@@ -1533,6 +2015,23 @@ export function applyHumanoidUVMapping(
     | 'healer_knife'
     | 'healer_shield'
     | 'healer_satchel'
+    | 'maceman_gambeson_torso'
+    | 'maceman_gambeson_collar'
+    | 'maceman_gambeson_arm'
+    | 'maceman_gambeson_leg'
+    | 'maceman_mace'
+    | 'maceman_coif'
+    | 'knight_horse_body'
+    | 'knight_horse_neck'
+    | 'knight_horse_head'
+    | 'knight_horse_leg'
+    | 'knight_horse_barding'
+    | 'knight_saddle'
+    | 'knight_plate_torso'
+    | 'knight_plate_arm'
+    | 'knight_plate_leg'
+    | 'knight_great_helm'
+    | 'knight_mace'
     | 'humanoid_hand'
 ): void {
   const posAttr = geometry.getAttribute('position');
@@ -1793,6 +2292,111 @@ export function applyHumanoidUVMapping(
       case 'healer_satchel': {
         u = 0.52 + ((x - minX) / spanX) * 0.44;
         v = 0.52 + ny * 0.44;
+        break;
+      }
+
+      // Maceman
+      case 'maceman_gambeson_torso': {
+        const theta = Math.atan2(z, x);
+        u = 0.5 + theta / (2 * Math.PI);
+        v = 0.55 + ny * 0.42;
+        break;
+      }
+      case 'maceman_gambeson_collar': {
+        const theta = Math.atan2(z, x);
+        u = 0.5 + theta / (2 * Math.PI);
+        v = 0.85 + ny * 0.12;
+        break;
+      }
+      case 'maceman_gambeson_arm': {
+        const theta = Math.atan2(z, x);
+        u = 0.5 + theta / (2 * Math.PI);
+        v = 0.15 + ny * 0.35;
+        break;
+      }
+      case 'maceman_gambeson_leg': {
+        const theta = Math.atan2(z, x);
+        u = 0.5 + theta / (2 * Math.PI);
+        v = 0.02 + ny * 0.38;
+        break;
+      }
+      case 'maceman_mace': {
+        const theta = Math.atan2(z, x);
+        u = 0.08 + (theta / (2 * Math.PI) + 0.5) * 0.38;
+        v = 0.02 + ny * 0.96;
+        break;
+      }
+      case 'maceman_coif': {
+        const theta = Math.atan2(z, x);
+        u = 0.55 + (theta / (2 * Math.PI) + 0.5) * 0.40;
+        v = 0.52 + ny * 0.44;
+        break;
+      }
+
+
+      // Armored Knight & Warhorse
+      case 'knight_horse_body': {
+        const theta = Math.atan2(z, x);
+        u = 0.55 + (theta / (2 * Math.PI) + 0.5) * 0.40;
+        v = 0.55 + ny * 0.40;
+        break;
+      }
+      case 'knight_horse_neck': {
+        const theta = Math.atan2(z, x);
+        u = 0.55 + (theta / (2 * Math.PI) + 0.5) * 0.40;
+        v = 0.60 + ny * 0.35;
+        break;
+      }
+      case 'knight_horse_head': {
+        const theta = Math.atan2(z, x);
+        u = 0.55 + (theta / (2 * Math.PI) + 0.5) * 0.40;
+        v = 0.55 + ny * 0.40;
+        break;
+      }
+      case 'knight_horse_leg': {
+        const theta = Math.atan2(z, x);
+        u = 0.55 + (theta / (2 * Math.PI) + 0.5) * 0.40;
+        v = 0.52 + ny * 0.42;
+        break;
+      }
+      case 'knight_horse_barding': {
+        u = 0.05 + ((x - minX) / spanX) * 0.42;
+        v = 0.52 + ny * 0.42;
+        break;
+      }
+      case 'knight_saddle': {
+        u = 0.55 + ((x - minX) / spanX) * 0.40;
+        v = 0.05 + ny * 0.40;
+        break;
+      }
+      case 'knight_plate_torso': {
+        const theta = Math.atan2(z, x);
+        u = 0.05 + (theta / (2 * Math.PI) + 0.5) * 0.42;
+        v = 0.55 + ny * 0.40;
+        break;
+      }
+      case 'knight_great_helm': {
+        const theta = Math.atan2(z, x);
+        u = 0.55 + (theta / (2 * Math.PI) + 0.5) * 0.40;
+        v = 0.55 + ny * 0.40;
+        break;
+      }
+      case 'knight_plate_arm': {
+        const theta = Math.atan2(z, x);
+        u = 0.05 + (theta / (2 * Math.PI) + 0.5) * 0.42;
+        v = 0.05 + ny * 0.40;
+        break;
+      }
+      case 'knight_plate_leg': {
+        const theta = Math.atan2(z, x);
+        u = 0.05 + (theta / (2 * Math.PI) + 0.5) * 0.42;
+        v = 0.05 + ny * 0.40;
+        break;
+      }
+      case 'knight_mace': {
+        const theta = Math.atan2(z, x);
+        u = 0.05 + (theta / (2 * Math.PI) + 0.5) * 0.42;
+        v = 0.05 + ny * 0.42;
         break;
       }
 

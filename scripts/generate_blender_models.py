@@ -664,6 +664,228 @@ def build_healer():
     export_current_model("healer")
 
 
+def build_maceman():
+    clear_scene()
+    pal = create_common_palette()
+
+    mat_armor = make_textured_material(
+        "MacemanArmor",
+        os.path.join(UNIT_TEXTURES_DIR, "maceman_armor.png"),
+        rgba=(0.78, 0.71, 0.58, 1.0),
+        metallic=0.05,
+        roughness=0.82,
+    )
+    mat_face = make_textured_material(
+        "SpearmanFace",
+        os.path.join(UNIT_TEXTURES_DIR, "spearman_face.png"),
+        rgba=(1.0, 1.0, 1.0, 1.0),
+        metallic=0.25,
+        roughness=0.68,
+    )
+    mat_gear = make_textured_material(
+        "MacemanGear",
+        os.path.join(UNIT_TEXTURES_DIR, "maceman_gear.png"),
+        rgba=(0.60, 0.62, 0.65, 1.0),
+        metallic=0.65,
+        roughness=0.40,
+    )
+
+    # 1. Lightly armored humanoid in quilted gambeson
+    rig = build_base_humanoid("maceman", pal, mat_armor, mat_armor, mat_armor, has_pauldrons=False)
+    rig["head"].data.materials[0] = mat_face
+
+    # Padded Arming Cap / Gambeson Coif on Head
+    bm_coif = bmesh.new()
+    bm_add_sphere(bm_coif, 0.138, segments=20, ring_count=14, center=(-0.01, 0, 0.02), scale=(1.04, 1.02, 1.04))
+    bm_add_cylinder(bm_coif, 0.155, 0.135, 0.08, segments=16, center=(-0.01, 0, -0.06))
+    create_mesh_object("Helmet_Coif", bm_coif, mat_armor, parent=rig["head"])
+
+    # Gambeson Collar / Padded Shoulder Mantle on Torso
+    bm_collar = bmesh.new()
+    bm_add_cylinder(bm_collar, 0.21, 0.18, 0.12, segments=14, center=(0, 0, 0.72))
+    create_mesh_object("Gambeson_Collar", bm_collar, mat_armor, parent=rig["torso"])
+
+    # 2. Two-Handed Stance (no shield, holds mace with both hands)
+    # Rotate Arm_L forward/inward to grasp lower haft, and Arm_R forward to grip upper haft
+    rig["arm_l"].rotation_euler = (math.radians(-32), math.radians(-38), math.radians(24))
+    rig["arm_r"].rotation_euler = (math.radians(22), math.radians(-30), math.radians(-15))
+
+    # Mace Haft (Long reinforced hardwood haft) in Arm_R
+    bm_mace = bmesh.new()
+    bm_add_cylinder(bm_mace, 0.020, 0.022, 0.95, segments=12, center=(0.14, 0.08, -0.06), rot_euler=(0, math.radians(34), 0))
+    mace_obj = create_mesh_object("Weapon", bm_mace, mat_gear, parent=rig["arm_r"])
+
+    # Heavy Flanged Mace Head
+    bm_head = bmesh.new()
+    bm_add_cylinder(bm_head, 0.045, 0.040, 0.18, segments=12, center=(0.42, 0.08, 0.35), rot_euler=(0, math.radians(34), 0))
+    for i in range(6):
+        flange_rot = math.radians(i * 60)
+        bm_add_box(bm_head, 0.08, 0.016, 0.16, center=(0.42, 0.08, 0.35), rot_euler=(flange_rot, math.radians(34), 0))
+    create_mesh_object("Weapon_Flanges", bm_head, mat_gear, parent=mace_obj)
+
+    # Armor-penetrating top spike
+    bm_spike = bmesh.new()
+    bm_add_cylinder(bm_spike, 0.002, 0.024, 0.14, segments=8, center=(0.51, 0.08, 0.48), rot_euler=(0, math.radians(34), 0))
+    create_mesh_object("Weapon_Spike", bm_spike, mat_gear, parent=mace_obj)
+
+    # Pommel counterweight at base of haft
+    bm_pommel = bmesh.new()
+    bm_add_sphere(bm_pommel, 0.038, segments=12, ring_count=8, center=(-0.16, 0.08, -0.48))
+    create_mesh_object("Weapon_Pommel", bm_pommel, mat_gear, parent=mace_obj)
+
+    export_current_model("maceman")
+
+
+def build_armored_knight():
+    clear_scene()
+    pal = create_common_palette()
+
+    mat_armor = make_textured_material(
+        "KnightArmor",
+        os.path.join(UNIT_TEXTURES_DIR, "armored_knight_armor.png"),
+        rgba=(0.75, 0.78, 0.82, 1.0),
+        metallic=0.88,
+        roughness=0.28,
+    )
+    mat_gear = make_textured_material(
+        "KnightGear",
+        os.path.join(UNIT_TEXTURES_DIR, "armored_knight_gear.png"),
+        rgba=(0.70, 0.72, 0.75, 1.0),
+        metallic=0.72,
+        roughness=0.40,
+    )
+    mat_horse = make_material("WarhorseCoat", (0.26, 0.16, 0.10, 1.0), metallic=0.02, roughness=0.76)
+    mat_barding = make_material("WarhorseBarding", (0.18, 0.32, 0.62, 1.0), metallic=0.15, roughness=0.68)
+
+    # -------------------------------------------------------------
+    # 1. WARHORSE
+    # -------------------------------------------------------------
+    # Horse Root Body
+    bm_horse_body = bmesh.new()
+    # Barrel torso of the horse
+    bm_add_cylinder(bm_horse_body, 0.17, 0.19, 0.62, segments=14, center=(0, 0, 0.44), rot_euler=(0, math.radians(90), 0))
+    bm_add_sphere(bm_horse_body, 0.185, segments=14, ring_count=10, center=(0.28, 0, 0.45), scale=(1.05, 0.95, 1.0))
+    bm_add_sphere(bm_horse_body, 0.180, segments=14, ring_count=10, center=(-0.28, 0, 0.46), scale=(1.05, 0.95, 1.0))
+    horse_root = create_mesh_object("Root", bm_horse_body, mat_horse)
+
+    # Barding / Caparison draped over the horse flank
+    bm_barding = bmesh.new()
+    bm_add_box(bm_barding, 0.68, 0.38, 0.28, center=(0, 0, 0.36))
+    create_mesh_object("Horse_Barding", bm_barding, mat_barding, parent=horse_root)
+
+    # Steel Crinet / Neck Armor & Neck
+    bm_neck = bmesh.new()
+    bm_add_cylinder(bm_neck, 0.13, 0.09, 0.38, segments=12, center=(0.32, 0, 0.62), rot_euler=(0, math.radians(-42), 0))
+    create_mesh_object("Horse_Neck", bm_neck, mat_horse, parent=horse_root)
+
+    # Horse Head & Muzzle
+    bm_hhead = bmesh.new()
+    bm_add_cylinder(bm_hhead, 0.095, 0.055, 0.28, segments=12, center=(0.48, 0, 0.76), rot_euler=(0, math.radians(48), 0))
+    # Armored Chanfron plate over forehead & nose
+    bm_add_box(bm_hhead, 0.11, 0.14, 0.22, center=(0.50, 0, 0.79), rot_euler=(0, math.radians(48), 0))
+    # Forehead Chanfron spike
+    bm_add_cylinder(bm_hhead, 0.002, 0.02, 0.12, segments=8, center=(0.57, 0, 0.88), rot_euler=(0, math.radians(48), 0))
+    # Horse Ears
+    bm_add_cylinder(bm_hhead, 0.022, 0.004, 0.09, segments=6, center=(0.38, 0.065, 0.86), rot_euler=(math.radians(14), math.radians(-18), 0))
+    bm_add_cylinder(bm_hhead, 0.022, 0.004, 0.09, segments=6, center=(0.38, -0.065, 0.86), rot_euler=(math.radians(-14), math.radians(-18), 0))
+    create_mesh_object("Horse_Head", bm_hhead, mat_armor, parent=horse_root)
+
+    # 4 Horse Legs
+    leg_positions = [
+        ("Front_L", 0.24, 0.14),
+        ("Front_R", 0.24, -0.14),
+        ("Rear_L", -0.25, 0.14),
+        ("Rear_R", -0.25, -0.14),
+    ]
+    for leg_name, lx, ly in leg_positions:
+        bm_leg = bmesh.new()
+        bm_add_cylinder(bm_leg, 0.058, 0.042, 0.24, segments=10, center=(lx, ly, 0.32))
+        bm_add_cylinder(bm_leg, 0.040, 0.032, 0.22, segments=10, center=(lx, ly, 0.12))
+        bm_add_cylinder(bm_leg, 0.042, 0.038, 0.05, segments=10, center=(lx, ly, 0.025))
+        create_mesh_object(f"Horse_Leg_{leg_name}", bm_leg, mat_horse, parent=horse_root)
+
+    # Horse Tail
+    bm_tail = bmesh.new()
+    bm_add_cylinder(bm_tail, 0.045, 0.015, 0.32, segments=8, center=(-0.40, 0, 0.35), rot_euler=(0, math.radians(22), 0))
+    create_mesh_object("Horse_Tail", bm_tail, pal["cloth_brown"], parent=horse_root)
+
+    # Saddle & Stirrup Straps
+    bm_saddle = bmesh.new()
+    bm_add_box(bm_saddle, 0.26, 0.28, 0.10, center=(0.02, 0, 0.55))
+    bm_add_box(bm_saddle, 0.06, 0.26, 0.14, center=(-0.10, 0, 0.60))
+    bm_add_box(bm_saddle, 0.06, 0.24, 0.12, center=(0.14, 0, 0.58))
+    create_mesh_object("Saddle", bm_saddle, pal["dark_leather"], parent=horse_root)
+
+    # -------------------------------------------------------------
+    # 2. ARMORED KNIGHT RIDER
+    # -------------------------------------------------------------
+    # Torso (Full Plate Cuirass & Chainmail Aventail)
+    bm_torso = bmesh.new()
+    bm_add_box(bm_torso, 0.18, 0.26, 0.28, center=(0.02, 0, 0.74))
+    bm_add_cylinder(bm_torso, 0.12, 0.14, 0.26, segments=12, center=(0.02, 0, 0.74))
+    bm_add_cylinder(bm_torso, 0.09, 0.08, 0.07, segments=12, center=(0.02, 0, 0.90))
+    torso_obj = create_mesh_object("Torso", bm_torso, mat_armor, parent=horse_root)
+
+    # Knight Head & Full Great Helm
+    bm_helm = bmesh.new()
+    bm_add_sphere(bm_helm, 0.115, segments=16, ring_count=12, center=(0.02, 0, 1.03), scale=(1.02, 1.0, 1.12))
+    bm_add_cylinder(bm_helm, 0.115, 0.115, 0.12, segments=14, center=(0.02, 0, 0.99))
+    bm_add_box(bm_helm, 0.02, 0.13, 0.016, center=(0.13, 0, 1.02))
+    bm_add_cylinder(bm_helm, 0.118, 0.118, 0.022, segments=14, center=(0.02, 0, 1.04))
+    create_mesh_object("Head", bm_helm, mat_armor, parent=torso_obj)
+
+    # Knight Mounted Legs (Left & Right astride horse in stirrups)
+    bm_leg_l = bmesh.new()
+    bm_add_cylinder(bm_leg_l, 0.065, 0.052, 0.26, segments=10, center=(0.08, 0.18, 0.62), rot_euler=(math.radians(35), math.radians(15), 0))
+    bm_add_cylinder(bm_leg_l, 0.050, 0.040, 0.24, segments=10, center=(0.14, 0.19, 0.43), rot_euler=(math.radians(10), 0, 0))
+    bm_add_box(bm_leg_l, 0.06, 0.07, 0.09, center=(0.16, 0.19, 0.32))
+    create_mesh_object("Leg_L", bm_leg_l, mat_armor, parent=torso_obj)
+
+    bm_leg_r = bmesh.new()
+    bm_add_cylinder(bm_leg_r, 0.065, 0.052, 0.26, segments=10, center=(0.08, -0.18, 0.62), rot_euler=(math.radians(-35), math.radians(15), 0))
+    bm_add_cylinder(bm_leg_r, 0.050, 0.040, 0.24, segments=10, center=(0.14, -0.19, 0.43), rot_euler=(math.radians(-10), 0, 0))
+    bm_add_box(bm_leg_r, 0.06, 0.07, 0.09, center=(0.16, -0.19, 0.32))
+    create_mesh_object("Leg_R", bm_leg_r, mat_armor, parent=torso_obj)
+
+    # Pauldrons
+    bm_pauldron = bmesh.new()
+    bm_add_sphere(bm_pauldron, 0.085, segments=12, ring_count=8, center=(0.02, 0.18, 0.85), scale=(1.1, 0.9, 1.0))
+    bm_add_sphere(bm_pauldron, 0.085, segments=12, ring_count=8, center=(0.02, -0.18, 0.85), scale=(1.1, 0.9, 1.0))
+    create_mesh_object("Pauldrons", bm_pauldron, mat_armor, parent=torso_obj)
+
+    # Arm_L (Holding horse reins / heater shield)
+    bm_arm_l = bmesh.new()
+    bm_add_cylinder(bm_arm_l, 0.052, 0.042, 0.26, segments=10, center=(0.12, 0.17, 0.75), rot_euler=(math.radians(-25), math.radians(35), 0))
+    bm_add_box(bm_arm_l, 0.04, 0.24, 0.30, center=(0.18, 0.22, 0.70), rot_euler=(0, math.radians(15), math.radians(10)))
+    create_mesh_object("Arm_L", bm_arm_l, mat_armor, parent=torso_obj)
+
+    # Arm_R (Holding heavy flanged mace, raised forward)
+    bm_arm_r = bmesh.new()
+    bm_add_cylinder(bm_arm_r, 0.052, 0.042, 0.26, segments=10, center=(0.08, -0.18, 0.80), rot_euler=(math.radians(20), math.radians(-35), 0))
+    arm_r_obj = create_mesh_object("Arm_R", bm_arm_r, mat_armor, parent=torso_obj)
+
+    # Mace Haft (Arm_R)
+    bm_mace = bmesh.new()
+    bm_add_cylinder(bm_mace, 0.018, 0.020, 0.72, segments=10, center=(0.20, -0.22, 0.94), rot_euler=(0, math.radians(40), 0))
+    mace_obj = create_mesh_object("Weapon", bm_mace, mat_gear, parent=arm_r_obj)
+
+    # Flanged Mace Head
+    bm_mhead = bmesh.new()
+    bm_add_cylinder(bm_mhead, 0.038, 0.034, 0.16, segments=12, center=(0.42, -0.22, 1.20), rot_euler=(0, math.radians(40), 0))
+    for i in range(6):
+        frot = math.radians(i * 60)
+        bm_add_box(bm_mhead, 0.075, 0.014, 0.14, center=(0.42, -0.22, 1.20), rot_euler=(frot, math.radians(40), 0))
+    bm_add_cylinder(bm_mhead, 0.002, 0.020, 0.12, segments=8, center=(0.49, -0.22, 1.29), rot_euler=(0, math.radians(40), 0))
+    create_mesh_object("Weapon_Head", bm_mhead, mat_gear, parent=mace_obj)
+
+    # Counterweight Pommel
+    bm_pommel = bmesh.new()
+    bm_add_sphere(bm_pommel, 0.034, segments=10, ring_count=8, center=(-0.05, -0.22, 0.63))
+    create_mesh_object("Weapon_Pommel", bm_pommel, mat_gear, parent=mace_obj)
+
+    export_current_model("armored_knight")
+
+
 def build_forest_trees():
     """
     Generates low-poly 3D forest trees at ~0.90 world units tall (75% of the ~1.20 average unit height).
@@ -730,5 +952,7 @@ if __name__ == "__main__":
     build_barbarian()
     build_slinger()
     build_healer()
+    build_maceman()
+    build_armored_knight()
     build_forest_trees()
     print("All Blender 3D models (.glb and .blend) generated successfully!")

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Creature, CreatureType } from '../../battle/creature';
 import { UnitVisualFormat } from '../types';
+export { UnitVisualFormat };
 import { IUnitVisual } from './unit-visual-interface';
 import { BillboardStaticVisual } from './billboard-static-visual';
 import { MeshRigidVisual } from './mesh-rigid-visual';
@@ -272,6 +273,8 @@ export class UnitVisualFactory {
     if (normalized === '9' || normalized === 'hero-commander') return 'swordman_right.png';
     if (normalized === '10' || normalized === 'slinger') return 'slinger_right.png';
     if (normalized === '11' || normalized === 'healer') return 'peasant_fork_right.png';
+    if (normalized === '12' || normalized === 'maceman') return 'swordman_right.png';
+    if (normalized === '13' || normalized === 'armored-knight' || normalized === 'armored_knight') return 'halberdier_left.png';
 
     return 'peasant_fork_right.png';
   }

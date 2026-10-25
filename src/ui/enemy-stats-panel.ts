@@ -632,6 +632,10 @@ export class EnemyStatsPanel {
     return this.window.visible;
   }
 
+  public getCreature(): Creature | undefined {
+    return this.currentCreature;
+  }
+
   public containsPoint(stageX: number, stageY: number): boolean {
     if (!this.window.visible) return false;
     const wx = this.window.x;

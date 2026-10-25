@@ -58,6 +58,8 @@ export class BattleHud2D {
   public battleMenuPanel?: BattleMenuPanel;
   public unitStats?: UnitStatsPanel;
   public enemyStats?: EnemyStatsPanel;
+  public onShowEnemyStats?: (creature: Creature) => void;
+  public onHideEnemyStats?: () => void;
   public fpsText?: BitmapText;
   public versionText?: BitmapText;
   public turnChangeDisplay: TurnChangeCollection = new TurnChangeCollection();
@@ -561,6 +563,10 @@ export class BattleHud2D {
       case 'healer' as any:
         faceName = 'peasant_face.png';
         break;
+      case CreatureType.MACEMAN:
+      case 'maceman' as any:
+        faceName = 'spearman_face.png';
+        break;
       default:
         faceName = 'peasant_face.png';
         break;
@@ -655,10 +661,19 @@ export class BattleHud2D {
     this.enemyStats.setFaceTexture(faceTexture);
     this.enemyStats.update();
     this.enemyStats.show();
+    this.onShowEnemyStats?.(creature);
   }
 
   public hideEnemyStats(): void {
     this.enemyStats?.hide();
+    this.onHideEnemyStats?.();
+  }
+
+  public getSelectedEnemyCreature(): Creature | undefined {
+    if (this.enemyStats?.isVisible()) {
+      return this.enemyStats.getCreature();
+    }
+    return undefined;
   }
 
   public updateCursorPosition(coords: Coords): void {

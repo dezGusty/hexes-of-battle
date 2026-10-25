@@ -822,6 +822,12 @@ export class BattleView {
         case CreatureType.HEALER:
           unitTextureName = isFacingRight ? 'peasant_fork_right.png' : 'peasant_fork_left.png';
           break;
+        case CreatureType.MACEMAN:
+          unitTextureName = isFacingRight ? 'swordman_right.png' : 'swordman_left.png';
+          break;
+        case CreatureType.ARMORED_KNIGHT:
+          unitTextureName = isFacingRight ? 'halberdier_right.png' : 'halberdier_left.png';
+          break;
       }
 
       // Direction indicator on hex tile
@@ -1300,6 +1306,15 @@ export class BattleView {
       case CreatureType.HEALER:
       case 'healer' as any:
         faceName = 'peasant_face.png';
+        break;
+      case CreatureType.MACEMAN:
+      case 'maceman' as any:
+        faceName = 'spearman_face.png';
+        break;
+      case CreatureType.ARMORED_KNIGHT:
+      case 'armored-knight' as any:
+      case 'armored_knight' as any:
+        faceName = 'swordsman_helmet.png';
         break;
       default:
         faceName = 'peasant_face.png';
