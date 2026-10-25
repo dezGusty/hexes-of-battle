@@ -9,6 +9,7 @@ export interface BillboardStaticOptions {
   height?: number;
   yOffset?: number;
   initialFacing?: HexDirection;
+  animOffsetMs?: number;
 }
 
 /**
@@ -24,6 +25,7 @@ export class BillboardStaticVisual implements IUnitVisual {
   private animState: UnitAnimationState = 'idle';
   private animTimer: number = 0;
   private animDuration: number = 0;
+  public animOffsetMs: number = 0;
 
   // Base transform anchors
   private baseScaleY: number = 1.0;
@@ -34,6 +36,7 @@ export class BillboardStaticVisual implements IUnitVisual {
     const width = options.width ?? 0.49;
     const height = options.height ?? 0.91;
     this.yOffset = options.yOffset ?? height * 0.5;
+    this.animOffsetMs = options.animOffsetMs ?? 0;
 
     const geometry = new THREE.PlaneGeometry(width, height);
     // Shift geometry origin so anchor is at bottom center
@@ -93,17 +96,22 @@ export class BillboardStaticVisual implements IUnitVisual {
     this.mesh.visible = clamped > 0;
   }
 
+  public setAnimOffsetMs(offsetMs: number): void {
+    this.animOffsetMs = offsetMs;
+  }
+
   public update(deltaMs: number): void {
     this.animTimer += deltaMs;
-    const sec = this.animTimer / 1000;
+    const sec = (this.animTimer + this.animOffsetMs) / 1000;
 
     switch (this.animState) {
       case 'idle': {
-        // Subtle breathing squash and gentle idle sway
-        const breath = Math.sin(sec * 3.0) * 0.03;
+        // Subtle breathing squash, vertical movement halved (0.015 from 0.03) and speed slowed by 50% (1.5 rad/s from 3.0 rad/s)
+        const breath = Math.sin(sec * 1.5) * 0.015;
+        this.mesh.position.y = breath * 0.25;
         this.mesh.scale.y = this.baseScaleY + breath;
         this.mesh.scale.x = this.baseScaleX * (1.0 - breath * 0.5);
-        this.mesh.rotation.z = Math.sin(sec * 1.5) * 0.02;
+        this.mesh.rotation.z = Math.sin(sec * 0.75) * 0.01;
         break;
       }
 

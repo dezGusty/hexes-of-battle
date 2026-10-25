@@ -127,10 +127,14 @@ export class UnitVisualFactory {
 
     // Format can be configured per creature type or defaulted to FULL_3D_RIGID for supported units
     const format = this.determineFormat(creature);
+    const cycleMs = (2 * Math.PI / 1.5) * 1000;
+    const squadSeed = (creature.position ? (creature.position.x * 17 + creature.position.y * 31) : 0) * 137;
 
     for (let i = 0; i < modelCount; i++) {
       const isHeroCommander = creature.stats.is_hero && i === 0;
-      visuals.push(this.createSingleModelVisual(creature, format, isHeroCommander));
+      const phaseFraction = ((i * 0.6180339887) + ((squadSeed % 1000) / 1000)) % 1.0;
+      const animOffsetMs = phaseFraction * cycleMs;
+      visuals.push(this.createSingleModelVisual(creature, format, isHeroCommander, animOffsetMs));
     }
 
     return new SquadVisual3D(creature, visuals);
@@ -154,11 +158,12 @@ export class UnitVisualFactory {
   private createSingleModelVisual(
     creature: Creature,
     format: UnitVisualFormat,
-    isHeroCommander: boolean
+    isHeroCommander: boolean,
+    animOffsetMs: number = 0
   ): IUnitVisual {
     switch (format) {
       case UnitVisualFormat.FULL_3D_RIGID:
-        return this.createRigid3DModel(creature, isHeroCommander);
+        return this.createRigid3DModel(creature, isHeroCommander, animOffsetMs);
 
       case UnitVisualFormat.FULL_3D_SKELETAL:
         return this.createSkeletal3DModel(creature);
@@ -168,11 +173,11 @@ export class UnitVisualFactory {
 
       case UnitVisualFormat.BILLBOARD_STATIC:
       default:
-        return this.createStaticBillboard(creature, isHeroCommander);
+        return this.createStaticBillboard(creature, isHeroCommander, animOffsetMs);
     }
   }
 
-  private createStaticBillboard(creature: Creature, isHeroCommander: boolean): BillboardStaticVisual {
+  private createStaticBillboard(creature: Creature, isHeroCommander: boolean, animOffsetMs: number = 0): BillboardStaticVisual {
     const frameName = this.getFrameNameForCreature(creature.creatureType, isHeroCommander);
     const texture = this.getTextureForFrame(frameName, creature.creatureType);
 
@@ -185,10 +190,11 @@ export class UnitVisualFactory {
       width,
       height,
       initialFacing: creature.facingDirection,
+      animOffsetMs,
     });
   }
 
-  private createRigid3DModel(creature: Creature, isHero: boolean): MeshRigidVisual {
+  private createRigid3DModel(creature: Creature, isHero: boolean, animOffsetMs: number = 0): MeshRigidVisual {
     if (isUnit3DModelSupported(creature.creatureType)) {
       const unitKey = normalizeUnitKey(creature.creatureType);
       const glbTemplate = this.glbTemplates.get(unitKey);
@@ -200,6 +206,7 @@ export class UnitVisualFactory {
         meshOrGroup: articulatedModel,
         scale: (isHero ? 1.08 : 1.0) * UNIT_SIZE_SCALE,
         initialFacing: creature.facingDirection,
+        animOffsetMs,
       });
     }
 
@@ -229,6 +236,7 @@ export class UnitVisualFactory {
       meshOrGroup: group,
       scale: (isMonster ? 1.2 : 0.9) * UNIT_SIZE_SCALE,
       initialFacing: creature.facingDirection,
+      animOffsetMs,
     });
   }
 

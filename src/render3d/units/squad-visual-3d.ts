@@ -96,6 +96,14 @@ export class SquadVisual3D {
     this.setupModels();
     this.setupOverheadBars();
 
+    // Desynchronize standing/idle animation across units in the squad
+    const cycleMs = (2 * Math.PI / 1.5) * 1000;
+    const squadSeed = (this.creature.position ? (this.creature.position.x * 17 + this.creature.position.y * 31) : 0) * 137;
+    this.models.forEach((m, idx) => {
+      const phaseFraction = ((idx * 0.6180339887) + ((squadSeed % 1000) / 1000)) % 1.0;
+      m.setAnimOffsetMs?.(phaseFraction * cycleMs);
+    });
+
     this.rootGroup.add(this.overheadGroup);
     this.overheadGroup.position.set(0, 1.2, 0);
 

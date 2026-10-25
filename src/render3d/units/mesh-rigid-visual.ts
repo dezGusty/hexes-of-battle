@@ -7,6 +7,7 @@ export interface MeshRigidOptions {
   meshOrGroup: THREE.Object3D;
   scale?: number;
   initialFacing?: HexDirection;
+  animOffsetMs?: number;
 }
 
 /**
@@ -21,6 +22,7 @@ export class MeshRigidVisual implements IUnitVisual {
   private animState: UnitAnimationState = 'idle';
   private animTimer: number = 0;
   private animDuration: number = 0;
+  public animOffsetMs: number = 0;
   private baseScale: number = 0.7;
 
   // Articulated sub-part references (populated if present on 3D unit mesh)
@@ -36,6 +38,7 @@ export class MeshRigidVisual implements IUnitVisual {
   constructor(options: MeshRigidOptions) {
     this.model = options.meshOrGroup;
     this.baseScale = options.scale ?? 0.7;
+    this.animOffsetMs = options.animOffsetMs ?? 0;
     this.model.scale.set(this.baseScale, this.baseScale, this.baseScale);
     this.object3D.add(this.model);
 
@@ -44,6 +47,10 @@ export class MeshRigidVisual implements IUnitVisual {
     if (options.initialFacing) {
       this.setFacing(options.initialFacing);
     }
+  }
+
+  public setAnimOffsetMs(offsetMs: number): void {
+    this.animOffsetMs = offsetMs;
   }
 
   public get mesh(): THREE.Mesh {
@@ -177,11 +184,12 @@ export class MeshRigidVisual implements IUnitVisual {
 
   public update(deltaMs: number): void {
     this.animTimer += deltaMs;
-    const sec = this.animTimer / 1000;
+    const sec = (this.animTimer + this.animOffsetMs) / 1000;
 
     switch (this.animState) {
       case 'idle': {
-        const breath = Math.sin(sec * 3.0) * 0.02;
+        // Reduced vertical movement to half (0.01 instead of 0.02) and speed slowed by 50% (1.5 rad/s instead of 3.0 rad/s)
+        const breath = Math.sin(sec * 1.5) * 0.01;
         this.model.scale.set(
           this.baseScale * (1.0 - breath * 0.5),
           this.baseScale * (1.0 + breath),
@@ -190,11 +198,11 @@ export class MeshRigidVisual implements IUnitVisual {
         this.model.position.y = breath * 0.5;
         if (this.armRPart) {
           const restZ = this.restRotations.get(this.armRPart)?.z ?? 0;
-          this.armRPart.rotation.z = restZ + Math.sin(sec * 2.5) * 0.04;
+          this.armRPart.rotation.z = restZ + Math.sin(sec * 1.25) * 0.02;
         }
         if (this.armLPart) {
           const restZ = this.restRotations.get(this.armLPart)?.z ?? 0;
-          this.armLPart.rotation.z = restZ - Math.sin(sec * 2.5) * 0.03;
+          this.armLPart.rotation.z = restZ - Math.sin(sec * 1.25) * 0.015;
         }
         break;
       }

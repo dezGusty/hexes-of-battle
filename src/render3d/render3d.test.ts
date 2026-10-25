@@ -14,6 +14,7 @@ import { HexDirection, HexFlankStatus, HexMap, checkFlankingStatus } from '../sh
 import { Creature, CreatureType } from '../battle/creature';
 import { MoraleState } from '../battle/combat-rules';
 import { UnitVisualFactory } from './units/unit-visual-factory';
+import { MeshRigidVisual } from './units/mesh-rigid-visual';
 import { drawMoraleVector } from './units/squad-visual-3d';
 import { ProjectileSystem3D } from './projectiles/projectile-system-3d';
 import { BattleHud2D } from './battle-hud-2d';
@@ -2982,6 +2983,56 @@ describe('3D Graphics Engine & Rendering Systems', () => {
 
       sceneManager.dispose();
       document.body.removeChild(container);
+    });
+  });
+
+  describe('13. Squad Standing Idle Animation Tuning & Desynchronization', () => {
+    it('should desynchronize standing animation so squad models do not animate in unison', () => {
+      const factory = new UnitVisualFactory();
+      const swordsman = new Creature(CreatureType.SWORDSMAN);
+      const squad = factory.createSquadVisual(swordsman);
+
+      expect(squad.models.length).toBe(8);
+
+      // Verify models have distinct non-identical animOffsetMs
+      const offsets = squad.models.map((m: any) => m.animOffsetMs);
+      const uniqueOffsets = new Set(offsets);
+      expect(uniqueOffsets.size).toBeGreaterThan(1);
+
+      // Advance time by 300ms
+      squad.update(300, new THREE.PerspectiveCamera());
+
+      // Get internal model vertical positions
+      const yPositions = squad.models.map((m: any) => {
+        return m.model?.position.y ?? m.mesh?.position.y ?? 0;
+      });
+
+      // Ensure that models do not all share the identical vertical position
+      const uniqueY = new Set(yPositions.map((y) => y.toFixed(6)));
+      expect(uniqueY.size).toBeGreaterThan(1);
+
+      squad.dispose();
+    });
+
+    it('should halve the vertical movement amplitude and slow standing animation speed by 50%', () => {
+      const group = new THREE.Group();
+      const visual = new MeshRigidVisual({
+        meshOrGroup: group,
+        scale: 1.0,
+        animOffsetMs: 0,
+      });
+
+      // Speed slowed by 50%: angular frequency is 1.5 rad/s instead of 3.0 rad/s.
+      // Quarter cycle peak occurs at t = (PI / 2) / 1.5 = 1.047197s (1047ms).
+      visual.update(1047.197);
+
+      // Peak vertical position is now 0.01 * 0.5 = 0.005 (halved from prior 0.010)
+      expect(group.position.y).toBeCloseTo(0.005, 4);
+
+      // After a half-cycle from peak (t = (3 * PI / 2) / 1.5 = 3.14159s = 3142ms total),
+      // sin reaches -1.0, so group.position.y reaches -0.005
+      visual.update(2094.395);
+      expect(group.position.y).toBeCloseTo(-0.005, 4);
     });
   });
 });

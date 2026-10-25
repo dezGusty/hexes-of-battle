@@ -10,5 +10,6 @@ export interface IUnitVisual {
   playAnimation(state: UnitAnimationState, durationMs?: number): void;
   setFacing(direction: HexDirection, cameraFacing?: boolean): void;
   setCasualtyFade(opacity: number): void;
+  setAnimOffsetMs?(offsetMs: number): void;
   dispose(): void;
 }
