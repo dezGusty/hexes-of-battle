@@ -76,5 +76,30 @@
                 "resource_cost": 1
             }
         ]
+    },
+    {
+        "id": "mend-wounds-01",
+        "name": "Mend wounds",
+        "tooltip-name": "Mend wounds",
+        "description": "Heal a target ally or self for 1 health for each available healer.",
+        "icon": "skills/icon_mend_wounds.png",
+        "abilityType": "active",
+        "allowedTargets": [
+            "self",
+            "allies"
+        ],
+        "requiresTarget": true,
+        "range": 1,
+        "heal_per_model": 1,
+        "resources": [
+            {
+                "resource_used": "stamina",
+                "resource_cost": 2
+            },
+            {
+                "resource_used": "attack",
+                "resource_cost": 1
+            }
+        ]
     }
 ]

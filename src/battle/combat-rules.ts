@@ -47,6 +47,7 @@ export interface StaminaPenalty {
 }
 
 export interface StaminaConfig {
+  minAttackStamina?: number;
   actionCosts: {
     moveNormal: number;
     moveRough: number;
@@ -158,6 +159,7 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
     },
   },
   stamina: {
+    minAttackStamina: 2,
     actionCosts: {
       moveNormal: 1,
       moveRough: 2,

@@ -22,6 +22,7 @@ import { BattleSettings } from '../battle/settings';
 import { UnitStatsPanel } from '../ui/unit-stats-panel';
 import { EnemyStatsPanel } from '../ui/enemy-stats-panel';
 import { BattleView3D } from './battle-view-3d';
+import { ThreeSceneManager } from './three-scene-manager';
 import { ThreeSceneDebugger } from './debug/three-scene-debugger';
 import { BattleHexMapPath } from '../battle/battle-hex-map-path';
 import { NumMatrix } from '../shared/num-matrix';
@@ -1847,13 +1848,17 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(avgRelativeHeight).toBeGreaterThan(0.70);
       expect(avgRelativeHeight).toBeLessThan(0.80);
 
-      // Verify each tree contains Trunk and Foliage meshes
+      // Verify each tree contains Trunk and Foliage meshes with shadow casting enabled
       for (const tree of allTrees) {
         let hasTrunk = false;
         let hasFoliage = false;
         tree.traverse((node) => {
           if (node.name === 'Trunk') hasTrunk = true;
           if (node.name.startsWith('Foliage')) hasFoliage = true;
+          if ((node as THREE.Mesh).isMesh) {
+            expect(node.castShadow).toBe(true);
+            expect(node.receiveShadow).toBe(true);
+          }
         });
         expect(hasTrunk).toBe(true);
         expect(hasFoliage).toBe(true);
@@ -2202,7 +2207,7 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       squad.dispose();
     });
 
-    it('should apply 256x256 detail textures to peasant, archer, and spearman units with reused skin texture', () => {
+    it('should apply 256x256 detail textures to peasant, archer, spearman, and swordsman units with full helmet armor', () => {
       expect(HUMANOID_TEXTURE_SIZE).toBe(256);
 
       // Verify skin texture is reused across all humanoids
@@ -2220,6 +2225,9 @@ describe('3D Graphics Engine & Rendering Systems', () => {
         'spearman_face',
         'spearman_armor',
         'spearman_gear',
+        'swordsman_helmet',
+        'swordsman_armor',
+        'swordsman_gear',
       ];
 
       for (const key of humanoidKeys) {
@@ -2300,6 +2308,40 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(spearmanLimbs.get('Arm_L')?.material).toBe(getHumanoidPartMaterial('spearman_armor', 0.72, 0.20));
       expect(spearmanLimbs.get('Leg_L')?.material).toBe(getHumanoidPartMaterial('spearman_armor', 0.72, 0.20));
       spearmanSquad.dispose();
+
+      // 4. Swordsman unit squad (Full helmet, chainmail & plate armor, gear)
+      const swordsman = new Creature(CreatureType.SWORDSMAN);
+      swordsman.armyAlignment = 0;
+      const swordsmanSquad = factory.createSquadVisual(swordsman);
+      const swordsmanLimbs = new Map<string, THREE.Mesh>();
+      swordsmanSquad.models[0].object3D.traverse((node) => {
+        if ((node as THREE.Mesh).isMesh) swordsmanLimbs.set(node.name, node as THREE.Mesh);
+      });
+      expect(swordsmanLimbs.size).toBeLessThanOrEqual(8);
+      const headLimb = swordsmanLimbs.get('Head');
+      expect(headLimb).toBeDefined();
+      headLimb!.geometry.computeBoundingBox();
+      const headBox = headLimb!.geometry.boundingBox!;
+      const headHeight = headBox.max.y - headBox.min.y;
+      expect(headHeight).toBeGreaterThanOrEqual(0.30);
+
+      const headMat = swordsmanLimbs.get('Head')?.material as THREE.MeshStandardMaterial;
+      expect(headMat).toBe(getHumanoidPartMaterial('swordsman_helmet', 0.38, 0.78));
+      expect(headMat.metalness).toBeGreaterThanOrEqual(0.70);
+
+      const weaponMat = swordsmanLimbs.get('Weapon')?.material as THREE.MeshStandardMaterial;
+      expect(weaponMat).toBe(getHumanoidPartMaterial('swordsman_gear', 0.42, 0.72));
+      expect(weaponMat.metalness).toBeGreaterThanOrEqual(0.70);
+
+      expect(swordsmanLimbs.get('Shield')?.material).toBe(getHumanoidPartMaterial('swordsman_gear', 0.42, 0.72));
+
+      const torsoMat = swordsmanLimbs.get('Torso')?.material as THREE.MeshStandardMaterial;
+      expect(torsoMat).toBe(getHumanoidPartMaterial('swordsman_armor', 0.45, 0.65));
+      expect(torsoMat.metalness).toBeGreaterThanOrEqual(0.60);
+
+      expect(swordsmanLimbs.get('Arm_L')?.material).toBe(getHumanoidPartMaterial('swordsman_armor', 0.45, 0.65));
+      expect(swordsmanLimbs.get('Leg_L')?.material).toBe(getHumanoidPartMaterial('swordsman_armor', 0.45, 0.65));
+      swordsmanSquad.dispose();
     });
 
     it('should apply 256x256 detail textures to forest trees (bark and foliage) with smooth normals', () => {
@@ -2501,6 +2543,170 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(secondaryActionSpy).not.toHaveBeenCalled();
 
       battleView.destroy();
+      document.body.removeChild(container);
+    });
+  });
+
+  describe('12. Hex Terrain Edge Blending (Approach 3: Procedural Hex-SDF Blend)', () => {
+    it('should blend Forest hexes into adjacent Plain hexes via Hex-SDF transparency mask with base Grass', () => {
+      const hexMap = new HexMap(6, 6);
+      const hexBoard = new HexBoard3D(hexMap, {
+        getTerrain: (x, y) => {
+          if (x === 2 && y === 2) return TerrainType.FOREST;
+          return TerrainType.PLAIN;
+        },
+      });
+
+      expect(hexBoard.isTileBlended(2, 2)).toBe(true);
+      const transitions = hexBoard.getTileEdgeTransitions(2, 2);
+      expect(transitions).not.toBeNull();
+      // All 6 directions border PLAIN, so all 6 edge transitions should be 1.0
+      expect(transitions).toEqual([1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+
+      const tileMesh = (hexBoard as any).tileMeshes.get('2,2') as THREE.Mesh;
+      expect(tileMesh).toBeDefined();
+      const topMat = (tileMesh.material as THREE.Material[])[1] as THREE.MeshStandardMaterial;
+      expect(topMat.userData.isBlendedTerrain).toBe(true);
+      expect(topMat.userData.terrainType).toBe(TerrainType.FOREST);
+
+      hexBoard.dispose();
+    });
+
+    it('should maintain solid forest without edge fading along edges adjacent to another Forest hex', () => {
+      const hexMap = new HexMap(6, 6);
+      const hexBoard = new HexBoard3D(hexMap, {
+        getTerrain: (x, y) => {
+          // Connected forest patch: (2, 2) and (3, 2) which is East of (2, 2)
+          if ((x === 2 && y === 2) || (x === 3 && y === 2)) return TerrainType.FOREST;
+          return TerrainType.PLAIN;
+        },
+      });
+
+      // Tile (2, 2): East neighbor (Edge 0) is Forest -> Edge 0 must NOT transition (0.0)
+      const trans22 = hexBoard.getTileEdgeTransitions(2, 2)!;
+      expect(trans22[0]).toBe(0.0); // Edge 0 = EAST (borders Forest at 3, 2)
+      expect(trans22[1]).toBe(1.0); // SOUTHEAST (borders Plain)
+      expect(trans22[2]).toBe(1.0); // SOUTHWEST (borders Plain)
+      expect(trans22[3]).toBe(1.0); // WEST (borders Plain)
+
+      // Tile (3, 2): West neighbor (Edge 3) is Forest -> Edge 3 must NOT transition (0.0)
+      const trans32 = hexBoard.getTileEdgeTransitions(3, 2)!;
+      expect(trans32[3]).toBe(0.0); // Edge 3 = WEST (borders Forest at 2, 2)
+      expect(trans32[0]).toBe(1.0); // EAST (borders Plain)
+
+      hexBoard.dispose();
+    });
+
+    it('should blend Swamp hexes into adjacent Plain hexes with base Grass', () => {
+      const hexMap = new HexMap(6, 6);
+      const hexBoard = new HexBoard3D(hexMap, {
+        getTerrain: (x, y) => {
+          if (x === 2 && y === 2) return TerrainType.SWAMP;
+          return TerrainType.PLAIN;
+        },
+      });
+
+      expect(hexBoard.isTileBlended(2, 2)).toBe(true);
+      const transitions = hexBoard.getTileEdgeTransitions(2, 2)!;
+      expect(transitions).toEqual([1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+
+      const tileMesh = (hexBoard as any).tileMeshes.get('2,2') as THREE.Mesh;
+      const topMat = (tileMesh.material as THREE.Material[])[1] as THREE.MeshStandardMaterial;
+      expect(topMat.userData.isBlendedTerrain).toBe(true);
+      expect(topMat.userData.terrainType).toBe(TerrainType.SWAMP);
+
+      hexBoard.dispose();
+    });
+
+    it('should compile Hex-SDF shader with onBeforeCompile and pass correct uniforms and GLSL injection', () => {
+      const hexMap = new HexMap(4, 4);
+      const hexBoard = new HexBoard3D(hexMap, {
+        getTerrain: (x, y) => (x === 1 && y === 1 ? TerrainType.FOREST : TerrainType.PLAIN),
+        blendTransitionWidth: 0.40,
+        blendNoiseStrength: 0.09,
+      });
+
+      const tileMesh = (hexBoard as any).tileMeshes.get('1,1') as THREE.Mesh;
+      const topMat = (tileMesh.material as THREE.Material[])[1] as THREE.MeshStandardMaterial;
+
+      // Mock shader compilation pass
+      const mockShader: any = {
+        vertexShader: '#include <common>\nvoid main() {\n#include <begin_vertex>\n}',
+        fragmentShader: '#include <common>\nvoid main() {\n#include <map_fragment>\n}',
+        uniforms: {},
+      };
+
+      topMat.onBeforeCompile(mockShader, {} as any);
+
+      // Verify uniforms
+      expect(mockShader.uniforms.uBaseColor.value).toBeDefined();
+      expect(mockShader.uniforms.uTileCenter.value).toBeInstanceOf(THREE.Vector2);
+      expect(mockShader.uniforms.uHexRadius.value).toBe(hexBoard.hexRadius);
+      expect(mockShader.uniforms.uEdgeTransitions.value).toHaveLength(6);
+      expect(mockShader.uniforms.uTransitionWidth.value).toBe(0.40);
+      expect(mockShader.uniforms.uNoiseStrength.value).toBe(0.09);
+
+      // Verify GLSL injection
+      expect(mockShader.vertexShader).toContain('varying vec2 vTerrainWorldXZ;');
+      expect(mockShader.vertexShader).toContain('(modelMatrix * vec4(position, 1.0)).xz;');
+      expect(mockShader.fragmentShader).toContain('terrainEdgeNoise');
+      expect(mockShader.fragmentShader).toContain('overlayAlpha');
+      expect(mockShader.fragmentShader).toContain('diffuseColor = mix(baseTerrainColor, diffuseColor, overlayAlpha);');
+
+      hexBoard.dispose();
+    });
+
+    it('should clean up blended tile materials on rebuildBoard and dispose without memory leaks', () => {
+      const hexMap = new HexMap(5, 5);
+      const hexBoard = new HexBoard3D(hexMap, {
+        getTerrain: (x, y) => {
+          if (x === 1 && y === 1) return TerrainType.FOREST;
+          if (x === 3 && y === 3) return TerrainType.SWAMP;
+          return TerrainType.PLAIN;
+        },
+      });
+
+      const blendedList = (hexBoard as any).blendedTileMaterials as THREE.Material[];
+      expect(blendedList.length).toBe(2);
+
+      const disposeSpy1 = vi.spyOn(blendedList[0], 'dispose');
+      const disposeSpy2 = vi.spyOn(blendedList[1], 'dispose');
+
+      // Rebuild board should dispose existing materials and re-instantiate
+      hexBoard.rebuildBoard();
+      expect(disposeSpy1).toHaveBeenCalled();
+      expect(disposeSpy2).toHaveBeenCalled();
+      expect((hexBoard as any).blendedTileMaterials.length).toBe(2);
+
+      // Dispose should clean up all materials
+      hexBoard.dispose();
+      expect((hexBoard as any).blendedTileMaterials.length).toBe(0);
+    });
+
+    it('should configure pronounced directional lighting and PCF soft shadow maps with low ambient light', () => {
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const sceneManager = new ThreeSceneManager(container);
+
+      const dirLight = sceneManager.getDirLight();
+      expect(dirLight).toBeDefined();
+      expect(dirLight.castShadow).toBe(true);
+      // Directional light position must be angled from behind the board (z < 0) so shadows project towards the camera (z > 0)
+      expect(dirLight.position.z).toBeLessThan(0);
+      expect(dirLight.position.y).toBeLessThanOrEqual(20);
+      expect(dirLight.intensity).toBeGreaterThanOrEqual(1.8);
+
+      // Ambient illumination should be kept low to maximize shadow contrast
+      const ambientLight = sceneManager.getAmbientLight();
+      expect(ambientLight.intensity).toBeLessThanOrEqual(0.25);
+      const hemiLight = sceneManager.getHemiLight();
+      expect(hemiLight.intensity).toBeLessThanOrEqual(0.20);
+
+      // Shadow bias & normalBias should prevent Peter Panning detachment
+      expect(dirLight.shadow.bias).toBeCloseTo(-0.0001, 4);
+      expect((dirLight.shadow as any).normalBias).toBeGreaterThanOrEqual(0.015);
+
+      sceneManager.dispose();
       document.body.removeChild(container);
     });
   });

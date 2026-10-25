@@ -557,20 +557,26 @@ export class BattleView3D {
     const targetCreature = this.battle.getCreatureAtPosition(this.hoveredHex);
 
     if (targetCreature && targetCreature.indexOFArmy !== activeCreature.armyAlignment) {
-      if (
-        activeCreature.live_stats.remaining_attacks <= 0 ||
-        activeCreature.isPanickedOrRouting ||
-        activeCreature.exhaustionState === ExhaustionState.DEPLETED
-      ) {
-        return { hoverPath: [], attackPath: [], originHex: null, isRanged: false };
-      }
-
-      // Targeting an enemy unit
+      const minAttackStamina = Math.max(2, this.battle.combatConfig.stamina.minAttackStamina ?? 2);
       const isAdjacent = this.hexMap.getNeighbours(activeCreature.position).some(
         (n) => n.x === this.hoveredHex!.x && n.y === this.hoveredHex!.y
       );
       const remainingAmmo = activeCreature.live_stats.remaining_ammo ?? activeCreature.stats.remaining_ammo ?? 0;
       const isRanged = activeCreature.live_stats.is_ranged && remainingAmmo > 0 && !this.isCtrlPressed && !isAdjacent;
+      const requiredAttackStamina = isRanged
+        ? Math.max(minAttackStamina, this.battle.combatConfig.stamina.actionCosts.rangedAttack)
+        : Math.max(minAttackStamina, this.battle.combatConfig.stamina.actionCosts.meleeAttack);
+
+      if (
+        activeCreature.live_stats.remaining_attacks <= 0 ||
+        activeCreature.isPanickedOrRouting ||
+        activeCreature.exhaustionState === ExhaustionState.DEPLETED ||
+        activeCreature.stats.stamina < requiredAttackStamina
+      ) {
+        return { hoverPath: [], attackPath: [], originHex: null, isRanged: false };
+      }
+
+      // Targeting an enemy unit
       if (isRanged) {
         return {
           hoverPath: [],
@@ -677,13 +683,15 @@ export class BattleView3D {
     const { hoverPath, originHex, isRanged } = this.computeAttackAndHoverPaths();
 
     // 2. Attack Preview & Flank Calculation
+    const minAttackStamina = Math.max(2, this.battle.combatConfig.stamina.minAttackStamina ?? 2);
     if (
       activeCreature &&
       targetCreature &&
       targetCreature.indexOFArmy !== activeCreature.armyAlignment &&
       activeCreature.live_stats.remaining_attacks > 0 &&
       !activeCreature.isPanickedOrRouting &&
-      activeCreature.exhaustionState !== ExhaustionState.DEPLETED
+      activeCreature.exhaustionState !== ExhaustionState.DEPLETED &&
+      activeCreature.stats.stamina >= (isRanged ? Math.max(minAttackStamina, this.battle.combatConfig.stamina.actionCosts.rangedAttack) : Math.max(minAttackStamina, this.battle.combatConfig.stamina.actionCosts.meleeAttack))
     ) {
       if (isRanged) {
         // Standard Ranged Attack Preview: target ring only, no origin hex or melee ground arrow

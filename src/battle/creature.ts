@@ -36,6 +36,7 @@ export class CreatureStats {
   exhaustion_state: ExhaustionState = ExhaustionState.FRESH;
   morale_state: MoraleState = MoraleState.STEADY;
   took_damage_this_turn: boolean = false;
+  consecutive_undamaged_turns: number = 0;
   is_hero: boolean = false;
   tier: number = 1;
   traits: string[] = [];
@@ -75,6 +76,7 @@ export class CreatureStats {
     exhaustion_state: ExhaustionState.FRESH,
     morale_state: MoraleState.STEADY,
     took_damage_this_turn: false,
+    consecutive_undamaged_turns: 0,
     is_hero: false,
     tier: 1,
     traits: [],
@@ -118,6 +120,7 @@ export enum CreatureType {
   BEHEMOTH = 8,
   HERO_COMMANDER = 9,
   SLINGER = 10,
+  HEALER = 11,
 }
 
 export class CreatureTemplate {
@@ -158,8 +161,8 @@ export class Creature {
     remaining_movement: 4,
 
     num_moves: 4,
-    stamina: 12,
-    max_stamina: 12,
+    stamina: 20,
+    max_stamina: 20,
     morale: 10,
     max_morale: 30,
     base_morale: 10,
@@ -169,6 +172,7 @@ export class Creature {
     exhaustion_state: ExhaustionState.FRESH,
     morale_state: MoraleState.STEADY,
     took_damage_this_turn: false,
+    consecutive_undamaged_turns: 0,
     is_hero: false,
     tier: 1,
     traits: [],
@@ -199,6 +203,7 @@ export class Creature {
     "Behemoth",
     "Hero Commander",
     "Slinger",
+    "Healer",
   ];
 
   public isQuickDrawActive: boolean = false;
@@ -236,7 +241,20 @@ export class Creature {
         this.abilities = [Ability.createQuickDraw()];
       } else if (this.creatureType === CreatureType.SPEARMAN) {
         this.abilities = [Ability.createThrowJavelin()];
+      } else if (this.creatureType === CreatureType.HEALER) {
+        this.abilities = [Ability.createMendWounds()];
       }
+    }
+
+    if (this.creatureType === CreatureType.HEALER) {
+      this.stats.defense_melee = 0;
+      this.stats.defense_ranged = 1;
+      this.stats.model_count = 8;
+      this.stats.model_hp = 4;
+      this.stats.health = 32;
+      this.stats.remaining_health = 32;
+      this.stats.attack_melee_low = 3;
+      this.stats.attack_melee_high = 5;
     }
 
     if (
@@ -414,7 +432,11 @@ export class Creature {
   }
 
   public updateMoraleState(): MoraleState {
+    const prevState = this.stats.morale_state;
     this.stats.morale_state = this.moraleState;
+    if (prevState !== MoraleState.ROUTING && this.stats.morale_state === MoraleState.ROUTING) {
+      this.stats.consecutive_undamaged_turns = 0;
+    }
     return this.stats.morale_state;
   }
 
@@ -449,11 +471,26 @@ export class Creature {
     this.stats.remaining_health = Math.max(0, this.stats.remaining_health - damage);
     if (damage > 0) {
       this.stats.took_damage_this_turn = true;
+      this.stats.consecutive_undamaged_turns = 0;
       this.consumeMorale(1);
     }
     const nextModels = this.aliveModelCount;
     const modelsLost = Math.max(0, prevModels - nextModels);
     return { modelsLost, remainingHp: this.stats.remaining_health };
+  }
+
+  public heal(amount: number): { healed: number; remainingHp: number; modelsRestored: number } {
+    if (!this.isAlive || amount <= 0) {
+      return { healed: 0, remainingHp: this.stats.remaining_health, modelsRestored: 0 };
+    }
+    const prevModels = this.aliveModelCount;
+    const prevHp = this.stats.remaining_health;
+    const maxHp = this.stats.health;
+    this.stats.remaining_health = Math.min(maxHp, this.stats.remaining_health + amount);
+    const healed = this.stats.remaining_health - prevHp;
+    const nextModels = this.aliveModelCount;
+    const modelsRestored = Math.max(0, nextModels - prevModels);
+    return { healed, remainingHp: this.stats.remaining_health, modelsRestored };
   }
 
   public consumeStamina(amount: number): number {
@@ -488,6 +525,7 @@ export class Creature {
 
   public canRest(): boolean {
     if (!this.isAlive) return false;
+    if (this.moraleState === MoraleState.ROUTING) return false;
     if (this.stats.has_rested) return false;
     if (this.stats.stamina >= this.stats.max_stamina) return false;
     if (this.stats.remaining_movement < this.stats.num_moves) return false;
@@ -510,8 +548,17 @@ export class Creature {
   }
 
   public resetTurn(): void {
-    if (!this.stats.took_damage_this_turn) {
-      this.recoverMorale(1);
+    if (this.stats.took_damage_this_turn) {
+      this.stats.consecutive_undamaged_turns = 0;
+    } else {
+      this.stats.consecutive_undamaged_turns = (this.stats.consecutive_undamaged_turns ?? 0) + 1;
+      if (this.moraleState === MoraleState.ROUTING) {
+        if (this.stats.consecutive_undamaged_turns >= 2) {
+          this.recoverMorale(this.combatConfig?.morale?.undamagedTurnRecovery ?? 1);
+        }
+      } else {
+        this.recoverMorale(this.combatConfig?.morale?.undamagedTurnRecovery ?? 1);
+      }
     }
     this.stats.took_damage_this_turn = false;
     this.stats.remaining_movement = this.stats.num_moves;

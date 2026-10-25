@@ -53,6 +53,7 @@ export interface BattleHooks {
     isRetaliation?: boolean
   ) => void;
   hookDoingAttackRanged?: (data: RangedAttackData) => void;
+  hookDoingHeal?: (data: { healer: Creature; target: Creature; amount: number; ability: Ability }) => void;
   hookUnitDied?: (creature: Creature) => void;
   hookActiveUnitChanged?: (creature: Creature) => void;
   hookRangedScatter?: (attacker: Creature, originalTarget: Coords, scatterTarget: Coords, hitCreature: Creature | null) => void;
@@ -493,7 +494,11 @@ export class Battle {
       return;
     }
 
-    if (creature.live_stats.is_ranged && creature.live_stats.remaining_ammo > 0 && !creature.isPanickedOrRouting) {
+    const minAttackStamina = Math.max(2, this.combatConfig.stamina.minAttackStamina ?? 2);
+    const rangedStaminaCost = Math.max(minAttackStamina, this.combatConfig.stamina.actionCosts.rangedAttack);
+    const meleeStaminaCost = Math.max(minAttackStamina, this.combatConfig.stamina.actionCosts.meleeAttack);
+
+    if (creature.live_stats.is_ranged && creature.live_stats.remaining_ammo > 0 && !creature.isPanickedOrRouting && creature.stats.stamina >= rangedStaminaCost) {
       if (!meleePreference) {
         if (this.rangereach_tiles[coords.x]?.[coords.y] > 0 || this.rangereach_targets[coords.x]?.[coords.y] > 0) {
           const isAdjacent = this.hexMap.getNeighbours(creature.pos).some((n) => n.x === coords.x && n.y === coords.y);
@@ -509,7 +514,12 @@ export class Battle {
     }
 
     // Melee attack
-    if (creature.live_stats.remaining_attacks <= 0 || creature.isPanickedOrRouting || creature.exhaustionState === ExhaustionState.DEPLETED) {
+    if (
+      creature.live_stats.remaining_attacks <= 0 ||
+      creature.isPanickedOrRouting ||
+      creature.exhaustionState === ExhaustionState.DEPLETED ||
+      creature.stats.stamina < meleeStaminaCost
+    ) {
       return;
     }
 
@@ -541,6 +551,9 @@ export class Battle {
     if (moveSteps.length > 0) {
       const moveCost = this.getMovementCostForPath(path, creature, terrainCostsRecord);
       const staminaCost = this.getStaminaCostForPath(path, creature);
+      if (creature.stats.stamina < staminaCost + meleeStaminaCost) {
+        return;
+      }
       creature.stats.remaining_movement = Math.max(0, creature.stats.remaining_movement - moveCost);
       creature.consumeStamina(staminaCost);
       this.totalStaminaSpent[this.currentArmyIndex] += staminaCost;
@@ -729,10 +742,12 @@ export class Battle {
     this.nextRenderUpdate.hoverEnemyIndex = targetCreature.indexInArmy;
     this.nextRenderUpdate.somethingChanged = true;
 
+    const minAttackStamina = Math.max(2, this.combatConfig.stamina.minAttackStamina ?? 2);
     if (
       activeCreature.live_stats.remaining_attacks <= 0 ||
       activeCreature.exhaustionState === ExhaustionState.DEPLETED ||
-      activeCreature.isPanickedOrRouting
+      activeCreature.isPanickedOrRouting ||
+      activeCreature.stats.stamina < minAttackStamina
     ) {
       this.nextRenderUpdate.setCursorHint("default");
       return;
@@ -855,6 +870,9 @@ export class Battle {
         this.creatures[i].resetTurn();
       }
     }
+
+    // Routing units retreat towards their side on their own at turn start
+    this.processRoutingRetreatsForCurrentArmy();
 
     this.activeCreatureIndex = -1;
     this.hookNextTurn(this.turnNumber, this.currentArmyIndex);
@@ -1153,9 +1171,15 @@ export class Battle {
     }
 
     // Deduct stamina for attack
+    const minAttackStamina = Math.max(2, this.combatConfig.stamina.minAttackStamina ?? 2);
     const attackStamina = currentAction.type === BattleActionType.ATTACK_MELEE
-      ? this.combatConfig.stamina.actionCosts.meleeAttack
-      : this.combatConfig.stamina.actionCosts.rangedAttack;
+      ? Math.max(minAttackStamina, this.combatConfig.stamina.actionCosts.meleeAttack)
+      : Math.max(minAttackStamina, this.combatConfig.stamina.actionCosts.rangedAttack);
+    if (attacker.stats.stamina < attackStamina) {
+      attacker.stats.remaining_attacks = Math.max(0, attacker.stats.remaining_attacks - 1);
+      attacker.stats.remaining_movement = 0;
+      return false;
+    }
     attacker.consumeStamina(attackStamina);
     this.totalStaminaSpent[attacker.armyAlignment] += attackStamina;
 
@@ -1192,10 +1216,11 @@ export class Battle {
     } else {
       // Check retaliation eligibility for melee attacks
       const isAdjacent = this.hexMap.getNeighbours(attacker.pos).some((n) => n.x === defender.pos.x && n.y === defender.pos.y);
+      const minRetalStamina = Math.max(2, this.combatConfig.retaliation.minStamina, this.combatConfig.stamina.actionCosts.retaliation);
       const canRetaliate =
         isAdjacent &&
         currentAction.type === BattleActionType.ATTACK_MELEE &&
-        defender.stats.stamina >= this.combatConfig.retaliation.minStamina &&
+        defender.stats.stamina >= minRetalStamina &&
         defender.stats.retaliations_done < this.combatConfig.retaliation.maxRetaliationsPerTurn &&
         defender.live_stats.remaining_counterattacks > 0 &&
         !defender.isExhausted &&
@@ -1345,6 +1370,37 @@ export class Battle {
       name.includes("throw javelin") ||
       name.includes("javelin")
     );
+  }
+
+  public isMendWoundsAbility(ability?: Ability | null): boolean {
+    if (!ability) return false;
+    const id = ability.id?.toLowerCase() ?? "";
+    const name = ability.name?.toLowerCase() ?? "";
+    return (
+      id === "mend-wounds" ||
+      id === "mend-wounds-01" ||
+      id.includes("mend-wounds") ||
+      name.includes("mend wounds") ||
+      name.includes("mend-wounds") ||
+      id === "merge-wounds" ||
+      id === "merge-wounds-01" ||
+      id.includes("merge-wounds") ||
+      name.includes("merge wounds") ||
+      name.includes("merge-wounds")
+    );
+  }
+
+  public isMergeWoundsAbility(ability?: Ability | null): boolean {
+    return this.isMendWoundsAbility(ability);
+  }
+
+  public isHealAbility(ability?: Ability | null): boolean {
+    if (!ability) return false;
+    if (this.isMendWoundsAbility(ability)) return true;
+    if ((ability.heal_per_model ?? 0) > 0 || (ability.heal_amount ?? 0) > 0) return true;
+    const id = ability.id?.toLowerCase() ?? "";
+    const name = ability.name?.toLowerCase() ?? "";
+    return id.startsWith("heal-") || name.startsWith("heal") || id.includes("patch-up");
   }
 
   public getQuickDrawStaminaCost(): number {
@@ -1534,7 +1590,8 @@ export class Battle {
     const defender = currentAction.sourceUnit;
     const attacker = currentAction.targetUnit;
 
-    const retalStamina = this.combatConfig.stamina.actionCosts.retaliation;
+    const retalStamina = Math.max(2, this.combatConfig.retaliation.minStamina, this.combatConfig.stamina.actionCosts.retaliation);
+    if (defender.stats.stamina < retalStamina) return;
     defender.consumeStamina(retalStamina);
     this.totalStaminaSpent[defender.armyAlignment] += retalStamina;
 
@@ -2012,6 +2069,11 @@ export class Battle {
       return;
     }
 
+    if (this.isHealAbility(ability) || this.isMendWoundsAbility(ability)) {
+      this.executeHealAbility(source, target, ability);
+      return;
+    }
+
     let sourceDamage = this.rng.range(ability.damage_low ?? 8, ability.damage_high ?? 10);
     let targetArmor = 0;
     this.makeCreatureFaceTargetIfNeeded(source, target.pos);
@@ -2051,6 +2113,27 @@ export class Battle {
     source.stats.remaining_ammo = Math.max(0, source.stats.remaining_ammo);
   }
 
+  public executeHealAbility(source: Creature, target: Creature, ability: Ability) {
+    this.makeCreatureFaceTargetIfNeeded(source, target.pos);
+    const healPerModel = ability.heal_per_model || (ability as any)['heal_per_model'] || 1;
+    const availableHealers = source.aliveModelCount;
+    const healAmount = Math.max(0, availableHealers * healPerModel);
+    const healResult = target.heal(healAmount);
+
+    this.hookDoingHeal?.({
+      healer: source,
+      target,
+      amount: healResult.healed,
+      ability,
+    });
+
+    this.deductCostForAbilityUseByCreature(ability, source);
+    source.stats.remaining_attacks = Math.max(0, source.stats.remaining_attacks);
+    source.stats.remaining_ammo = Math.max(0, source.stats.remaining_ammo);
+    source.stats.remaining_movement = 0;
+    source.stats.has_attacked = true;
+  }
+
   public start() {
     for (const creature of this.creatures) {
       if (creature.stats.retaliations_done === undefined) {
@@ -2068,6 +2151,7 @@ export class Battle {
       creature.updateExhaustionState();
     }
     this.recomputeAllPositionBuffs();
+    this.processRoutingRetreatsForCurrentArmy();
   }
 
   public recomputeAllPositionBuffs() {
@@ -2101,9 +2185,96 @@ export class Battle {
     let creatureInBattle = this.getCreatureAtPosition(coords);
     if (creatureInBattle === null) return;
     if (this.currentArmyIndex === creatureInBattle.indexOFArmy) {
+      if (creatureInBattle.creature.isPanickedOrRouting) return;
       this.setSelectedArmyAndCreatureIndex(creatureInBattle.indexOFArmy, creatureInBattle.indexInArmy);
       this.showReachableCellsForCreature(creatureInBattle.creature);
     }
+  }
+
+  public processRoutingRetreatsForCurrentArmy(): void {
+    if (this.finished) return;
+
+    for (let i = 0; i < this.creatures.length; i++) {
+      const creature = this.creatures[i];
+      if (!creature.isAlive) continue;
+      if (creature.armyAlignment !== this.currentArmyIndex) continue;
+      if (creature.moraleState !== MoraleState.ROUTING) continue;
+
+      this.retreatRoutingCreature(creature);
+    }
+  }
+
+  private retreatRoutingCreature(creature: Creature): void {
+    if (creature.stats.stamina <= 0 || creature.exhaustionState === ExhaustionState.DEPLETED) {
+      creature.stats.remaining_movement = 0;
+      return;
+    }
+
+    const isPlayer1 = creature.armyAlignment === 0;
+    let remainingMovement = creature.stats.remaining_movement;
+    if (creature.exhaustionState === ExhaustionState.WINDED) {
+      remainingMovement = Math.max(0, remainingMovement - 1);
+    }
+
+    const candidateDirections: HexDirection[] = isPlayer1
+      ? [HexDirection.WEST, HexDirection.NORTHWEST, HexDirection.SOUTHWEST]
+      : [HexDirection.EAST, HexDirection.NORTHEAST, HexDirection.SOUTHEAST];
+
+    const visitedHexes = new Set<string>();
+    visitedHexes.add(`${creature.position.x},${creature.position.y}`);
+
+    while (remainingMovement > 0 && creature.stats.stamina > 0) {
+      if (isPlayer1 && creature.position.x <= 0) break;
+      if (!isPlayer1 && creature.position.x >= this.hexMap.width - 1) break;
+
+      let bestNext: { coords: Coords; dir: HexDirection; moveCost: number; staminaCost: number; progress: number } | null = null;
+
+      for (const dir of candidateDirections) {
+        const neighbour = this.hexMap.getNeighbourInDirection(creature.position, dir);
+        if (!neighbour) continue;
+        if (visitedHexes.has(`${neighbour.x},${neighbour.y}`)) continue;
+        if (this.getCreatureAtPosition(neighbour) !== null) continue;
+
+        const terrain = this.getTerrainAt(neighbour);
+        const moveCost = this.getMoveCostForTerrain(terrain, creature);
+        const staminaCost = this.combatConfig.terrain.staminaCosts[terrain] ?? 1;
+
+        if (remainingMovement < moveCost) continue;
+        if (creature.stats.stamina < staminaCost) continue;
+
+        const progress = isPlayer1 ? (creature.position.x - neighbour.x) : (neighbour.x - creature.position.x);
+        if (progress < 0) continue;
+
+        const isDirect = dir === (isPlayer1 ? HexDirection.WEST : HexDirection.EAST);
+        if (
+          !bestNext ||
+          progress > bestNext.progress ||
+          (progress === bestNext.progress && isDirect) ||
+          (progress === bestNext.progress && moveCost < bestNext.moveCost)
+        ) {
+          bestNext = { coords: neighbour, dir, moveCost, staminaCost, progress };
+        }
+      }
+
+      if (!bestNext) break;
+      if (bestNext.progress <= 0 && visitedHexes.size > 1) {
+        break;
+      }
+
+      remainingMovement -= bestNext.moveCost;
+      creature.stats.remaining_movement = remainingMovement;
+      creature.consumeStamina(bestNext.staminaCost);
+      this.totalStaminaSpent[creature.armyAlignment] += bestNext.staminaCost;
+      creature.position = { x: bestNext.coords.x, y: bestNext.coords.y };
+      creature.facingDirection = bestNext.dir;
+      visitedHexes.add(`${creature.position.x},${creature.position.y}`);
+      this.clearPositionBuffs(creature);
+      this.setPositionBuffs(creature, creature.pos);
+      this.nextRenderUpdate.setUnitRenderUpdate();
+      this.nextRenderUpdate.somethingChanged = true;
+    }
+
+    creature.stats.remaining_movement = 0;
   }
 
   private getMovementCostForPath(path: Coords[], creature: Creature, terrainMoveCost: Record<number, number>): number {
@@ -2132,6 +2303,7 @@ export class Battle {
   // Hook callbacks
   hookDoingAttack(_attacker: Creature, _defender: Creature, _damage: number, _type: BattleActionType, _flank: HexFlankStatus, _isRetaliation?: boolean) {}
   hookDoingAttackRanged?(_data: RangedAttackData) {}
+  hookDoingHeal?(_data: { healer: Creature; target: Creature; amount: number; ability: Ability }) {}
   hookNextTurn(_turnNumber: number, _armyIndex: number) {}
   hookMovingUnit(_creature: Creature, _nextStep: Coords) {}
   hookUnitDied(_creature: Creature) {}

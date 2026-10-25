@@ -604,6 +604,66 @@ def build_slinger():
     export_current_model("slinger")
 
 
+def build_healer():
+    clear_scene()
+    pal = create_common_palette()
+
+    mat_cloth = make_textured_material(
+        "PeasantCloth",
+        os.path.join(UNIT_TEXTURES_DIR, "peasant_cloth.png"),
+        rgba=(0.42, 0.30, 0.19, 1.0),
+        metallic=0.02,
+        roughness=0.86,
+    )
+    mat_face = make_textured_material(
+        "PeasantFace",
+        os.path.join(UNIT_TEXTURES_DIR, "peasant_face.png"),
+        rgba=(1.0, 1.0, 1.0, 1.0),
+        metallic=0.04,
+        roughness=0.76,
+    )
+    mat_gear = make_textured_material(
+        "HealerGear",
+        os.path.join(UNIT_TEXTURES_DIR, "healer_gear.png"),
+        rgba=(0.55, 0.42, 0.28, 1.0),
+        metallic=0.45,
+        roughness=0.60,
+    )
+
+    rig = build_base_humanoid("healer", pal, mat_cloth, mat_cloth, mat_cloth)
+    rig["head"].data.materials[0] = mat_face
+
+    # 1. Cloth Coif / Hood on Head
+    bm_coif = bmesh.new()
+    bm_add_sphere(bm_coif, 0.138, segments=20, ring_count=14, center=(-0.01, 0, 0.02), scale=(1.05, 1.02, 1.05))
+    bm_add_cylinder(bm_coif, 0.15, 0.13, 0.08, segments=16, center=(-0.02, 0, -0.06))
+    create_mesh_object("Helmet_Coif", bm_coif, pal["team"], parent=rig["head"])
+
+    # 2. Remedies Satchel at Hip / Torso
+    bm_satchel = bmesh.new()
+    bm_add_box(bm_satchel, 0.12, 0.08, 0.14, center=(0.08, 0.16, 0.40))
+    bm_add_box(bm_satchel, 0.125, 0.085, 0.065, center=(0.08, 0.16, 0.44))
+    bm_add_box(bm_satchel, 0.035, 0.02, 0.03, center=(0.145, 0.16, 0.42))
+    bm_add_box(bm_satchel, 0.028, 0.015, 0.46, center=(0.09, 0.05, 0.60), rot_euler=(0, math.radians(-24), math.radians(14)))
+    create_mesh_object("Satchel", bm_satchel, mat_gear, parent=rig["torso"])
+
+    # 3. Simple Wooden Buckler Shield on Arm_L
+    bm_buckler = bmesh.new()
+    bm_add_cylinder(bm_buckler, 0.18, 0.18, 0.028, segments=16, center=(0.09, 0.08, -0.18), rot_euler=(0, math.radians(90), 0))
+    bm_add_sphere(bm_buckler, 0.05, segments=14, ring_count=10, center=(0.105, 0.08, -0.18))
+    create_mesh_object("Shield", bm_buckler, mat_gear, parent=rig["arm_l"])
+
+    # 4. Remedy Knife / Dagger in Arm_R
+    bm_knife = bmesh.new()
+    bm_add_box(bm_knife, 0.015, 0.038, 0.22, center=(0.12, 0, -0.10), rot_euler=(0, math.radians(-26), 0))
+    bm_add_cylinder(bm_knife, 0.022, 0.0, 0.08, segments=6, center=(0.19, 0, -0.03), rot_euler=(0, math.radians(-26), 0))
+    bm_add_box(bm_knife, 0.028, 0.075, 0.025, center=(0.05, 0, -0.17), rot_euler=(0, math.radians(-26), 0))
+    bm_add_cylinder(bm_knife, 0.02, 0.022, 0.10, segments=10, center=(0.015, 0, -0.21), rot_euler=(0, math.radians(-26), 0))
+    create_mesh_object("Weapon", bm_knife, mat_gear, parent=rig["arm_r"])
+
+    export_current_model("healer")
+
+
 def build_forest_trees():
     """
     Generates low-poly 3D forest trees at ~0.90 world units tall (75% of the ~1.20 average unit height).
@@ -669,5 +729,6 @@ if __name__ == "__main__":
     build_crossbowman()
     build_barbarian()
     build_slinger()
+    build_healer()
     build_forest_trees()
     print("All Blender 3D models (.glb and .blend) generated successfully!")

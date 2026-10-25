@@ -271,6 +271,7 @@ export class UnitVisualFactory {
     if (normalized === '8' || normalized === 'behemoth') return 'rock_elemental_left.png';
     if (normalized === '9' || normalized === 'hero-commander') return 'swordman_right.png';
     if (normalized === '10' || normalized === 'slinger') return 'slinger_right.png';
+    if (normalized === '11' || normalized === 'healer') return 'peasant_fork_right.png';
 
     return 'peasant_fork_right.png';
   }

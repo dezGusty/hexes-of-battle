@@ -891,4 +891,342 @@ describe("Tactical Systems Validation", () => {
       expect(checkFlankingStatus(playerUnit.facingDirection, attackFromEast)).toBe(HexFlankStatus.BACKSTAB);
     });
   });
+
+  describe("7. Stamina Consumption & Autonomous Routing Retreat", () => {
+    it("should configure +8 base stamina for all units in creaturetypes.json", async () => {
+      const fs = await import("fs");
+      const path = await import("path");
+      const jsonPath = path.resolve(__dirname, "../../public/creaturetypes.json");
+      const content = JSON.parse(fs.readFileSync(jsonPath, "utf-8"));
+
+      const expectedStamina: Record<string, number> = {
+        "peasant": 20,
+        "swordsman": 22,
+        "spearman": 26,
+        "barbarian": 24,
+        "peasant-archer": 22,
+        "crossbowman": 20,
+        "heavy-knights": 24,
+        "behemoth": 28,
+        "hero-commander": 26,
+        "slinger": 22,
+        "healer": 22,
+      };
+
+      for (const unit of content) {
+        expect(unit.stats.stamina).toBe(expectedStamina[unit.name]);
+      }
+    });
+
+    it("should configure battle rules requiring and consuming at least 2 stamina for attacks and counterattacks", async () => {
+      const fs = await import("fs");
+      const path = await import("path");
+      const jsonPath = path.resolve(__dirname, "../../public/combat_config.json");
+      const config = JSON.parse(fs.readFileSync(jsonPath, "utf-8"));
+
+      expect(config.stamina.minAttackStamina).toBeGreaterThanOrEqual(2);
+      expect(config.stamina.actionCosts.meleeAttack).toBeGreaterThanOrEqual(2);
+      expect(config.stamina.actionCosts.rangedAttack).toBeGreaterThanOrEqual(2);
+      expect(config.stamina.actionCosts.retaliation).toBeGreaterThanOrEqual(2);
+      expect(config.retaliation.minStamina).toBeGreaterThanOrEqual(2);
+    });
+
+    it("should prevent attacks (melee and ranged) and counterattacks when unit has insufficient stamina (< 2)", () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const attacker = new Creature(CreatureType.SWORDSMAN);
+      attacker.position = { x: 2, y: 2 };
+      attacker.armyAlignment = 0;
+      attacker.stats.stamina = 1; // < 2 stamina
+
+      const defender = new Creature(CreatureType.SWORDSMAN);
+      defender.position = { x: 3, y: 2 };
+      defender.armyAlignment = 1;
+      defender.stats.stamina = 10;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        creatures: [attacker, defender],
+      });
+
+      // Attempt melee attack with 1 stamina -> should be rejected
+      battle.handlePrimaryCellAction(attacker.position);
+      battle.handleSecondaryCellAction(defender.position);
+      expect(battle.hasRunningActions()).toBe(false);
+      expect(attacker.hasAttackedThisTurn()).toBe(false);
+
+      // Now give attacker enough stamina (3)
+      attacker.stats.stamina = 3;
+      defender.stats.stamina = 1; // Defender has < 2 stamina, cannot retaliate
+      defender.stats.remaining_counterattacks = 1;
+
+      battle.handlePrimaryCellAction(attacker.position);
+      battle.handleSecondaryCellAction(defender.position);
+      expect(battle.hasRunningActions()).toBe(true);
+      battle.stepInstant();
+
+      // Attacker consumed stamina
+      expect(attacker.stats.stamina).toBe(0); // 3 - 3 = 0
+      // Defender took damage but could not counterattack because stamina < 2
+      expect(defender.stats.retaliations_done).toBe(0);
+      expect(battle.hasRunningActions()).toBe(false);
+    });
+
+    it("should prevent ranged attack when unit has insufficient stamina (< 2)", () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const archer = new Creature(CreatureType.PEASANT_ARCHER);
+      archer.position = { x: 1, y: 2 };
+      archer.armyAlignment = 0;
+      archer.stats.remaining_ammo = 5;
+      archer.stats.stamina = 1; // < 2 stamina
+
+      const target = new Creature(CreatureType.SWORDSMAN);
+      target.position = { x: 5, y: 2 };
+      target.armyAlignment = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        creatures: [archer, target],
+      });
+
+      battle.handlePrimaryCellAction(archer.position);
+      battle.handleSecondaryCellAction(target.position);
+      expect(battle.hasRunningActions()).toBe(false);
+      expect(archer.hasAttackedThisTurn()).toBe(false);
+    });
+
+    it("should automatically retreat Player 1 routing squad towards left (x decreasing) at turn start while consuming stamina", () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const routingUnit = new Creature(CreatureType.PEASANT);
+      routingUnit.position = { x: 4, y: 2 };
+      routingUnit.armyAlignment = 0;
+      routingUnit.stats.morale = 0; // Routing state
+      routingUnit.stats.stamina = 20;
+      routingUnit.stats.num_moves = 3;
+      routingUnit.stats.remaining_movement = 3;
+
+      const dummyEnemy = new Creature(CreatureType.SWORDSMAN);
+      dummyEnemy.position = { x: 8, y: 4 };
+      dummyEnemy.armyAlignment = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [routingUnit, dummyEnemy],
+      });
+
+      expect(routingUnit.moraleState).toBe(MoraleState.ROUTING);
+      expect(routingUnit.isPanickedOrRouting).toBe(true);
+
+      // Player 1 cannot select or command routing unit
+      battle.handlePrimaryCellAction(routingUnit.position);
+      expect(battle.getActiveCreature()).toBeNull();
+
+      // Start position was x = 4. When battle starts (or next turn starts for Army 0),
+      // the routing unit retreats towards left (x = 0).
+      // Since battle.start() ran during initializeFromConfig, it already took its first retreat steps!
+      expect(routingUnit.position.x).toBeLessThan(4);
+      expect(routingUnit.position.x).toBe(1); // 4 - 3 moves = 1
+      expect(routingUnit.stats.stamina).toBe(17); // 20 - 3 stamina = 17
+      expect(routingUnit.stats.remaining_movement).toBe(0);
+
+      // End Army 0's turn and Army 1's turn to cycle back to Army 0
+      battle.nextTurn(); // Army 1 turn
+      battle.nextTurn(); // Army 0 turn starts -> routingUnit retreats again
+
+      // Unit should reach left edge (x = 0) and stop
+      expect(routingUnit.position.x).toBe(0);
+      expect(routingUnit.stats.stamina).toBe(16); // 17 - 1 = 16
+    });
+
+    it("should automatically retreat Player 2 routing squad towards right (x increasing) at turn start while consuming stamina", () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const playerUnit = new Creature(CreatureType.SWORDSMAN);
+      playerUnit.position = { x: 1, y: 2 };
+      playerUnit.armyAlignment = 0;
+
+      const routingEnemy = new Creature(CreatureType.PEASANT);
+      routingEnemy.position = { x: 5, y: 2 };
+      routingEnemy.armyAlignment = 1;
+      routingEnemy.stats.morale = 0; // Routing state
+      routingEnemy.stats.stamina = 20;
+      routingEnemy.stats.num_moves = 2;
+      routingEnemy.stats.remaining_movement = 2;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [playerUnit, routingEnemy],
+      });
+
+      // Enemy starts at x = 5. Pass turn to Army 1.
+      battle.nextTurn(); // Army 1 turn begins -> routingEnemy retreats towards right (x = 9)
+
+      expect(routingEnemy.position.x).toBe(7); // 5 + 2 moves = 7
+      expect(routingEnemy.stats.stamina).toBe(18); // 20 - 2 = 18
+      expect(routingEnemy.facingDirection).toBe(HexDirection.EAST);
+    });
+
+    it("should stop routing squad retreat when it runs out of stamina", () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const routingUnit = new Creature(CreatureType.PEASANT);
+      routingUnit.position = { x: 6, y: 2 };
+      routingUnit.armyAlignment = 0;
+      routingUnit.stats.morale = 0; // Routing
+      routingUnit.stats.stamina = 1; // Only 1 stamina left
+      routingUnit.stats.num_moves = 4; // But 4 movement points
+
+      const dummyEnemy = new Creature(CreatureType.SWORDSMAN);
+      dummyEnemy.position = { x: 9, y: 5 };
+      dummyEnemy.armyAlignment = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [routingUnit, dummyEnemy],
+      });
+
+      // Routing unit took exactly 1 step (consuming its 1 stamina) and stopped because it ran out of stamina
+      expect(routingUnit.position.x).toBe(5); // 6 -> 5
+      expect(routingUnit.stats.stamina).toBe(0);
+      expect(routingUnit.stats.remaining_movement).toBe(0);
+
+      // Next turn: unit has 0 stamina -> cannot move at all
+      battle.nextTurn(); // Army 1
+      battle.nextTurn(); // Army 0 starts
+      expect(routingUnit.position.x).toBe(5); // Remained at x = 5
+      expect(routingUnit.stats.stamina).toBe(0);
+    });
+
+    it("should start recovering morale for routing squads after 2 consecutive undamaged turns", () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const routingUnit = new Creature(CreatureType.PEASANT);
+      routingUnit.position = { x: 3, y: 3 };
+      routingUnit.armyAlignment = 0;
+      routingUnit.stats.morale = 0; // Routing state
+      routingUnit.stats.stamina = 20;
+
+      const dummyEnemy = new Creature(CreatureType.SWORDSMAN);
+      dummyEnemy.position = { x: 8, y: 5 };
+      dummyEnemy.armyAlignment = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [routingUnit, dummyEnemy],
+      });
+
+      expect(routingUnit.moraleState).toBe(MoraleState.ROUTING);
+      expect(routingUnit.stats.morale).toBe(0);
+
+      // Turn 1 completes: pass turn to Army 1 and back to Army 0 (Turn 2 starts)
+      // 1 consecutive undamaged turn -> routing squad should NOT recover morale yet
+      battle.nextTurn(); // Army 1 turn
+      battle.nextTurn(); // Army 0 Turn 2 begins -> resetTurn()
+      expect(routingUnit.stats.consecutive_undamaged_turns).toBe(1);
+      expect(routingUnit.stats.morale).toBe(0);
+      expect(routingUnit.moraleState).toBe(MoraleState.ROUTING);
+
+      // Turn 2 completes: pass turn to Army 1 and back to Army 0 (Turn 3 starts)
+      // 2 consecutive undamaged turns -> routing squad should START recovering morale!
+      battle.nextTurn(); // Army 1 turn
+      battle.nextTurn(); // Army 0 Turn 3 begins -> resetTurn()
+      expect(routingUnit.stats.consecutive_undamaged_turns).toBe(2);
+      expect(routingUnit.stats.morale).toBe(1);
+      expect(routingUnit.moraleState).toBe(MoraleState.PANICKED);
+
+      // Unit acts during Turn 3 so it doesn't trigger idle rest-by-default
+      routingUnit.stats.remaining_movement = 1;
+
+      // Turn 3 completes: pass turn to Army 1 and back to Army 0 (Turn 4 starts)
+      // Now in Panicked state (non-routing), goes another turn undamaged -> recovers +1 morale again
+      battle.nextTurn(); // Army 1 turn
+      battle.nextTurn(); // Army 0 Turn 4 begins -> resetTurn()
+      expect(routingUnit.stats.consecutive_undamaged_turns).toBe(3);
+      expect(routingUnit.stats.morale).toBe(2);
+      expect(routingUnit.moraleState).toBe(MoraleState.PANICKED);
+
+      // Unit acts during Turn 4 so it doesn't trigger idle rest-by-default
+      routingUnit.stats.remaining_movement = 1;
+
+      // Turn 4 completes: Turn 5 begins -> recovers +1 morale again (transitions to Wavering)
+      battle.nextTurn(); // Army 1 turn
+      battle.nextTurn(); // Army 0 Turn 5 begins -> resetTurn()
+      expect(routingUnit.stats.morale).toBe(3);
+      expect(routingUnit.moraleState).toBe(MoraleState.WAVERING);
+      expect(routingUnit.isPanickedOrRouting).toBe(false);
+    });
+
+    it("should reset consecutive undamaged turn count if a routing squad takes damage", () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const routingUnit = new Creature(CreatureType.PEASANT);
+      routingUnit.position = { x: 3, y: 3 };
+      routingUnit.armyAlignment = 0;
+      routingUnit.stats.morale = 0; // Routing state
+      routingUnit.stats.stamina = 20;
+
+      const enemyArcher = new Creature(CreatureType.PEASANT_ARCHER);
+      enemyArcher.position = { x: 6, y: 3 };
+      enemyArcher.armyAlignment = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [routingUnit, enemyArcher],
+      });
+
+      // 1st undamaged turn passes
+      battle.nextTurn(); // Army 1
+      battle.nextTurn(); // Army 0 Turn 2
+      expect(routingUnit.stats.consecutive_undamaged_turns).toBe(1);
+      expect(routingUnit.stats.morale).toBe(0);
+
+      // During Army 1's turn, enemy damages the routing squad
+      battle.nextTurn(); // Army 1 turn
+      routingUnit.takeDamage(5);
+      expect(routingUnit.stats.took_damage_this_turn).toBe(true);
+      expect(routingUnit.stats.consecutive_undamaged_turns).toBe(0);
+
+      // Army 0 Turn 3 begins: resetTurn() runs, but because it took damage, consecutive undamaged turns is 0
+      battle.nextTurn(); // Army 0 Turn 3
+      expect(routingUnit.stats.consecutive_undamaged_turns).toBe(0);
+      expect(routingUnit.stats.morale).toBe(0);
+      expect(routingUnit.moraleState).toBe(MoraleState.ROUTING);
+
+      // Must now go another 2 consecutive undamaged turns before recovering:
+      // Turn 4 (1st undamaged turn)
+      battle.nextTurn(); // Army 1
+      battle.nextTurn(); // Army 0 Turn 4
+      expect(routingUnit.stats.consecutive_undamaged_turns).toBe(1);
+      expect(routingUnit.stats.morale).toBe(0); // Still 0
+
+      // Turn 5 (2nd consecutive undamaged turn) -> recovers!
+      battle.nextTurn(); // Army 1
+      battle.nextTurn(); // Army 0 Turn 5
+      expect(routingUnit.stats.consecutive_undamaged_turns).toBe(2);
+      expect(routingUnit.stats.morale).toBe(1); // Recovered!
+      expect(routingUnit.moraleState).toBe(MoraleState.PANICKED);
+    });
+  });
 });
+

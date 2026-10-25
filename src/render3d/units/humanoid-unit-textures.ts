@@ -3,7 +3,7 @@ import { getBarbarianPartTexture, getBarbarianPartMaterial } from './barbarian-t
 
 export const HUMANOID_TEXTURE_SIZE = 256;
 
-export type SupportedHumanoidTexturedUnit = 'peasant' | 'peasant_archer' | 'spearman';
+export type SupportedHumanoidTexturedUnit = 'peasant' | 'peasant_archer' | 'spearman' | 'swordsman' | 'healer';
 
 export const HUMANOID_TEXTURE_PATHS: Record<string, string> = {
   skin: 'textures/units/barbarian_skin.png',
@@ -16,6 +16,10 @@ export const HUMANOID_TEXTURE_PATHS: Record<string, string> = {
   spearman_face: 'textures/units/spearman_face.png',
   spearman_armor: 'textures/units/spearman_armor.png',
   spearman_gear: 'textures/units/spearman_gear.png',
+  swordsman_helmet: 'textures/units/swordsman_helmet.png',
+  swordsman_armor: 'textures/units/swordsman_armor.png',
+  swordsman_gear: 'textures/units/swordsman_gear.png',
+  healer_gear: 'textures/units/healer_gear.png',
 };
 
 function clampByte(v: number): number {
@@ -874,6 +878,492 @@ export function generateSpearmanGearPixels(): Uint8Array {
 }
 
 // ==========================================
+// 4. SWORDSMAN TEXTURES
+// ==========================================
+
+/**
+ * Generates a 256x256 RGBA pixel buffer for the Swordsman's Full Helmet:
+ * - Rows y = 0..90 (v = 0.65..1.0): Upper sugarloaf / great helm steel dome with brushed
+ *   metallic grain, plate seams, and brass rivets along brow band at y = 80..88.
+ * - Rows y = 91..165 (v = 0.35..0.65): Full steel visor faceplate, ocular eye slits (black opening
+ *   with specular rim at y = 116..126), brass reinforcing cross band, and ventilation punch holes.
+ * - Rows y = 166..255 (v = 0.0..0.35): Dense interlocking chainmail aventail/coif with high-contrast
+ *   metallic specular ring arcs and dark link voids.
+ */
+export function generateSwordsmanHelmetPixels(): Uint8Array {
+  const size = HUMANOID_TEXTURE_SIZE;
+  const data = new Uint8Array(size * size * 4);
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const idx = (y * size + x) * 4;
+      const n = fbm(x, y, 7, 701);
+      const fine = hash2D(x, y, 703);
+
+      if (y < 90) {
+        // Sugarloaf dome
+        const dx = Math.abs(x - 128);
+        const domeShade = Math.sin((y / 90) * Math.PI * 0.5) * 20;
+        let lum = 190 + domeShade + (n - 0.5) * 26 + (fine - 0.5) * 10;
+
+        // Brow band at y = 80..88 with rivets
+        if (y >= 80 && y <= 88) {
+          const isRivet = (x % 20 < 4) && Math.abs(y - 84) <= 2;
+          lum = isRivet ? 245 : 165 + (n - 0.5) * 18;
+          if (isRivet) {
+            data[idx] = 230;
+            data[idx + 1] = 195;
+            data[idx + 2] = 85;
+            data[idx + 3] = 255;
+            continue;
+          }
+        }
+
+        // Vertical central reinforcement ridge at |x - 128| < 8
+        if (dx < 8) {
+          const isEdge = dx >= 6;
+          lum = isEdge ? 130 : 215 + (n - 0.5) * 16;
+        }
+
+        const c = clampByte(lum);
+        data[idx] = c;
+        data[idx + 1] = c;
+        data[idx + 2] = clampByte(c + 8);
+        data[idx + 3] = 255;
+      } else if (y <= 165) {
+        // Steel Visor faceplate
+        const dx = Math.abs(x - 128);
+
+        // Horizontal ocular vision slit at y = 116..126
+        if (y >= 116 && y <= 126 && dx > 10 && dx < 105) {
+          // Inside eye slit: deep dark shadow hole
+          const isEdge = y === 116 || y === 126 || dx === 11 || dx === 104;
+          const slitLum = isEdge ? 240 : 25 + (fine - 0.5) * 10;
+          const c = clampByte(slitLum);
+          data[idx] = c;
+          data[idx + 1] = c;
+          data[idx + 2] = clampByte(c + 6);
+          data[idx + 3] = 255;
+          continue;
+        }
+
+        // Central brass cross reinforcement strip at |x - 128| < 8
+        if (dx < 8) {
+          const isRivet = dx < 3 && ((y - 95) % 18 < 4);
+          data[idx] = isRivet ? 245 : 220;
+          data[idx + 1] = isRivet ? 210 : 180;
+          data[idx + 2] = isRivet ? 95 : 70;
+          data[idx + 3] = 255;
+          continue;
+        }
+
+        // Horizontal cross bar of brass cross at y = 114..128 when dx <= 18
+        if (y >= 114 && y <= 128 && dx <= 18) {
+          data[idx] = 220;
+          data[idx + 1] = 180;
+          data[idx + 2] = 70;
+          data[idx + 3] = 255;
+          continue;
+        }
+
+        // Breathing ventilation holes at y = 136..156, dx in 18..90
+        if (y >= 136 && y <= 156 && dx >= 18 && dx <= 90) {
+          const holeX = dx % 14 < 3;
+          const holeY = (y - 136) % 8 < 3;
+          if (holeX && holeY) {
+            data[idx] = 22;
+            data[idx + 1] = 22;
+            data[idx + 2] = 26;
+            data[idx + 3] = 255;
+            continue;
+          }
+        }
+
+        // Faceplate steel surface
+        let lum = 185 + (n - 0.5) * 24 + (fine - 0.5) * 8;
+        const c = clampByte(lum);
+        data[idx] = c;
+        data[idx + 1] = c;
+        data[idx + 2] = clampByte(c + 6);
+        data[idx + 3] = 255;
+      } else {
+        // Chainmail Aventail / Coif
+        const rx = (x + ((Math.floor(y / 6) % 2) * 4)) % 8 - 4;
+        const ry = (y % 6) - 3;
+        const r = Math.hypot(rx, ry);
+
+        let lum = 85;
+        if (r < 1.9) {
+          lum = 38 + (fine - 0.5) * 12; // dark void inside link
+        } else if (r <= 3.8) {
+          // Specular metallic ring wire highlight
+          const highlight = (1 - Math.abs(r - 2.85) / 1.0) * 135;
+          lum = 95 + highlight + (n - 0.5) * 20;
+        } else {
+          lum = 70 + (n - 0.5) * 16;
+        }
+
+        const c = clampByte(lum);
+        data[idx] = c;
+        data[idx + 1] = c;
+        data[idx + 2] = clampByte(c + 7);
+        data[idx + 3] = 255;
+      }
+    }
+  }
+
+  return data;
+}
+
+/**
+ * Generates a 256x256 RGBA pixel buffer for the Swordsman's Armor:
+ * - Rows y = 0..120 (v = 0.53..1.0): Steel plate breastplate/cuirass with engraved center ridge,
+ *   metallic specular sheen, side leather harness straps, and brass rivets.
+ * - Rows y = 121..165 (v = 0.35..0.53): Layered steel fauld plates/tassets with beveled edges.
+ * - Rows y = 166..255 (v = 0.0..0.35): Heavy interlocking steel chainmail weave for arms and legs.
+ */
+export function generateSwordsmanArmorPixels(): Uint8Array {
+  const size = HUMANOID_TEXTURE_SIZE;
+  const data = new Uint8Array(size * size * 4);
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const idx = (y * size + x) * 4;
+      const n = fbm(x, y, 7, 721);
+      const fine = hash2D(x, y, 723);
+
+      if (y < 120) {
+        // Steel Cuirass / Breastplate
+        const dx = Math.abs(x - 128);
+
+        // Side leather harness straps at x < 24 or x > 232
+        if (x < 24 || x > 232) {
+          const strapLum = 72 + (n - 0.5) * 18;
+          data[idx] = clampByte(strapLum + 16);
+          data[idx + 1] = clampByte(strapLum + 4);
+          data[idx + 2] = clampByte(strapLum - 10);
+          data[idx + 3] = 255;
+          continue;
+        }
+
+        // Center ridge / spine at |x - 128| < 4
+        let lum = 195 + (n - 0.5) * 25 + (fine - 0.5) * 8;
+        if (dx < 3) {
+          lum += 42; // prominent specular center ridge
+        } else if (dx < 6) {
+          lum -= 28; // groove shadow
+        }
+
+        // Lower rim rivet band at y = 110..118
+        if (y >= 110 && y <= 118) {
+          const isRivet = (x % 18 < 4) && Math.abs(y - 114) <= 2;
+          if (isRivet) {
+            data[idx] = 235;
+            data[idx + 1] = 195;
+            data[idx + 2] = 80;
+            data[idx + 3] = 255;
+            continue;
+          }
+        }
+
+        const c = clampByte(lum);
+        data[idx] = c;
+        data[idx + 1] = c;
+        data[idx + 2] = clampByte(c + 7);
+        data[idx + 3] = 255;
+      } else if (y <= 165) {
+        // Articulated steel fauld plates (horizontal bands every 12px)
+        const plateY = (y - 120) % 12;
+        let lum = 180 + (n - 0.5) * 22;
+
+        if (plateY <= 2) {
+          lum += 40; // upper highlight rim
+        } else if (plateY >= 10) {
+          lum -= 45; // lower shadow overlap
+        }
+
+        // Rivets on each fauld plate
+        const isRivet = (x % 24 < 4) && (plateY >= 4 && plateY <= 7);
+        if (isRivet) {
+          data[idx] = 230;
+          data[idx + 1] = 190;
+          data[idx + 2] = 80;
+          data[idx + 3] = 255;
+          continue;
+        }
+
+        const c = clampByte(lum);
+        data[idx] = c;
+        data[idx + 1] = c;
+        data[idx + 2] = clampByte(c + 6);
+        data[idx + 3] = 255;
+      } else {
+        // Chainmail weave (sleeves & leggings)
+        const rx = (x + ((Math.floor(y / 6) % 2) * 4)) % 8 - 4;
+        const ry = (y % 6) - 3;
+        const r = Math.hypot(rx, ry);
+
+        let lum = 85;
+        if (r < 1.9) {
+          lum = 38 + (fine - 0.5) * 12;
+        } else if (r <= 3.8) {
+          const highlight = (1 - Math.abs(r - 2.85) / 1.0) * 135;
+          lum = 95 + highlight + (n - 0.5) * 20;
+        } else {
+          lum = 70 + (n - 0.5) * 16;
+        }
+
+        const c = clampByte(lum);
+        data[idx] = c;
+        data[idx + 1] = c;
+        data[idx + 2] = clampByte(c + 7);
+        data[idx + 3] = 255;
+      }
+    }
+  }
+
+  return data;
+}
+
+/**
+ * Generates a 256x256 RGBA pixel buffer for the Swordsman's Gear (Arming Sword & Heater Shield):
+ * - Left half (x = 0..127): Steel arming sword (double-edged blade with fuller, brass crossguard, leather grip, pommel).
+ * - Right half (x = 128..255): Knight's heater shield (outer steel rim with rivets, central brass/iron boss, heraldic steel face).
+ */
+export function generateSwordsmanGearPixels(): Uint8Array {
+  const size = HUMANOID_TEXTURE_SIZE;
+  const data = new Uint8Array(size * size * 4);
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const idx = (y * size + x) * 4;
+      const n = fbm(x, y, 7, 741);
+      const fine = hash2D(x, y, 743);
+
+      if (x < 128) {
+        // Arming Sword (center at x = 64)
+        const dx = Math.abs(x - 64);
+
+        if (y > 60) {
+          // Double-edged steel blade
+          let lum = 210 + (n - 0.5) * 24;
+          if (dx <= 2) {
+            lum = 90 + (fine - 0.5) * 14; // central fuller groove
+          } else if (dx <= 18) {
+            lum = 215 + (1 - dx / 18) * 25; // polished steel blade face
+          } else if (dx <= 24) {
+            lum = 245; // razor edge bevel
+          } else {
+            lum = 30; // background outside blade
+          }
+
+          const c = clampByte(lum);
+          data[idx] = c;
+          data[idx + 1] = c;
+          data[idx + 2] = clampByte(c + 7);
+        } else if (y >= 48) {
+          // Brass crossguard at y = 48..60, dx <= 42
+          if (dx <= 42) {
+            data[idx] = 228;
+            data[idx + 1] = 188;
+            data[idx + 2] = 78;
+          } else {
+            data[idx] = 30;
+            data[idx + 1] = 30;
+            data[idx + 2] = 34;
+          }
+        } else if (y >= 16) {
+          // Leather-wrapped grip at y = 16..47, dx <= 8
+          if (dx <= 8) {
+            const spiral = (y % 6 < 2) ? -28 : 20;
+            const gripLum = 68 + spiral;
+            data[idx] = clampByte(gripLum + 18);
+            data[idx + 1] = clampByte(gripLum + 6);
+            data[idx + 2] = clampByte(gripLum - 12);
+          } else {
+            data[idx] = 30;
+            data[idx + 1] = 30;
+            data[idx + 2] = 34;
+          }
+        } else {
+          // Steel wheel/disc pommel at y < 16, center at (64, 8)
+          const dist = Math.hypot(x - 64, y - 8);
+          if (dist <= 12) {
+            const dome = (1 - dist / 12) * 55;
+            const c = clampByte(185 + dome + (n - 0.5) * 20);
+            data[idx] = c;
+            data[idx + 1] = c;
+            data[idx + 2] = clampByte(c + 7);
+          } else {
+            data[idx] = 30;
+            data[idx + 1] = 30;
+            data[idx + 2] = 34;
+          }
+        }
+        data[idx + 3] = 255;
+      } else {
+        // Heater Shield (center at (192, 120))
+        const cx = 192;
+        const cy = 120;
+        const dist = Math.hypot(x - cx, y - cy);
+
+        if (dist <= 26) {
+          // Central shield boss (dome)
+          const dome = (1 - dist / 26) * 60;
+          const c = clampByte(195 + dome + (n - 0.5) * 24);
+          data[idx] = c;
+          data[idx + 1] = c;
+          data[idx + 2] = clampByte(c + 8);
+        } else if (dist > 102 && dist <= 124) {
+          // Steel outer rim band with brass rivets
+          const rivetAngle = (Math.atan2(y - cy, x - cx) * 8) % 1.0;
+          const isRivet = Math.abs(rivetAngle - 0.5) < 0.16;
+          if (isRivet) {
+            data[idx] = 230;
+            data[idx + 1] = 190;
+            data[idx + 2] = 80;
+          } else {
+            const c = clampByte(175 + (n - 0.5) * 25);
+            data[idx] = c;
+            data[idx + 1] = c;
+            data[idx + 2] = clampByte(c + 6);
+          }
+        } else {
+          // Painted steel heater face with scratches & specular sheen
+          const scratch = (fine < 0.05) ? -45 : 0;
+          const lum = 205 + (n - 0.5) * 32 + scratch;
+          const c = clampByte(lum);
+          data[idx] = c;
+          data[idx + 1] = clampByte(c - 4);
+          data[idx + 2] = clampByte(c + 8);
+        }
+        data[idx + 3] = 255;
+      }
+    }
+  }
+
+  return data;
+}
+
+/**
+ * Generates a 256x256 RGBA pixel buffer for the Healer's gear:
+ * - Upper Half (y = 0..127): Simple wooden buckler shield with oak planks, circular iron rim, and central iron boss.
+ * - Lower Left (y = 128..255, x = 0..127): Remedy knife with polished steel blade, brass guard/bolster, and wrapped leather grip.
+ * - Lower Right (y = 128..255, x = 128..255): Stitched leather remedies satchel with shoulder strap, bronze buckle, and medical cross emblem.
+ */
+export function generateHealerGearPixels(): Uint8Array {
+  const size = HUMANOID_TEXTURE_SIZE;
+  const data = new Uint8Array(size * size * 4);
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const idx = (y * size + x) * 4;
+      const n = hash2D(x, y, 777);
+      const fine = hash2D(x * 2, y * 2, 888);
+
+      if (y < 128) {
+        // --- 1. SIMPLE WOODEN BUCKLER SHIELD (y = 0..127) ---
+        // Center of buckler at (128, 64)
+        const dx = x - 128;
+        const dy = y - 64;
+        const dist = Math.hypot(dx, dy);
+
+        if (dist > 56) {
+          // Iron rim around outer circumference
+          const rimLum = 125 + (n - 0.5) * 35;
+          const isStud = Math.abs(dist - 60) <= 2.2 && (Math.atan2(dy, dx) * 6) % 1 > 0.75;
+          if (isStud) {
+            data[idx] = 195;
+            data[idx + 1] = 175;
+            data[idx + 2] = 135;
+          } else {
+            data[idx] = clampByte(rimLum);
+            data[idx + 1] = clampByte(rimLum + 2);
+            data[idx + 2] = clampByte(rimLum + 6);
+          }
+        } else if (dist < 18) {
+          // Central iron shield boss
+          const bossLum = 145 + (18 - dist) * 3.5 + (fine - 0.5) * 25;
+          data[idx] = clampByte(bossLum);
+          data[idx + 1] = clampByte(bossLum + 4);
+          data[idx + 2] = clampByte(bossLum + 8);
+        } else {
+          // Aged oak wood planks (vertical grain)
+          const seam = Math.abs((x - 72) % 18) <= 1 ? -40 : 0;
+          const grain = Math.sin(y * 0.45 + (x % 18) * 0.8) * 12;
+          const woodR = 142 + (n - 0.5) * 28 + grain + seam;
+          const woodG = 96 + (n - 0.5) * 22 + grain * 0.8 + seam;
+          const woodB = 54 + (n - 0.5) * 16 + grain * 0.6 + seam;
+          data[idx] = clampByte(woodR);
+          data[idx + 1] = clampByte(woodG);
+          data[idx + 2] = clampByte(woodB);
+        }
+      } else if (x < 128) {
+        // --- 2. REMEDY KNIFE / DAGGER (y = 128..255, x = 0..127) ---
+        if (y < 192) {
+          // Knife blade: forged surgical/herb steel with bevel edge
+          const edgeDist = Math.abs(x - 64);
+          const bevel = edgeDist < 12 ? 30 : -20;
+          const steelLum = 185 + bevel + (n - 0.5) * 25;
+          data[idx] = clampByte(steelLum);
+          data[idx + 1] = clampByte(steelLum + 3);
+          data[idx + 2] = clampByte(steelLum + 7);
+        } else if (y < 206) {
+          // Brass bolster & guard
+          const brassLum = 180 + (fine - 0.5) * 30;
+          data[idx] = clampByte(brassLum + 35);
+          data[idx + 1] = clampByte(brassLum + 10);
+          data[idx + 2] = clampByte(brassLum - 70);
+        } else {
+          // Wrapped dark leather / cord grip
+          const cord = Math.sin(y * 1.2) * 25;
+          const gripR = 68 + cord + (n - 0.5) * 15;
+          const gripG = 46 + cord * 0.8 + (n - 0.5) * 12;
+          const gripB = 30 + cord * 0.6 + (n - 0.5) * 10;
+          data[idx] = clampByte(gripR);
+          data[idx + 1] = clampByte(gripG);
+          data[idx + 2] = clampByte(gripB);
+        }
+      } else {
+        // --- 3. REMEDIES SATCHEL (y = 128..255, x = 128..255) ---
+        const relX = x - 128;
+        const relY = y - 128;
+        const leatherR = 124 + (n - 0.5) * 24;
+        const leatherG = 82 + (n - 0.5) * 18;
+        const leatherB = 48 + (n - 0.5) * 14;
+
+        // Medical cross emblem on satchel flap
+        const inCrossV = Math.abs(relX - 64) <= 6 && Math.abs(relY - 64) <= 20;
+        const inCrossH = Math.abs(relX - 64) <= 20 && Math.abs(relY - 64) <= 6;
+
+        if (inCrossV || inCrossH) {
+          data[idx] = 220;
+          data[idx + 1] = 48;
+          data[idx + 2] = 48;
+        } else if (relY > 20 && relY < 32 && Math.abs(relX - 64) < 14) {
+          data[idx] = 205;
+          data[idx + 1] = 170;
+          data[idx + 2] = 75;
+        } else if (relX < 8 || relX > 120 || relY < 8 || relY > 120) {
+          const stitch = (relX + relY) % 6 < 3 ? 45 : -35;
+          data[idx] = clampByte(leatherR + stitch);
+          data[idx + 1] = clampByte(leatherG + stitch);
+          data[idx + 2] = clampByte(leatherB + stitch);
+        } else {
+          data[idx] = clampByte(leatherR);
+          data[idx + 1] = clampByte(leatherG);
+          data[idx + 2] = clampByte(leatherB);
+        }
+      }
+
+      data[idx + 3] = 255;
+    }
+  }
+
+  return data;
+}
+
+// ==========================================
 // MATERIAL & TEXTURE CACHES
 // ==========================================
 
@@ -918,6 +1408,18 @@ export function getHumanoidPartTexture(partKey: string): THREE.DataTexture {
         break;
       case 'spearman_gear':
         pixels = generateSpearmanGearPixels();
+        break;
+      case 'swordsman_helmet':
+        pixels = generateSwordsmanHelmetPixels();
+        break;
+      case 'swordsman_armor':
+        pixels = generateSwordsmanArmorPixels();
+        break;
+      case 'swordsman_gear':
+        pixels = generateSwordsmanGearPixels();
+        break;
+      case 'healer_gear':
+        pixels = generateHealerGearPixels();
         break;
       default:
         pixels = generatePeasantClothPixels();
@@ -1018,6 +1520,19 @@ export function applyHumanoidUVMapping(
     | 'spearman_leg'
     | 'spearman_spear'
     | 'spearman_shield'
+    | 'swordsman_head_helmet'
+    | 'swordsman_helmet_part'
+    | 'swordsman_torso'
+    | 'swordsman_belt'
+    | 'swordsman_pauldron'
+    | 'swordsman_gauntlet'
+    | 'swordsman_arm'
+    | 'swordsman_leg'
+    | 'swordsman_sword'
+    | 'swordsman_shield'
+    | 'healer_knife'
+    | 'healer_shield'
+    | 'healer_satchel'
     | 'humanoid_hand'
 ): void {
   const posAttr = geometry.getAttribute('position');
@@ -1202,6 +1717,82 @@ export function applyHumanoidUVMapping(
         // Planar projection along local shield face
         u = 0.52 + ((x - minX) / spanX) * 0.46;
         v = 0.02 + ny * 0.96;
+        break;
+      }
+
+      // Swordsman
+      case 'swordsman_head_helmet': {
+        const theta = Math.atan2(z, x);
+        u = 0.5 + theta / (2 * Math.PI);
+        v = 0.04 + ny * 0.92;
+        break;
+      }
+      case 'swordsman_helmet_part': {
+        const theta = Math.atan2(z, x);
+        u = 0.5 + theta / (2 * Math.PI);
+        v = 0.35 + ny * 0.55;
+        break;
+      }
+      case 'swordsman_torso': {
+        const theta = Math.atan2(z, x);
+        u = 0.5 + theta / (2 * Math.PI);
+        v = 0.45 + ny * 0.52;
+        break;
+      }
+      case 'swordsman_belt': {
+        const theta = Math.atan2(z, x);
+        u = 0.5 + theta / (2 * Math.PI);
+        v = 0.35 + ny * 0.12;
+        break;
+      }
+      case 'swordsman_pauldron': {
+        const theta = Math.atan2(z, x);
+        u = 0.5 + theta / (2 * Math.PI);
+        v = 0.50 + ny * 0.45;
+        break;
+      }
+      case 'swordsman_gauntlet': {
+        u = 0.25 + ((x - minX) / spanX) * 0.50;
+        v = 0.05 + ny * 0.25;
+        break;
+      }
+      case 'swordsman_arm': {
+        const theta = Math.atan2(z, x);
+        u = 0.5 + theta / (2 * Math.PI);
+        v = 0.02 + ny * 0.34;
+        break;
+      }
+      case 'swordsman_leg': {
+        const theta = Math.atan2(z, x);
+        u = 0.5 + theta / (2 * Math.PI);
+        v = 0.02 + ny * 0.38;
+        break;
+      }
+      case 'swordsman_sword': {
+        const theta = Math.atan2(z, x);
+        u = 0.24 + (theta / (2 * Math.PI)) * 0.44;
+        v = 0.02 + ny * 0.96;
+        break;
+      }
+      case 'swordsman_shield': {
+        u = 0.52 + ((x - minX) / spanX) * 0.46;
+        v = 0.02 + ny * 0.96;
+        break;
+      }
+      case 'healer_knife': {
+        const theta = Math.atan2(z, x);
+        u = 0.05 + (theta / (2 * Math.PI) + 0.5) * 0.40;
+        v = 0.52 + ny * 0.44;
+        break;
+      }
+      case 'healer_shield': {
+        u = 0.04 + ((x - minX) / spanX) * 0.92;
+        v = 0.04 + ny * 0.44;
+        break;
+      }
+      case 'healer_satchel': {
+        u = 0.52 + ((x - minX) / spanX) * 0.44;
+        v = 0.52 + ny * 0.44;
         break;
       }
 

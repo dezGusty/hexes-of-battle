@@ -23,6 +23,8 @@ export interface HexBoard3DOptions {
   coordsStrokeColor?: string;
   coordsStrokeWidth?: number;
   getTerrain?: (x: number, y: number) => TerrainType;
+  blendTransitionWidth?: number;
+  blendNoiseStrength?: number;
 }
 
 export class HexBoard3D {
@@ -62,6 +64,10 @@ export class HexBoard3D {
   private getTerrain?: (x: number, y: number) => TerrainType;
   public freezePreviews: boolean = false;
 
+  private blendTransitionWidth: number = 0.38;
+  private blendNoiseStrength: number = 0.08;
+  private blendedTileMaterials: THREE.Material[] = [];
+
   private hillClusters: Map<string, number> = new Map();
   private clusterElevations: Map<number, number> = new Map();
   private hillMesaRadii: Map<string, number> = new Map();
@@ -90,6 +96,8 @@ export class HexBoard3D {
     if (options?.coordsStrokeColor !== undefined) this.coordsStrokeColor = options.coordsStrokeColor;
     if (options?.coordsStrokeWidth !== undefined) this.coordsStrokeWidth = options.coordsStrokeWidth;
     if (options?.getTerrain !== undefined) this.getTerrain = options.getTerrain;
+    if (options?.blendTransitionWidth !== undefined) this.blendTransitionWidth = options.blendTransitionWidth;
+    if (options?.blendNoiseStrength !== undefined) this.blendNoiseStrength = options.blendNoiseStrength;
 
     this.initMaterials();
 
@@ -166,6 +174,8 @@ export class HexBoard3D {
         root.traverse((child) => {
           if ((child as THREE.Mesh).isMesh) {
             const mesh = child as THREE.Mesh;
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
             const isTrunk = mesh.name.toLowerCase().includes('trunk');
             if (!mesh.geometry.getAttribute('uv')) {
               applyTreeUVMapping(
@@ -263,6 +273,10 @@ export class HexBoard3D {
   }
 
   public rebuildBoard(): void {
+    // Clean up dynamic blended materials
+    this.blendedTileMaterials.forEach((m) => m.dispose());
+    this.blendedTileMaterials = [];
+
     // Remove existing tile meshes
     this.tileMeshes.forEach((m) => {
       this.group.remove(m);
@@ -311,29 +325,225 @@ export class HexBoard3D {
     return closestCoords;
   }
 
-  private getTileMaterials(terrain: TerrainType): THREE.Material[] {
+  public getTerrainAt(x: number, y: number): TerrainType {
+    if (this.getTerrain) {
+      return this.getTerrain(x, y);
+    }
+    if (typeof (this.hexMap as any).getTerrain === 'function') {
+      return (this.hexMap as any).getTerrain(x, y);
+    }
+    return TerrainType.PLAIN;
+  }
+
+  private getTileMaterials(terrain: TerrainType, x?: number, y?: number): THREE.Material[] {
     let topMat = this.materials['grass'];
     if (terrain === TerrainType.WATER) {
       topMat = this.materials['water'];
-    } else if (terrain === TerrainType.FOREST) {
-      topMat = this.materials['forest'] || this.materials['grass'];
     } else if (terrain === TerrainType.HILL) {
       topMat = this.materials['dirt'];
-    } else if (terrain === TerrainType.SWAMP) {
-      topMat = this.materials['swamp'];
+    } else if (terrain === TerrainType.FOREST || terrain === TerrainType.SWAMP) {
+      topMat = this.getBlendedTileMaterial(terrain, x, y);
     }
 
     return [this.sideMaterial, topMat, this.sideMaterial];
   }
 
-  public isHill(x: number, y: number): boolean {
-    let terrain: TerrainType = TerrainType.PLAIN;
-    if (this.getTerrain) {
-      terrain = this.getTerrain(x, y);
-    } else if (typeof (this.hexMap as any).getTerrain === 'function') {
-      terrain = (this.hexMap as any).getTerrain(x, y);
+  private getBlendedTileMaterial(terrain: TerrainType, x?: number, y?: number): THREE.Material {
+    const terrainKey = terrain === TerrainType.FOREST ? 'forest' : 'swamp';
+    const fallbackMat = this.materials[terrainKey] || this.materials['grass'];
+
+    if (x === undefined || y === undefined) {
+      return fallbackMat;
     }
-    return terrain === TerrainType.HILL;
+
+    const edgeDirections: HexDirection[] = [
+      HexDirection.EAST,       // Edge 0
+      HexDirection.SOUTHEAST,  // Edge 1
+      HexDirection.SOUTHWEST,  // Edge 2
+      HexDirection.WEST,       // Edge 3
+      HexDirection.NORTHWEST,  // Edge 4
+      HexDirection.NORTHEAST,  // Edge 5
+    ];
+
+    const edgeTransitions: number[] = [0, 0, 0, 0, 0, 0];
+    let hasTransition = false;
+
+    for (let k = 0; k < 6; k++) {
+      const dir = edgeDirections[k];
+      const neighborCoord = HexMapHelpers.directionCoordsMap[dir]?.({ x, y });
+      if (
+        neighborCoord &&
+        neighborCoord.x >= 0 &&
+        neighborCoord.x < this.hexMap.width &&
+        neighborCoord.y >= 0 &&
+        neighborCoord.y < this.hexMap.height
+      ) {
+        const neighborTerrain = this.getTerrainAt(neighborCoord.x, neighborCoord.y);
+        // For forest and swamp hexagons, blend towards neighbouring grass/plain hexes
+        if (neighborTerrain === TerrainType.PLAIN) {
+          edgeTransitions[k] = 1.0;
+          hasTransition = true;
+        }
+      }
+    }
+
+    if (!hasTransition) {
+      return fallbackMat;
+    }
+
+    return this.createBlendedTerrainMaterial(terrain, x, y, edgeTransitions);
+  }
+
+  private createBlendedTerrainMaterial(
+    terrain: TerrainType,
+    x: number,
+    y: number,
+    edgeTransitions: number[]
+  ): THREE.MeshStandardMaterial {
+    const terrainKey = terrain === TerrainType.FOREST ? 'forest' : 'swamp';
+    const overlayMat = (this.materials[terrainKey] as THREE.MeshStandardMaterial) || null;
+    const grassMat = (this.materials['grass'] as THREE.MeshStandardMaterial) || null;
+
+    const baseGrassColor = grassMat ? grassMat.color : new THREE.Color(0x3d7a42);
+    const baseGrassMap = grassMat?.map || null;
+
+    const overlayColor = overlayMat
+      ? overlayMat.color.clone()
+      : new THREE.Color(terrain === TerrainType.FOREST ? 0x2e5c33 : 0x4a5438);
+    const overlayRoughness = overlayMat ? overlayMat.roughness : 0.85;
+    const overlayMetalness = overlayMat ? overlayMat.metalness : (terrain === TerrainType.FOREST ? 0.1 : 0.05);
+    const overlayMap = overlayMat?.map || null;
+
+    const blendedMat = new THREE.MeshStandardMaterial({
+      color: overlayColor,
+      roughness: overlayRoughness,
+      metalness: overlayMetalness,
+      map: overlayMap,
+    });
+
+    const pos = this.hexToWorld(x, y);
+
+    blendedMat.userData = {
+      isBlendedTerrain: true,
+      terrainType: terrain,
+      edgeTransitions: [...edgeTransitions],
+      hexCoords: { x, y },
+    };
+
+    blendedMat.customProgramCacheKey = () => `HexTerrainBlend_${terrainKey}`;
+
+    blendedMat.onBeforeCompile = (shader) => {
+      shader.uniforms.uBaseColor = { value: baseGrassColor };
+      shader.uniforms.uBaseMap = { value: baseGrassMap };
+      shader.uniforms.uHasBaseMap = { value: baseGrassMap ? 1.0 : 0.0 };
+      shader.uniforms.uTileCenter = { value: new THREE.Vector2(pos.x, pos.z) };
+      shader.uniforms.uHexRadius = { value: this.hexRadius };
+      shader.uniforms.uEdgeTransitions = { value: [...edgeTransitions] };
+      shader.uniforms.uTransitionWidth = { value: this.blendTransitionWidth };
+      shader.uniforms.uNoiseStrength = { value: this.blendNoiseStrength };
+
+      blendedMat.userData.shader = shader;
+
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <common>',
+        `#include <common>
+varying vec2 vTerrainWorldXZ;`
+      );
+
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+vTerrainWorldXZ = (modelMatrix * vec4(position, 1.0)).xz;`
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <common>',
+        `#include <common>
+varying vec2 vTerrainWorldXZ;
+uniform vec3 uBaseColor;
+uniform sampler2D uBaseMap;
+uniform float uHasBaseMap;
+uniform vec2 uTileCenter;
+uniform float uHexRadius;
+uniform float uEdgeTransitions[6];
+uniform float uTransitionWidth;
+uniform float uNoiseStrength;
+
+float terrainEdgeHash(vec2 p) {
+  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+}
+
+float terrainEdgeNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  float a = terrainEdgeHash(i);
+  float b = terrainEdgeHash(i + vec2(1.0, 0.0));
+  float c = terrainEdgeHash(i + vec2(0.0, 1.0));
+  float d = terrainEdgeHash(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}`
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+{
+  vec2 localPos = vTerrainWorldXZ - uTileCenter;
+  float apothem = uHexRadius * 0.86602540378;
+
+  // Organic noise perturbation along hex edges
+  float n = (terrainEdgeNoise(vTerrainWorldXZ * 4.0) - 0.5) * uNoiseStrength;
+
+  // 6 edge outward normals for pointy-topped hex:
+  // Edge 0: East, 1: Southeast, 2: Southwest, 3: West, 4: Northwest, 5: Northeast
+  vec2 edgeNorms[6];
+  edgeNorms[0] = vec2(1.0, 0.0);
+  edgeNorms[1] = vec2(0.5, 0.8660254);
+  edgeNorms[2] = vec2(-0.5, 0.8660254);
+  edgeNorms[3] = vec2(-1.0, 0.0);
+  edgeNorms[4] = vec2(-0.5, -0.8660254);
+  edgeNorms[5] = vec2(0.5, -0.8660254);
+
+  float overlayAlpha = 1.0;
+  for (int k = 0; k < 6; k++) {
+    if (uEdgeTransitions[k] > 0.01) {
+      float proj = dot(localPos, edgeNorms[k]);
+      float normDist = (proj / apothem) + n;
+      float t = smoothstep(1.0 - uTransitionWidth, 1.0, normDist);
+      overlayAlpha *= (1.0 - t * uEdgeTransitions[k]);
+    }
+  }
+
+  vec4 baseTerrainColor = vec4(uBaseColor, 1.0);
+  #ifdef USE_MAP
+    if (uHasBaseMap > 0.5) {
+      vec4 baseTexColor = texture2D(uBaseMap, vMapUv);
+      baseTerrainColor *= baseTexColor;
+    }
+  #endif
+
+  diffuseColor = mix(baseTerrainColor, diffuseColor, overlayAlpha);
+}`
+      );
+    };
+
+    this.blendedTileMaterials.push(blendedMat);
+    return blendedMat;
+  }
+
+  public getTileEdgeTransitions(x: number, y: number): number[] | null {
+    const mesh = this.tileMeshes.get(`${x},${y}`);
+    return mesh?.userData?.edgeTransitions ?? null;
+  }
+
+  public isTileBlended(x: number, y: number): boolean {
+    const transitions = this.getTileEdgeTransitions(x, y);
+    return transitions ? transitions.some((w: number) => w > 0) : false;
+  }
+
+  public isHill(x: number, y: number): boolean {
+    return this.getTerrainAt(x, y) === TerrainType.HILL;
   }
 
   public getHillMesaRadius(x: number, y: number): number {
@@ -618,15 +828,10 @@ export class HexBoard3D {
 
     for (let x = 0; x < this.hexMap.width; x++) {
       for (let y = 0; y < this.hexMap.height; y++) {
-        let terrain: TerrainType = TerrainType.PLAIN;
-        if (this.getTerrain) {
-          terrain = this.getTerrain(x, y);
-        } else if (typeof (this.hexMap as any).getTerrain === 'function') {
-          terrain = (this.hexMap as any).getTerrain(x, y);
-        }
-
-        const tileMaterials = this.getTileMaterials(terrain);
+        const terrain = this.getTerrainAt(x, y);
+        const tileMaterials = this.getTileMaterials(terrain, x, y);
         const pos = this.hexToWorld(x, y);
+        const edgeTransitions = (tileMaterials[1] as any)?.userData?.edgeTransitions ?? [0, 0, 0, 0, 0, 0];
 
         let mesh: THREE.Mesh;
         if (terrain === TerrainType.HILL) {
@@ -634,7 +839,7 @@ export class HexBoard3D {
           mesh = new THREE.Mesh(hillGeometry, tileMaterials);
           mesh.position.set(pos.x, pos.y, pos.z);
           mesh.receiveShadow = true;
-          mesh.userData = { hexX: x, hexY: y, isHexTile: true };
+          mesh.userData = { hexX: x, hexY: y, isHexTile: true, terrainType: terrain, edgeTransitions };
 
           // Crease wireframe outlining the mesa plateau rim
           const edges = new THREE.EdgesGeometry(hillGeometry, 25);
@@ -653,7 +858,7 @@ export class HexBoard3D {
           mesh = new THREE.Mesh(hexGeometry, tileMaterials);
           mesh.position.set(pos.x, pos.y + elevation - this.hexHeight * 0.5, pos.z);
           mesh.receiveShadow = true;
-          mesh.userData = { hexX: x, hexY: y, isHexTile: true };
+          mesh.userData = { hexX: x, hexY: y, isHexTile: true, terrainType: terrain, edgeTransitions };
 
           // Subtle edge wireframe sharing geometry and material
           const line = new THREE.LineSegments(sharedHexEdges, sharedEdgeLineMat);
@@ -737,6 +942,10 @@ export class HexBoard3D {
       };
 
       treeObj.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          child.castShadow = true;
+          child.receiveShadow = true;
+        }
         child.updateMatrix();
         child.matrixAutoUpdate = false;
       });
@@ -1450,6 +1659,9 @@ export class HexBoard3D {
   }
 
   public dispose(): void {
+    this.blendedTileMaterials.forEach((m) => m.dispose());
+    this.blendedTileMaterials = [];
+
     this.tileMeshes.forEach((m) => {
       this.group.remove(m);
       m.geometry.dispose();

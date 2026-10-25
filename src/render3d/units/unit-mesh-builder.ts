@@ -85,6 +85,7 @@ export const SUPPORTED_3D_UNIT_KEYS: readonly string[] = [
   'crossbowman',
   'barbarian',
   'slinger',
+  'healer',
 ];
 
 export const IGNORED_3D_UNIT_KEYS: readonly string[] = [
@@ -129,6 +130,9 @@ export function normalizeUnitKey(type: CreatureType | string | number): string {
     case '10':
     case 'slinger':
       return 'slinger';
+    case '11':
+    case 'healer':
+      return 'healer';
     default:
       return raw;
   }
@@ -148,6 +152,7 @@ export const UNIT_GLB_PATHS: Record<string, string> = {
   crossbowman: 'models/units/crossbowman.glb',
   barbarian: 'models/units/barbarian.glb',
   slinger: 'models/units/slinger.glb',
+  healer: 'models/units/healer.glb',
 };
 
 let sharedWhiteMap: THREE.DataTexture | null = null;
@@ -422,6 +427,52 @@ function prepareHumanoidHierarchyBeforeCompaction(
       } else if (mesh.name === 'Shield' || rawName.includes('shield') || rawName.includes('boss')) {
         applyHumanoidUVMapping(mesh.geometry, 'spearman_shield');
       }
+    } else if (unitKey === 'swordsman') {
+      if (mesh.name === 'Head') {
+        applyHumanoidUVMapping(mesh.geometry, 'swordsman_head_helmet');
+        mesh.material = makeMat(0xffffff, 0.38, 0.78);
+      } else if (rawName.includes('helmet') || rawName.includes('dome') || rawName.includes('visor') || rawName.includes('cross') || rawName.includes('aventail') || rawName.includes('slit')) {
+        applyHumanoidUVMapping(mesh.geometry, 'swordsman_helmet_part');
+      } else if (mesh.name === 'Torso' || rawName.includes('tabard') || rawName.includes('cuirass') || rawName.includes('fauld')) {
+        applyHumanoidUVMapping(mesh.geometry, 'swordsman_torso');
+      } else if (rawName.includes('belt')) {
+        applyHumanoidUVMapping(mesh.geometry, 'swordsman_belt');
+      } else if (rawName.includes('pauldron')) {
+        applyHumanoidUVMapping(mesh.geometry, 'swordsman_pauldron');
+      } else if (rawName.includes('hand') || rawName.includes('gauntlet')) {
+        applyHumanoidUVMapping(mesh.geometry, 'swordsman_gauntlet');
+      } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R') {
+        applyHumanoidUVMapping(mesh.geometry, 'swordsman_arm');
+      } else if (mesh.name === 'Leg_L' || mesh.name === 'Leg_R' || rawName.includes('boot') || rawName.includes('poleyn') || rawName.includes('greave')) {
+        applyHumanoidUVMapping(mesh.geometry, 'swordsman_leg');
+      } else if (mesh.name === 'Weapon' || rawName.includes('sword') || rawName.includes('blade') || rawName.includes('guard') || rawName.includes('pommel')) {
+        applyHumanoidUVMapping(mesh.geometry, 'swordsman_sword');
+      } else if (mesh.name === 'Shield' || rawName.includes('shield') || rawName.includes('boss')) {
+        applyHumanoidUVMapping(mesh.geometry, 'swordsman_shield');
+      }
+    } else if (unitKey === 'healer') {
+      if (mesh.name === 'Head') {
+        applyHumanoidUVMapping(mesh.geometry, 'peasant_head_face');
+        mesh.material = makeMat(0xffffff, 0.76, 0.05);
+      } else if (rawName.includes('hood') || rawName.includes('coif') || rawName.includes('helmet')) {
+        applyHumanoidUVMapping(mesh.geometry, 'peasant_hood');
+      } else if (mesh.name === 'Torso' || rawName.includes('tabard')) {
+        applyHumanoidUVMapping(mesh.geometry, 'peasant_torso');
+      } else if (rawName.includes('belt')) {
+        applyHumanoidUVMapping(mesh.geometry, 'peasant_belt');
+      } else if (rawName.includes('satchel') || rawName.includes('strap') || rawName.includes('pouch') || rawName.includes('flap') || rawName.includes('vial') || rawName.includes('buckle')) {
+        applyHumanoidUVMapping(mesh.geometry, 'healer_satchel');
+      } else if (rawName.includes('hand')) {
+        applyHumanoidUVMapping(mesh.geometry, 'humanoid_hand');
+      } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R') {
+        applyHumanoidUVMapping(mesh.geometry, 'peasant_arm');
+      } else if (mesh.name === 'Leg_L' || mesh.name === 'Leg_R' || rawName.includes('boot')) {
+        applyHumanoidUVMapping(mesh.geometry, 'peasant_leg');
+      } else if (mesh.name === 'Weapon' || rawName.includes('knife') || rawName.includes('blade') || rawName.includes('guard') || rawName.includes('dagger') || rawName.includes('grip') || rawName.includes('tip')) {
+        applyHumanoidUVMapping(mesh.geometry, 'healer_knife');
+      } else if (mesh.name === 'Shield' || rawName.includes('shield') || rawName.includes('buckler') || rawName.includes('boss') || rawName.includes('rim')) {
+        applyHumanoidUVMapping(mesh.geometry, 'healer_shield');
+      }
     }
   });
 }
@@ -477,6 +528,37 @@ function getUnitLimbMaterial(
         case 'Leg_R':
         default:
           return getHumanoidPartMaterial('spearman_armor', 0.72, 0.20);
+      }
+    case 'swordsman':
+      switch (limbName) {
+        case 'Head':
+          return getHumanoidPartMaterial('swordsman_helmet', 0.38, 0.78);
+        case 'Weapon':
+        case 'Shield':
+          return getHumanoidPartMaterial('swordsman_gear', 0.42, 0.72);
+        case 'Torso':
+        case 'Arm_L':
+        case 'Arm_R':
+        case 'Leg_L':
+        case 'Leg_R':
+        default:
+          return getHumanoidPartMaterial('swordsman_armor', 0.45, 0.65);
+      }
+    case 'healer':
+      switch (limbName) {
+        case 'Head':
+          return getHumanoidPartMaterial('peasant_face', 0.76, 0.05);
+        case 'Weapon':
+          return getHumanoidPartMaterial('healer_gear', 0.45, 0.70);
+        case 'Shield':
+          return getHumanoidPartMaterial('healer_gear', 0.58, 0.35);
+        case 'Torso':
+        case 'Arm_L':
+        case 'Arm_R':
+        case 'Leg_L':
+        case 'Leg_R':
+        default:
+          return getHumanoidPartMaterial('peasant_cloth', 0.86, 0.02);
       }
     default:
       return getSharedUnitOpaqueMaterial();
@@ -698,7 +780,9 @@ export function compactArticulatedUnitHierarchy(
   const isHumanoidTextured =
     effectiveUnitKey === 'peasant' ||
     effectiveUnitKey === 'peasant_archer' ||
-    effectiveUnitKey === 'spearman';
+    effectiveUnitKey === 'spearman' ||
+    effectiveUnitKey === 'swordsman' ||
+    effectiveUnitKey === 'healer';
 
   if (isBarbarian) {
     prepareBarbarianHierarchyBeforeCompaction(rootMesh);
@@ -979,8 +1063,10 @@ export function buildArticulatedUnit3DMesh(
   torsoMesh.add(beltMesh);
 
   // 2. Head (pivot at y = 0.91)
-  const headGeo = new THREE.SphereGeometry(0.125, 20, 14);
-  const headMesh = new THREE.Mesh(headGeo, matSkin);
+  const headGeo = unitKey === 'swordsman'
+    ? new THREE.CylinderGeometry(0.138, 0.144, 0.22, 18)
+    : new THREE.SphereGeometry(0.125, 20, 14);
+  const headMesh = new THREE.Mesh(headGeo, unitKey === 'swordsman' ? matSteel : matSkin);
   headMesh.name = 'Head';
   headMesh.position.set(0, 0.91, 0);
   torsoMesh.add(headMesh);
@@ -1014,15 +1100,17 @@ export function buildArticulatedUnit3DMesh(
     armMesh.position.set(0, 0.74, zSign * 0.195);
 
     if (hasPauldrons) {
-      const pauldronGeo = new THREE.SphereGeometry(0.075, 16, 12);
+      const pauldronGeo = new THREE.SphereGeometry(unitKey === 'swordsman' ? 0.088 : 0.075, 16, 12);
       const pauldronMesh = new THREE.Mesh(pauldronGeo, matSteel);
       pauldronMesh.name = `${armName}_Pauldron`;
       armMesh.add(pauldronMesh);
     }
 
-    const handGeo = new THREE.SphereGeometry(0.045, 16, 12);
+    const handGeo = unitKey === 'swordsman'
+      ? new THREE.BoxGeometry(0.075, 0.085, 0.075)
+      : new THREE.SphereGeometry(0.045, 16, 12);
     handGeo.translate(0.04, -0.26, 0);
-    const handMesh = new THREE.Mesh(handGeo, matSkin);
+    const handMesh = new THREE.Mesh(handGeo, unitKey === 'swordsman' ? matSteel : matSkin);
     handMesh.name = `${armName}_Hand`;
     armMesh.add(handMesh);
 
@@ -1096,37 +1184,94 @@ export function buildArticulatedUnit3DMesh(
     }
 
     case 'swordsman': {
-      // Steel Bascinet / Nasal Helmet
-      const helmGeo = new THREE.SphereGeometry(0.142, 20, 14);
-      helmGeo.translate(0, 0.03, 0);
-      const helmMesh = new THREE.Mesh(helmGeo, matSteel);
-      helmMesh.name = 'Helmet';
-      headMesh.add(helmMesh);
+      // Full Helmet Armor (Sugarloaf / Great Helm with ocular visor slits, brass cross, & aventail)
+      // 1. Sugarloaf pointed dome cap on top
+      const domeGeo = new THREE.ConeGeometry(0.142, 0.16, 18);
+      domeGeo.translate(0, 0.12, 0);
+      smoothGeometryNormals(domeGeo);
+      const domeMesh = new THREE.Mesh(domeGeo, matSteel);
+      domeMesh.name = 'Helmet_Dome';
+      headMesh.add(domeMesh);
 
-      const nasalGeo = new THREE.BoxGeometry(0.025, 0.10, 0.022);
-      nasalGeo.translate(0.138, 0.0, 0);
-      helmMesh.add(new THREE.Mesh(nasalGeo, matBrass));
+      // 2. Main cylindrical helmet body enclosing entire head/face
+      const bucketGeo = new THREE.CylinderGeometry(0.144, 0.148, 0.24, 18);
+      bucketGeo.translate(0, -0.02, 0);
+      smoothGeometryNormals(bucketGeo);
+      const bucketMesh = new THREE.Mesh(bucketGeo, matSteel);
+      bucketMesh.name = 'Helmet';
+      headMesh.add(bucketMesh);
+
+      // 3. Protruding visor ocular brow plate
+      const visorGeo = new THREE.BoxGeometry(0.045, 0.045, 0.24);
+      visorGeo.translate(0.130, 0.025, 0);
+      const visorMesh = new THREE.Mesh(visorGeo, matSteel);
+      visorMesh.name = 'Helmet_Visor';
+      headMesh.add(visorMesh);
+
+      // 4. Narrow horizontal eye slits (deep dark ocular opening)
+      const slitGeo = new THREE.BoxGeometry(0.015, 0.016, 0.20);
+      slitGeo.translate(0.148, 0.025, 0);
+      const slitMesh = new THREE.Mesh(slitGeo, matDarkLeather);
+      slitMesh.name = 'Helmet_Slit';
+      headMesh.add(slitMesh);
+
+      // 5. Reinforcing brass cross / nasal strip along front face
+      const vertCrossGeo = new THREE.BoxGeometry(0.025, 0.22, 0.032);
+      vertCrossGeo.translate(0.140, -0.02, 0);
+      headMesh.add(new THREE.Mesh(vertCrossGeo, matBrass));
+
+      const horizCrossGeo = new THREE.BoxGeometry(0.025, 0.032, 0.22);
+      horizCrossGeo.translate(0.140, 0.025, 0);
+      headMesh.add(new THREE.Mesh(horizCrossGeo, matBrass));
+
+      // 6. Chainmail aventail / coif draping from helmet base over the neck
+      const aventailGeo = new THREE.CylinderGeometry(0.146, 0.180, 0.14, 18);
+      aventailGeo.translate(0, -0.12, 0);
+      smoothGeometryNormals(aventailGeo);
+      const aventailMesh = new THREE.Mesh(aventailGeo, matChainmail);
+      aventailMesh.name = 'Helmet_Aventail';
+      headMesh.add(aventailMesh);
+
+      // 7. Steel breastplate / cuirass overlay on torso
+      const cuirassGeo = new THREE.CylinderGeometry(0.182, 0.155, 0.26, 16);
+      cuirassGeo.translate(0.015, 0.62, 0);
+      smoothGeometryNormals(cuirassGeo);
+      const cuirassMesh = new THREE.Mesh(cuirassGeo, matSteel);
+      cuirassMesh.name = 'Cuirass';
+      torsoMesh.add(cuirassMesh);
+
+      // 8. Articulated steel faulds at waist
+      const fauldGeo = new THREE.CylinderGeometry(0.162, 0.180, 0.10, 16);
+      fauldGeo.translate(0, 0.44, 0);
+      smoothGeometryNormals(fauldGeo);
+      const fauldMesh = new THREE.Mesh(fauldGeo, matSteel);
+      fauldMesh.name = 'Faulds';
+      torsoMesh.add(fauldMesh);
 
       // Heater Shield on Arm_L
-      const shieldGeo = new THREE.BoxGeometry(0.045, 0.38, 0.30);
+      const shieldGeo = new THREE.BoxGeometry(0.045, 0.42, 0.32);
       shieldGeo.translate(0.10, -0.18, -0.09);
       const shieldMesh = new THREE.Mesh(shieldGeo, matTeam);
       shieldMesh.name = 'Shield';
-      const bossGeo = new THREE.SphereGeometry(0.055, 16, 12);
-      bossGeo.translate(0.12, -0.16, -0.10);
+      const bossGeo = new THREE.SphereGeometry(0.058, 16, 12);
+      bossGeo.translate(0.125, -0.16, -0.09);
       shieldMesh.add(new THREE.Mesh(bossGeo, matBrass));
       armL.add(shieldMesh);
 
       // Steel Arming Sword in Arm_R
-      const bladeGeo = new THREE.ConeGeometry(0.032, 0.68, 8);
+      const bladeGeo = new THREE.ConeGeometry(0.035, 0.72, 8);
       bladeGeo.rotateZ(-0.45);
-      bladeGeo.translate(0.24, 0.08, 0);
+      bladeGeo.translate(0.25, 0.10, 0);
       const swordMesh = new THREE.Mesh(bladeGeo, matSteel);
       swordMesh.name = 'Weapon';
 
-      const guardGeo = new THREE.BoxGeometry(0.035, 0.032, 0.20);
-      guardGeo.translate(0.08, -0.18, 0);
+      const guardGeo = new THREE.BoxGeometry(0.038, 0.035, 0.24);
+      guardGeo.translate(0.08, -0.20, 0);
       swordMesh.add(new THREE.Mesh(guardGeo, matBrass));
+
+      const pommelGeo = new THREE.CylinderGeometry(0.035, 0.035, 0.025, 12);
+      pommelGeo.translate(0.02, -0.32, 0);
+      swordMesh.add(new THREE.Mesh(pommelGeo, matSteel));
       armR.add(swordMesh);
       break;
     }
@@ -1269,6 +1414,95 @@ export function buildArticulatedUnit3DMesh(
       armR.add(slingMesh);
       break;
     }
+
+    case 'healer': {
+      // 1. Cloth Coif / Physician Cowl on Head
+      const coifGeo = new THREE.SphereGeometry(0.138, 20, 14);
+      coifGeo.translate(-0.01, 0.02, 0);
+      const coifMesh = new THREE.Mesh(coifGeo, matTeam);
+      coifMesh.name = 'Helmet_Coif';
+      headMesh.add(coifMesh);
+
+      // 2. Remedies Satchel at Hip / Torso
+      const satchelPouchGeo = new THREE.BoxGeometry(0.12, 0.14, 0.08);
+      satchelPouchGeo.translate(0.08, 0.40, -0.16);
+      smoothGeometryNormals(satchelPouchGeo);
+      const satchelMesh = new THREE.Mesh(satchelPouchGeo, matLeather);
+      satchelMesh.name = 'Satchel';
+
+      // Satchel flap
+      const flapGeo = new THREE.BoxGeometry(0.125, 0.065, 0.085);
+      flapGeo.translate(0.08, 0.44, -0.16);
+      satchelMesh.add(new THREE.Mesh(flapGeo, matDarkLeather));
+
+      // Bronze buckle
+      const buckleGeo = new THREE.BoxGeometry(0.035, 0.03, 0.02);
+      buckleGeo.translate(0.145, 0.42, -0.16);
+      satchelMesh.add(new THREE.Mesh(buckleGeo, matBrass));
+
+      // Shoulder strap slung diagonally across torso
+      const strapGeo = new THREE.BoxGeometry(0.028, 0.46, 0.015);
+      strapGeo.rotateZ(0.42);
+      strapGeo.rotateY(0.25);
+      strapGeo.translate(0.09, 0.60, -0.05);
+      satchelMesh.add(new THREE.Mesh(strapGeo, matDarkLeather));
+
+      // Herbal remedy vial in side loop
+      const vialGeo = new THREE.CylinderGeometry(0.018, 0.018, 0.065, 10);
+      vialGeo.translate(0.08, 0.44, -0.10);
+      satchelMesh.add(new THREE.Mesh(vialGeo, makeMat(0x33cc66, 0.25, 0.1)));
+      torsoMesh.add(satchelMesh);
+
+      // 3. Simple Shield (Round Wooden Buckler on Arm_L)
+      const shieldGeo = new THREE.CylinderGeometry(0.18, 0.18, 0.028, 16);
+      shieldGeo.rotateZ(Math.PI * 0.5);
+      shieldGeo.translate(0.09, -0.18, -0.08);
+      smoothGeometryNormals(shieldGeo);
+      const shieldMesh = new THREE.Mesh(shieldGeo, matWood);
+      shieldMesh.name = 'Shield';
+
+      // Iron rim around buckler
+      const rimGeo = new THREE.TorusGeometry(0.18, 0.014, 8, 18);
+      rimGeo.rotateY(Math.PI * 0.5);
+      rimGeo.translate(0.09, -0.18, -0.08);
+      shieldMesh.add(new THREE.Mesh(rimGeo, matIron));
+
+      // Iron boss in center of shield
+      const bossGeo = new THREE.SphereGeometry(0.05, 14, 10);
+      bossGeo.translate(0.105, -0.18, -0.08);
+      shieldMesh.add(new THREE.Mesh(bossGeo, matIron));
+      armL.add(shieldMesh);
+
+      // 4. Remedy Knife / Dagger in Arm_R
+      // Steel blade
+      const bladeGeo = new THREE.BoxGeometry(0.015, 0.22, 0.038);
+      bladeGeo.rotateZ(-0.45);
+      bladeGeo.translate(0.12, -0.10, 0);
+      smoothGeometryNormals(bladeGeo);
+      const knifeMesh = new THREE.Mesh(bladeGeo, matSteel);
+      knifeMesh.name = 'Weapon';
+
+      // Blade tip
+      const tipGeo = new THREE.ConeGeometry(0.022, 0.08, 6);
+      tipGeo.rotateZ(-0.45);
+      tipGeo.translate(0.19, -0.03, 0);
+      smoothGeometryNormals(tipGeo);
+      knifeMesh.add(new THREE.Mesh(tipGeo, matSteel));
+
+      // Brass bolster / guard
+      const guardGeo = new THREE.BoxGeometry(0.028, 0.025, 0.075);
+      guardGeo.rotateZ(-0.45);
+      guardGeo.translate(0.05, -0.17, 0);
+      knifeMesh.add(new THREE.Mesh(guardGeo, matBrass));
+
+      // Wrapped grip
+      const gripGeo = new THREE.CylinderGeometry(0.02, 0.022, 0.10, 10);
+      gripGeo.rotateZ(-0.45);
+      gripGeo.translate(0.015, -0.21, 0);
+      knifeMesh.add(new THREE.Mesh(gripGeo, matDarkLeather));
+      armR.add(knifeMesh);
+      break;
+    }
   }
 
   compactArticulatedUnitHierarchy(torsoMesh, unitKey);
@@ -1343,12 +1577,12 @@ export function buildLowPolyForestTreeMesh(
       const trunkMesh = new THREE.Mesh(trunkGeo, trunkMat);
       trunkMesh.name = 'Trunk';
       trunkMesh.castShadow = true;
-      trunkMesh.receiveShadow = false;
+      trunkMesh.receiveShadow = true;
       templateGroup.add(trunkMesh);
 
-      const pineDark = makeMat(0x2d6b33, 0.86, 0.0);
-      const pineMid = makeMat(0x3a8540, 0.84, 0.0);
-      const pineLight = makeMat(0x4b994c, 0.82, 0.0);
+      const pineDark = makeMat(0x2d8236, 0.86, 0.0);
+      const pineMid = makeMat(0x3fa548, 0.84, 0.0);
+      const pineLight = makeMat(0x58cb62, 0.82, 0.0);
 
       const tier1Geo = new THREE.ConeGeometry(0.26, 0.34, 12);
       applyTreeUVMapping(tier1Geo, 'pine_foliage');
@@ -1379,11 +1613,11 @@ export function buildLowPolyForestTreeMesh(
       const trunkMesh = new THREE.Mesh(trunkGeo, trunkMat);
       trunkMesh.name = 'Trunk';
       trunkMesh.castShadow = true;
-      trunkMesh.receiveShadow = false;
+      trunkMesh.receiveShadow = true;
       templateGroup.add(trunkMesh);
 
-      const oakMain = makeMat(0x438a39, 0.85, 0.0);
-      const oakAccent = makeMat(0x569e45, 0.82, 0.0);
+      const oakMain = makeMat(0x48b83c, 0.85, 0.0);
+      const oakAccent = makeMat(0x62d454, 0.82, 0.0);
 
       const crownMainGeo = new THREE.IcosahedronGeometry(0.25, 2);
       applyTreeUVMapping(crownMainGeo, 'oak_foliage');

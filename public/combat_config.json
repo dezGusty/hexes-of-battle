@@ -33,6 +33,7 @@
     }
   },
   "stamina": {
+    "minAttackStamina": 2,
     "actionCosts": {
       "moveNormal": 1,
       "moveRough": 2,

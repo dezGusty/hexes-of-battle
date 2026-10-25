@@ -1542,6 +1542,7 @@ describe('Quick draw Skill for Archers', () => {
       archer.armyAlignment = 0;
       archer.facingDirection = HexDirection.EAST;
       archer.stats.stamina = 14;
+      archer.stats.max_stamina = 14;
       archer.stats.remaining_ammo = 10;
       archer.stats.remaining_attacks = 1;
       archer.stats.attack_ranged_low = 10;

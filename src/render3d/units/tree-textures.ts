@@ -135,35 +135,35 @@ export function generateTreeFoliagePixels(): Uint8Array {
         const inLeaf = dist < lobeRadius;
 
         // Central vein highlight vs deep inter-leaf shadow pocket
-        const vein = Math.abs(cellX) < 1.2 && cellY > -7 && cellY < 7 ? 18 : 0;
+        const vein = Math.abs(cellX) < 1.2 && cellY > -7 && cellY < 7 ? 22 : 0;
         const leafShade = inLeaf
-          ? 22 + (1 - dist / lobeRadius) * 24 + vein
-          : -34;
+          ? 26 + (1 - dist / lobeRadius) * 28 + vein
+          : -38;
 
-        const lum = 200 + (nCoarse - 0.5) * 34 + (nFine - 0.5) * 16 + leafShade;
-        data[idx] = clampByte(lum - 10);
-        data[idx + 1] = clampByte(lum + 12);
-        data[idx + 2] = clampByte(lum - 18);
+        const lum = 196 + (nCoarse - 0.5) * 38 + (nFine - 0.5) * 18 + leafShade;
+        data[idx] = clampByte(lum * 0.38 - 12);     // Warm leaf undertone
+        data[idx + 1] = clampByte(lum + 24);         // Vivid bright leafy green
+        data[idx + 2] = clampByte(lum * 0.18 - 10);    // Low blue for high green saturation
         data[idx + 3] = 255;
       } else {
         // Conifer Pine needle fronds & layered boughs (bottom half: V in 0.0..0.5)
         const localY = y - 128;
         // Radiating pine needle striations
-        const needleWave = Math.sin(x * 1.35 + localY * 0.35 + nMed * 4.5) * 26;
+        const needleWave = Math.sin(x * 1.35 + localY * 0.35 + nMed * 4.5) * 28;
         // Whorl tier shadow bands every ~32 rows
         const tierPhase = (localY % 32) / 32;
-        const tierBounce = (tierPhase - 0.35) * 36;
+        const tierBounce = (tierPhase - 0.35) * 40;
 
         const lum =
-          204 +
+          196 +
           needleWave +
           tierBounce +
-          (nCoarse - 0.5) * 28 +
-          (nFine - 0.5) * 18;
+          (nCoarse - 0.5) * 32 +
+          (nFine - 0.5) * 20;
 
-        data[idx] = clampByte(lum - 12);
-        data[idx + 1] = clampByte(lum + 10);
-        data[idx + 2] = clampByte(lum - 14);
+        data[idx] = clampByte(lum * 0.28 - 14);     // Deep conifer undertone
+        data[idx + 1] = clampByte(lum + 20);         // Vivid forest pine needle green
+        data[idx + 2] = clampByte(lum * 0.16 - 8);     // Very low blue for vibrant conifer green
         data[idx + 3] = 255;
       }
     }

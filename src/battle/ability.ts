@@ -70,6 +70,8 @@ export class Ability {
 
     public damage_low: number = 0;
     public damage_high: number = 0;
+    public heal_per_model: number = 0;
+    public heal_amount: number = 0;
     public resources: AbilityResource[] = [];
 
     public static createQuickDraw(): Ability {
@@ -110,5 +112,28 @@ export class Ability {
             { resource_used: AbilityResourceUse.Attack, resource_cost: 1 },
         ];
         return ability;
+    }
+
+    public static createMendWounds(): Ability {
+        const ability = new Ability();
+        ability.id = "mend-wounds-01";
+        ability.name = "Mend wounds";
+        ability.tooltipName = "Mend wounds";
+        ability.description = "Heal a target ally or self for 1 health for each available healer.";
+        ability.icon = "skills/icon_mend_wounds.png";
+        ability.abilityType = AbilityType.Active;
+        ability.allowedTargets = [AbilityTarget.Self, AbilityTarget.Allies];
+        ability.requiresTarget = true;
+        ability.range = 1;
+        ability.heal_per_model = 1;
+        ability.resources = [
+            { resource_used: AbilityResourceUse.Stamina, resource_cost: 2 },
+            { resource_used: AbilityResourceUse.Attack, resource_cost: 1 },
+        ];
+        return ability;
+    }
+
+    public static createMergeWounds(): Ability {
+        return Ability.createMendWounds();
     }
 }

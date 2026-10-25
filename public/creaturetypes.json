@@ -20,7 +20,7 @@
       "num_counterattacks": 2,
       "num_moves": 3,
       "range": 1,
-      "stamina": 12,
+      "stamina": 20,
       "morale": 10,
       "flying": false
     },
@@ -48,7 +48,7 @@
       "num_counterattacks": 2,
       "num_moves": 2,
       "range": 1,
-      "stamina": 14,
+      "stamina": 22,
       "morale": 10,
       "flying": false
     },
@@ -78,7 +78,7 @@
       "num_counterattacks": 2,
       "num_moves": 3,
       "range": 1,
-      "stamina": 18,
+      "stamina": 26,
       "morale": 10,
       "flying": false
     },
@@ -111,7 +111,7 @@
       "num_counterattacks": 1,
       "num_moves": 3,
       "range": 1,
-      "stamina": 16,
+      "stamina": 24,
       "morale": 14,
       "flying": false
     },
@@ -139,7 +139,7 @@
       "num_counterattacks": 1,
       "num_moves": 3,
       "range": 6,
-      "stamina": 14,
+      "stamina": 22,
       "morale": 10,
       "flying": false
     },
@@ -172,7 +172,7 @@
       "num_counterattacks": 1,
       "num_moves": 2,
       "range": 4,
-      "stamina": 12,
+      "stamina": 20,
       "morale": 10,
       "flying": false
     },
@@ -203,7 +203,7 @@
       "num_counterattacks": 1,
       "num_moves": 4,
       "range": 1,
-      "stamina": 16,
+      "stamina": 24,
       "morale": 10,
       "flying": false
     },
@@ -231,7 +231,7 @@
       "num_counterattacks": 2,
       "num_moves": 2,
       "range": 1,
-      "stamina": 20,
+      "stamina": 28,
       "morale": 10,
       "flying": false
     },
@@ -262,7 +262,7 @@
       "num_counterattacks": 2,
       "num_moves": 3,
       "range": 1,
-      "stamina": 18,
+      "stamina": 26,
       "morale": 10,
       "flying": false
     },
@@ -293,7 +293,7 @@
       "num_counterattacks": 1,
       "num_moves": 3,
       "range": 6,
-      "stamina": 14,
+      "stamina": 22,
       "morale": 10,
       "flying": false
     },
@@ -303,6 +303,38 @@
     ],
     "ability_ids": [
       "quick-draw-01"
+    ]
+  },
+  {
+    "name": "healer",
+    "model_count": 8,
+    "model_hp": 4,
+    "tier": 1,
+    "flying": false,
+    "stats": {
+      "ammo": 0,
+      "attack_melee_low": 3,
+      "attack_melee_high": 5,
+      "attack_ranged_low": 0,
+      "attack_ranged_high": 0,
+      "defense_melee": 0,
+      "defense_ranged": 1,
+      "health": 32,
+      "initiative": 3,
+      "is_ranged": false,
+      "num_attacks": 1,
+      "num_counterattacks": 1,
+      "num_moves": 3,
+      "range": 1,
+      "stamina": 22,
+      "morale": 10,
+      "flying": false
+    },
+    "traits": [
+      "FragileLine"
+    ],
+    "ability_ids": [
+      "mend-wounds-01"
     ]
   }
 ]

@@ -557,6 +557,10 @@ export class BattleHud2D {
       case 'slinger' as any:
         faceName = 'slinger_face.png';
         break;
+      case CreatureType.HEALER:
+      case 'healer' as any:
+        faceName = 'peasant_face.png';
+        break;
       default:
         faceName = 'peasant_face.png';
         break;

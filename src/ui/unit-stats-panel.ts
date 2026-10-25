@@ -115,6 +115,10 @@ export const DEFAULT_SKILL_ICONS: Record<string, string> = {
   "throw-javelin": "skills/icon_throw_javelin.png",
   "heal-01": "skills/icon_patch_up.png",
   "patch-up": "skills/icon_patch_up.png",
+  "mend-wounds-01": "skills/icon_mend_wounds.png",
+  "mend-wounds": "skills/icon_mend_wounds.png",
+  "merge-wounds-01": "skills/icon_mend_wounds.png",
+  "merge-wounds": "skills/icon_mend_wounds.png",
   "pck-01": "skills/icon_pickup_ammo.png",
   "pick-up ammo": "skills/icon_pickup_ammo.png",
 };

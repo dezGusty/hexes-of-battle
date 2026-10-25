@@ -63,7 +63,7 @@ export class ThreeSceneManager {
       });
       this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
       this.renderer.shadowMap.enabled = true;
-      this.renderer.shadowMap.type = THREE.PCFShadowMap;
+      this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       this.renderer.setClearColor(0x0a141d, 1.0);
       this.renderer.setSize(width, height, false);
     } catch {
@@ -92,31 +92,32 @@ export class ThreeSceneManager {
   }
 
   private setupLighting(): void {
-    // Ambient light
-    this.ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
+    // Ambient light - calibrated for rich, deep, pronounced shadow contrast
+    this.ambientLight = new THREE.AmbientLight(0xffffff, 0.22);
     this.ambientLight.name = 'AmbientLight';
     this.scene.add(this.ambientLight);
 
-    // Hemisphere light (sky vs ground bounce)
-    this.hemiLight = new THREE.HemisphereLight(0xddeeff, 0x223322, 0.45);
+    // Hemisphere light (sky vs ground bounce) - subtle ground bounce preserving shadow depth
+    this.hemiLight = new THREE.HemisphereLight(0xddeeff, 0x223322, 0.15);
     this.hemiLight.name = 'HemisphereLight';
     this.scene.add(this.hemiLight);
 
-    // Directional Sunlight with shadows
-    this.dirLight = new THREE.DirectionalLight(0xfff5e6, 1.2);
+    // Directional Sunlight angled from northwest to cast prominent shadows towards the camera
+    this.dirLight = new THREE.DirectionalLight(0xfff5e6, 2.0);
     this.dirLight.name = 'DirectionalLight';
-    this.dirLight.position.set(12, 22, 10);
+    this.dirLight.position.set(-16, 20, -12);
     this.dirLight.castShadow = true;
-    this.dirLight.shadow.mapSize.width = 1024;
-    this.dirLight.shadow.mapSize.height = 1024;
+    this.dirLight.shadow.mapSize.width = 2048;
+    this.dirLight.shadow.mapSize.height = 2048;
     this.dirLight.shadow.camera.near = 0.5;
-    this.dirLight.shadow.camera.far = 50;
-    const shadowSize = 14;
+    this.dirLight.shadow.camera.far = 70;
+    const shadowSize = 18;
     this.dirLight.shadow.camera.left = -shadowSize;
     this.dirLight.shadow.camera.right = shadowSize;
     this.dirLight.shadow.camera.top = shadowSize;
     this.dirLight.shadow.camera.bottom = -shadowSize;
-    this.dirLight.shadow.bias = -0.0005;
+    this.dirLight.shadow.bias = -0.0001;
+    this.dirLight.shadow.normalBias = 0.02;
     this.scene.add(this.dirLight);
   }
 

@@ -21,6 +21,10 @@ import {
   generateSpearmanFacePixels,
   generateSpearmanArmorPixels,
   generateSpearmanGearPixels,
+  generateSwordsmanHelmetPixels,
+  generateSwordsmanArmorPixels,
+  generateSwordsmanGearPixels,
+  generateHealerGearPixels,
 } from '../src/render3d/units/humanoid-unit-textures';
 import {
   TREE_TEXTURE_SIZE,
@@ -98,6 +102,14 @@ const texturesToGenerate: Record<string, { path: string; gen: () => Uint8Array; 
   spearman_face: { path: HUMANOID_TEXTURE_PATHS.spearman_face, gen: generateSpearmanFacePixels, size: HUMANOID_TEXTURE_SIZE },
   spearman_armor: { path: HUMANOID_TEXTURE_PATHS.spearman_armor, gen: generateSpearmanArmorPixels, size: HUMANOID_TEXTURE_SIZE },
   spearman_gear: { path: HUMANOID_TEXTURE_PATHS.spearman_gear, gen: generateSpearmanGearPixels, size: HUMANOID_TEXTURE_SIZE },
+
+  // Swordsman
+  swordsman_helmet: { path: HUMANOID_TEXTURE_PATHS.swordsman_helmet, gen: generateSwordsmanHelmetPixels, size: HUMANOID_TEXTURE_SIZE },
+  swordsman_armor: { path: HUMANOID_TEXTURE_PATHS.swordsman_armor, gen: generateSwordsmanArmorPixels, size: HUMANOID_TEXTURE_SIZE },
+  swordsman_gear: { path: HUMANOID_TEXTURE_PATHS.swordsman_gear, gen: generateSwordsmanGearPixels, size: HUMANOID_TEXTURE_SIZE },
+
+  // Healer
+  healer_gear: { path: HUMANOID_TEXTURE_PATHS.healer_gear, gen: generateHealerGearPixels, size: HUMANOID_TEXTURE_SIZE },
 
   // Forest Trees
   tree_bark: { path: TREE_TEXTURE_PATHS.bark, gen: generateTreeBarkPixels, size: TREE_TEXTURE_SIZE },
