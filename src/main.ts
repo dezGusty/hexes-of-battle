@@ -1,4 +1,5 @@
-// import { Application } from "pixi.js";
+import { initWebGLFixes } from "./shared/webgl-fixes";
+initWebGLFixes();
 
 import { Application } from "pixi.js";
 import { HexesApp } from "./app";

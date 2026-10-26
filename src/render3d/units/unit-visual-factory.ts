@@ -320,6 +320,7 @@ export class UnitVisualFactory {
       try {
         const loader = new THREE.TextureLoader();
         const placeholderTexture = new THREE.Texture();
+        placeholderTexture.flipY = false;
         const standaloneUrl = `units/${frameName}`;
         loader.load(
           standaloneUrl,

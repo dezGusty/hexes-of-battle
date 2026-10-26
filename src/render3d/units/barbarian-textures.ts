@@ -521,6 +521,23 @@ export function generateBarbarianWeaponPixels(): Uint8Array {
   return data;
 }
 
+/**
+ * Inverts the vertical row order of an RGBA pixel buffer so that row y=0 in memory
+ * corresponds to UV v=0 (bottom of the texture in WebGL coordinate space).
+ * This allows THREE.DataTexture to keep flipY = false, preventing the WebGL warning:
+ * "Alpha-premult and y-flip are deprecated for non-DOM-Element uploads."
+ */
+function flipPixelRowsY(data: Uint8Array, size: number): Uint8Array {
+  const flipped = new Uint8Array(data.length);
+  const rowBytes = size * 4;
+  for (let y = 0; y < size; y++) {
+    const srcOffset = y * rowBytes;
+    const dstOffset = (size - 1 - y) * rowBytes;
+    flipped.set(data.subarray(srcOffset, srcOffset + rowBytes), dstOffset);
+  }
+  return flipped;
+}
+
 const barbarianTextureCache: Partial<Record<BarbarianTexturePart, THREE.DataTexture>> = {};
 const barbarianMaterialCache: Partial<Record<BarbarianTexturePart, THREE.MeshStandardMaterial>> = {};
 
@@ -546,6 +563,7 @@ export function getBarbarianPartTexture(part: BarbarianTexturePart): THREE.DataT
         pixels = generateBarbarianWeaponPixels();
         break;
     }
+    pixels = flipPixelRowsY(pixels, BARBARIAN_TEXTURE_SIZE);
     tex = new THREE.DataTexture(
       pixels,
       BARBARIAN_TEXTURE_SIZE,
@@ -554,7 +572,7 @@ export function getBarbarianPartTexture(part: BarbarianTexturePart): THREE.DataT
     );
     tex.name = `barbarian_${part}_256x256`;
     tex.colorSpace = THREE.SRGBColorSpace;
-    tex.flipY = true;
+    tex.flipY = false;
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.ClampToEdgeWrapping;
     tex.magFilter = THREE.LinearFilter;

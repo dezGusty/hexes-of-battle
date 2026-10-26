@@ -2422,6 +2422,7 @@ describe('3D Graphics Engine & Rendering Systems', () => {
         expect(tex.image.height).toBe(256);
         expect(tex.image.data!.length).toBe(256 * 256 * 4);
         expect(tex.colorSpace).toBe(THREE.SRGBColorSpace);
+        expect(tex.flipY).toBe(false);
 
         // Verify texture has rich multi-tone detail (not a flat solid color)
         let minLum = 255;
@@ -2514,6 +2515,7 @@ describe('3D Graphics Engine & Rendering Systems', () => {
         expect(tex.image.height).toBe(256);
         expect(tex.image.data!.length).toBe(256 * 256 * 4);
         expect(tex.colorSpace).toBe(THREE.SRGBColorSpace);
+        expect(tex.flipY).toBe(false);
 
         // Verify multi-tone contrast / detail
         let minLum = 255;
@@ -2632,6 +2634,7 @@ describe('3D Graphics Engine & Rendering Systems', () => {
         expect(tex.image.height).toBe(256);
         expect(tex.image.data!.length).toBe(256 * 256 * 4);
         expect(tex.colorSpace).toBe(THREE.SRGBColorSpace);
+        expect(tex.flipY).toBe(false);
 
         // Verify texture has multi-tone detail (contrast > 40)
         let minLum = 255;
@@ -2961,10 +2964,13 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect((hexBoard as any).blendedTileMaterials.length).toBe(0);
     });
 
-    it('should configure pronounced directional lighting and PCF soft shadow maps with low ambient light', () => {
+    it('should configure pronounced directional lighting and PCF shadow maps with low ambient light', () => {
       const container = document.createElement('div');
       document.body.appendChild(container);
       const sceneManager = new ThreeSceneManager(container);
+
+      expect(sceneManager.renderer.shadowMap.enabled).toBe(true);
+      expect(sceneManager.renderer.shadowMap.type).toBe(THREE.PCFShadowMap);
 
       const dirLight = sceneManager.getDirLight();
       expect(dirLight).toBeDefined();
@@ -2983,6 +2989,15 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       // Shadow bias & normalBias should prevent Peter Panning detachment
       expect(dirLight.shadow.bias).toBeCloseTo(-0.0001, 4);
       expect((dirLight.shadow as any).normalBias).toBeGreaterThanOrEqual(0.015);
+
+      // Verify shadow depth texture comparison filtering is configured to NearestFilter to prevent WebGL implementation-defined warnings
+      const mockRenderTarget = new THREE.WebGLRenderTarget(2048, 2048);
+      mockRenderTarget.depthTexture = new THREE.DepthTexture(2048, 2048);
+      mockRenderTarget.depthTexture.minFilter = THREE.LinearFilter;
+      mockRenderTarget.depthTexture.magFilter = THREE.LinearFilter;
+      dirLight.shadow.map = mockRenderTarget;
+      expect(dirLight.shadow.map!.depthTexture!.minFilter).toBe(THREE.NearestFilter);
+      expect(dirLight.shadow.map!.depthTexture!.magFilter).toBe(THREE.NearestFilter);
 
       sceneManager.dispose();
       document.body.removeChild(container);

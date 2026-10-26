@@ -46,7 +46,9 @@ export class BillboardAnimatedVisual implements IUnitVisual {
     const geometry = new THREE.PlaneGeometry(width, height);
     geometry.translate(0, height * 0.5, 0);
 
-    const initialTexture = options.animations.idle?.[0]?.texture ?? new THREE.Texture();
+    const fallbackTexture = new THREE.Texture();
+    fallbackTexture.flipY = false;
+    const initialTexture = options.animations.idle?.[0]?.texture ?? fallbackTexture;
     this.material = new THREE.MeshBasicMaterial({
       map: initialTexture,
       transparent: true,

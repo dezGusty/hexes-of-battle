@@ -1837,6 +1837,23 @@ export function generateArmoredKnightGearPixels(): Uint8Array {
 // MATERIAL & TEXTURE CACHES
 // ==========================================
 
+/**
+ * Inverts the vertical row order of an RGBA pixel buffer so that row y=0 in memory
+ * corresponds to UV v=0 (bottom of the texture in WebGL coordinate space).
+ * This allows THREE.DataTexture to keep flipY = false, preventing the WebGL warning:
+ * "Alpha-premult and y-flip are deprecated for non-DOM-Element uploads."
+ */
+function flipPixelRowsY(data: Uint8Array, size: number): Uint8Array {
+  const flipped = new Uint8Array(data.length);
+  const rowBytes = size * 4;
+  for (let y = 0; y < size; y++) {
+    const srcOffset = y * rowBytes;
+    const dstOffset = (size - 1 - y) * rowBytes;
+    flipped.set(data.subarray(srcOffset, srcOffset + rowBytes), dstOffset);
+  }
+  return flipped;
+}
+
 const humanoidTextureCache: Map<string, THREE.DataTexture> = new Map();
 const humanoidMaterialCache: Map<string, THREE.MeshStandardMaterial> = new Map();
 
@@ -1908,6 +1925,7 @@ export function getHumanoidPartTexture(partKey: string): THREE.DataTexture {
         break;
     }
 
+    pixels = flipPixelRowsY(pixels, HUMANOID_TEXTURE_SIZE);
     tex = new THREE.DataTexture(
       pixels,
       HUMANOID_TEXTURE_SIZE,
@@ -1916,7 +1934,7 @@ export function getHumanoidPartTexture(partKey: string): THREE.DataTexture {
     );
     tex.name = `${partKey}_256x256`;
     tex.colorSpace = THREE.SRGBColorSpace;
-    tex.flipY = true;
+    tex.flipY = false;
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.ClampToEdgeWrapping;
     tex.magFilter = THREE.LinearFilter;

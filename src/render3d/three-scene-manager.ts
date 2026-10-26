@@ -63,7 +63,7 @@ export class ThreeSceneManager {
       });
       this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
       this.renderer.shadowMap.enabled = true;
-      this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      this.renderer.shadowMap.type = THREE.PCFShadowMap;
       this.renderer.setClearColor(0x0a141d, 1.0);
       this.renderer.setSize(width, height, false);
     } catch {
@@ -118,7 +118,56 @@ export class ThreeSceneManager {
     this.dirLight.shadow.camera.bottom = -shadowSize;
     this.dirLight.shadow.bias = -0.0001;
     this.dirLight.shadow.normalBias = 0.02;
+    this.configureShadowDepthFilter(this.dirLight);
     this.scene.add(this.dirLight);
+  }
+
+  /**
+   * Ensures the shadow map depth texture uses NearestFilter for depth comparison sampling.
+   * Linear filtering with depth comparison is implementation-defined in WebGL / OpenGL ES
+   * and triggers console warnings on platforms like Firefox. PCFShadowMap provides multi-tap
+   * dithering via 5 Vogel disk samples with interleaved gradient noise (IGN) regardless of texture filtering.
+   */
+  private configureShadowDepthFilter(light: THREE.DirectionalLight): void {
+    let currentMap: THREE.WebGLRenderTarget | null = null;
+    const enforceNearest = (depthTex: THREE.DepthTexture | null | undefined) => {
+      if (!depthTex) return;
+      Object.defineProperty(depthTex, 'minFilter', {
+        get: () => THREE.NearestFilter,
+        set: () => {},
+        configurable: true,
+      });
+      Object.defineProperty(depthTex, 'magFilter', {
+        get: () => THREE.NearestFilter,
+        set: () => {},
+        configurable: true,
+      });
+    };
+
+    Object.defineProperty(light.shadow, 'map', {
+      get() {
+        return currentMap;
+      },
+      set(renderTarget: THREE.WebGLRenderTarget | null) {
+        currentMap = renderTarget;
+        if (renderTarget) {
+          let currentDepthTex = renderTarget.depthTexture;
+          enforceNearest(currentDepthTex);
+          Object.defineProperty(renderTarget, 'depthTexture', {
+            get() {
+              return currentDepthTex;
+            },
+            set(val: THREE.DepthTexture | null) {
+              currentDepthTex = val;
+              enforceNearest(val);
+            },
+            configurable: true,
+          });
+        }
+      },
+      configurable: true,
+      enumerable: true,
+    });
   }
 
   private setupSkyBackground(): void {
