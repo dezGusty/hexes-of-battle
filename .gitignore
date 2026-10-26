@@ -137,3 +137,7 @@ skills-lock.json
 
 # Blender autosave/backup
 *.blend1
+
+# Python
+__pycache__/
+*.pyc

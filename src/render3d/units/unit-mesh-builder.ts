@@ -384,13 +384,19 @@ function prepareHumanoidHierarchyBeforeCompaction(
       if (mesh.name === 'Head') {
         applyHumanoidUVMapping(mesh.geometry, 'peasant_head_face');
         mesh.material = makeMat(0xffffff, 0.76, 0.05);
-      } else if (rawName.includes('hood') || rawName.includes('helmet')) {
+      } else if (rawName.includes('hood') || rawName.includes('helmet') || rawName.includes('hair')) {
         applyHumanoidUVMapping(mesh.geometry, 'peasant_hood');
-      } else if (mesh.name === 'Torso' || rawName.includes('tabard')) {
+      } else if (mesh.name === 'Torso' || rawName.includes('tabard') || rawName.includes('vest')) {
         applyHumanoidUVMapping(mesh.geometry, 'peasant_torso');
       } else if (rawName.includes('belt')) {
         applyHumanoidUVMapping(mesh.geometry, 'peasant_belt');
-      } else if (rawName.includes('hand') || (mesh.name.startsWith('Arm_') && rawName.includes('hand'))) {
+      } else if (
+        rawName.includes('hand') ||
+        rawName.includes('neck') ||
+        rawName.includes('ear') ||
+        rawName.includes('forearm') ||
+        (mesh.name.startsWith('Arm_') && rawName.includes('hand'))
+      ) {
         applyHumanoidUVMapping(mesh.geometry, 'humanoid_hand');
       } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R') {
         applyHumanoidUVMapping(mesh.geometry, 'peasant_arm');
@@ -405,23 +411,25 @@ function prepareHumanoidHierarchyBeforeCompaction(
       if (mesh.name === 'Head') {
         applyHumanoidUVMapping(mesh.geometry, 'archer_head_face');
         mesh.material = makeMat(0xffffff, 0.74, 0.05);
-      } else if (rawName.includes('cap') || rawName.includes('helmet')) {
+      } else if (rawName.includes('cap') || rawName.includes('helmet') || rawName.includes('hat')) {
         applyHumanoidUVMapping(mesh.geometry, 'archer_cap');
+        mesh.material = makeMat(0xffffff, 0.74, 0.05);
       } else if (rawName.includes('feather')) {
         applyHumanoidUVMapping(mesh.geometry, 'archer_feather');
-      } else if (mesh.name === 'Torso' || rawName.includes('tabard')) {
+        mesh.material = makeMat(0xffffff, 0.74, 0.05);
+      } else if (mesh.name === 'Torso' || rawName.includes('tabard') || rawName.includes('vest') || rawName.includes('collar')) {
         applyHumanoidUVMapping(mesh.geometry, 'archer_torso');
       } else if (rawName.includes('belt')) {
         applyHumanoidUVMapping(mesh.geometry, 'archer_belt');
       } else if (rawName.includes('quiver') || rawName.includes('arrow')) {
         applyHumanoidUVMapping(mesh.geometry, 'archer_quiver');
-      } else if (rawName.includes('hand')) {
+      } else if (rawName.includes('hand') || rawName.includes('ear') || rawName.includes('bracer') || rawName.includes('neck')) {
         applyHumanoidUVMapping(mesh.geometry, 'humanoid_hand');
-      } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R') {
+      } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R' || rawName.includes('forearm')) {
         applyHumanoidUVMapping(mesh.geometry, 'archer_arm');
       } else if (mesh.name === 'Leg_L' || mesh.name === 'Leg_R' || rawName.includes('boot')) {
         applyHumanoidUVMapping(mesh.geometry, 'archer_leg');
-      } else if (mesh.name === 'Weapon' || rawName.includes('bow')) {
+      } else if (mesh.name === 'Weapon' || rawName.includes('bow') || rawName.includes('string')) {
         applyHumanoidUVMapping(mesh.geometry, 'archer_bow');
       }
     } else if (unitKey === 'spearman') {
@@ -430,30 +438,47 @@ function prepareHumanoidHierarchyBeforeCompaction(
         mesh.material = makeMat(0xffffff, 0.68, 0.15);
       } else if (rawName.includes('kettle') || rawName.includes('helmet')) {
         applyHumanoidUVMapping(mesh.geometry, 'spearman_helmet');
-      } else if (mesh.name === 'Torso' || rawName.includes('tabard')) {
+      } else if (mesh.name === 'Torso' || rawName.includes('tabard') || rawName.includes('vest') || rawName.includes('collar')) {
         applyHumanoidUVMapping(mesh.geometry, 'spearman_torso');
       } else if (rawName.includes('belt')) {
         applyHumanoidUVMapping(mesh.geometry, 'spearman_belt');
       } else if (rawName.includes('javelin')) {
         applyHumanoidUVMapping(mesh.geometry, 'spearman_javelin');
-      } else if (rawName.includes('hand')) {
+      } else if (rawName.includes('hand') || rawName.includes('ear') || rawName.includes('neck')) {
         applyHumanoidUVMapping(mesh.geometry, 'humanoid_hand');
+      } else if (rawName.includes('bracer') || rawName.includes('vambrace')) {
+        applyHumanoidUVMapping(mesh.geometry, 'spearman_arm');
       } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R') {
         applyHumanoidUVMapping(mesh.geometry, 'spearman_arm');
-      } else if (mesh.name === 'Leg_L' || mesh.name === 'Leg_R' || rawName.includes('boot')) {
+      } else if (mesh.name === 'Leg_L' || mesh.name === 'Leg_R' || rawName.includes('boot') || rawName.includes('greave')) {
         applyHumanoidUVMapping(mesh.geometry, 'spearman_leg');
-      } else if (mesh.name === 'Weapon' || rawName.includes('spear') || rawName.includes('tip')) {
+      } else if (mesh.name === 'Weapon' || rawName.includes('spear') || rawName.includes('tip') || rawName.includes('sauroter')) {
         applyHumanoidUVMapping(mesh.geometry, 'spearman_spear');
-      } else if (mesh.name === 'Shield' || rawName.includes('shield') || rawName.includes('boss')) {
+      } else if (mesh.name === 'Shield' || rawName.includes('shield') || rawName.includes('boss') || rawName.includes('rim')) {
         applyHumanoidUVMapping(mesh.geometry, 'spearman_shield');
       }
     } else if (unitKey === 'swordsman') {
       if (mesh.name === 'Head') {
         applyHumanoidUVMapping(mesh.geometry, 'swordsman_head_helmet');
         mesh.material = makeMat(0xffffff, 0.38, 0.78);
-      } else if (rawName.includes('helmet') || rawName.includes('dome') || rawName.includes('visor') || rawName.includes('cross') || rawName.includes('aventail') || rawName.includes('slit')) {
+      } else if (
+        rawName.includes('helmet') ||
+        rawName.includes('dome') ||
+        rawName.includes('visor') ||
+        rawName.includes('cross') ||
+        rawName.includes('aventail') ||
+        rawName.includes('slit') ||
+        rawName.includes('plume') ||
+        rawName.includes('crest')
+      ) {
         applyHumanoidUVMapping(mesh.geometry, 'swordsman_helmet_part');
-      } else if (mesh.name === 'Torso' || rawName.includes('tabard') || rawName.includes('cuirass') || rawName.includes('fauld')) {
+      } else if (
+        mesh.name === 'Torso' ||
+        rawName.includes('tabard') ||
+        rawName.includes('surcoat') ||
+        rawName.includes('cuirass') ||
+        rawName.includes('fauld')
+      ) {
         applyHumanoidUVMapping(mesh.geometry, 'swordsman_torso');
       } else if (rawName.includes('belt')) {
         applyHumanoidUVMapping(mesh.geometry, 'swordsman_belt');
@@ -461,13 +486,20 @@ function prepareHumanoidHierarchyBeforeCompaction(
         applyHumanoidUVMapping(mesh.geometry, 'swordsman_pauldron');
       } else if (rawName.includes('hand') || rawName.includes('gauntlet')) {
         applyHumanoidUVMapping(mesh.geometry, 'swordsman_gauntlet');
-      } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R') {
+      } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R' || rawName.includes('vambrace') || rawName.includes('couter')) {
         applyHumanoidUVMapping(mesh.geometry, 'swordsman_arm');
-      } else if (mesh.name === 'Leg_L' || mesh.name === 'Leg_R' || rawName.includes('boot') || rawName.includes('poleyn') || rawName.includes('greave')) {
+      } else if (
+        mesh.name === 'Leg_L' ||
+        mesh.name === 'Leg_R' ||
+        rawName.includes('boot') ||
+        rawName.includes('sabaton') ||
+        rawName.includes('poleyn') ||
+        rawName.includes('greave')
+      ) {
         applyHumanoidUVMapping(mesh.geometry, 'swordsman_leg');
       } else if (mesh.name === 'Weapon' || rawName.includes('sword') || rawName.includes('blade') || rawName.includes('guard') || rawName.includes('pommel')) {
         applyHumanoidUVMapping(mesh.geometry, 'swordsman_sword');
-      } else if (mesh.name === 'Shield' || rawName.includes('shield') || rawName.includes('boss')) {
+      } else if (mesh.name === 'Shield' || rawName.includes('shield') || rawName.includes('boss') || rawName.includes('rim')) {
         applyHumanoidUVMapping(mesh.geometry, 'swordsman_shield');
       }
     } else if (unitKey === 'healer') {
@@ -995,14 +1027,22 @@ export function instantiateGlbUnitTemplate(
         if (!matClone.map) {
           matClone.map = whiteMap;
         }
+        const isShieldMetalPart =
+          mesh.name.toLowerCase().includes('boss') ||
+          mesh.name.toLowerCase().includes('rim') ||
+          mesh.name.toLowerCase().includes('grip');
+        const isArcherHat =
+          mesh.name.toLowerCase().includes('hunting_hat') ||
+          origMat.name?.toLowerCase().includes('hatgreen');
         if (
-          origMat.name?.toLowerCase().includes('team') ||
-          mesh.name.toLowerCase().includes('team') ||
-          mesh.name.toLowerCase().includes('shield') ||
-          mesh.name.toLowerCase().includes('hood') ||
-          mesh.name.toLowerCase().includes('cap') ||
-          mesh.name.toLowerCase().includes('pavise') ||
-          mesh.name.toLowerCase().includes('headband')
+          !isArcherHat &&
+          (origMat.name?.toLowerCase().includes('team') ||
+            mesh.name.toLowerCase().includes('team') ||
+            (mesh.name.toLowerCase().includes('shield') && !isShieldMetalPart) ||
+            mesh.name.toLowerCase().includes('hood') ||
+            mesh.name.toLowerCase().includes('cap') ||
+            mesh.name.toLowerCase().includes('pavise') ||
+            mesh.name.toLowerCase().includes('headband'))
         ) {
           matClone.color.setHex(teamHex);
         }
@@ -1409,6 +1449,13 @@ export function buildArticulatedUnit3DMesh(
   beltMesh.name = 'Belt';
   torsoMesh.add(beltMesh);
 
+  // Connecting neck between torso and head
+  const neckGeo = new THREE.CylinderGeometry(0.048, 0.054, 0.12, 14);
+  neckGeo.translate(0, 0.84, 0);
+  const neckMesh = new THREE.Mesh(neckGeo, matSkin);
+  neckMesh.name = 'Neck';
+  torsoMesh.add(neckMesh);
+
   // 2. Head (pivot at y = 0.91)
   const headGeo = unitKey === 'swordsman'
     ? new THREE.CylinderGeometry(0.138, 0.144, 0.22, 18)
@@ -1471,12 +1518,21 @@ export function buildArticulatedUnit3DMesh(
   // 5. Unit-specific headgear, shields, quivers, and weapons
   switch (unitKey) {
     case 'peasant': {
-      // Hood
-      const hoodGeo = new THREE.SphereGeometry(0.135, 20, 14);
-      hoodGeo.translate(-0.01, 0.03, 0);
-      const hoodMesh = new THREE.Mesh(hoodGeo, matTeam);
-      hoodMesh.name = 'Helmet_Hood';
-      headMesh.add(hoodMesh);
+      // Bare-headed tousled hair (no hood covering the face)
+      const hairGeo = new THREE.SphereGeometry(0.128, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.58);
+      hairGeo.translate(0, 0.03, 0);
+      const hairMesh = new THREE.Mesh(hairGeo, makeMat(0x382212, 0.88, 0.04));
+      hairMesh.name = 'Hair';
+      headMesh.add(hairMesh);
+
+      // Bare head ears
+      for (const ez of [-0.12, 0.12]) {
+        const earGeo = new THREE.BoxGeometry(0.02, 0.045, 0.02);
+        earGeo.translate(0, 0, ez);
+        const earMesh = new THREE.Mesh(earGeo, matSkin);
+        earMesh.name = ez < 0 ? 'Ear_L' : 'Ear_R';
+        headMesh.add(earMesh);
+      }
 
       // Pitchfork in Arm_R
       const shaftGeo = new THREE.CylinderGeometry(0.02, 0.022, 1.12, 12);
@@ -1501,16 +1557,39 @@ export function buildArticulatedUnit3DMesh(
     }
 
     case 'peasant_archer': {
-      // Archer cap & feather
+      // Hunter hat & feather
+      const matHunterGreen = makeMat(0x234d20, 0.82, 0.04);
       const capGeo = new THREE.ConeGeometry(0.135, 0.18, 16);
       capGeo.translate(-0.01, 0.10, 0);
-      const capMesh = new THREE.Mesh(capGeo, matTeam);
-      capMesh.name = 'Helmet_Cap';
+      const capMesh = new THREE.Mesh(capGeo, matHunterGreen);
+      capMesh.name = 'Hunting_Hat';
       headMesh.add(capMesh);
 
+      // Modeled ears on head
+      for (const ez of [-0.12, 0.12]) {
+        const earGeo = new THREE.BoxGeometry(0.02, 0.045, 0.02);
+        earGeo.translate(0, 0, ez);
+        const earMesh = new THREE.Mesh(earGeo, matSkin);
+        earMesh.name = ez < 0 ? 'Ear_L' : 'Ear_R';
+        headMesh.add(earMesh);
+      }
+
+      // Golden to reddish-orange feather
       const featherGeo = new THREE.BoxGeometry(0.12, 0.05, 0.015);
       featherGeo.translate(-0.05, 0.14, -0.09);
-      headMesh.add(new THREE.Mesh(featherGeo, matFeather));
+      const fPos = featherGeo.getAttribute('position');
+      const fCols = new Float32Array(fPos.count * 3);
+      for (let i = 0; i < fPos.count; i++) {
+        const fx = fPos.getX(i);
+        const t = Math.max(0, Math.min(1, (0.01 - fx) / 0.12));
+        fCols[i * 3] = 1.0 * (1 - t) + 0.88 * t;
+        fCols[i * 3 + 1] = 0.82 * (1 - t) + 0.18 * t;
+        fCols[i * 3 + 2] = 0.15 * (1 - t) + 0.06 * t;
+      }
+      featherGeo.setAttribute('color', new THREE.BufferAttribute(fCols, 3));
+      const featherMesh = new THREE.Mesh(featherGeo, makeMat(0xffffff, 0.70, 0.0));
+      featherMesh.name = 'Feather';
+      headMesh.add(featherMesh);
 
       // Quiver on back
       const quiverGeo = new THREE.CylinderGeometry(0.06, 0.05, 0.36, 14);
@@ -1579,6 +1658,14 @@ export function buildArticulatedUnit3DMesh(
       aventailMesh.name = 'Helmet_Aventail';
       headMesh.add(aventailMesh);
 
+      // 6b. Helmet crest / plume in player team color
+      const plumeGeo = new THREE.ConeGeometry(0.045, 0.18, 8);
+      plumeGeo.rotateZ(0.35);
+      plumeGeo.translate(-0.06, 0.22, 0);
+      const plumeMesh = new THREE.Mesh(plumeGeo, matTeam);
+      plumeMesh.name = 'Plume_Team';
+      headMesh.add(plumeMesh);
+
       // 7. Steel breastplate / cuirass overlay on torso
       const cuirassGeo = new THREE.CylinderGeometry(0.182, 0.155, 0.26, 16);
       cuirassGeo.translate(0.015, 0.62, 0);
@@ -1634,12 +1721,35 @@ export function buildArticulatedUnit3DMesh(
       helmMesh.add(new THREE.Mesh(brimGeo, matIron));
       headMesh.add(helmMesh);
 
+      // Modeled ears on head
+      for (const ez of [-0.12, 0.12]) {
+        const earGeo = new THREE.BoxGeometry(0.02, 0.045, 0.02);
+        earGeo.translate(0, 0, ez);
+        const earMesh = new THREE.Mesh(earGeo, matSkin);
+        earMesh.name = ez < 0 ? 'Ear_L' : 'Ear_R';
+        headMesh.add(earMesh);
+      }
+
+      // Connecting neck
+      const neckGeo = new THREE.CylinderGeometry(0.046, 0.052, 0.10, 12);
+      neckGeo.translate(0, 0.84, 0);
+      const neckMesh = new THREE.Mesh(neckGeo, matSkin);
+      neckMesh.name = 'Neck';
+      torsoMesh.add(neckMesh);
+
       // Round Bossed Shield on Arm_L
       const shieldGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.04, 18);
       shieldGeo.rotateX(Math.PI * 0.5);
       shieldGeo.translate(0.09, -0.18, -0.10);
       const shieldMesh = new THREE.Mesh(shieldGeo, matTeam);
       shieldMesh.name = 'Shield';
+
+      const bossGeo = new THREE.SphereGeometry(0.058, 16, 12);
+      bossGeo.translate(0.12, -0.18, -0.10);
+      const bossMesh = new THREE.Mesh(bossGeo, matIron);
+      bossMesh.name = 'Shield_Boss';
+      shieldMesh.add(bossMesh);
+
       armL.add(shieldMesh);
 
       // Long Ash Spear in Arm_R
@@ -1652,7 +1762,9 @@ export function buildArticulatedUnit3DMesh(
       const tipGeo = new THREE.ConeGeometry(0.035, 0.24, 8);
       tipGeo.rotateZ(-0.32);
       tipGeo.translate(0.42, 0.78, 0);
-      spearMesh.add(new THREE.Mesh(tipGeo, matSteel));
+      const tipMesh = new THREE.Mesh(tipGeo, matSteel);
+      tipMesh.name = 'Weapon_Tip';
+      spearMesh.add(tipMesh);
       armR.add(spearMesh);
 
       // Spare Javelin on back

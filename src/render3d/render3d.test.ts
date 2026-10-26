@@ -196,12 +196,13 @@ describe('3D Graphics Engine & Rendering Systems', () => {
 
       const mat = hexBoard.selectedHaloMesh.material as THREE.MeshBasicMaterial;
       expect(mat.transparent).toBe(true);
+      expect(mat.opacity).toBe(0.5);
       expect(mat.map).toBeDefined();
 
-      // Select unit at (4, 4) - halo is raised above reach overlay hex highlights (elev + 0.05) with renderOrder 5
+      // Select unit at (4, 4) - halo is raised above hover and reach overlay hex highlights (elev + 0.08) with renderOrder 5
       hexBoard.setSelectedUnitHex({ x: 4, y: 4 }, HexDirection.EAST);
       expect(hexBoard.selectedHaloMesh.visible).toBe(true);
-      expect(hexBoard.selectedHaloMesh.position.y).toBeCloseTo(hexBoard.getHexElevation(4, 4) + 0.05, 3);
+      expect(hexBoard.selectedHaloMesh.position.y).toBeCloseTo(hexBoard.getHexElevation(4, 4) + 0.08, 3);
       expect(hexBoard.selectedHaloMesh.renderOrder).toBe(5);
 
       // Verify rotation over time:
@@ -227,7 +228,7 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       // Reachable hex highlights have cylinder height 0.04 (top surface at elev + pos.y + 0.02)
       const walkableTop = walkableOverlay.position.y + 0.02; // elev + 0.015 + 0.02 = elev + 0.035
       expect(hexBoard.selectedHaloMesh.position.y).toBeGreaterThan(walkableTop);
-      expect(hexBoard.selectedHaloMesh.position.y).toBeCloseTo(elev22 + 0.05, 3);
+      expect(hexBoard.selectedHaloMesh.position.y).toBeCloseTo(elev22 + 0.08, 3);
       expect(hexBoard.selectedHaloMesh.renderOrder).toBeGreaterThan(walkableOverlay.renderOrder);
 
       // Deselecting unit hides halo

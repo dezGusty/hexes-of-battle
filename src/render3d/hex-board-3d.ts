@@ -129,7 +129,7 @@ export class HexBoard3D {
     const haloMat = new THREE.MeshBasicMaterial({
       map: haloTexture,
       transparent: true,
-      opacity: 0.95,
+      opacity: 0.5,
       side: THREE.DoubleSide,
       depthWrite: false,
     });
@@ -1214,7 +1214,7 @@ float terrainEdgeNoise(vec2 p) {
     this.selectedRingMesh.visible = false;
 
     this.selectedHaloMesh.scale.set(scale, 1, scale);
-    this.selectedHaloMesh.position.set(worldPos.x, elev + 0.05, worldPos.z);
+    this.selectedHaloMesh.position.set(worldPos.x, elev + 0.08, worldPos.z);
     this.selectedHaloMesh.visible = true;
 
     if (facing !== undefined && facing !== HexDirection.NONE) {

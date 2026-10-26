@@ -21,10 +21,10 @@ export class ThreeSceneManager {
     near: 0.1,
     far: 200,
     initialDistance: 18.0,
-    minDistance: 8.0,
+    minDistance: 4.5,
     maxDistance: 32.0,
     initialPitch: Math.PI * 0.32,
-    minPitch: Math.PI * 0.15,
+    minPitch: Math.PI * 0.08,
     maxPitch: Math.PI * 0.45,
   };
 
@@ -70,11 +70,11 @@ export class ThreeSceneManager {
       // In headless environments or environments lacking WebGL2/WebGL context
       this.renderer = {
         domElement: this.canvas,
-        setPixelRatio: () => {},
-        setSize: () => {},
-        setClearColor: () => {},
-        render: () => {},
-        dispose: () => {},
+        setPixelRatio: () => { },
+        setSize: () => { },
+        setClearColor: () => { },
+        render: () => { },
+        dispose: () => { },
         shadowMap: { enabled: true, type: THREE.PCFShadowMap },
       } as any;
     }
@@ -134,12 +134,12 @@ export class ThreeSceneManager {
       if (!depthTex) return;
       Object.defineProperty(depthTex, 'minFilter', {
         get: () => THREE.NearestFilter,
-        set: () => {},
+        set: () => { },
         configurable: true,
       });
       Object.defineProperty(depthTex, 'magFilter', {
         get: () => THREE.NearestFilter,
-        set: () => {},
+        set: () => { },
         configurable: true,
       });
     };

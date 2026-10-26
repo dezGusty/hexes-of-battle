@@ -222,7 +222,7 @@ export class BattleHud2D {
   private initializeCommonControls(events: BattleHud2DEvents): void {
     this.commonControls = new CommonControls({
       zoomMin: 75,
-      zoomMax: 200,
+      zoomMax: 400,
       zoomStep: 5,
       zoomValue: 100,
     });
