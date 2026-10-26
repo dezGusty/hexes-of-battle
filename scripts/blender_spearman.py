@@ -724,40 +724,77 @@ def build_spear_bmesh():
 
 def build_round_shield_bmesh():
     """
-    Round bossed infantry shield attached to left forearm:
-      - Shallow convex wooden face with plank construction
-      - Dyed in player-specific team color
+    Round bossed infantry shield attached to left forearm with solid, double-sided geometry:
+      - Front convex wooden face (normals point +X forward)
+      - Back concave wooden face (normals point -X backwards towards soldier, fully rendered from rear)
+      - Outer perimeter edge band bridging front and back
+      - Wooden cross-brace bar, leather forearm enarme strap, and grip handle on the reverse
     """
     bm = bmesh.new()
-    # Circular concentric rings with shallow dome curvature
-    rings_radii = [0.060, 0.140, 0.220]
-    dome_z = [0.022, 0.012, 0.000]
+    segments = 18
+    thetas = [2 * math.pi * k / segments for k in range(segments)]
 
-    thetas = [2 * math.pi * k / 18 for k in range(18)]
-    rings = []
-    for r, z in zip(rings_radii, dome_z):
-        ring = []
-        for th in thetas:
-            c, s = math.cos(th), math.sin(th)
-            ring.append(bm.verts.new(Vector((z, s * r, c * r))))
-        rings.append(ring)
+    # 1. Front convex face rings (center at X = +0.022, dropping to X = 0.000 at rim)
+    front_center = bm.verts.new(Vector((0.022, 0.0, 0.0)))
+    front_r1 = [bm.verts.new(Vector((0.018, math.sin(th) * 0.070, math.cos(th) * 0.070))) for th in thetas]
+    front_r2 = [bm.verts.new(Vector((0.010, math.sin(th) * 0.145, math.cos(th) * 0.145))) for th in thetas]
+    front_r3 = [bm.verts.new(Vector((0.000, math.sin(th) * 0.220, math.cos(th) * 0.220))) for th in thetas]
 
-    faces = bridge_rings(bm, rings, closed_bottom=True, closed_top=False)
-    _orient_outward(bm, faces, Vector((-0.05, 0.0, 0.0)))
+    # Front center fan (normal points +X)
+    for k in range(segments):
+        k2 = (k + 1) % segments
+        bm.faces.new((front_center, front_r1[k], front_r1[k2]))
 
-    # Back wooden thickness ring
-    back_ring = []
-    for th in thetas:
-        c, s = math.cos(th), math.sin(th)
-        back_ring.append(bm.verts.new(Vector((-0.018, s * 0.220, c * 0.220))))
+    # Front quad rings (normal points +X)
+    for r_a, r_b in [(front_r1, front_r2), (front_r2, front_r3)]:
+        for k in range(segments):
+            k2 = (k + 1) % segments
+            bm.faces.new((r_a[k], r_b[k], r_b[k2], r_a[k2]))
 
-    rim_faces = []
-    n = len(rings[-1])
-    for k in range(n):
-        k2 = (k + 1) % n
-        rim_faces.append(bm.faces.new((rings[-1][k], rings[-1][k2], back_ring[k2], back_ring[k])))
-    # Back face
-    bm.faces.new(list(reversed(back_ring)))
+    # 2. Back concave face rings (thickness ~0.016m behind front, normals point -X backwards)
+    thickness = 0.016
+    back_center = bm.verts.new(Vector((0.022 - thickness, 0.0, 0.0)))
+    back_r1 = [bm.verts.new(Vector((0.018 - thickness, math.sin(th) * 0.070, math.cos(th) * 0.070))) for th in thetas]
+    back_r2 = [bm.verts.new(Vector((0.010 - thickness, math.sin(th) * 0.145, math.cos(th) * 0.145))) for th in thetas]
+    back_r3 = [bm.verts.new(Vector((0.000 - thickness, math.sin(th) * 0.220, math.cos(th) * 0.220))) for th in thetas]
+
+    # Back center fan (reversed winding so normal points -X backwards)
+    for k in range(segments):
+        k2 = (k + 1) % segments
+        bm.faces.new((back_center, back_r1[k2], back_r1[k]))
+
+    # Back quad rings (reversed winding so normal points -X backwards)
+    for r_a, r_b in [(back_r1, back_r2), (back_r2, back_r3)]:
+        for k in range(segments):
+            k2 = (k + 1) % segments
+            bm.faces.new((r_a[k], r_a[k2], r_b[k2], r_b[k]))
+
+    # 3. Outer edge rim bridging front_r3 to back_r3 (normals point radially outward)
+    for k in range(segments):
+        k2 = (k + 1) % segments
+        bm.faces.new((front_r3[k], front_r3[k2], back_r3[k2], back_r3[k]))
+
+    # 4. Details on reverse of shield (visible from behind the unit):
+    # Wood reinforcement cross-brace bar across center (along Z)
+    brace = bmesh.ops.create_cube(bm, size=1.0)
+    bmesh.ops.scale(bm, verts=brace["verts"], vec=(0.008, 0.030, 0.380))
+    bmesh.ops.translate(bm, verts=brace["verts"], vec=(-thickness - 0.004, 0.0, 0.0))
+
+    # Leather forearm enarme strap (upper half of shield back)
+    strap_pts = [
+        Vector((-thickness - 0.005, -0.045, 0.075)),
+        Vector((-thickness - 0.024, 0.000, 0.075)),
+        Vector((-thickness - 0.005, 0.045, 0.075)),
+    ]
+    tube(bm, strap_pts, [(0.016, 0.004)] * 3, segments=4, up_hint=Z_AXIS, cap_start=True, cap_end=True)
+
+    # Leather / wooden grip handle (lower half of shield back)
+    handle_pts = [
+        Vector((-thickness - 0.005, -0.040, -0.075)),
+        Vector((-thickness - 0.025, 0.000, -0.075)),
+        Vector((-thickness - 0.005, 0.040, -0.075)),
+    ]
+    tube(bm, handle_pts, [(0.012, 0.012)] * 3, segments=6, up_hint=Z_AXIS, cap_start=True, cap_end=True)
 
     bm.normal_update()
     return bm
@@ -835,14 +872,14 @@ def assemble_spearman(create_mesh_object, make_material):
     create_mesh_object("Bracer_L", build_bracer_bmesh(1.0), mats["leather"], parent=arm_l)
     create_mesh_object("Hand_L", build_hand_bmesh(1.0, is_spear_hand=False), mats["skin"], parent=arm_l)
 
-    # Round Bossed Shield on Arm_L at forearm/wrist
+    # Round Bossed Shield on Arm_L at forearm/wrist, angled 45 degrees towards the left flank
     shield = create_mesh_object(
         "Shield",
         build_round_shield_bmesh(),
         mats["team"],
         parent=arm_l,
-        location=(0.09, 0.08, -0.18),
-        rotation=(math.radians(15), 0, math.radians(-12)),
+        location=(0.085, 0.065, -0.200),
+        rotation=(math.radians(12), math.radians(-6), math.radians(45)),
     )
     create_mesh_object("Shield_Boss", build_shield_boss_bmesh(), mats["iron"], parent=shield)
     create_mesh_object("Shield_Rim", build_shield_rim_bmesh(), mats["steel"], parent=shield)

@@ -23,6 +23,7 @@ from blender_peasant import assemble_peasant  # noqa: E402
 from blender_swordsman import assemble_swordsman  # noqa: E402
 from blender_archer import assemble_archer  # noqa: E402
 from blender_spearman import assemble_spearman  # noqa: E402
+from blender_barbarian import assemble_barbarian  # noqa: E402
 
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 UNITS_GLB_DIR = os.path.join(ROOT_DIR, "public", "models", "units")
@@ -322,73 +323,9 @@ def build_crossbowman():
 
 
 def build_barbarian():
+    """Higher-fidelity barbarian with heavy fur mantle, horned helm, and double-bitted battleaxe (see scripts/blender_barbarian.py)."""
     clear_scene()
-    pal = create_common_palette()
-
-    mat_face = make_textured_material(
-        "BarbarianFace",
-        os.path.join(UNIT_TEXTURES_DIR, "barbarian_face.png"),
-        rgba=(1.0, 1.0, 1.0, 1.0),
-        metallic=0.04,
-        roughness=0.72,
-    )
-    mat_skin = make_textured_material(
-        "BarbarianSkin",
-        os.path.join(UNIT_TEXTURES_DIR, "barbarian_skin.png"),
-        rgba=(0.87, 0.70, 0.56, 1.0),
-        metallic=0.0,
-        roughness=0.72,
-    )
-    mat_clothing = make_textured_material(
-        "BarbarianClothing",
-        os.path.join(UNIT_TEXTURES_DIR, "barbarian_clothing.png"),
-        rgba=(0.34, 0.21, 0.11, 1.0),
-        metallic=0.05,
-        roughness=0.82,
-    )
-    mat_weapon = make_textured_material(
-        "BarbarianWeapon",
-        os.path.join(UNIT_TEXTURES_DIR, "barbarian_weapon.png"),
-        rgba=(0.72, 0.75, 0.80, 1.0),
-        metallic=0.55,
-        roughness=0.42,
-    )
-
-    rig = build_base_humanoid("barbarian", pal, mat_skin, mat_clothing, mat_skin, has_pauldrons=False, muscular=True)
-    rig["head"].data.materials[0] = mat_face
-
-    # Fur Pelt Mantle over shoulders
-    bm_fur = bmesh.new()
-    bm_add_cylinder(bm_fur, 0.24, 0.19, 0.16, segments=16, center=(-0.01, 0, 0.74))
-    create_mesh_object("Fur_Mantle", bm_fur, mat_clothing, parent=rig["torso"])
-
-    # Horned Iron Helmet
-    bm_helm = bmesh.new()
-    bm_add_sphere(bm_helm, 0.138, segments=20, ring_count=14, center=(0, 0, 0.04), scale=(1.02, 1.02, 0.95))
-    helm_obj = create_mesh_object("Helmet_Horned", bm_helm, pal["iron"], parent=rig["head"])
-
-    bm_horns = bmesh.new()
-    for y_sign in (-1.0, 1.0):
-        bm_add_cylinder(
-            bm_horns,
-            0.032,
-            0.005,
-            0.18,
-            segments=12,
-            center=(0.02, y_sign * 0.15, 0.11),
-            rot_euler=(math.radians(-y_sign * 42), math.radians(15), 0),
-        )
-    create_mesh_object("Helmet_Horns", bm_horns, pal["feather"], parent=helm_obj)
-
-    # Massive Double-Bitted Battleaxe in Arm_R
-    bm_shaft = bmesh.new()
-    bm_add_cylinder(bm_shaft, 0.024, 0.022, 0.95, segments=12, center=(0.16, 0, -0.02), rot_euler=(0, math.radians(24), 0))
-    axe_obj = create_mesh_object("Weapon", bm_shaft, mat_weapon, parent=rig["arm_r"])
-
-    bm_blade = bmesh.new()
-    bm_add_box(bm_blade, 0.28, 0.035, 0.22, center=(0.30, 0, 0.30), rot_euler=(0, math.radians(24), 0))
-    create_mesh_object("Axe_Blade", bm_blade, mat_weapon, parent=axe_obj)
-
+    assemble_barbarian(create_mesh_object, make_material)
     export_current_model("barbarian")
 
 

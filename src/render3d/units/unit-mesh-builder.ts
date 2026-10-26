@@ -303,7 +303,7 @@ function prepareBarbarianHierarchyBeforeCompaction(rootMesh: THREE.Mesh): void {
     const rawName = (mesh.userData?.originalPartName ?? mesh.name).toLowerCase();
     const parentName = (mesh.parent?.name ?? '').toLowerCase();
 
-    if (mesh.name === 'Head') {
+    if (mesh.name === 'Head' || rawName.includes('ear')) {
       applyBarbarianUVMapping(mesh.geometry, 'head_face');
       // Use white vertex color on the face sphere so barbarian_face.png's true colors appear
       mesh.material = makeMat(0xffffff, 0.72, 0.0);
@@ -313,12 +313,13 @@ function prepareBarbarianHierarchyBeforeCompaction(rootMesh: THREE.Mesh): void {
       parentName.includes('helmet')
     ) {
       applyBarbarianUVMapping(mesh.geometry, 'helmet_horn');
-    } else if (mesh.name === 'Torso') {
+    } else if (mesh.name === 'Torso' || rawName.includes('neck')) {
       applyBarbarianUVMapping(mesh.geometry, 'torso_skin');
     } else if (
       mesh.name === 'Arm_L' ||
       mesh.name === 'Arm_R' ||
       rawName.includes('hand') ||
+      rawName.includes('bracer') ||
       parentName.startsWith('arm_')
     ) {
       if (mesh.name !== 'Weapon' && !parentName.includes('weapon')) {
@@ -328,7 +329,7 @@ function prepareBarbarianHierarchyBeforeCompaction(rootMesh: THREE.Mesh): void {
       applyBarbarianUVMapping(mesh.geometry, 'fur_mantle');
     } else if (rawName.includes('belt')) {
       applyBarbarianUVMapping(mesh.geometry, 'belt');
-    } else if (mesh.name === 'Clothing' || rawName.includes('tabard')) {
+    } else if (mesh.name === 'Clothing' || rawName.includes('tabard') || rawName.includes('loincloth')) {
       applyBarbarianUVMapping(mesh.geometry, 'tabard');
     } else if (
       mesh.name === 'Leg_L' ||
@@ -337,7 +338,7 @@ function prepareBarbarianHierarchyBeforeCompaction(rootMesh: THREE.Mesh): void {
       parentName.startsWith('leg_')
     ) {
       applyBarbarianUVMapping(mesh.geometry, 'leg_clothing');
-    } else if (mesh.name === 'Weapon') {
+    } else if (mesh.name === 'Weapon' && !rawName.includes('blade')) {
       applyBarbarianUVMapping(mesh.geometry, 'axe_shaft');
     } else if (rawName.includes('blade') || parentName === 'weapon') {
       applyBarbarianUVMapping(mesh.geometry, 'axe_blade');
@@ -1737,15 +1738,16 @@ export function buildArticulatedUnit3DMesh(
       neckMesh.name = 'Neck';
       torsoMesh.add(neckMesh);
 
-      // Round Bossed Shield on Arm_L
+      // Round Bossed Shield on Arm_L, angled 45 degrees towards the left
       const shieldGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.04, 18);
       shieldGeo.rotateX(Math.PI * 0.5);
-      shieldGeo.translate(0.09, -0.18, -0.10);
+      shieldGeo.rotateY(-Math.PI * 0.25);
+      shieldGeo.translate(0.08, -0.18, -0.08);
       const shieldMesh = new THREE.Mesh(shieldGeo, matTeam);
       shieldMesh.name = 'Shield';
 
       const bossGeo = new THREE.SphereGeometry(0.058, 16, 12);
-      bossGeo.translate(0.12, -0.18, -0.10);
+      bossGeo.translate(0.10, -0.18, -0.06);
       const bossMesh = new THREE.Mesh(bossGeo, matIron);
       bossMesh.name = 'Shield_Boss';
       shieldMesh.add(bossMesh);
@@ -1805,12 +1807,33 @@ export function buildArticulatedUnit3DMesh(
     }
 
     case 'barbarian': {
-      // Fur Pelt Mantle
-      const furGeo = new THREE.CylinderGeometry(0.23, 0.19, 0.16, 16);
+      // Fur Pelt Mantle draped heavily over shoulders
+      const furGeo = new THREE.CylinderGeometry(0.24, 0.20, 0.17, 16);
       furGeo.translate(-0.01, 0.74, 0);
       const furMesh = new THREE.Mesh(furGeo, matFur);
       furMesh.name = 'Fur_Mantle';
       torsoMesh.add(furMesh);
+
+      // Connecting bull neck
+      const neckGeo = new THREE.CylinderGeometry(0.052, 0.056, 0.10, 12);
+      neckGeo.translate(0, 0.84, 0);
+      const neckMesh = new THREE.Mesh(neckGeo, matSkin);
+      neckMesh.name = 'Neck';
+      torsoMesh.add(neckMesh);
+
+      // Player-colored war tabard / loincloth
+      const tabardGeo = new THREE.BoxGeometry(0.22, 0.26, 0.18);
+      tabardGeo.translate(0.01, 0.40, 0);
+      const tabardMesh = new THREE.Mesh(tabardGeo, matTeam);
+      tabardMesh.name = 'Tabard_Team';
+      torsoMesh.add(tabardMesh);
+
+      // Studded leather belt
+      const beltGeo = new THREE.CylinderGeometry(0.185, 0.185, 0.045, 16);
+      beltGeo.translate(0, 0.495, 0);
+      const beltMesh = new THREE.Mesh(beltGeo, matLeather);
+      beltMesh.name = 'Belt';
+      torsoMesh.add(beltMesh);
 
       // Horned Iron Helmet
       const helmGeo = new THREE.SphereGeometry(0.138, 20, 14);
@@ -1823,7 +1846,25 @@ export function buildArticulatedUnit3DMesh(
         hornGeo.translate(0.02, 0.12, zSign * 0.14);
         helmMesh.add(new THREE.Mesh(hornGeo, matFeather));
       }
+
+      // Modeled ears on head
+      for (const ez of [-0.12, 0.12]) {
+        const earGeo = new THREE.BoxGeometry(0.02, 0.045, 0.02);
+        earGeo.translate(0, 0, ez);
+        const earMesh = new THREE.Mesh(earGeo, matSkin);
+        earMesh.name = ez < 0 ? 'Ear_L' : 'Ear_R';
+        headMesh.add(earMesh);
+      }
       headMesh.add(helmMesh);
+
+      // Studded bracers on arms
+      for (const arm of [armL, armR]) {
+        const bracerGeo = new THREE.CylinderGeometry(0.062, 0.052, 0.11, 12);
+        bracerGeo.translate(0.03, -0.21, 0);
+        const bracerMesh = new THREE.Mesh(bracerGeo, matLeather);
+        bracerMesh.name = `${arm.name}_Bracer`;
+        arm.add(bracerMesh);
+      }
 
       // Double-Bitted Battleaxe in Arm_R
       const shaftGeo = new THREE.CylinderGeometry(0.022, 0.024, 0.95, 12);
@@ -1835,7 +1876,9 @@ export function buildArticulatedUnit3DMesh(
       const bladeGeo = new THREE.BoxGeometry(0.28, 0.22, 0.035);
       bladeGeo.rotateZ(-0.36);
       bladeGeo.translate(0.30, 0.34, 0);
-      axeMesh.add(new THREE.Mesh(bladeGeo, matSteel));
+      const bladeMesh = new THREE.Mesh(bladeGeo, matSteel);
+      bladeMesh.name = 'Axe_Blade';
+      axeMesh.add(bladeMesh);
       armR.add(axeMesh);
       break;
     }
