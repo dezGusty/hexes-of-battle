@@ -108,6 +108,7 @@ export class BattleView3D {
       coordsStrokeWidth: settings.debug.coordsStrokeWidth,
       getTerrain: (x, y) => this.battle.getTerrainAt({ x, y }),
       getRetreatPoints: (armyIndex) => this.battle.getRetreatPoints(armyIndex),
+      getArmyBanner: (armyIndex) => this.battle.getBannerForArmy(armyIndex),
     });
     this.sceneManager.scene.add(this.hexBoard.group);
     this.sceneManager.scene.add(this.projectileSystem.group);

@@ -6,7 +6,15 @@ import { HexBoard3D } from '../render3d/hex-board-3d';
 import {
   createRetreatFlagMesh,
   updateRetreatFlagWind,
+  BANNER_FRAMES,
+  BANNERS_ATLAS_SIZE,
+  configurePlayerBanners,
+  resetPlayerBannersToDefault,
+  getPlayerBanner,
+  createBannerSubTexture,
 } from '../render3d/decorations/retreat-flag-3d';
+import fs from 'fs';
+import path from 'path';
 import {
   PostBattlePanel,
   formatSquadPostBattleStatus,
@@ -209,9 +217,10 @@ describe('Configurable Fixed Retreat Points & Animated Flags', () => {
       expect(cloth.userData.originalPositions).toBeDefined();
       expect(cloth.userData.originalPositions.length).toBeGreaterThan(0);
 
-      // Verify 40% dimensions
-      expect(cloth.userData.length).toBeCloseTo(0.44, 2);
+      // Verify square dimensions (width reduced to match height: 0.288 x 0.288)
+      expect(cloth.userData.length).toBeCloseTo(0.288, 3);
       expect(cloth.userData.height).toBeCloseTo(0.288, 3);
+      expect(cloth.userData.bannerName).toBeDefined();
       const poleGeo = pole.geometry as THREE.CylinderGeometry;
       expect(poleGeo.parameters.height).toBeCloseTo(0.88, 2);
 
@@ -294,8 +303,8 @@ describe('Configurable Fixed Retreat Points & Animated Flags', () => {
       expect(minX).toBeCloseTo(0, 2);
       expect(posAttr.getZ(minXIndex)).toBeCloseTo(0, 3);
 
-      // Vertex at free fly edge (x = 0.44) should have significant wave displacement
-      expect(maxX).toBeCloseTo(0.44, 2);
+      // Vertex at free fly edge (x = 0.288) should have significant wave displacement
+      expect(maxX).toBeCloseTo(0.288, 2);
       expect(posAttr.getZ(maxXIndex)).not.toBe(0);
 
       // Animate at t = 2.0 seconds: fly edge displacement should change over time (billowing wind)
@@ -510,6 +519,177 @@ describe('Configurable Fixed Retreat Points & Animated Flags', () => {
       expect(result.victorArmyIndex).toBe(0);
       expect(result.survivingCreatures).toContain(unitA);
       expect(result.routedCreatures).toContain(unitB);
+    });
+  });
+
+  describe('6. Square Flags & Configurable Army Banners', () => {
+    it('should have square flag cloth where width matches height (0.288 x 0.288)', () => {
+      const flag = createRetreatFlagMesh(0, 3, 3, 'banner1.png');
+      const cloth = flag.getObjectByName('Cloth') as THREE.Mesh;
+      expect(cloth).toBeDefined();
+
+      // Width matches height: exactly square
+      expect(cloth.userData.length).toBeCloseTo(0.288, 3);
+      expect(cloth.userData.height).toBeCloseTo(0.288, 3);
+      expect(cloth.userData.length).toBe(cloth.userData.height);
+
+      const planeGeo = cloth.geometry as THREE.PlaneGeometry;
+      expect(planeGeo.parameters.width).toBeCloseTo(0.288, 3);
+      expect(planeGeo.parameters.height).toBeCloseTo(0.288, 3);
+      expect(planeGeo.parameters.width).toBe(planeGeo.parameters.height);
+
+      // Verify banner metadata attached to flag and cloth
+      expect(flag.userData.bannerName).toBe('banner1.png');
+      expect(cloth.userData.bannerName).toBe('banner1.png');
+    });
+
+    it('should define player1Banner and player2Banner in public/combat_config.json', () => {
+      const cfgPath = path.resolve(process.cwd(), 'public/combat_config.json');
+      expect(fs.existsSync(cfgPath)).toBe(true);
+
+      const raw = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+      expect(raw.player1Banner).toBeDefined();
+      expect(raw.player2Banner).toBeDefined();
+      expect(raw.player1Banner).toMatch(/^banner\d+\.png$/);
+      expect(raw.player2Banner).toMatch(/^banner\d+\.png$/);
+    });
+
+    it('should reference valid frames banner1.png through banner16.png defined in bannersspritesheet.json', () => {
+      const sheetPath = path.resolve(process.cwd(), 'public/bannersspritesheet.json');
+      expect(fs.existsSync(sheetPath)).toBe(true);
+
+      const sheet = JSON.parse(fs.readFileSync(sheetPath, 'utf-8'));
+      expect(sheet.meta.image).toBe('banners.png');
+      expect(sheet.meta.size.w).toBe(264);
+      expect(sheet.meta.size.h).toBe(264);
+      expect(BANNERS_ATLAS_SIZE.w).toBe(sheet.meta.size.w);
+      expect(BANNERS_ATLAS_SIZE.h).toBe(sheet.meta.size.h);
+
+      const imgPath = path.resolve(process.cwd(), 'public/banners.png');
+      expect(fs.existsSync(imgPath)).toBe(true);
+      expect(fs.statSync(imgPath).size).toBeGreaterThan(1000);
+
+      // Verify each of the 16 banners has a 64x64 square frame in the atlas
+      for (let i = 1; i <= 16; i++) {
+        const name = `banner${i}.png`;
+        expect(sheet.frames[name]).toBeDefined();
+        expect(sheet.frames[name].frame.w).toBe(64);
+        expect(sheet.frames[name].frame.h).toBe(64);
+
+        // Check BANNER_FRAMES matches exactly
+        const bf = BANNER_FRAMES[name];
+        expect(bf).toBeDefined();
+        expect(bf.w).toBe(64);
+        expect(bf.h).toBe(64);
+        expect(bf.x).toBe(sheet.frames[name].frame.x);
+        expect(bf.y).toBe(sheet.frames[name].frame.y);
+      }
+    });
+
+    it('should allow dynamic configuration of banners via Battle.setCombatConfig and configurePlayerBanners', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+      battle.initializeToSize(10, 8);
+
+      // Default banners
+      expect(battle.getBannerForArmy(0)).toBe('banner1.png');
+      expect(battle.getBannerForArmy(1)).toBe('banner2.png');
+
+      // Update banners via setCombatConfig
+      battle.setCombatConfig({
+        ...battle.combatConfig,
+        player1Banner: 'banner5.png',
+        player2Banner: 'banner12.png',
+      });
+
+      expect(battle.getBannerForArmy(0)).toBe('banner5.png');
+      expect(battle.getBannerForArmy(1)).toBe('banner12.png');
+      expect(getPlayerBanner(0)).toBe('banner5.png');
+      expect(getPlayerBanner(1)).toBe('banner12.png');
+
+      // Test standalone configurePlayerBanners
+      configurePlayerBanners({ player1Banner: 'banner7.png', player2Banner: 'banner14.png' });
+      expect(getPlayerBanner(0)).toBe('banner7.png');
+      expect(getPlayerBanner(1)).toBe('banner14.png');
+
+      // Reset back to battle's setCombatConfig
+      configurePlayerBanners(battle.combatConfig);
+
+      // HexBoard3D should pick up these configured banners
+      const hexBoard = new HexBoard3D(hexMap, {
+        getRetreatPoints: (a) => [{ x: a === 0 ? 0 : 9, y: 3 }],
+        getArmyBanner: (a) => battle.getBannerForArmy(a),
+      });
+
+      const flags = hexBoard.retreatFlagsGroup.children;
+      const flagP1 = flags.find((f) => f.userData.armyIndex === 0);
+      const flagP2 = flags.find((f) => f.userData.armyIndex === 1);
+
+      expect(flagP1?.userData.bannerName).toBe('banner5.png');
+      expect(flagP2?.userData.bannerName).toBe('banner12.png');
+
+      const clothP1 = flagP1?.getObjectByName('Cloth') as THREE.Mesh;
+      const clothP2 = flagP2?.getObjectByName('Cloth') as THREE.Mesh;
+
+      expect(clothP1?.userData.bannerName).toBe('banner5.png');
+      expect(clothP2?.userData.bannerName).toBe('banner12.png');
+
+      // Cleanup
+      hexBoard.dispose();
+      resetPlayerBannersToDefault();
+    });
+
+    it('should correctly calculate texture atlas UV repeat and offset for banners', () => {
+      // Mock atlas texture
+      const atlasTex = new THREE.Texture();
+      atlasTex.name = 'BannersAtlas';
+
+      const banner1Tex = createBannerSubTexture(atlasTex, 'banner1.png');
+      expect(banner1Tex.name).toBe('banner1.png');
+      expect(banner1Tex.repeat.x).toBeCloseTo(64 / 264, 4);
+      expect(banner1Tex.repeat.y).toBeCloseTo(64 / 264, 4);
+      expect(banner1Tex.offset.x).toBeCloseTo(1 / 264, 4);
+      // y = 1 in 264x264 image: Three.js V = (264 - 1 - 64) / 264 = 199 / 264
+      expect(banner1Tex.offset.y).toBeCloseTo(199 / 264, 4);
+
+      const banner2Tex = createBannerSubTexture(atlasTex, 'banner2.png');
+      expect(banner2Tex.name).toBe('banner2.png');
+      expect(banner2Tex.offset.x).toBeCloseTo(67 / 264, 4);
+      expect(banner2Tex.offset.y).toBeCloseTo(199 / 264, 4);
+
+      // banner5.png is row 1 (y = 67, x = 1) -> V = (264 - 67 - 64) / 264 = 133 / 264
+      const banner5Tex = createBannerSubTexture(atlasTex, 'banner5.png');
+      expect(banner5Tex.offset.x).toBeCloseTo(1 / 264, 4);
+      expect(banner5Tex.offset.y).toBeCloseTo(133 / 264, 4);
+
+      banner1Tex.dispose();
+      banner2Tex.dispose();
+      banner5Tex.dispose();
+      atlasTex.dispose();
+    });
+
+    it('should allow custom army banner provider in HexBoard3D and rebuild flags accordingly', () => {
+      const hexMap = new HexMap(8, 6);
+      const hexBoard = new HexBoard3D(hexMap, {
+        getRetreatPoints: (a) => [{ x: a === 0 ? 0 : 7, y: 2 }],
+      });
+
+      // Default flags
+      let flag0 = hexBoard.retreatFlagsGroup.children.find((f) => f.userData.armyIndex === 0);
+      expect(flag0?.userData.bannerName).toBe('banner1.png');
+
+      // Set custom banner provider
+      hexBoard.setArmyBannerProvider((armyIndex) =>
+        armyIndex === 0 ? 'banner9.png' : 'banner15.png'
+      );
+
+      flag0 = hexBoard.retreatFlagsGroup.children.find((f) => f.userData.armyIndex === 0);
+      const flag1 = hexBoard.retreatFlagsGroup.children.find((f) => f.userData.armyIndex === 1);
+
+      expect(flag0?.userData.bannerName).toBe('banner9.png');
+      expect(flag1?.userData.bannerName).toBe('banner15.png');
+
+      hexBoard.dispose();
     });
   });
 });

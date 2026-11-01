@@ -12,7 +12,13 @@ import {
   smoothGeometryNormals,
 } from './units/unit-mesh-builder';
 import { createSelectedHaloTexture } from './units/selected-halo-texture';
-import { createRetreatFlagMesh, updateRetreatFlagWind } from './decorations/retreat-flag-3d';
+import {
+  createRetreatFlagMesh,
+  updateRetreatFlagWind,
+  getPlayerBanner,
+  createBannerSubTexture,
+  setSharedBannersTexture,
+} from './decorations/retreat-flag-3d';
 
 export interface HexBoard3DOptions {
   showGrid?: boolean;
@@ -26,6 +32,7 @@ export interface HexBoard3DOptions {
   coordsStrokeWidth?: number;
   getTerrain?: (x: number, y: number) => TerrainType;
   getRetreatPoints?: (armyIndex: number) => Coords[];
+  getArmyBanner?: (armyIndex: number) => string;
   blendTransitionWidth?: number;
   blendNoiseStrength?: number;
 }
@@ -50,6 +57,8 @@ export class HexBoard3D {
   private animatedFlagCloths: THREE.Mesh[] = [];
   private windTime: number = 0;
   private getRetreatPoints?: (armyIndex: number) => Coords[];
+  private getArmyBanner?: (armyIndex: number) => string;
+  private bannersTexture?: THREE.Texture;
   private hoverMesh: THREE.Mesh;
   private selectedRingMesh: THREE.Mesh;
   public readonly selectedHaloMesh: THREE.Mesh;
@@ -107,6 +116,7 @@ export class HexBoard3D {
     if (options?.coordsStrokeWidth !== undefined) this.coordsStrokeWidth = options.coordsStrokeWidth;
     if (options?.getTerrain !== undefined) this.getTerrain = options.getTerrain;
     if (options?.getRetreatPoints !== undefined) this.getRetreatPoints = options.getRetreatPoints;
+    if (options?.getArmyBanner !== undefined) this.getArmyBanner = options.getArmyBanner;
     if (options?.blendTransitionWidth !== undefined) this.blendTransitionWidth = options.blendTransitionWidth;
     if (options?.blendNoiseStrength !== undefined) this.blendNoiseStrength = options.blendNoiseStrength;
 
@@ -245,13 +255,13 @@ export class HexBoard3D {
             applyTreeGlbMaterials(scene, 'pine');
             this.forestTreeTemplates.pine = scene;
           })
-          .catch(() => {}),
+          .catch(() => { }),
         loadTreeGlb('models/terrain/forest_oak.glb')
           .then((scene) => {
             applyTreeGlbMaterials(scene, 'oak');
             this.forestTreeTemplates.oak = scene;
           })
-          .catch(() => {}),
+          .catch(() => { }),
       ]);
     } catch {
       // Fallback procedural low-poly tree builder remains active
@@ -293,6 +303,14 @@ export class HexBoard3D {
         transparent: true,
         opacity: 0.88,
       });
+
+      loadTex(`${basePath}banners.png`)
+        .then((bannersTex) => {
+          this.bannersTexture = bannersTex;
+          setSharedBannersTexture(bannersTex);
+          this.rebuildRetreatFlags();
+        })
+        .catch(() => { });
 
       this.rebuildBoard();
     } catch (e) {
@@ -580,6 +598,18 @@ float terrainEdgeNoise(vec2 p) {
 
   public getHillMesaRadius(x: number, y: number): number {
     return this.hillMesaRadii.get(`${x},${y}`) ?? this.hexRadius * 0.77;
+  }
+
+  public isSwamp(x: number, y: number): boolean {
+    return this.getTerrainAt(x, y) === TerrainType.SWAMP;
+  }
+
+  public getSwampInsetRadius(_x?: number, _y?: number): number {
+    return this.hexRadius * 0.76;
+  }
+
+  public getSwampDepression(_x?: number, _y?: number): number {
+    return -0.04;
   }
 
   /**
@@ -1208,6 +1238,227 @@ float hillTerrainNoise(vec2 p) {
     return geometry;
   }
 
+  /**
+   * Generates a procedural swamp tile geometry as an inverted hill hex:
+   * 1. Outer hex boundary at radius R is at y = 0 (exact same level as grass/plain hexes).
+   * 2. Inset smaller hexagon of radius rInset at lower elevation (depression basin).
+   * 3. Organic slopes descending from y = 0 on non-swamp edges down to the inset basin floor.
+   * 4. Full basin extension along shared boundaries with adjacent swamps (seamless wetland pool).
+   * 5. Transition cliff/slope sealing quads at transition corners.
+   * 6. Subterranean foundation skirts below y = 0.
+   * 7. Computed smooth vertex normals for natural marsh lighting.
+   */
+  public createSwampTileGeometry(x: number, y: number): THREE.BufferGeometry {
+    const R = this.hexRadius;
+    const rInset = this.getSwampInsetRadius(x, y);
+    const depression = this.getSwampDepression(x, y);
+    const skirtBottom = -this.hexHeight;
+
+    // Check which of the 6 edges border another swamp
+    const isSwampNeighbor: boolean[] = [];
+    const edgeDirections: HexDirection[] = [
+      HexDirection.EAST,       // Edge 0: Corner 5 (330°) to Corner 0 (30°)
+      HexDirection.SOUTHEAST,  // Edge 1: Corner 0 (30°) to Corner 1 (90°)
+      HexDirection.SOUTHWEST,  // Edge 2: Corner 1 (90°) to Corner 2 (150°)
+      HexDirection.WEST,       // Edge 3: Corner 2 (150°) to Corner 3 (210°)
+      HexDirection.NORTHWEST,  // Edge 4: Corner 3 (210°) to Corner 4 (270°)
+      HexDirection.NORTHEAST,  // Edge 5: Corner 4 (270°) to Corner 5 (330°)
+    ];
+
+    for (let e = 0; e < 6; e++) {
+      const dir = edgeDirections[e];
+      const neighborCoord = HexMapHelpers.directionCoordsMap[dir]?.({ x, y });
+      let neighborIsSwamp = false;
+      if (
+        neighborCoord &&
+        neighborCoord.x >= 0 &&
+        neighborCoord.x < this.hexMap.width &&
+        neighborCoord.y >= 0 &&
+        neighborCoord.y < this.hexMap.height
+      ) {
+        neighborIsSwamp = this.isSwamp(neighborCoord.x, neighborCoord.y);
+      }
+      isSwampNeighbor.push(neighborIsSwamp);
+    }
+
+    // Corner angles for pointy-topped hex: 30°, 90°, 150°, 210°, 270°, 330°
+    const cosK: number[] = [];
+    const sinK: number[] = [];
+    for (let k = 0; k < 6; k++) {
+      const angle = ((k * 60 + 30) * Math.PI) / 180;
+      cosK.push(Math.cos(angle));
+      sinK.push(Math.sin(angle));
+    }
+
+    const topIndices: number[] = [];
+    const skirtIndices: number[] = [];
+    const positions: number[] = [];
+    const uvs: number[] = [];
+
+    const addVertex = (px: number, py: number, pz: number, u?: number, v?: number): number => {
+      const idx = positions.length / 3;
+      positions.push(px, py, pz);
+      if (u !== undefined && v !== undefined) {
+        uvs.push(u, v);
+      } else {
+        uvs.push(px / (2 * R) + 0.5, pz / (2 * R) + 0.5);
+      }
+      return idx;
+    };
+
+    const addTopTriangle = (i1: number, i2: number, i3: number) => {
+      topIndices.push(i1, i2, i3);
+    };
+
+    const addSkirtTriangle = (i1: number, i2: number, i3: number) => {
+      skirtIndices.push(i1, i2, i3);
+    };
+
+    // 1. Center of the sunken swamp basin
+    const vCenter = addVertex(0, depression, 0);
+
+    // 2. Inset hexagon rim (12 points around inset at rInset, height = depression: 6 corners + 6 midpoints)
+    const insetPoints: { x: number; y: number; z: number }[] = [];
+    for (let k = 0; k < 6; k++) {
+      // Corner k
+      insetPoints.push({
+        x: cosK[k] * rInset,
+        y: depression,
+        z: sinK[k] * rInset,
+      });
+      // Midpoint between corner k and next corner (k+1)%6
+      const nextK = (k + 1) % 6;
+      insetPoints.push({
+        x: (cosK[k] + cosK[nextK]) * 0.5 * rInset,
+        y: depression,
+        z: (sinK[k] + sinK[nextK]) * 0.5 * rInset,
+      });
+    }
+
+    const insetK: number[] = [];
+    for (let i = 0; i < 12; i++) {
+      const pt = insetPoints[i];
+      insetK.push(addVertex(pt.x, pt.y, pt.z));
+    }
+
+    // Inset basin floor fan (12 triangles connecting center to inset rim)
+    for (let i = 0; i < 12; i++) {
+      const nextI = (i + 1) % 12;
+      addTopTriangle(vCenter, insetK[nextI], insetK[i]);
+    }
+
+    // 3. For each edge e = 0..5:
+    // Start corner c1 = (e + 5) % 6, end corner c2 = e
+    for (let e = 0; e < 6; e++) {
+      const c1 = (e + 5) % 6;
+      const c2 = e;
+      const isNeighborSwamp = isSwampNeighbor[e];
+
+      const startRimIdx = (2 * e + 10) % 12;
+      const midRimIdx = (2 * e + 11) % 12;
+      const endRimIdx = (2 * e) % 12;
+
+      const in1Idx = insetK[startRimIdx];
+      const inMidIdx = insetK[midRimIdx];
+      const in2Idx = insetK[endRimIdx];
+
+      const b1x = cosK[c1] * R;
+      const b1z = sinK[c1] * R;
+      const b2x = cosK[c2] * R;
+      const b2z = sinK[c2] * R;
+      const bMidx = (b1x + b2x) * 0.5;
+      const bMidz = (b1z + b2z) * 0.5;
+
+      if (isNeighborSwamp) {
+        // Connected to adjacent swamp: depression floor extends to hex boundary at depression
+        const b1Low = addVertex(b1x, depression, b1z);
+        const bMidLow = addVertex(bMidx, depression, bMidz);
+        const b2Low = addVertex(b2x, depression, b2z);
+
+        // Quad between [in1Idx, inMidIdx] and [b1Low, bMidLow]
+        addTopTriangle(in1Idx, inMidIdx, bMidLow);
+        addTopTriangle(in1Idx, bMidLow, b1Low);
+
+        // Quad between [inMidIdx, in2Idx] and [bMidLow, b2Low]
+        addTopTriangle(inMidIdx, in2Idx, b2Low);
+        addTopTriangle(inMidIdx, b2Low, bMidLow);
+
+        // Foundation skirt below depression down to skirtBottom
+        const s1 = addVertex(b1x * 0.97, skirtBottom, b1z * 0.97);
+        const sMid = addVertex(bMidx * 0.97, skirtBottom, bMidz * 0.97);
+        const s2 = addVertex(b2x * 0.97, skirtBottom, b2z * 0.97);
+
+        addSkirtTriangle(b1Low, bMidLow, sMid);
+        addSkirtTriangle(b1Low, sMid, s1);
+        addSkirtTriangle(bMidLow, b2Low, s2);
+        addSkirtTriangle(bMidLow, s2, sMid);
+      } else {
+        // Bordering non-swamp: linear depth slope down from y = 0 at hex boundary to depression at inset hex
+        const b1High = addVertex(b1x, 0, b1z);
+        const bMidHigh = addVertex(bMidx, 0, bMidz);
+        const b2High = addVertex(b2x, 0, b2z);
+
+        // Linear depth slope quads from hex boundary (y = 0) directly to inner inset hexagon (y = depression)
+        addTopTriangle(b1High, in1Idx, inMidIdx);
+        addTopTriangle(b1High, inMidIdx, bMidHigh);
+        addTopTriangle(bMidHigh, inMidIdx, in2Idx);
+        addTopTriangle(bMidHigh, in2Idx, b2High);
+
+        // Foundation skirt below y = 0 down to skirtBottom
+        const s1 = addVertex(b1x * 0.97, skirtBottom, b1z * 0.97);
+        const sMid = addVertex(bMidx * 0.97, skirtBottom, bMidz * 0.97);
+        const s2 = addVertex(b2x * 0.97, skirtBottom, b2z * 0.97);
+
+        addSkirtTriangle(b1High, bMidHigh, sMid);
+        addSkirtTriangle(b1High, sMid, s1);
+        addSkirtTriangle(bMidHigh, b2High, s2);
+        addSkirtTriangle(bMidHigh, s2, sMid);
+      }
+    }
+
+    // 4. Transitions at corners where swamp-neighbor edge meets non-swamp-neighbor edge
+    for (let k = 0; k < 6; k++) {
+      const ePrev = k;
+      const eNext = (k + 1) % 6;
+      const prevIsSwamp = isSwampNeighbor[ePrev];
+      const nextIsSwamp = isSwampNeighbor[eNext];
+
+      const cornerInsetIdx = insetK[(2 * k) % 12];
+      const bHigh = addVertex(cosK[k] * R, 0, sinK[k] * R);
+      const bLow = addVertex(cosK[k] * R, depression, sinK[k] * R);
+
+      if (prevIsSwamp && !nextIsSwamp) {
+        addTopTriangle(cornerInsetIdx, bLow, bHigh);
+      } else if (!prevIsSwamp && nextIsSwamp) {
+        addTopTriangle(cornerInsetIdx, bHigh, bLow);
+      }
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+
+    const combinedIndices = [...topIndices, ...skirtIndices];
+    geometry.setIndex(combinedIndices);
+
+    // Group 1: Basin floor and slopes using materialIndex = 1 (swamp terrain material)
+    geometry.addGroup(0, topIndices.length, 1);
+    // Group 0: Foundation skirt below y=0 using materialIndex = 0 (side material)
+    if (skirtIndices.length > 0) {
+      geometry.addGroup(topIndices.length, skirtIndices.length, 0);
+    }
+
+    geometry.userData = {
+      isSwampGeometry: true,
+      depression,
+      insetRadius: rInset,
+    };
+
+    geometry.computeVertexNormals();
+
+    return geometry;
+  }
+
   private buildBoard(): void {
     this.computeHillClusters();
 
@@ -1259,12 +1510,29 @@ float hillTerrainNoise(vec2 p) {
           line.updateMatrix();
           line.matrixAutoUpdate = false;
           mesh.add(line);
+        } else if (terrain === TerrainType.SWAMP) {
+          const swampGeometry = this.createSwampTileGeometry(x, y);
+          mesh = new THREE.Mesh(swampGeometry, tileMaterials);
+          mesh.position.set(pos.x, pos.y, pos.z);
+          mesh.receiveShadow = true;
+          mesh.userData = {
+            hexX: x,
+            hexY: y,
+            isHexTile: true,
+            terrainType: terrain,
+            edgeTransitions,
+            isSwamp: true,
+          };
+
+          const edges = new THREE.EdgesGeometry(swampGeometry, 25);
+          const line = new THREE.LineSegments(edges, sharedEdgeLineMat);
+          line.updateMatrix();
+          line.matrixAutoUpdate = false;
+          mesh.add(line);
         } else {
           let elevation = 0;
           if (terrain === TerrainType.WATER) {
             elevation = -0.08;
-          } else if (terrain === TerrainType.SWAMP) {
-            elevation = -0.04;
           }
 
           mesh = new THREE.Mesh(hexGeometry, tileMaterials);
@@ -1540,7 +1808,8 @@ float hillTerrainNoise(vec2 p) {
           this.gridBordersGroup.add(hillBorderMesh);
         } else {
           const borderMesh = new THREE.Mesh(ringGeo, borderMat);
-          borderMesh.position.set(pos.x, pos.y + elevation + 0.003, pos.z);
+          const borderElev = this.isSwamp(x, y) ? 0 : elevation;
+          borderMesh.position.set(pos.x, pos.y + borderElev + 0.003, pos.z);
           borderMesh.updateMatrix();
           borderMesh.matrixAutoUpdate = false;
           this.gridBordersGroup.add(borderMesh);
@@ -1581,7 +1850,10 @@ float hillTerrainNoise(vec2 p) {
     const worldPos = this.hexToWorld(coords.x, coords.y);
     const elev = this.getHexElevation(coords.x, coords.y);
     const isHill = this.isHill(coords.x, coords.y);
-    const scale = isHill ? this.getHillMesaRadius(coords.x, coords.y) / (this.hexRadius * 0.98) : 1.0;
+    const isSwamp = this.isSwamp(coords.x, coords.y);
+    const scale = isHill
+      ? this.getHillMesaRadius(coords.x, coords.y) / (this.hexRadius * 0.98)
+      : (isSwamp ? this.getSwampInsetRadius(coords.x, coords.y) / (this.hexRadius * 0.98) : 1.0);
     this.hoverMesh.scale.set(scale, 1, scale);
     this.hoverMesh.position.set(worldPos.x, elev + 0.03, worldPos.z);
     this.hoverMesh.visible = true;
@@ -1598,7 +1870,10 @@ float hillTerrainNoise(vec2 p) {
     const worldPos = this.hexToWorld(coords.x, coords.y);
     const elev = this.getHexElevation(coords.x, coords.y);
     const isHill = this.isHill(coords.x, coords.y);
-    const scale = isHill ? this.getHillMesaRadius(coords.x, coords.y) / (this.hexRadius * 0.95) : 1.0;
+    const isSwamp = this.isSwamp(coords.x, coords.y);
+    const scale = isHill
+      ? this.getHillMesaRadius(coords.x, coords.y) / (this.hexRadius * 0.95)
+      : (isSwamp ? this.getSwampInsetRadius(coords.x, coords.y) / (this.hexRadius * 0.95) : 1.0);
 
     this.selectedRingMesh.scale.set(scale, 1, scale);
     this.selectedRingMesh.position.set(worldPos.x, elev + 0.02, worldPos.z);
@@ -1610,7 +1885,10 @@ float hillTerrainNoise(vec2 p) {
 
     if (facing !== undefined && facing !== HexDirection.NONE) {
       const topWorldPos = new THREE.Vector3(worldPos.x, elev, worldPos.z);
-      this.updateFacingIndicator(topWorldPos, facing, isHill ? this.getHillMesaRadius(coords.x, coords.y) : undefined);
+      const indicatorRadius = isHill
+        ? this.getHillMesaRadius(coords.x, coords.y)
+        : (isSwamp ? this.getSwampInsetRadius(coords.x, coords.y) : undefined);
+      this.updateFacingIndicator(topWorldPos, facing, indicatorRadius);
     } else {
       this.facingIndicatorGroup.visible = false;
     }
@@ -1639,6 +1917,18 @@ float hillTerrainNoise(vec2 p) {
     this.rebuildRetreatFlags();
   }
 
+  public setArmyBannerProvider(provider: (armyIndex: number) => string): void {
+    this.getArmyBanner = provider;
+    this.rebuildRetreatFlags();
+  }
+
+  public getBannerForArmy(armyIndex: number): string {
+    if (this.getArmyBanner) {
+      return this.getArmyBanner(armyIndex);
+    }
+    return getPlayerBanner(armyIndex);
+  }
+
   /**
    * Rebuilds all retreat flags on their configured hexagon coordinates.
    * Flags are purely decorative pass-through objects and do not block squad placement.
@@ -1665,21 +1955,25 @@ float hillTerrainNoise(vec2 p) {
     }
     this.animatedFlagCloths = [];
 
-    // Place long war standard flags for army 0 and army 1
+    // Place square war standard flags for army 0 and army 1
     for (const armyIndex of [0, 1]) {
       const points = this.getRetreatPointsForArmy(armyIndex);
+      const bannerName = this.getBannerForArmy(armyIndex);
+      const bannerTexture = this.bannersTexture
+        ? createBannerSubTexture(this.bannersTexture, bannerName)
+        : undefined;
       for (const pt of points) {
         if (pt.x < 0 || pt.x >= this.hexMap.width || pt.y < 0 || pt.y >= this.hexMap.height) {
           continue;
         }
-        const flag = createRetreatFlagMesh(armyIndex, pt.x, pt.y);
+        const flag = createRetreatFlagMesh(armyIndex, pt.x, pt.y, bannerName, bannerTexture);
         const worldPos = this.hexToWorld(pt.x, pt.y);
         const elevation = this.getHexElevation(pt.x, pt.y);
 
-        // Position flagpole at the South-West area of the hex so the SW->NE streaming cloth (length 0.44m)
+        // Position flagpole at the South-West area of the hex so the SW->NE streaming cloth (length 0.288m)
         // billows naturally across towards the center/North-East of the hex, keeping squads unblocked
-        const offsetX = -0.30;
-        const offsetZ = 0.20;
+        const offsetX = -0.22;
+        const offsetZ = 0.16;
         flag.position.set(worldPos.x + offsetX, worldPos.y + elevation, worldPos.z + offsetZ);
 
         this.retreatFlagsGroup.add(flag);
@@ -1757,8 +2051,12 @@ float hillTerrainNoise(vec2 p) {
       const pos = this.hexToWorld(c.x, c.y);
       const elev = this.getHexElevation(c.x, c.y);
       const isHill = this.isHill(c.x, c.y);
+      const isSwamp = this.isSwamp(c.x, c.y);
       if (isHill) {
         const scale = this.getHillMesaRadius(c.x, c.y) / (this.hexRadius * 0.98);
+        mesh.scale.set(scale, 1, scale);
+      } else if (isSwamp) {
+        const scale = this.getSwampInsetRadius(c.x, c.y) / (this.hexRadius * 0.98);
         mesh.scale.set(scale, 1, scale);
       }
       mesh.position.set(pos.x, elev + 0.015, pos.z);
@@ -1774,8 +2072,12 @@ float hillTerrainNoise(vec2 p) {
       const pos = this.hexToWorld(c.x, c.y);
       const elev = this.getHexElevation(c.x, c.y);
       const isHill = this.isHill(c.x, c.y);
+      const isSwamp = this.isSwamp(c.x, c.y);
       if (isHill) {
         const scale = this.getHillMesaRadius(c.x, c.y) / (this.hexRadius * 0.98);
+        mesh.scale.set(scale, 1, scale);
+      } else if (isSwamp) {
+        const scale = this.getSwampInsetRadius(c.x, c.y) / (this.hexRadius * 0.98);
         mesh.scale.set(scale, 1, scale);
       }
       mesh.position.set(pos.x, elev + 0.02, pos.z);
@@ -1865,7 +2167,8 @@ float hillTerrainNoise(vec2 p) {
         const center = this.hexToWorld(x, y);
         const elev = this.getHexElevation(x, y);
         const isHill = this.isHill(x, y);
-        const R = (isHill ? this.getHillMesaRadius(x, y) : this.hexRadius) * 0.98;
+        const isSwamp = this.isSwamp(x, y);
+        const R = (isHill ? this.getHillMesaRadius(x, y) : (isSwamp ? this.getSwampInsetRadius(x, y) : this.hexRadius)) * 0.98;
         const yBase = elev + 0.02;
         const yTop = yBase + wallHeight;
 
@@ -1934,7 +2237,7 @@ float hillTerrainNoise(vec2 p) {
 
       const wallMesh = new THREE.Mesh(wallGeo, wallMat);
       wallMesh.name = wallName;
-      wallMesh.raycast = () => {};
+      wallMesh.raycast = () => { };
       targetGroup.add(wallMesh);
 
       const lineGeo = new THREE.BufferGeometry();
@@ -1949,7 +2252,7 @@ float hillTerrainNoise(vec2 p) {
 
       const lineSegments = new THREE.LineSegments(lineGeo, lineMat);
       lineSegments.name = linesName;
-      lineSegments.raycast = () => {};
+      lineSegments.raycast = () => { };
       targetGroup.add(lineSegments);
     }
   }

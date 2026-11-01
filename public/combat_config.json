@@ -170,6 +170,8 @@
       "retaliationDamageTakenPerHex": 0.08
     }
   },
+  "player1Banner": "banner7.png",
+  "player2Banner": "banner12.png",
   "playerColors": {
     "player1backup": "rgb(47, 99, 199)",
     "player1": "rgb(199, 199, 47)",

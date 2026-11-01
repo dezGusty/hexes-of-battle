@@ -442,7 +442,7 @@ export class BattleHud2D {
 
   public getBannerTextureForArmyIndex(armyIndex: number): Texture | undefined {
     if (!this.assets.bannersSheet) return undefined;
-    const name = `banner${(armyIndex % 16) + 1}.png`;
+    const name = this.battle.getBannerForArmy(armyIndex);
     return this.assets.bannersSheet.textures[name] || this.assets.bannersSheet.textures['banner1.png'];
   }
 

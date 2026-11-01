@@ -1381,7 +1381,7 @@ export class BattleView {
   }
 
   private getBannerTextureNameForArmyIndex(armyIndex: number): string {
-    return armyIndex === 0 ? 'banner1.png' : 'banner2.png';
+    return this.battle.getBannerForArmy(armyIndex);
   }
 
   public rebuildRetreatFlags(): void {

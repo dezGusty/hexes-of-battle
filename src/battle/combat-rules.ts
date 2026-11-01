@@ -175,6 +175,9 @@ export interface CombatConfig {
   teamColors?: PlayerColorsConfig;
   healing?: HealingMoraleConfig;
   healingMorale?: HealingMoraleConfig;
+  player1Banner?: string;
+  player2Banner?: string;
+  playerBanners?: Record<string | number, string>;
 }
 
 export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
@@ -292,6 +295,8 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
     player2: "rgb(199, 54, 54)",
     hero: "rgb(212, 175, 55)",
   },
+  player1Banner: "banner1.png",
+  player2Banner: "banner2.png",
 };
 
 export const MIN_MORALE = 0;

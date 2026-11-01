@@ -13,6 +13,7 @@ import { TerrainType } from "./battle/terrain-types";
 import { SeedableRNG } from "./shared/prng";
 import { calculateDamageWithTraits, DEFAULT_TRAITS_CONFIG, TraitsConfig } from "./battle/trait-system";
 import { configurePlayerColors } from "./render3d/units/unit-mesh-builder";
+import { configurePlayerBanners, getPlayerBanner } from "./render3d/decorations/retreat-flag-3d";
 
 export enum AnimationType {
   NONE = 0,
@@ -192,10 +193,15 @@ export class Battle {
     if (config?.playerColors || (config as any)?.player_colors || (config as any)?.teamColors) {
       configurePlayerColors(config.playerColors ?? (config as any)?.player_colors ?? (config as any)?.teamColors);
     }
+    configurePlayerBanners(config);
     this.creatures?.forEach((c) => {
       c.combatConfig = config;
       c.updateMoraleState();
     });
+  }
+
+  public getBannerForArmy(armyIndex: number): string {
+    return getPlayerBanner(armyIndex, this.combatConfig);
   }
 
   public setSeed(seed: number): void {
@@ -286,6 +292,7 @@ export class Battle {
       if (this.combatConfig.playerColors || (this.combatConfig as any).player_colors || (this.combatConfig as any).teamColors) {
         configurePlayerColors(this.combatConfig.playerColors ?? (this.combatConfig as any).player_colors ?? (this.combatConfig as any).teamColors);
       }
+      configurePlayerBanners(this.combatConfig);
     }
     if (config.seed !== undefined) {
       this.setSeed(config.seed);

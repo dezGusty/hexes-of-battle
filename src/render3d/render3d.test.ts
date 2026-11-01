@@ -315,6 +315,101 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       hexBoard.dispose();
     });
 
+    it('should generate swamp hexes as inverted hill hexes with outer rim at y = 0 and sunken inset hex', () => {
+      const hexMap = new HexMap(6, 6);
+      const hexBoard = new HexBoard3D(hexMap, {
+        getTerrain: (x, y) => (x === 2 && y === 2 ? TerrainType.SWAMP : TerrainType.PLAIN),
+      });
+
+      expect(hexBoard.isSwamp(2, 2)).toBe(true);
+      expect(hexBoard.isSwamp(0, 0)).toBe(false);
+
+      const rInset = hexBoard.getSwampInsetRadius(2, 2);
+      expect(rInset).toBeLessThan(hexBoard.hexRadius);
+      expect(rInset).toBeCloseTo(hexBoard.hexRadius * 0.76, 2);
+
+      const depression = hexBoard.getSwampDepression(2, 2);
+      expect(depression).toBe(-0.04);
+
+      // Verify procedural swamp tile mesh
+      const tileMesh = (hexBoard as any).tileMeshes.get('2,2') as THREE.Mesh;
+      expect(tileMesh).toBeDefined();
+      expect(tileMesh.geometry).toBeInstanceOf(THREE.BufferGeometry);
+      expect(tileMesh.geometry.userData.isSwampGeometry).toBe(true);
+
+      // Swamp tile mesh position should be at y = 0 (same level as grass hexes)
+      expect(tileMesh.position.y).toBe(0);
+
+      // Verify vertices in geometry: outer boundary points at y = 0, inset points at depression
+      const positions = tileMesh.geometry.attributes.position.array;
+      let hasZeroY = false;
+      let hasDepressionY = false;
+      for (let i = 1; i < positions.length; i += 3) {
+        if (Math.abs(positions[i] - 0) < 1e-4) hasZeroY = true;
+        if (Math.abs(positions[i] - depression) < 1e-4) hasDepressionY = true;
+      }
+      expect(hasZeroY).toBe(true);
+      expect(hasDepressionY).toBe(true);
+
+      // Verify linear depth slope: top surface vertices are either at the border (y = 0) or the inner hex (y = depression)
+      // without curved or intermediate mid-tier steps
+      const topGroup = tileMesh.geometry.groups.find((g) => g.materialIndex === 1);
+      expect(topGroup).toBeDefined();
+      const indexArr = tileMesh.geometry.index!.array;
+      const topVertexIndices = new Set<number>();
+      for (let idx = topGroup!.start; idx < topGroup!.start + topGroup!.count; idx++) {
+        topVertexIndices.add(indexArr[idx]);
+      }
+      for (const vIdx of topVertexIndices) {
+        const yVal = positions[vIdx * 3 + 1];
+        const isBorderY = Math.abs(yVal - 0) < 1e-4;
+        const isInsetY = Math.abs(yVal - depression) < 1e-4;
+        expect(isBorderY || isInsetY).toBe(true);
+      }
+
+      // Verify smooth normals are calculated
+      expect(tileMesh.geometry.attributes.normal).toBeDefined();
+
+      // Top material applies the existing swamp texture/material across the entire hexagon
+      const materials = tileMesh.material as THREE.Material[];
+      expect(Array.isArray(materials)).toBe(true);
+      const topMat = materials[1] as THREE.MeshStandardMaterial;
+      expect(topMat.userData.terrainType).toBe(TerrainType.SWAMP);
+
+      // Hover and selection overlays scale to fit inside inset basin
+      hexBoard.setHoverHex({ x: 2, y: 2 });
+      const hoverMesh = (hexBoard as any).hoverMesh as THREE.Mesh;
+      expect(hoverMesh.position.y).toBeCloseTo(-0.04 + 0.03, 3);
+      expect(hoverMesh.scale.x).toBeLessThan(1.0);
+
+      hexBoard.dispose();
+    });
+
+    it('should extend depression floor across shared boundaries between adjacent swamp hexes', () => {
+      const hexMap = new HexMap(6, 6);
+      const hexBoard = new HexBoard3D(hexMap, {
+        getTerrain: (x, y) => {
+          // Connected swamp tiles at (1, 1) and (2, 1)
+          if ((x === 1 && y === 1) || (x === 2 && y === 1)) return TerrainType.SWAMP;
+          return TerrainType.PLAIN;
+        },
+      });
+
+      const swampGeo = hexBoard.createSwampTileGeometry(1, 1);
+      expect(swampGeo.userData.isSwampGeometry).toBe(true);
+
+      // Geometry should contain vertices at depression for floor and slope midpoints
+      const positions = swampGeo.attributes.position.array;
+      let depressionCount = 0;
+      for (let i = 1; i < positions.length; i += 3) {
+        if (Math.abs(positions[i] - (-0.04)) < 1e-4) depressionCount++;
+      }
+      expect(depressionCount).toBeGreaterThanOrEqual(13); // center + inset rim + extended boundary
+
+      swampGeo.dispose();
+      hexBoard.dispose();
+    });
+
     it('should initialize selectedHaloMesh with stylized golden disc texture and rotate 360 degrees in 30 seconds', () => {
       const hexMap = new HexMap(10, 8);
       const hexBoard = new HexBoard3D(hexMap);
