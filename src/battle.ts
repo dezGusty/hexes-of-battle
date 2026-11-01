@@ -8,7 +8,7 @@ import { ReachData } from "./shared/reach-data";
 import { CreatureInBattle } from "./battle/creature-in-battle";
 import { BattleAction, BattleActionType } from "./battle/battle-action";
 import { BattleConfig, BattleResult } from "./battle/battle-types";
-import { CombatConfig, DEFAULT_COMBAT_CONFIG, ExhaustionState, MoraleState, getRetaliationDamageMultiplier } from "./battle/combat-rules";
+import { CombatConfig, DEFAULT_COMBAT_CONFIG, ExhaustionState, MoraleState, getRetaliationDamageMultiplier, getHealingMoraleConfig } from "./battle/combat-rules";
 import { TerrainType } from "./battle/terrain-types";
 import { SeedableRNG } from "./shared/prng";
 import { calculateDamageWithTraits, DEFAULT_TRAITS_CONFIG, TraitsConfig } from "./battle/trait-system";
@@ -54,7 +54,7 @@ export interface BattleHooks {
     isRetaliation?: boolean
   ) => void;
   hookDoingAttackRanged?: (data: RangedAttackData) => void;
-  hookDoingHeal?: (data: { healer: Creature; target: Creature; amount: number; ability: Ability }) => void;
+  hookDoingHeal?: (data: { healer: Creature; target: Creature; amount: number; ability: Ability; moraleBoost?: number }) => void;
   hookUnitDied?: (creature: Creature) => void;
   hookUnitRetreated?: (creature: Creature) => void;
   hookActiveUnitChanged?: (creature: Creature) => void;
@@ -2258,11 +2258,30 @@ export class Battle {
     const healAmount = Math.max(0, availableHealers * healPerModel);
     const healResult = target.heal(healAmount);
 
+    // Morale boost to the healed squad
+    // (default: 0.5 * number of the healed units, rounded up, at least 1 point of morale)
+    const healingMorale = getHealingMoraleConfig(this.combatConfig, ability);
+    const unitsCount = target.aliveModelCount;
+    let moraleBoost = 0;
+
+    if (healingMorale.fullMorale) {
+      const maxMorale = target.stats.max_morale || 30;
+      moraleBoost = Math.max(0, maxMorale - target.stats.morale);
+    } else {
+      const calculatedBoost = Math.ceil(healingMorale.multiplier * unitsCount);
+      moraleBoost = Math.max(healingMorale.minValue, calculatedBoost);
+    }
+
+    if (moraleBoost > 0) {
+      target.recoverMorale(moraleBoost);
+    }
+
     this.hookDoingHeal?.({
       healer: source,
       target,
       amount: healResult.healed,
       ability,
+      moraleBoost,
     });
 
     this.deductCostForAbilityUseByCreature(ability, source);
@@ -2270,6 +2289,8 @@ export class Battle {
     source.stats.remaining_ammo = Math.max(0, source.stats.remaining_ammo);
     source.stats.remaining_movement = 0;
     source.stats.has_attacked = true;
+    this.nextRenderUpdate.setUnitRenderUpdate();
+    this.nextRenderUpdate.somethingChanged = true;
   }
 
   public start() {
@@ -2514,7 +2535,7 @@ export class Battle {
   // Hook callbacks
   hookDoingAttack(_attacker: Creature, _defender: Creature, _damage: number, _type: BattleActionType, _flank: HexFlankStatus, _isRetaliation?: boolean) {}
   hookDoingAttackRanged?(_data: RangedAttackData) {}
-  hookDoingHeal?(_data: { healer: Creature; target: Creature; amount: number; ability: Ability }) {}
+  hookDoingHeal?(_data: { healer: Creature; target: Creature; amount: number; ability: Ability; moraleBoost?: number }) {}
   hookNextTurn(_turnNumber: number, _armyIndex: number) {}
   hookMovingUnit(_creature: Creature, _nextStep: Coords) {}
   hookUnitDied(_creature: Creature) {}

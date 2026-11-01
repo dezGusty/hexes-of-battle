@@ -123,8 +123,8 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(hexBoard.isHill(0, 0)).toBe(false);
 
       const elev = hexBoard.getHexElevation(2, 2);
-      expect(elev).toBeGreaterThanOrEqual(0.28);
-      expect(elev).toBeLessThanOrEqual(0.36);
+      expect(elev).toBeGreaterThanOrEqual(0.18);
+      expect(elev).toBeLessThanOrEqual(0.25);
 
       const mesaRadius = hexBoard.getHillMesaRadius(2, 2);
       expect(mesaRadius).toBeLessThan(hexBoard.hexRadius);
@@ -157,10 +157,10 @@ describe('3D Graphics Engine & Rendering Systems', () => {
 
       // Connected hills must have identical elevation
       expect(elev1).toBe(elev2);
-      expect(elev1).toBeGreaterThanOrEqual(0.28);
+      expect(elev1).toBeGreaterThanOrEqual(0.18);
 
       // Isolated hill should be defined and elevated
-      expect(elevIsolated).toBeGreaterThanOrEqual(0.28);
+      expect(elevIsolated).toBeGreaterThanOrEqual(0.18);
 
       hexBoard.dispose();
     });
@@ -182,6 +182,135 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       const selectedMesh = (hexBoard as any).selectedRingMesh as THREE.Mesh;
       expect(selectedMesh.position.y).toBeCloseTo(hexBoard.getHexElevation(2, 2) + 0.02, 3);
       expect(selectedMesh.scale.x).toBeLessThan(1.0);
+
+      hexBoard.dispose();
+    });
+
+    it('should generate 3 distinct variations of hill meshes with additional points, smoothing, and roundness', () => {
+      const hexMap = new HexMap(6, 6);
+      const hexBoard = new HexBoard3D(hexMap, {
+        getTerrain: (x, y) => (x === 2 && y === 2 ? TerrainType.HILL : TerrainType.PLAIN),
+      });
+
+      // getHillVariation deterministically returns 0, 1, or 2
+      expect([0, 1, 2]).toContain(hexBoard.getHillVariation(0, 0));
+      expect([0, 1, 2]).toContain(hexBoard.getHillVariation(1, 0));
+      expect([0, 1, 2]).toContain(hexBoard.getHillVariation(2, 2));
+
+      // Generate the 3 distinct variations
+      const geo0 = hexBoard.createHillTileGeometry(2, 2, 0);
+      const geo1 = hexBoard.createHillTileGeometry(2, 2, 1);
+      const geo2 = hexBoard.createHillTileGeometry(2, 2, 2);
+
+      expect(geo0.userData.variation).toBe(0);
+      expect(geo1.userData.variation).toBe(1);
+      expect(geo2.userData.variation).toBe(2);
+
+      // Verify additional points: more than 80 vertices (dome center, intermediate concentric ring, 12 rim points, multi-tier slopes)
+      expect(geo0.attributes.position.count).toBeGreaterThanOrEqual(80);
+      expect(geo1.attributes.position.count).toBeGreaterThanOrEqual(80);
+      expect(geo2.attributes.position.count).toBeGreaterThanOrEqual(80);
+
+      // Smoothing and roundness: vertex normals are computed and smoothed
+      expect(geo0.attributes.normal).toBeDefined();
+      expect(geo1.attributes.normal).toBeDefined();
+      expect(geo2.attributes.normal).toBeDefined();
+
+      // Variations have distinct vertex positions
+      const pos0 = geo0.attributes.position.array;
+      const pos1 = geo1.attributes.position.array;
+      const pos2 = geo2.attributes.position.array;
+
+      let diffCount01 = 0;
+      let diffCount12 = 0;
+      for (let i = 0; i < pos0.length; i++) {
+        if (Math.abs(pos0[i] - pos1[i]) > 0.001) diffCount01++;
+        if (Math.abs(pos1[i] - pos2[i]) > 0.001) diffCount12++;
+      }
+      expect(diffCount01).toBeGreaterThan(10);
+      expect(diffCount12).toBeGreaterThan(10);
+
+      geo0.dispose();
+      geo1.dispose();
+      geo2.dispose();
+      hexBoard.dispose();
+    });
+
+    it('should displace inner hexagon points within 3% of hex size combining X, Y, and Z axes across models', () => {
+      const hexMap = new HexMap(6, 6);
+      const hexBoard = new HexBoard3D(hexMap);
+
+      const hexSize = hexBoard.hexRadius * 2; // 2.0
+      const maxDisplacement = 0.03 * hexSize; // 0.06
+
+      for (let v = 0; v < 3; v++) {
+        for (let ptIdx = 0; ptIdx < 12; ptIdx++) {
+          const disp = hexBoard.getHillInnerHexDisplacement(v, ptIdx);
+
+          // Combined magnitude must be within 3% of hex size
+          const totalDisp = Math.sqrt(disp.dx * disp.dx + disp.dy * disp.dy + disp.dz * disp.dz);
+          expect(totalDisp).toBeLessThanOrEqual(maxDisplacement + 1e-6);
+          expect(totalDisp).toBeGreaterThan(0.01);
+
+          // Must combine displacements in X, Y, and Z axes
+          expect(disp.dx).not.toBe(0);
+          expect(disp.dy).not.toBe(0);
+          expect(disp.dz).not.toBe(0);
+        }
+      }
+
+      // Between model 0, 1, and 2, the displacements for each point differ
+      for (let ptIdx = 0; ptIdx < 12; ptIdx++) {
+        const d0 = hexBoard.getHillInnerHexDisplacement(0, ptIdx);
+        const d1 = hexBoard.getHillInnerHexDisplacement(1, ptIdx);
+        const d2 = hexBoard.getHillInnerHexDisplacement(2, ptIdx);
+
+        expect(d0.dx !== d1.dx || d0.dy !== d1.dy || d0.dz !== d1.dz).toBe(true);
+        expect(d1.dx !== d2.dx || d1.dy !== d2.dy || d1.dz !== d2.dz).toBe(true);
+      }
+
+      hexBoard.dispose();
+    });
+
+    it('should use mud/hill texture as base and overlay with grass hex texture via transparency mask on hill top', () => {
+      const hexMap = new HexMap(6, 6);
+      const hexBoard = new HexBoard3D(hexMap, {
+        getTerrain: (x, y) => (x === 2 && y === 2 ? TerrainType.HILL : TerrainType.PLAIN),
+      });
+
+      const tileMesh = (hexBoard as any).tileMeshes.get('2,2') as THREE.Mesh;
+      expect(tileMesh).toBeDefined();
+
+      const materials = tileMesh.material as THREE.Material[];
+      expect(Array.isArray(materials)).toBe(true);
+
+      const topMat = materials[1] as THREE.MeshStandardMaterial;
+      expect(topMat.userData.isHillBlendedMaterial).toBe(true);
+      expect(topMat.userData.terrainType).toBe(TerrainType.HILL);
+
+      // Verify mud base color and grass overlay color
+      expect(topMat.userData.mudColor).toBeDefined();
+      expect(topMat.userData.grassColor).toBeDefined();
+
+      // Verify transparency mask exists
+      const mask = topMat.userData.transparencyMask as THREE.Texture;
+      expect(mask).toBeDefined();
+      expect(mask).toBeInstanceOf(THREE.Texture);
+
+      // Verify shader compilation hook configuration
+      const shaderObj: any = {
+        uniforms: {},
+        vertexShader: '#include <common>\n#include <begin_vertex>',
+        fragmentShader: '#include <common>\n#include <map_fragment>',
+      };
+      topMat.onBeforeCompile(shaderObj, {} as any);
+
+      expect(shaderObj.uniforms.uMudColor).toBeDefined();
+      expect(shaderObj.uniforms.uGrassColor).toBeDefined();
+      expect(shaderObj.uniforms.uMaskMap).toBeDefined();
+      expect(shaderObj.uniforms.uTileCenter).toBeDefined();
+      expect(shaderObj.uniforms.uMesaRadius).toBeDefined();
+      expect(shaderObj.fragmentShader).toContain('diffuseColor = mix(mudColor, grassColor, maskAlpha);');
 
       hexBoard.dispose();
     });

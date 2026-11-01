@@ -102,6 +102,25 @@ export interface SquadDeathMoraleConfig {
   killerRangedBonus: number;
 }
 
+export interface HealingMoraleConfig {
+  multiplier?: number;
+  minValue?: number;
+  min_value?: number;
+  fullMorale?: boolean;
+  full_morale?: boolean;
+}
+
+export const DEFAULT_HEALING_MORALE_CONFIG: Required<Omit<HealingMoraleConfig, 'min_value' | 'full_morale'>> & {
+  min_value: number;
+  full_morale: boolean;
+} = {
+  multiplier: 0.5,
+  minValue: 1,
+  min_value: 1,
+  fullMorale: false,
+  full_morale: false,
+};
+
 export interface MoraleConfig {
   maxMorale: number;
   casualtyThresholdRatio: number;
@@ -118,6 +137,8 @@ export interface MoraleConfig {
   neighbourEnemyBonus?: number;
   killerMeleeBonus?: number;
   killerRangedBonus?: number;
+  healing?: HealingMoraleConfig;
+  healingMorale?: HealingMoraleConfig;
 }
 
 export interface HeroConfig {
@@ -152,6 +173,8 @@ export interface CombatConfig {
   playerColors?: PlayerColorsConfig;
   player_colors?: PlayerColorsConfig;
   teamColors?: PlayerColorsConfig;
+  healing?: HealingMoraleConfig;
+  healingMorale?: HealingMoraleConfig;
 }
 
 export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
@@ -253,6 +276,10 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
       neighbourEnemyBonus: 1,
       killerMeleeBonus: 2,
       killerRangedBonus: 1,
+    },
+    healing: {
+      multiplier: 0.5,
+      minValue: 1,
     },
   },
   hero: {
@@ -451,4 +478,48 @@ export function getStaminaTooltip(
   }
 
   return lines.join('\n');
+}
+
+/**
+ * Resolves healing morale configuration with fallback hierarchy:
+ * 1. Ability-specific override / perk (healingMorale, healing, healing_morale_multiplier)
+ * 2. CombatConfig / BattleConfig (morale.healing, morale.healingMorale, healingMorale, healing)
+ * 3. Default: multiplier = 0.5, minValue = 1, fullMorale = false
+ */
+export function getHealingMoraleConfig(
+  combatConfig?: CombatConfig,
+  ability?: any
+): { multiplier: number; minValue: number; fullMorale: boolean } {
+  const abilityCfg = ability?.healingMorale ?? ability?.healing;
+  const cfg =
+    abilityCfg ??
+    combatConfig?.morale?.healing ??
+    combatConfig?.morale?.healingMorale ??
+    combatConfig?.healingMorale ??
+    combatConfig?.healing ??
+    {};
+
+  const multiplier =
+    abilityCfg?.multiplier ??
+    ability?.healing_morale_multiplier ??
+    cfg.multiplier ??
+    DEFAULT_HEALING_MORALE_CONFIG.multiplier;
+
+  const minValue =
+    abilityCfg?.minValue ??
+    abilityCfg?.min_value ??
+    ability?.healing_morale_min ??
+    cfg.minValue ??
+    cfg.min_value ??
+    DEFAULT_HEALING_MORALE_CONFIG.minValue;
+
+  const fullMorale =
+    abilityCfg?.fullMorale ??
+    abilityCfg?.full_morale ??
+    ability?.healing_morale_full ??
+    cfg.fullMorale ??
+    cfg.full_morale ??
+    false;
+
+  return { multiplier, minValue, fullMorale };
 }

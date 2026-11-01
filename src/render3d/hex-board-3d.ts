@@ -80,6 +80,7 @@ export class HexBoard3D {
   private hillClusters: Map<string, number> = new Map();
   private clusterElevations: Map<number, number> = new Map();
   private hillMesaRadii: Map<string, number> = new Map();
+  private hillMaskTexture: THREE.Texture | null = null;
 
   private materials: Record<string, THREE.Material> = {};
   private sideMaterial: THREE.Material = new THREE.MeshStandardMaterial({
@@ -371,7 +372,7 @@ export class HexBoard3D {
     if (terrain === TerrainType.WATER) {
       topMat = this.materials['water'];
     } else if (terrain === TerrainType.HILL) {
-      topMat = this.materials['dirt'];
+      topMat = this.getBlendedHillMaterial(x, y);
     } else if (terrain === TerrainType.FOREST || terrain === TerrainType.SWAMP) {
       topMat = this.getBlendedTileMaterial(terrain, x, y);
     }
@@ -582,6 +583,254 @@ float terrainEdgeNoise(vec2 p) {
   }
 
   /**
+   * Deterministically returns one of 3 distinct hill model variations (0, 1, or 2)
+   * based on the hex tile coordinates.
+   */
+  public getHillVariation(x: number, y: number): number {
+    return Math.abs((x * 7 + y * 13 + 1)) % 3;
+  }
+
+  /**
+   * Calculates a 3D displacement vector for an inner hexagon point in a given variation.
+   * Displacements are bounded within 3% of hex size (2 * hexRadius) in any direction,
+   * combining components in X, Y, and Z axes.
+   */
+  public getHillInnerHexDisplacement(
+    variation: number,
+    pointIndex: number
+  ): { dx: number; dy: number; dz: number } {
+    const hexSize = this.hexRadius * 2;
+    const maxDisp = 0.03 * hexSize; // 3% of hex size (0.06 with radius 1.0)
+    const varIdx = Math.abs(variation) % 3;
+
+    // Distinct deterministic seeds per variation and point
+    const seed = ((varIdx + 1) * 137 + (pointIndex + 1) * 59) % 1000;
+    const phi = (seed / 1000) * Math.PI * 2;
+    const theta = (((seed * 3) % 1000) / 1000 - 0.5) * Math.PI * 0.7; // pitch angle in Y
+    const mag = maxDisp * (0.65 + 0.3 * (((seed * 7) % 1000) / 1000));
+
+    // Combined 3D displacement vector with non-zero X, Y, and Z components
+    const dx = Math.cos(phi) * Math.cos(theta) * mag;
+    const dy = Math.sin(theta) * mag * 0.45;
+    const dz = Math.sin(phi) * Math.cos(theta) * mag;
+
+    return { dx, dy, dz };
+  }
+
+  /**
+   * Returns or generates the shared procedural transparency mask texture for hill tops.
+   * Center has high grass opacity (white), smoothly falling off towards the outer edges (black/dirt).
+   */
+  public getHillMaskTexture(): THREE.Texture {
+    if (!this.hillMaskTexture) {
+      this.hillMaskTexture = this.createHillTransparencyMaskTexture();
+    }
+    return this.hillMaskTexture;
+  }
+
+  private createHillTransparencyMaskTexture(size = 256): THREE.Texture {
+    let texture: THREE.Texture;
+    const center = size / 2;
+    const maxRadius = size * 0.44;
+
+    const pixels = new Uint8Array(size * size * 4);
+    for (let py = 0; py < size; py++) {
+      for (let px = 0; px < size; px++) {
+        const dx = px - center;
+        const dy = py - center;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const normDist = dist / maxRadius;
+
+        // Subtle organic noise for natural edge irregularity
+        const nx = (px / size) * 8.0;
+        const ny = (py / size) * 8.0;
+        const hash = Math.sin(nx * 12.9898 + ny * 78.233) * 43758.5453;
+        const noise = (hash - Math.floor(hash) - 0.5) * 0.16;
+
+        // Mask value: 1.0 at center (grassy), smoothly fading to 0.0 at outer sides (dirt)
+        // Center (0.0 to 0.34) is grassy; 0.34 to 0.84 transitions; > 0.84 is dirt
+        const t = Math.max(0, Math.min(1, (normDist + noise - 0.34) / (0.84 - 0.34)));
+        const smoothT = t * t * (3 - 2 * t);
+        const grassAlpha = 1.0 - smoothT;
+
+        const val = Math.round(grassAlpha * 255);
+        const idx = (py * size + px) * 4;
+        pixels[idx] = val;     // R
+        pixels[idx + 1] = val; // G
+        pixels[idx + 2] = val; // B
+        pixels[idx + 3] = 255; // A
+      }
+    }
+
+    if (typeof document !== 'undefined' && document.createElement) {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          const imgData = ctx.createImageData(size, size);
+          imgData.data.set(pixels);
+          ctx.putImageData(imgData, 0, 0);
+          texture = new THREE.CanvasTexture(canvas);
+          texture.wrapS = THREE.ClampToEdgeWrapping;
+          texture.wrapT = THREE.ClampToEdgeWrapping;
+          return texture;
+        }
+      } catch {
+        // Fallback to DataTexture
+      }
+    }
+
+    texture = new THREE.DataTexture(pixels, size, size, THREE.RGBAFormat);
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.needsUpdate = true;
+    return texture;
+  }
+
+  /**
+   * Creates a blended material for hill hexes using mud/hill texture as base
+   * overlaid with grass hex texture via a transparency mask (center grassy, outer sides dirt).
+   */
+  public getBlendedHillMaterial(x?: number, y?: number): THREE.Material {
+    const mudMat = (this.materials['dirt'] as THREE.MeshStandardMaterial) || null;
+    const grassMat = (this.materials['grass'] as THREE.MeshStandardMaterial) || null;
+
+    const baseMudColor = mudMat?.color ? mudMat.color.clone() : new THREE.Color(0x6e5138);
+    const baseMudMap = mudMat?.map || null;
+
+    const overlayGrassColor = grassMat?.color ? grassMat.color.clone() : new THREE.Color(0x3d7a42);
+    const overlayGrassMap = grassMat?.map || null;
+
+    const maskTex = this.getHillMaskTexture();
+
+    const blendedMat = new THREE.MeshStandardMaterial({
+      color: baseMudColor,
+      map: baseMudMap,
+      roughness: mudMat ? mudMat.roughness : 0.9,
+      metalness: mudMat ? mudMat.metalness : 0.05,
+      side: THREE.DoubleSide,
+    });
+
+    const pos = x !== undefined && y !== undefined ? this.hexToWorld(x, y) : new THREE.Vector3(0, 0, 0);
+    const rTop = x !== undefined && y !== undefined ? this.getHillMesaRadius(x, y) : this.hexRadius * 0.77;
+
+    blendedMat.userData = {
+      isHillBlendedMaterial: true,
+      terrainType: TerrainType.HILL,
+      baseTexture: baseMudMap,
+      overlayTexture: overlayGrassMap,
+      transparencyMask: maskTex,
+      mudColor: baseMudColor,
+      grassColor: overlayGrassColor,
+      mesaRadius: rTop,
+      tileCoords: x !== undefined && y !== undefined ? { x, y } : undefined,
+    };
+
+    blendedMat.customProgramCacheKey = () => 'HexTerrainBlend_Hill';
+
+    blendedMat.onBeforeCompile = (shader) => {
+      shader.uniforms.uMudColor = { value: baseMudColor };
+      shader.uniforms.uMudMap = { value: baseMudMap };
+      shader.uniforms.uHasMudMap = { value: baseMudMap ? 1.0 : 0.0 };
+
+      shader.uniforms.uGrassColor = { value: overlayGrassColor };
+      shader.uniforms.uGrassMap = { value: overlayGrassMap };
+      shader.uniforms.uHasGrassMap = { value: overlayGrassMap ? 1.0 : 0.0 };
+
+      shader.uniforms.uMaskMap = { value: maskTex };
+      shader.uniforms.uHasMaskMap = { value: maskTex ? 1.0 : 0.0 };
+
+      shader.uniforms.uTileCenter = { value: new THREE.Vector2(pos.x, pos.z) };
+      shader.uniforms.uMesaRadius = { value: rTop };
+      shader.uniforms.uHexRadius = { value: this.hexRadius };
+
+      blendedMat.userData.shader = shader;
+
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <common>',
+        `#include <common>
+varying vec2 vTerrainWorldXZ;`
+      );
+
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+vTerrainWorldXZ = (modelMatrix * vec4(position, 1.0)).xz;`
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <common>',
+        `#include <common>
+varying vec2 vTerrainWorldXZ;
+uniform vec3 uMudColor;
+uniform sampler2D uMudMap;
+uniform float uHasMudMap;
+uniform vec3 uGrassColor;
+uniform sampler2D uGrassMap;
+uniform float uHasGrassMap;
+uniform sampler2D uMaskMap;
+uniform float uHasMaskMap;
+uniform vec2 uTileCenter;
+uniform float uMesaRadius;
+uniform float uHexRadius;
+
+float hillTerrainNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  float a = fract(sin(dot(i, vec2(127.1, 311.7))) * 43758.5453123);
+  float b = fract(sin(dot(i + vec2(1.0, 0.0), vec2(127.1, 311.7))) * 43758.5453123);
+  float c = fract(sin(dot(i + vec2(0.0, 1.0), vec2(127.1, 311.7))) * 43758.5453123);
+  float d = fract(sin(dot(i + vec2(1.0, 1.0), vec2(127.1, 311.7))) * 43758.5453123);
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}`
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+{
+  float maskAlpha = 0.0;
+  #ifdef USE_MAP
+    if (uHasMaskMap > 0.5) {
+      maskAlpha = texture2D(uMaskMap, vMapUv).r;
+    }
+  #endif
+  if (uHasMaskMap <= 0.5) {
+    vec2 localPos = vTerrainWorldXZ - uTileCenter;
+    float dist = length(localPos);
+    float normDist = dist / max(0.001, uMesaRadius);
+    float n = (hillTerrainNoise(vTerrainWorldXZ * 4.0) - 0.5) * 0.22;
+    maskAlpha = 1.0 - smoothstep(0.32, 0.82, normDist + n);
+  }
+
+  // Base mud / dirt color
+  vec4 mudColor = vec4(uMudColor, 1.0);
+  #ifdef USE_MAP
+    if (uHasMudMap > 0.5) {
+      mudColor *= texture2D(uMudMap, vMapUv);
+    }
+  #endif
+
+  // Overlay grass color
+  vec4 grassColor = vec4(uGrassColor, 1.0);
+  if (uHasGrassMap > 0.5) {
+    grassColor *= texture2D(uGrassMap, vMapUv);
+  }
+
+  // Final blend: mud base with grass overlay masked by transparency
+  diffuseColor = mix(mudColor, grassColor, maskAlpha);
+}`
+      );
+    };
+
+    this.blendedTileMaterials.push(blendedMat);
+    return blendedMat;
+  }
+
+  /**
    * Clusters connected adjacent hills together via BFS and assigns
    * uniform elevation across each connected hill cluster to ensure
    * continuous ridge elevation with no downward/upward dip.
@@ -626,9 +875,9 @@ float terrainEdgeNoise(vec2 p) {
             }
           }
 
-          // Deterministic uniform elevation for all hills in this connected cluster (0.28 to 0.35)
+          // Deterministic uniform elevation for all hills in this connected cluster (reduced to 66%: ~0.19 to 0.23)
           const clusterHash = ((clusterId * 2654435761) >>> 0) % 1000;
-          const elevation = 0.29 + (clusterHash / 1000) * 0.06;
+          const elevation = 0.19 + (clusterHash / 1000) * 0.04;
           this.clusterElevations.set(clusterId, elevation);
         }
       }
@@ -655,7 +904,19 @@ float terrainEdgeNoise(vec2 p) {
    * 5. Subterranean foundation skirts below y = 0 to match neighboring tile skirts.
    * 6. Computed smooth vertex normals for natural hill lighting.
    */
-  private createHillTileGeometry(x: number, y: number): THREE.BufferGeometry {
+  /**
+   * Generates a procedural mesa hill geometry with:
+   * 1. 3 distinct model variations with organic 3D displacements on inner hexagon points (bounded by 3% of hex size).
+   * 2. Additional subdivision points, concentric ring, and edge midpoints for natural smoothing and roundness.
+   * 3. Flat top mesa plateau with subtle crowning of radius rTop at cluster elevation for unit placement.
+   * 4. Full plateau extension along shared boundaries with adjacent hills (seamless ridge).
+   * 5. Multi-tier organic slopes descending to y = 0 on non-hill edges with cosine S-curve curvature.
+   * 6. Vertical bluff/cliff sealing quads at transition corners.
+   * 7. Subterranean foundation skirts below y = 0 to match neighboring tile skirts.
+   * 8. Computed smooth vertex normals for natural hill lighting.
+   */
+  public createHillTileGeometry(x: number, y: number, variation?: number): THREE.BufferGeometry {
+    const varIndex = variation !== undefined ? (Math.abs(variation) % 3) : this.getHillVariation(x, y);
     const elevation = this.getHexElevation(x, y);
     const rTop = this.getHillMesaRadius(x, y);
     const R = this.hexRadius;
@@ -721,18 +982,63 @@ float terrainEdgeNoise(vec2 p) {
       skirtIndices.push(i1, i2, i3);
     };
 
-    // 1. Center of the mesa top plateau
-    const vCenter = addVertex(0, elevation, 0);
+    // 1. Center of the mesa top plateau with subtle organic crowning for roundness
+    const crownHeight = 0.02 * elevation;
+    const vCenter = addVertex(0, elevation + crownHeight, 0);
 
-    // 2. Inner mesa hexagon vertices (at rTop, height = elevation)
-    const topK: number[] = [];
+    // 2. Inner mesa hexagon points (12 points around rim at rTop: 6 corners and 6 midpoints)
+    // Corners k = 0..5 at indices 2*k; midpoints of edge e at indices (2*e + 11) % 12
+    const rimNominal: { x: number; y: number; z: number }[] = [];
     for (let k = 0; k < 6; k++) {
-      topK.push(addVertex(cosK[k] * rTop, elevation, sinK[k] * rTop));
+      // Corner k
+      rimNominal.push({
+        x: cosK[k] * rTop,
+        y: elevation,
+        z: sinK[k] * rTop,
+      });
+      // Midpoint between corner k and next corner (k+1)%6
+      const nextK = (k + 1) % 6;
+      rimNominal.push({
+        x: (cosK[k] + cosK[nextK]) * 0.5 * rTop,
+        y: elevation,
+        z: (sinK[k] + sinK[nextK]) * 0.5 * rTop,
+      });
     }
 
-    // Mesa top center fan (6 triangles, upward facing normals)
-    for (let k = 0; k < 6; k++) {
-      addTopTriangle(vCenter, topK[(k + 1) % 6], topK[k]);
+    // Add 3D displacements to inner hexagon points bounded within 3% of hex size
+    const topK: number[] = [];
+    for (let i = 0; i < 12; i++) {
+      const pt = rimNominal[i];
+      const disp = this.getHillInnerHexDisplacement(varIndex, i);
+      topK.push(addVertex(pt.x + disp.dx, pt.y + disp.dy, pt.z + disp.dz));
+    }
+
+    // Intermediate concentric ring at 0.5 * rTop for smoothing and gradual dome slope
+    const ringK: number[] = [];
+    const ringY = elevation + crownHeight * 0.6;
+    for (let i = 0; i < 12; i++) {
+      const pt = rimNominal[i];
+      const disp = this.getHillInnerHexDisplacement(varIndex, i);
+      ringK.push(
+        addVertex(
+          pt.x * 0.5 + disp.dx * 0.4,
+          ringY + disp.dy * 0.4,
+          pt.z * 0.5 + disp.dz * 0.4
+        )
+      );
+    }
+
+    // Mesa top center fan to intermediate ring (12 triangles)
+    for (let i = 0; i < 12; i++) {
+      const nextI = (i + 1) % 12;
+      addTopTriangle(vCenter, ringK[nextI], ringK[i]);
+    }
+
+    // Intermediate ring to inner hexagon rim (24 triangles: 12 quads)
+    for (let i = 0; i < 12; i++) {
+      const nextI = (i + 1) % 12;
+      addTopTriangle(ringK[i], ringK[nextI], topK[nextI]);
+      addTopTriangle(ringK[i], topK[nextI], topK[i]);
     }
 
     // 3. For each edge e = 0..5:
@@ -742,53 +1048,118 @@ float terrainEdgeNoise(vec2 p) {
       const c2 = e;
       const isHill = isHillNeighbor[e];
 
+      const startRimIdx = (2 * e + 10) % 12;
+      const midRimIdx = (2 * e + 11) % 12;
+      const endRimIdx = (2 * e) % 12;
+
+      const r1Idx = topK[startRimIdx];
+      const rMidIdx = topK[midRimIdx];
+      const r2Idx = topK[endRimIdx];
+
+      const b1x = cosK[c1] * R;
+      const b1z = sinK[c1] * R;
+      const b2x = cosK[c2] * R;
+      const b2z = sinK[c2] * R;
+      const bMidx = (b1x + b2x) * 0.5;
+      const bMidz = (b1z + b2z) * 0.5;
+
       if (isHill) {
-        // Connected to an adjacent hill: flat plateau extends to hex boundary at elevation
-        const b1High = addVertex(cosK[c1] * R, elevation, sinK[c1] * R);
-        const b2High = addVertex(cosK[c2] * R, elevation, sinK[c2] * R);
+        // Connected to adjacent hill: flat plateau extends to hex boundary at elevation
+        const b1High = addVertex(b1x, elevation, b1z);
+        const bMidHigh = addVertex(bMidx, elevation, bMidz);
+        const b2High = addVertex(b2x, elevation, b2z);
 
-        // Quad between [topK[c1], topK[c2]] and [b1High, b2High]
-        addTopTriangle(topK[c1], topK[c2], b2High);
-        addTopTriangle(topK[c1], b2High, b1High);
+        // Quad between [r1Idx, rMidIdx] and [b1High, bMidHigh]
+        addTopTriangle(r1Idx, rMidIdx, bMidHigh);
+        addTopTriangle(r1Idx, bMidHigh, b1High);
+
+        // Quad between [rMidIdx, r2Idx] and [bMidHigh, b2High]
+        addTopTriangle(rMidIdx, r2Idx, b2High);
+        addTopTriangle(rMidIdx, b2High, bMidHigh);
       } else {
-        // Bordering non-hill: natural slope descending to y = 0 at hex boundary
-        const rMid = (rTop + R) * 0.5;
-        const yMid = elevation * 0.44;
+        // Bordering non-hill: natural smooth slope descending to y = 0 at hex boundary
+        // Tier 1 (t = 0.35) and Tier 2 (t = 0.70) with cosine S-curve easing
+        const t1 = 0.35;
+        const t2 = 0.70;
+        const y1 = elevation * (0.5 + 0.5 * Math.cos(Math.PI * t1));
+        const y2 = elevation * (0.5 + 0.5 * Math.cos(Math.PI * t2));
 
-        // Subtle deterministic organic variation on mid-tier slope points
-        const seed1 = (((x * 127 + y * 311 + e * 73) * 16807) >>> 0) % 1000;
-        const seed2 = (((x * 241 + y * 563 + e * 97) * 16807) >>> 0) % 1000;
-        const var1 = (seed1 / 1000 - 0.5) * 0.03;
-        const var2 = (seed2 / 1000 - 0.5) * 0.03;
+        // Subtle deterministic variation on slope intermediate points
+        const seed1 = (((x * 127 + y * 311 + e * 73 + varIndex * 19) * 16807) >>> 0) % 1000;
+        const seed2 = (((x * 241 + y * 563 + e * 97 + varIndex * 23) * 16807) >>> 0) % 1000;
+        const var1 = (seed1 / 1000 - 0.5) * 0.02 * R;
+        const var2 = (seed2 / 1000 - 0.5) * 0.02 * R;
 
-        const m1 = addVertex(
-          cosK[c1] * rMid * (1 + var1),
-          yMid + var1 * 0.2 * elevation,
-          sinK[c1] * rMid * (1 + var1)
+        const pRim1 = rimNominal[startRimIdx];
+        const pRimMid = rimNominal[midRimIdx];
+        const pRim2 = rimNominal[endRimIdx];
+
+        // Tier 1 points
+        const m1_1 = addVertex(
+          pRim1.x * (1 - t1) + b1x * t1 + var1,
+          y1,
+          pRim1.z * (1 - t1) + b1z * t1 + var1
         );
-        const m2 = addVertex(
-          cosK[c2] * rMid * (1 + var2),
-          yMid + var2 * 0.2 * elevation,
-          sinK[c2] * rMid * (1 + var2)
+        const mMid_1 = addVertex(
+          pRimMid.x * (1 - t1) + bMidx * t1,
+          y1,
+          pRimMid.z * (1 - t1) + bMidz * t1
+        );
+        const m2_1 = addVertex(
+          pRim2.x * (1 - t1) + b2x * t1 + var2,
+          y1,
+          pRim2.z * (1 - t1) + b2z * t1 + var2
         );
 
-        const b1Low = addVertex(cosK[c1] * R, 0, sinK[c1] * R);
-        const b2Low = addVertex(cosK[c2] * R, 0, sinK[c2] * R);
+        // Tier 2 points
+        const m1_2 = addVertex(
+          pRim1.x * (1 - t2) + b1x * t2 + var1 * 0.5,
+          y2,
+          pRim1.z * (1 - t2) + b1z * t2 + var1 * 0.5
+        );
+        const mMid_2 = addVertex(
+          pRimMid.x * (1 - t2) + bMidx * t2,
+          y2,
+          pRimMid.z * (1 - t2) + bMidz * t2
+        );
+        const m2_2 = addVertex(
+          pRim2.x * (1 - t2) + b2x * t2 + var2 * 0.5,
+          y2,
+          pRim2.z * (1 - t2) + b2z * t2 + var2 * 0.5
+        );
 
-        // Upper slope tier (from topK to m)
-        addTopTriangle(topK[c1], topK[c2], m2);
-        addTopTriangle(topK[c1], m2, m1);
+        // Boundary base at y = 0
+        const b1Low = addVertex(b1x, 0, b1z);
+        const bMidLow = addVertex(bMidx, 0, bMidz);
+        const b2Low = addVertex(b2x, 0, b2z);
 
-        // Lower slope tier (from m to bLow)
-        addTopTriangle(m1, m2, b2Low);
-        addTopTriangle(m1, b2Low, b1Low);
+        // Slopes Tier 0 -> Tier 1
+        addTopTriangle(r1Idx, rMidIdx, mMid_1);
+        addTopTriangle(r1Idx, mMid_1, m1_1);
+        addTopTriangle(rMidIdx, r2Idx, m2_1);
+        addTopTriangle(rMidIdx, m2_1, mMid_1);
 
-        // Subterranean foundation skirt below y = 0 down to skirtBottom
-        const s1 = addVertex(cosK[c1] * R * 0.97, skirtBottom, sinK[c1] * R * 0.97);
-        const s2 = addVertex(cosK[c2] * R * 0.97, skirtBottom, sinK[c2] * R * 0.97);
+        // Slopes Tier 1 -> Tier 2
+        addTopTriangle(m1_1, mMid_1, mMid_2);
+        addTopTriangle(m1_1, mMid_2, m1_2);
+        addTopTriangle(mMid_1, m2_1, m2_2);
+        addTopTriangle(mMid_1, m2_2, mMid_2);
 
-        addSkirtTriangle(b1Low, b2Low, s2);
-        addSkirtTriangle(b1Low, s2, s1);
+        // Slopes Tier 2 -> Ground Boundary (y = 0)
+        addTopTriangle(m1_2, mMid_2, bMidLow);
+        addTopTriangle(m1_2, bMidLow, b1Low);
+        addTopTriangle(mMid_2, m2_2, b2Low);
+        addTopTriangle(mMid_2, b2Low, bMidLow);
+
+        // Foundation skirts below y = 0 down to skirtBottom
+        const s1 = addVertex(b1x * 0.97, skirtBottom, b1z * 0.97);
+        const sMid = addVertex(bMidx * 0.97, skirtBottom, bMidz * 0.97);
+        const s2 = addVertex(b2x * 0.97, skirtBottom, b2z * 0.97);
+
+        addSkirtTriangle(b1Low, bMidLow, sMid);
+        addSkirtTriangle(b1Low, sMid, s1);
+        addSkirtTriangle(bMidLow, b2Low, s2);
+        addSkirtTriangle(bMidLow, s2, sMid);
       }
     }
 
@@ -799,18 +1170,14 @@ float terrainEdgeNoise(vec2 p) {
       const prevIsHill = isHillNeighbor[ePrev];
       const nextIsHill = isHillNeighbor[eNext];
 
+      const cornerRimIdx = topK[(2 * k) % 12];
+      const bHigh = addVertex(cosK[k] * R, elevation, sinK[k] * R);
+      const bLow = addVertex(cosK[k] * R, 0, sinK[k] * R);
+
       if (prevIsHill && !nextIsHill) {
-        // Corner k: ePrev is high plateau, eNext is sloping down
-        const bHigh = addVertex(cosK[k] * R, elevation, sinK[k] * R);
-        const bLow = addVertex(cosK[k] * R, 0, sinK[k] * R);
-        // Cliff face sealing the transition
-        addTopTriangle(topK[k], bLow, bHigh);
+        addTopTriangle(cornerRimIdx, bLow, bHigh);
       } else if (!prevIsHill && nextIsHill) {
-        // Corner k: ePrev is sloping down, eNext is high plateau
-        const bLow = addVertex(cosK[k] * R, 0, sinK[k] * R);
-        const bHigh = addVertex(cosK[k] * R, elevation, sinK[k] * R);
-        // Cliff face sealing the transition
-        addTopTriangle(topK[k], bHigh, bLow);
+        addTopTriangle(cornerRimIdx, bHigh, bLow);
       }
     }
 
@@ -821,14 +1188,21 @@ float terrainEdgeNoise(vec2 p) {
     const combinedIndices = [...topIndices, ...skirtIndices];
     geometry.setIndex(combinedIndices);
 
-    // Group 1: Plateau top, slopes, and cliffs using materialIndex = 1 (dirt terrain material)
+    // Group 1: Plateau top, slopes, and cliffs using materialIndex = 1 (blended hill terrain material)
     geometry.addGroup(0, topIndices.length, 1);
     // Group 0: Foundation skirt below y=0 using materialIndex = 0 (side material)
     if (skirtIndices.length > 0) {
       geometry.addGroup(topIndices.length, skirtIndices.length, 0);
     }
 
-    // Compute smooth normals across terrain slopes
+    geometry.userData = {
+      isHillGeometry: true,
+      variation: varIndex,
+      elevation,
+      mesaRadius: rTop,
+    };
+
+    // Compute smooth normals across rounded terrain slopes
     geometry.computeVertexNormals();
 
     return geometry;
@@ -870,7 +1244,14 @@ float terrainEdgeNoise(vec2 p) {
           mesh = new THREE.Mesh(hillGeometry, tileMaterials);
           mesh.position.set(pos.x, pos.y, pos.z);
           mesh.receiveShadow = true;
-          mesh.userData = { hexX: x, hexY: y, isHexTile: true, terrainType: terrain, edgeTransitions };
+          mesh.userData = {
+            hexX: x,
+            hexY: y,
+            isHexTile: true,
+            terrainType: terrain,
+            edgeTransitions,
+            hillVariation: this.getHillVariation(x, y),
+          };
 
           // Crease wireframe outlining the mesa plateau rim
           const edges = new THREE.EdgesGeometry(hillGeometry, 25);
@@ -1624,9 +2005,9 @@ float terrainEdgeNoise(vec2 p) {
     if (terrain === TerrainType.HILL) {
       const clusterId = this.hillClusters.get(`${x},${y}`);
       if (clusterId !== undefined) {
-        return this.clusterElevations.get(clusterId) ?? 0.32;
+        return this.clusterElevations.get(clusterId) ?? 0.21;
       }
-      return 0.32;
+      return 0.21;
     }
     if (terrain === TerrainType.SWAMP) return -0.04;
     return 0;
@@ -1838,6 +2219,11 @@ float terrainEdgeNoise(vec2 p) {
   }
 
   public dispose(): void {
+    if (this.hillMaskTexture) {
+      this.hillMaskTexture.dispose();
+      this.hillMaskTexture = null;
+    }
+
     this.blendedTileMaterials.forEach((m) => m.dispose());
     this.blendedTileMaterials = [];
 

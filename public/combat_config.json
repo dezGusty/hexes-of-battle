@@ -126,6 +126,10 @@
       "neighbourEnemyBonus": 1,
       "killerMeleeBonus": 2,
       "killerRangedBonus": 1
+    },
+    "healing": {
+      "multiplier": 0.5,
+      "minValue": 1
     }
   },
   "hero": {
