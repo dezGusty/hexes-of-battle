@@ -12,6 +12,7 @@ import {
   smoothGeometryNormals,
 } from './units/unit-mesh-builder';
 import { createSelectedHaloTexture } from './units/selected-halo-texture';
+import { createRetreatFlagMesh, updateRetreatFlagWind } from './decorations/retreat-flag-3d';
 
 export interface HexBoard3DOptions {
   showGrid?: boolean;
@@ -24,6 +25,7 @@ export interface HexBoard3DOptions {
   coordsStrokeColor?: string;
   coordsStrokeWidth?: number;
   getTerrain?: (x: number, y: number) => TerrainType;
+  getRetreatPoints?: (armyIndex: number) => Coords[];
   blendTransitionWidth?: number;
   blendNoiseStrength?: number;
 }
@@ -44,6 +46,10 @@ export class HexBoard3D {
   public readonly forestTreesGroup: THREE.Group = new THREE.Group();
   private forestTreesByHex: Map<string, THREE.Object3D[]> = new Map();
   private forestTreeTemplates: { pine?: THREE.Object3D; oak?: THREE.Object3D } = {};
+  public readonly retreatFlagsGroup: THREE.Group = new THREE.Group();
+  private animatedFlagCloths: THREE.Mesh[] = [];
+  private windTime: number = 0;
+  private getRetreatPoints?: (armyIndex: number) => Coords[];
   private hoverMesh: THREE.Mesh;
   private selectedRingMesh: THREE.Mesh;
   public readonly selectedHaloMesh: THREE.Mesh;
@@ -99,6 +105,7 @@ export class HexBoard3D {
     if (options?.coordsStrokeColor !== undefined) this.coordsStrokeColor = options.coordsStrokeColor;
     if (options?.coordsStrokeWidth !== undefined) this.coordsStrokeWidth = options.coordsStrokeWidth;
     if (options?.getTerrain !== undefined) this.getTerrain = options.getTerrain;
+    if (options?.getRetreatPoints !== undefined) this.getRetreatPoints = options.getRetreatPoints;
     if (options?.blendTransitionWidth !== undefined) this.blendTransitionWidth = options.blendTransitionWidth;
     if (options?.blendNoiseStrength !== undefined) this.blendNoiseStrength = options.blendNoiseStrength;
 
@@ -111,6 +118,7 @@ export class HexBoard3D {
     this.gridBordersGroup.name = 'GridBorders';
     this.coordsGroup.name = 'CoordsLabels';
     this.forestTreesGroup.name = 'ForestTrees';
+    this.retreatFlagsGroup.name = 'RetreatFlags';
 
     this.hoverMesh = this.createHighlightHexMesh(0xffffff, 0.4);
     this.hoverMesh.name = 'TileHoverMesh';
@@ -149,6 +157,7 @@ export class HexBoard3D {
     this.group.add(this.gridBordersGroup);
     this.group.add(this.coordsGroup);
     this.group.add(this.forestTreesGroup);
+    this.group.add(this.retreatFlagsGroup);
 
     this.buildBoard();
   }
@@ -905,6 +914,7 @@ float terrainEdgeNoise(vec2 p) {
 
     this.rebuildGridBorders();
     this.rebuildCoords();
+    this.rebuildRetreatFlags();
   }
 
   /**
@@ -1234,6 +1244,83 @@ float terrainEdgeNoise(vec2 p) {
       const deltaAngle = (2 * Math.PI * deltaMS) / 30000;
       this.selectedHaloMesh.rotation.y = (this.selectedHaloMesh.rotation.y + deltaAngle) % (2 * Math.PI);
     }
+
+    if (this.animatedFlagCloths.length > 0) {
+      this.windTime += deltaMS * 0.001;
+      for (let i = 0; i < this.animatedFlagCloths.length; i++) {
+        updateRetreatFlagWind(this.animatedFlagCloths[i], this.windTime);
+      }
+    }
+  }
+
+  public setRetreatPointsProvider(provider: (armyIndex: number) => Coords[]): void {
+    this.getRetreatPoints = provider;
+    this.rebuildRetreatFlags();
+  }
+
+  /**
+   * Rebuilds all retreat flags on their configured hexagon coordinates.
+   * Flags are purely decorative pass-through objects and do not block squad placement.
+   */
+  public rebuildRetreatFlags(): void {
+    while (this.retreatFlagsGroup.children.length > 0) {
+      const child = this.retreatFlagsGroup.children[0];
+      this.retreatFlagsGroup.remove(child);
+      child.traverse((obj) => {
+        if ((obj as THREE.Mesh).isMesh) {
+          const mesh = obj as THREE.Mesh;
+          mesh.geometry?.dispose();
+          if (Array.isArray(mesh.material)) {
+            mesh.material.forEach((m) => {
+              (m as any).map?.dispose();
+              m.dispose();
+            });
+          } else if (mesh.material) {
+            (mesh.material as any).map?.dispose();
+            mesh.material.dispose();
+          }
+        }
+      });
+    }
+    this.animatedFlagCloths = [];
+
+    // Place long war standard flags for army 0 and army 1
+    for (const armyIndex of [0, 1]) {
+      const points = this.getRetreatPointsForArmy(armyIndex);
+      for (const pt of points) {
+        if (pt.x < 0 || pt.x >= this.hexMap.width || pt.y < 0 || pt.y >= this.hexMap.height) {
+          continue;
+        }
+        const flag = createRetreatFlagMesh(armyIndex, pt.x, pt.y);
+        const worldPos = this.hexToWorld(pt.x, pt.y);
+        const elevation = this.getHexElevation(pt.x, pt.y);
+
+        // Position flagpole at the South-West area of the hex so the SW->NE streaming cloth (length 0.44m)
+        // billows naturally across towards the center/North-East of the hex, keeping squads unblocked
+        const offsetX = -0.30;
+        const offsetZ = 0.20;
+        flag.position.set(worldPos.x + offsetX, worldPos.y + elevation, worldPos.z + offsetZ);
+
+        this.retreatFlagsGroup.add(flag);
+
+        const cloth = flag.getObjectByName('Cloth') as THREE.Mesh;
+        if (cloth) {
+          this.animatedFlagCloths.push(cloth);
+        }
+      }
+    }
+  }
+
+  private getRetreatPointsForArmy(armyIndex: number): Coords[] {
+    if (this.getRetreatPoints) {
+      return this.getRetreatPoints(armyIndex);
+    }
+    const pts: Coords[] = [];
+    const edgeX = armyIndex === 0 ? 0 : Math.max(0, this.hexMap.width - 1);
+    for (let y = 0; y < this.hexMap.height; y++) {
+      pts.push({ x: edgeX, y });
+    }
+    return pts;
   }
 
   private updateFacingIndicator(worldPos: THREE.Vector3, facing: HexDirection, mesaRadius?: number): void {

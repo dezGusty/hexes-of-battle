@@ -38,6 +38,7 @@ export interface SerializedBattleState {
   friendlyFireEvents: number;
   creatures: SerializedCreature[];
   casualties: SerializedCreature[];
+  routedCreatures?: SerializedCreature[];
 }
 
 export interface BattleSaveEntry {
@@ -191,6 +192,7 @@ export class SaveManager {
       friendlyFireEvents: battle.friendlyFireEvents,
       creatures: battle.creatures.map((c) => SaveManager.serializeCreature(c)),
       casualties: battle.casualties.map((c) => SaveManager.serializeCreature(c)),
+      routedCreatures: (battle.routedCreatures || []).map((c) => SaveManager.serializeCreature(c)),
     };
 
     const army0Units = battle.creatures.filter((c) => c.armyAlignment === 0 && c.isAlive).length;
@@ -272,6 +274,7 @@ export class SaveManager {
     // Restore squads
     battle.creatures = (state.creatures || []).map((sc) => SaveManager.deserializeCreature(sc, allAbilities));
     battle.casualties = (state.casualties || []).map((sc) => SaveManager.deserializeCreature(sc, allAbilities));
+    battle.routedCreatures = (state.routedCreatures || []).map((sc) => SaveManager.deserializeCreature(sc, allAbilities));
 
     // Rebuild tile caches and buffs
     battle.cacheCreaturesToHexMap();

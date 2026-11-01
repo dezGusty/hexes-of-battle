@@ -56,6 +56,7 @@ export interface BattleHooks {
   hookDoingAttackRanged?: (data: RangedAttackData) => void;
   hookDoingHeal?: (data: { healer: Creature; target: Creature; amount: number; ability: Ability }) => void;
   hookUnitDied?: (creature: Creature) => void;
+  hookUnitRetreated?: (creature: Creature) => void;
   hookActiveUnitChanged?: (creature: Creature) => void;
   hookRangedScatter?: (attacker: Creature, originalTarget: Coords, scatterTarget: Coords, hitCreature: Creature | null) => void;
   hookMoraleBreak?: (creature: Creature, state: MoraleState) => void;
@@ -123,6 +124,8 @@ export class Battle {
   public renderStateChanged: boolean = true;
   public creatures: Creature[] = [];
   public casualties: Creature[] = [];
+  public routedCreatures: Creature[] = [];
+  public initialCreatures: Creature[] = [];
 
   public pathfinding_tiles: number[][] = [];
   public enemy_potential_tiles: number[][] = [];
@@ -158,6 +161,8 @@ export class Battle {
   public moraleBreaks: [number, number] = [0, 0];
   public friendlyFireEvents: number = 0;
   public maxTurns: number = 100;
+
+  private retreatPoints: Map<number, Coords[]> = new Map();
 
   public static DIRECTION_TO_ATTACK_CURSOR: Record<HexDirection, AttackCursorHint> = {
     [HexDirection.NONE]: AttackCursorHint.NONE,
@@ -197,6 +202,57 @@ export class Battle {
     this.rng = new SeedableRNG(seed);
   }
 
+  public getRetreatPoints(armyIndex: number): Coords[] {
+    const custom = this.retreatPoints.get(armyIndex);
+    if (custom && custom.length > 0) {
+      return custom.map((p) => ({ x: p.x, y: p.y }));
+    }
+    return this.getDefaultRetreatPoints(armyIndex);
+  }
+
+  public setRetreatPoints(armyIndex: number, points: Coords[]): void {
+    this.retreatPoints.set(
+      armyIndex,
+      points.map((p) => ({ x: p.x, y: p.y }))
+    );
+  }
+
+  public hasCustomRetreatPoints(armyIndex?: number): boolean {
+    if (armyIndex !== undefined) {
+      const pts = this.retreatPoints.get(armyIndex);
+      return !!pts && pts.length > 0;
+    }
+    return this.retreatPoints.size > 0;
+  }
+
+  public clearCustomRetreatPoints(armyIndex?: number): void {
+    if (armyIndex !== undefined) {
+      this.retreatPoints.delete(armyIndex);
+    } else {
+      this.retreatPoints.clear();
+    }
+  }
+
+  public getDefaultRetreatPoints(armyIndex: number): Coords[] {
+    const points: Coords[] = [];
+    const width = this.hexMap.width;
+    const height = this.hexMap.height;
+
+    if (armyIndex === 0) {
+      // First player: left-most hexes (x = 0)
+      for (let y = 0; y < height; y++) {
+        points.push({ x: 0, y });
+      }
+    } else {
+      // Second player: right-most hexes (x = mapWidth - 1)
+      const edgeX = Math.max(0, width - 1);
+      for (let y = 0; y < height; y++) {
+        points.push({ x: edgeX, y });
+      }
+    }
+    return points;
+  }
+
   public initializeToSize(mapWidth: number, mapHeight: number) {
     this.pathfinding_tiles = NumMatrix.createZeroMatrix(mapWidth, mapHeight);
     this.enemy_potential_tiles = NumMatrix.createZeroMatrix(mapWidth, mapHeight);
@@ -210,6 +266,8 @@ export class Battle {
 
     this.creatures = [];
     this.casualties = [];
+    this.routedCreatures = [];
+    this.initialCreatures = [];
     this.finished = false;
     this.turnNumber = 0;
     this.currentArmyIndex = 0;
@@ -250,12 +308,31 @@ export class Battle {
       this.army_control = [...config.armyControl];
     }
 
+    if (config.retreatPoints) {
+      this.clearCustomRetreatPoints();
+      if (Array.isArray(config.retreatPoints)) {
+        config.retreatPoints.forEach((pts, idx) => {
+          if (pts && Array.isArray(pts)) {
+            this.setRetreatPoints(idx, pts);
+          }
+        });
+      } else {
+        for (const [key, pts] of Object.entries(config.retreatPoints)) {
+          const idx = Number(key);
+          if (!isNaN(idx) && pts && Array.isArray(pts)) {
+            this.setRetreatPoints(idx, pts);
+          }
+        }
+      }
+    }
+
     this.creatures = config.creatures.map((c) => {
       c.combatConfig = this.combatConfig;
       c.updateMoraleState();
       c.updateExhaustionState();
       return c;
     });
+    this.initialCreatures = [...this.creatures];
 
     this.start();
   }
@@ -1805,6 +1882,28 @@ export class Battle {
     this.nextRenderUpdate.setUnitRenderUpdate();
   }
 
+  public getInitialCreatures(armyIndex?: number): Creature[] {
+    const list: Creature[] = [];
+    const seen = new Set<string>();
+    const add = (c: Creature) => {
+      if (!c) return;
+      const key = c.GUID ? c.GUID.toString() : (c as any).id || `${c.armyAlignment}_${c.creatureType}_${c.stats.health}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        list.push(c);
+      }
+    };
+    this.initialCreatures.forEach(add);
+    this.creatures.forEach(add);
+    this.routedCreatures.forEach(add);
+    this.casualties.forEach(add);
+
+    if (armyIndex !== undefined) {
+      return list.filter((c) => c.armyAlignment === armyIndex);
+    }
+    return list;
+  }
+
   public getBattleResult(): BattleResult {
     const victor = this.checkVictoryConditions();
     return {
@@ -1812,6 +1911,8 @@ export class Battle {
       turnsTaken: this.turnNumber,
       survivingCreatures: [...this.creatures],
       casualties: [...this.casualties],
+      routedCreatures: [...this.routedCreatures],
+      initialCreatures: this.getInitialCreatures(),
       totalDamageDealt: [...this.totalDamageDealt],
       totalStaminaSpent: [...this.totalStaminaSpent],
       moraleBreaks: [...this.moraleBreaks],
@@ -2173,6 +2274,9 @@ export class Battle {
 
   public start() {
     for (const creature of this.creatures) {
+      if (!this.initialCreatures.some((ic) => ic === creature || (ic.GUID && ic.GUID.equals(creature.GUID)))) {
+        this.initialCreatures.push(creature);
+      }
       if (creature.stats.retaliations_done === undefined) {
         creature.stats.retaliations_done = 0;
       }
@@ -2231,14 +2335,44 @@ export class Battle {
   public processRoutingRetreatsForCurrentArmy(): void {
     if (this.finished) return;
 
-    for (let i = 0; i < this.creatures.length; i++) {
+    for (let i = this.creatures.length - 1; i >= 0; i--) {
+      if (i >= this.creatures.length) continue;
       const creature = this.creatures[i];
       if (!creature.isAlive) continue;
       if (creature.armyAlignment !== this.currentArmyIndex) continue;
       if (creature.moraleState !== MoraleState.ROUTING) continue;
 
       this.retreatRoutingCreature(creature);
+      if (this.finished) break;
     }
+  }
+
+  private handleCreatureRetreated(creature: Creature): void {
+    (creature as any).hasRetreated = true;
+    (creature as any).isRoutedFromBattle = true;
+
+    if (!this.routedCreatures.some((c) => c === creature || (c.GUID && c.GUID.equals(creature.GUID)))) {
+      this.routedCreatures.push(creature);
+    }
+
+    this.clearPositionBuffs(creature);
+
+    const idx = this.creatures.findIndex((c) => c === creature || (c.GUID && c.GUID.equals(creature.GUID)));
+    if (idx >= 0) {
+      this.creatures.splice(idx, 1);
+      if (this.activeCreatureIndex === idx) {
+        this.activeCreatureIndex = -1;
+      } else if (this.activeCreatureIndex > idx) {
+        this.activeCreatureIndex--;
+      }
+    }
+
+    this.hookUnitRetreated(creature);
+
+    this.nextRenderUpdate.setUnitRenderUpdate();
+    this.nextRenderUpdate.somethingChanged = true;
+
+    this.checkVictoryConditionsAndState();
   }
 
   private retreatRoutingCreature(creature: Creature): void {
@@ -2247,56 +2381,89 @@ export class Battle {
       return;
     }
 
-    const isPlayer1 = creature.armyAlignment === 0;
+    const armyIndex = creature.armyAlignment;
+    const retreatPoints = this.getRetreatPoints(armyIndex);
+    if (!retreatPoints || retreatPoints.length === 0) {
+      creature.stats.remaining_movement = 0;
+      return;
+    }
+
+    // If creature is already safely at one of its side's retreat points, remove immediately
+    const alreadyAtRetreat = retreatPoints.some(
+      (p) => p.x === creature.position.x && p.y === creature.position.y
+    );
+    if (alreadyAtRetreat) {
+      creature.stats.remaining_movement = 0;
+      this.handleCreatureRetreated(creature);
+      return;
+    }
+
     let remainingMovement = creature.stats.remaining_movement;
     if (creature.exhaustionState === ExhaustionState.WINDED) {
       remainingMovement = Math.max(0, remainingMovement - 1);
     }
 
-    const candidateDirections: HexDirection[] = isPlayer1
-      ? [HexDirection.WEST, HexDirection.NORTHWEST, HexDirection.SOUTHWEST]
-      : [HexDirection.EAST, HexDirection.NORTHEAST, HexDirection.SOUTHEAST];
-
     const visitedHexes = new Set<string>();
     visitedHexes.add(`${creature.position.x},${creature.position.y}`);
 
+    const directDir = armyIndex === 0 ? HexDirection.WEST : HexDirection.EAST;
+
     while (remainingMovement > 0 && creature.stats.stamina > 0) {
-      if (isPlayer1 && creature.position.x <= 0) break;
-      if (!isPlayer1 && creature.position.x >= this.hexMap.width - 1) break;
+      // Distance to the closest retreat point
+      const currentDist = Math.min(
+        ...retreatPoints.map((p) => HexMap.getHexDistance(creature.position, p))
+      );
 
-      let bestNext: { coords: Coords; dir: HexDirection; moveCost: number; staminaCost: number; progress: number } | null = null;
+      let bestNext: {
+        coords: Coords;
+        dir: HexDirection;
+        moveCost: number;
+        staminaCost: number;
+        progress: number;
+        distToClosest: number;
+      } | null = null;
 
-      for (const dir of candidateDirections) {
-        const neighbour = this.hexMap.getNeighbourInDirection(creature.position, dir);
+      for (let dir = 0; dir < 6; dir++) {
+        const neighbour = this.hexMap.getNeighbourInDirection(creature.position, dir as HexDirection);
         if (!neighbour) continue;
         if (visitedHexes.has(`${neighbour.x},${neighbour.y}`)) continue;
         if (this.getCreatureAtPosition(neighbour) !== null) continue;
 
         const terrain = this.getTerrainAt(neighbour);
+        if (terrain === TerrainType.WATER) continue;
+
         const moveCost = this.getMoveCostForTerrain(terrain, creature);
         const staminaCost = this.combatConfig.terrain.staminaCosts[terrain] ?? 1;
 
         if (remainingMovement < moveCost) continue;
         if (creature.stats.stamina < staminaCost) continue;
 
-        const progress = isPlayer1 ? (creature.position.x - neighbour.x) : (neighbour.x - creature.position.x);
-        if (progress < 0) continue;
+        const newDist = Math.min(...retreatPoints.map((p) => HexMap.getHexDistance(neighbour, p)));
+        const progress = currentDist - newDist;
 
-        const isDirect = dir === (isPlayer1 ? HexDirection.WEST : HexDirection.EAST);
+        if (progress <= 0) continue;
+
+        const isDirect = (dir as HexDirection) === directDir;
+
         if (
           !bestNext ||
           progress > bestNext.progress ||
           (progress === bestNext.progress && isDirect) ||
-          (progress === bestNext.progress && moveCost < bestNext.moveCost)
+          (progress === bestNext.progress && !isDirect && moveCost < bestNext.moveCost) ||
+          (progress === bestNext.progress && moveCost === bestNext.moveCost && newDist < bestNext.distToClosest)
         ) {
-          bestNext = { coords: neighbour, dir, moveCost, staminaCost, progress };
+          bestNext = {
+            coords: neighbour,
+            dir: dir as HexDirection,
+            moveCost,
+            staminaCost,
+            progress,
+            distToClosest: newDist,
+          };
         }
       }
 
       if (!bestNext) break;
-      if (bestNext.progress <= 0 && visitedHexes.size > 1) {
-        break;
-      }
 
       remainingMovement -= bestNext.moveCost;
       creature.stats.remaining_movement = remainingMovement;
@@ -2309,6 +2476,13 @@ export class Battle {
       this.setPositionBuffs(creature, creature.pos);
       this.nextRenderUpdate.setUnitRenderUpdate();
       this.nextRenderUpdate.somethingChanged = true;
+
+      // Reached any designated retreat point for its side -> remove from battle
+      if (retreatPoints.some((p) => p.x === creature.position.x && p.y === creature.position.y)) {
+        creature.stats.remaining_movement = 0;
+        this.handleCreatureRetreated(creature);
+        return;
+      }
     }
 
     creature.stats.remaining_movement = 0;
@@ -2344,6 +2518,7 @@ export class Battle {
   hookNextTurn(_turnNumber: number, _armyIndex: number) {}
   hookMovingUnit(_creature: Creature, _nextStep: Coords) {}
   hookUnitDied(_creature: Creature) {}
+  hookUnitRetreated(_creature: Creature) {}
   hookBattleFinished(_victor: number) {}
   hookRecommendEndTurn(_armyIndex: number) {}
   hookActiveUnitChanged(_creature: Creature) {}

@@ -1,4 +1,5 @@
 import { HexMap } from "../shared/hex-map";
+import { Coords } from "../shared";
 import { ArmyControlType, Battle } from "../battle";
 import { CreatureRepository } from "../battle/creature-repository";
 import { CPUPlayerFactory } from "../battle/cpu-player-factory";
@@ -19,6 +20,7 @@ export interface ScenarioArmyDef {
   name: string;
   units: ScenarioUnitDef[];
   aiPersonality?: string;
+  retreatPoints?: Coords[];
 }
 
 export interface ScenarioDef {
@@ -28,6 +30,7 @@ export interface ScenarioDef {
   mapWidth: number;
   mapHeight: number;
   armies: ScenarioArmyDef[];
+  retreatPoints?: Record<number, Coords[]> | Coords[][];
 }
 
 export interface BatchSimulationOptions {
@@ -154,8 +157,28 @@ export class BatchSimulationRunner {
     battle.initializeToSize(scenario.mapWidth, scenario.mapHeight);
     battle.army_control = [ArmyControlType.AI, ArmyControlType.AI];
 
+    if (scenario.retreatPoints) {
+      if (Array.isArray(scenario.retreatPoints)) {
+        scenario.retreatPoints.forEach((pts, idx) => {
+          if (pts && Array.isArray(pts)) {
+            battle.setRetreatPoints(idx, pts);
+          }
+        });
+      } else {
+        for (const [key, pts] of Object.entries(scenario.retreatPoints)) {
+          const idx = Number(key);
+          if (!isNaN(idx) && pts && Array.isArray(pts)) {
+            battle.setRetreatPoints(idx, pts);
+          }
+        }
+      }
+    }
+
     // Instantiate creatures from scenario definitions
     for (const army of scenario.armies) {
+      if (army.retreatPoints && Array.isArray(army.retreatPoints)) {
+        battle.setRetreatPoints(army.armyIndex, army.retreatPoints);
+      }
       for (const unitDef of army.units) {
         const creature = this.repository.createCreatureByName(unitDef.type);
         creature.position = { ...unitDef.pos };

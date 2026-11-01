@@ -15,6 +15,7 @@ import { BattleMenuPanel } from "../ui/battle-menu";
 import { UnitStatsPanel } from "../ui/unit-stats-panel";
 import { EnemyStatsPanel } from "../ui/enemy-stats-panel";
 import { TurnChangeCollection } from "../ui/turn-change-display";
+import { PostBattlePanel } from "../ui/post-battle-panel";
 
 import { BattleSaveEntry, SaveManager } from "../battle/save-manager";
 
@@ -56,6 +57,7 @@ export class BattleHud2D {
   public commonControls!: CommonControls;
   public topSidePanel?: TopSidePanel;
   public battleMenuPanel?: BattleMenuPanel;
+  public postBattlePanel?: PostBattlePanel;
   public unitStats?: UnitStatsPanel;
   public enemyStats?: EnemyStatsPanel;
   public onShowEnemyStats?: (creature: Creature) => void;
@@ -263,6 +265,8 @@ export class BattleHud2D {
       this.battleMenuPanel.hide();
     }
 
+    this.postBattlePanel = new PostBattlePanel(this.uiPlusRenderGroup);
+
     this.commonControls.menuButton?.onPress.connect(() => {
       this.battleMenuPanel?.toggleVisibility();
     });
@@ -466,6 +470,18 @@ export class BattleHud2D {
     if (this.topSidePanel) {
       this.topSidePanel.setActiveArmyIndex(victorArmyIndex);
     }
+
+    this.showPostBattleScreen(victorArmyIndex);
+  }
+
+  public showPostBattleScreen(victorArmyIndex?: number): void {
+    if (this.postBattlePanel && this.battle) {
+      this.postBattlePanel.show(this.battle, victorArmyIndex);
+    }
+  }
+
+  public hidePostBattleScreen(): void {
+    this.postBattlePanel?.hide();
   }
 
   public showEndTurnRecommendation(): void {
@@ -876,6 +892,7 @@ export class BattleHud2D {
   }
 
   public destroy(): void {
+    this.postBattlePanel?.destroy();
     this.battleMenuPanel?.destroy();
     this.targetAcquirementBanner?.destroy({ children: true });
     this.versionText?.destroy();

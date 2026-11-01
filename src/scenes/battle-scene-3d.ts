@@ -292,6 +292,11 @@ export class BattleScene3D implements Scene {
       this.soundSystem.play(SoundCategory.SOUND, SoundType.DIE, true);
     };
 
+    this.battle.hookUnitRetreated = (creature) => {
+      this.soundSystem.play(SoundCategory.SOUND, SoundType.MOVE, true);
+      this.view.removeSquad(creature.GUID.toString());
+    };
+
     this.battle.hookBattleFinished = (victor) => {
       this.hud.showVictoryBanner(victor);
       const result = this.battle.getBattleResult();

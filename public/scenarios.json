@@ -84,5 +84,34 @@
         ]
       }
     ]
+  },
+  {
+    "id": "crossroad_stronghold",
+    "name": "Crossroad Stronghold",
+    "description": "Factions clash over a central fortress; squads retreat towards central stronghold rally flags in the middle of the map.",
+    "mapWidth": 11,
+    "mapHeight": 7,
+    "retreatPoints": {
+      "0": [{ "x": 4, "y": 3 }],
+      "1": [{ "x": 6, "y": 3 }]
+    },
+    "armies": [
+      {
+        "armyIndex": 0,
+        "name": "Blue Outpost Guards",
+        "units": [
+          { "type": "swordsman", "pos": { "x": 2, "y": 3 }, "facing": 1 },
+          { "type": "spearman", "pos": { "x": 3, "y": 2 }, "facing": 1 }
+        ]
+      },
+      {
+        "armyIndex": 1,
+        "name": "Red Incursion",
+        "units": [
+          { "type": "maceman", "pos": { "x": 8, "y": 3 }, "facing": 4 },
+          { "type": "slinger", "pos": { "x": 7, "y": 4 }, "facing": 4 }
+        ]
+      }
+    ]
   }
 ]

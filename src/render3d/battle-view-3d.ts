@@ -107,6 +107,7 @@ export class BattleView3D {
       coordsStrokeColor: settings.debug.coordsStrokeColor,
       coordsStrokeWidth: settings.debug.coordsStrokeWidth,
       getTerrain: (x, y) => this.battle.getTerrainAt({ x, y }),
+      getRetreatPoints: (armyIndex) => this.battle.getRetreatPoints(armyIndex),
     });
     this.sceneManager.scene.add(this.hexBoard.group);
     this.sceneManager.scene.add(this.projectileSystem.group);
@@ -248,6 +249,17 @@ export class BattleView3D {
     this.updateActiveUnitSelection();
     this.sceneDebugger?.refreshEntityList();
     this.sceneDebugger?.updateStats();
+  }
+
+  public removeSquad(guid: string): void {
+    const squad = this.squadVisuals.get(guid);
+    if (squad) {
+      this.sceneManager.scene.remove(squad.rootGroup);
+      squad.dispose();
+      this.squadVisuals.delete(guid);
+      this.sceneDebugger?.refreshEntityList();
+      this.sceneDebugger?.updateStats();
+    }
   }
 
   public updateActiveUnitSelection(): void {

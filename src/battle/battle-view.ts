@@ -1,4 +1,4 @@
-import { Container, Sprite, Text, TextStyle, BitmapText, AnimatedSprite, NineSliceSprite, Texture, Assets } from 'pixi.js';
+import { Container, Sprite, Text, TextStyle, BitmapText, AnimatedSprite, NineSliceSprite, Texture, Assets, Graphics } from 'pixi.js';
 import pkg from '../../package.json';
 import { ProgressBar } from '@pixi/ui';
 import { OutlineFilter, AdvancedBloomFilter } from 'pixi-filters';
@@ -19,6 +19,7 @@ import { UnitStatsPanel } from '../ui/unit-stats-panel';
 import { TopSidePanel } from '../ui/top-side-panel';
 import { DamageValueCollection } from '../ui/damage-value-display';
 import { TurnChangeCollection } from '../ui/turn-change-display';
+import { PostBattlePanel } from '../ui/post-battle-panel';
 
 import { ExhaustionState } from './combat-rules';
 
@@ -44,6 +45,7 @@ export class BattleView {
 
   public commonControls!: CommonControls;
   public battleMenuPanel?: BattleMenuPanel;
+  public postBattlePanel?: PostBattlePanel;
   public unitStats?: UnitStatsPanel;
   public topSidePanel?: TopSidePanel;
 
@@ -87,6 +89,7 @@ export class BattleView {
   private hexTerrainContainer: Container = new Container({ isRenderGroup: true });
   private hexCellsGridContainer: Container = new Container({ isRenderGroup: true });
   private hexCellsContainer: Container = new Container({ isRenderGroup: true });
+  private retreatFlagsContainer: Container = new Container({ isRenderGroup: true });
   private hexUiRenderGroup: Container = new Container({ isRenderGroup: true });
 
   public camera!: HexViewportCamera;
@@ -175,8 +178,11 @@ export class BattleView {
     this.hexZoneContainer.addChild(this.hexTerrainContainer);
     this.hexZoneContainer.addChild(this.hexCellsGridContainer);
     this.hexZoneContainer.addChild(this.hexCellsContainer);
+    this.hexZoneContainer.addChild(this.retreatFlagsContainer);
     this.hexZoneContainer.addChild(this.unitRenderGroup);
     this.hexZoneContainer.addChild(this.hexUiRenderGroup);
+
+    this.rebuildRetreatFlags();
 
     if (this.assets.uiSheet) {
       this.turnChangeDisplay.setUISheet(this.assets.uiSheet);
@@ -325,6 +331,18 @@ export class BattleView {
     if (this.topSidePanel) {
       this.topSidePanel.setActiveArmyIndex(victorArmyIndex);
     }
+
+    this.showPostBattleScreen(victorArmyIndex);
+  }
+
+  public showPostBattleScreen(victorArmyIndex?: number): void {
+    if (this.postBattlePanel) {
+      this.postBattlePanel.show(this.battle, victorArmyIndex);
+    }
+  }
+
+  public hidePostBattleScreen(): void {
+    this.postBattlePanel?.hide();
   }
 
   public showEndTurnRecommendation(): void {
@@ -407,6 +425,7 @@ export class BattleView {
       this.battleMenuPanel.setHardwareCursorHidden(this.settings.hideHardwareCursor);
       this.battleMenuPanel.hide();
     }
+    this.postBattlePanel = new PostBattlePanel(this.uiPlusRenderGroup);
     this.applyHardwareCursorVisibility(this.settings.hideHardwareCursor);
 
     const dockedButtons = new Set<any>([
@@ -1363,6 +1382,43 @@ export class BattleView {
 
   private getBannerTextureNameForArmyIndex(armyIndex: number): string {
     return armyIndex === 0 ? 'banner1.png' : 'banner2.png';
+  }
+
+  public rebuildRetreatFlags(): void {
+    this.retreatFlagsContainer.removeChildren();
+
+    for (const armyIndex of [0, 1]) {
+      const points = this.battle.getRetreatPoints(armyIndex);
+      const bannerName = this.getBannerTextureNameForArmyIndex(armyIndex);
+      const texture = this.assets.bannersSheet?.textures[bannerName];
+
+      for (const pt of points) {
+        if (pt.x < 0 || pt.x >= this.hexMap.width || pt.y < 0 || pt.y >= this.hexMap.height) {
+          continue;
+        }
+        const pixelPos = this.hexMap.hexToPixel(pt.x, pt.y);
+        const offsetX = armyIndex === 0 ? -18 : 18;
+        const offsetY = -14;
+
+        if (texture) {
+          const sprite = new Sprite(texture);
+          sprite.width = 24;
+          sprite.height = 24;
+          sprite.anchor = { x: 0.5, y: 0.5 };
+          sprite.position.set(pixelPos.x + offsetX, pixelPos.y + offsetY);
+          this.retreatFlagsContainer.addChild(sprite);
+        } else {
+          const g = new Graphics();
+          // Flagpole
+          g.rect(pixelPos.x + offsetX - 1, pixelPos.y + offsetY - 16, 2, 28);
+          g.fill({ color: 0x362516 });
+          // Banner flag
+          g.rect(pixelPos.x + offsetX + (armyIndex === 0 ? -14 : 1), pixelPos.y + offsetY - 16, 14, 10);
+          g.fill({ color: armyIndex === 0 ? 0x2f63c7 : 0xc72f2f });
+          this.retreatFlagsContainer.addChild(g);
+        }
+      }
+    }
   }
 
   public toggleUnitStats(): void {

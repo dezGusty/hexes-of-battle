@@ -2,6 +2,7 @@ import { Creature } from './creature';
 import { ArmyControlType } from '../battle';
 import { CPUPersonalityType } from './cpu-player';
 import { CombatConfig } from './combat-rules';
+import { Coords } from '../shared';
 
 export interface BattleConfig {
   mapWidth: number;
@@ -14,6 +15,7 @@ export interface BattleConfig {
   combatConfig?: CombatConfig;
   seed?: number;
   maxTurns?: number;
+  retreatPoints?: Record<number, Coords[]> | Coords[][];
 }
 
 export interface BattleResult {
@@ -21,6 +23,8 @@ export interface BattleResult {
   turnsTaken: number;
   survivingCreatures: Creature[];
   casualties: Creature[];
+  routedCreatures: Creature[];
+  initialCreatures?: Creature[];
   totalDamageDealt: [number, number];
   totalStaminaSpent: [number, number];
   moraleBreaks: [number, number];
