@@ -40,12 +40,12 @@ import bmesh
 from mathutils import Euler, Vector
 
 # ---------------------------------------------------------------------------------------
-# Proportions (metres; overall height ~1.08m)
+# Proportions (metres; overall height ~1.08m, slender build matching peasant and maceman)
 # ---------------------------------------------------------------------------------------
 HIP_Z = 0.40
 SHOULDER_Z = 0.765
-SHOULDER_Y = 0.175
-HIP_Y = 0.080
+SHOULDER_Y = 0.138
+HIP_Y = 0.060
 HEAD_PIVOT_Z = 0.875
 HEAD_H = 0.185
 HEAD_CHIN_Z = 0.02
@@ -352,16 +352,15 @@ def build_headband_bmesh():
 # ---------------------------------------------------------------------------------------
 _SLINGER_TORSO_STATIONS = [
     # z,       cx,      rb,     ra,     p
-    (0.360,   0.005,   0.148,  0.160,  2.1),   # flared tunic skirt hem
-    (0.400,   0.004,   0.140,  0.150,  2.1),   # lower skirt
-    (0.440,   0.003,   0.130,  0.140,  2.1),   # hips / upper skirt
-    (0.485,   0.002,   0.118,  0.130,  2.2),   # waist / belt line
-    (0.540,   0.003,   0.126,  0.142,  2.2),   # lower ribcage
-    (0.610,   0.005,   0.136,  0.155,  2.2),   # mid chest
-    (0.680,   0.006,   0.142,  0.168,  2.1),   # pectorals / lats
-    (0.745,   0.005,   0.136,  0.170,  2.1),   # upper chest & shoulder base
-    (0.795,   0.002,   0.108,  0.138,  2.2),   # shoulder slope
-    (0.825,  -0.002,   0.076,  0.078,  2.3),   # neck base
+    (0.380,   0.000,   0.095,  0.122,  2.4),   # tunic skirt hem
+    (0.430,   0.002,   0.086,  0.110,  2.5),   # lower hip / groin
+    (0.485,   0.003,   0.080,  0.100,  2.5),   # waist cinch (belt level)
+    (0.560,   0.004,   0.085,  0.106,  2.5),   # lower ribcage
+    (0.640,   0.006,   0.092,  0.116,  2.4),   # mid chest / pectorals
+    (0.720,   0.005,   0.091,  0.120,  2.4),   # upper chest
+    (0.765,   0.002,   0.076,  0.118,  2.6),   # shoulder line
+    (0.800,  -0.002,   0.052,  0.080,  2.4),   # neck slope
+    (0.825,  -0.004,   0.045,  0.052,  2.2),   # collar rim / neck base
 ]
 
 
@@ -374,7 +373,7 @@ def _interp_station(z, st=_SLINGER_TORSO_STATIONS):
 
 
 def build_torso_bmesh():
-    """Agile skirmisher torso clad in a fitted linen/wool tunic."""
+    """Slender, athletic skirmisher torso matching macemen and peasant proportions."""
     bm = bmesh.new()
     z_loft(bm, _SLINGER_TORSO_STATIONS, segments=18, cap_start=True, cap_end=True)
     return bm
@@ -386,11 +385,11 @@ def build_vest_bmesh():
     Hugs the chest and torso from belt line up to collar, clearly identifying team color.
     """
     bm = bmesh.new()
-    zs = [0.470, 0.515, 0.575, 0.640, 0.705, 0.760, 0.805, 0.828]
+    zs = [0.470, 0.515, 0.575, 0.640, 0.705, 0.760, 0.800, 0.825]
     stations = []
     for z in zs:
         cx, rb, ra, p = _interp_station(z)
-        stations.append((z, cx + 0.003, rb + 0.008, ra + 0.008, p))
+        stations.append((z, cx + 0.003, rb + 0.006, ra + 0.006, p))
     z_loft(bm, stations, segments=18, cap_start=False, cap_end=False)
 
     # Prune back and extreme flank faces to create a fitted front/side surcoat vest
@@ -408,12 +407,12 @@ def build_belt_bmesh():
     """Leather waist belt with bronze buckle."""
     bm = bmesh.new()
     cx, rb, ra, p = _interp_station(0.485)
-    r_b, r_a = rb + 0.012, ra + 0.012
+    r_b, r_a = rb + 0.010, ra + 0.010
     z_loft(bm, [(0.468, cx, r_b, r_a, p), (0.502, cx, r_b, r_a, p)], segments=18, cap_start=False, cap_end=False)
 
     # Sturdy bronze buckle in front
     buckle = bmesh.ops.create_cube(bm, size=1.0)
-    bmesh.ops.scale(bm, verts=buckle["verts"], vec=(0.014, 0.038, 0.046))
+    bmesh.ops.scale(bm, verts=buckle["verts"], vec=(0.014, 0.034, 0.042))
     bmesh.ops.translate(bm, verts=buckle["verts"], vec=(cx + r_b + 0.007, 0.0, 0.485))
 
     bm.normal_update()
@@ -424,16 +423,16 @@ def build_pouch_strap_bmesh():
     """Diagonal leather baldric strap running from right shoulder across chest to left hip stone pouch."""
     bm = bmesh.new()
     strap_pts = [
-        Vector((0.030, -0.130, 0.770)),  # top of right shoulder
-        Vector((0.082, -0.050, 0.650)),  # crossing chest
-        Vector((0.090,  0.040, 0.540)),  # crossing left rib
-        Vector((0.055,  0.135, 0.450)),  # down to left hip
-        Vector((-0.030, 0.130, 0.460)),  # wrapping behind hip
-        Vector((-0.075, 0.030, 0.570)),  # across back
-        Vector((-0.055, -0.080, 0.690)), # across upper back
-        Vector((0.030, -0.130, 0.770)),  # reconnect to right shoulder
+        Vector((0.024, -0.108, 0.770)),  # top of right shoulder
+        Vector((0.078, -0.035, 0.650)),  # crossing chest
+        Vector((0.078,  0.038, 0.540)),  # crossing left rib
+        Vector((0.038,  0.108, 0.450)),  # down to left hip
+        Vector((-0.020, 0.105, 0.460)),  # wrapping behind hip
+        Vector((-0.070, 0.025, 0.570)),  # across back
+        Vector((-0.055, -0.065, 0.690)), # across upper back
+        Vector((0.024, -0.108, 0.770)),  # reconnect to right shoulder
     ]
-    tube(bm, strap_pts, [(0.015, 0.006)] * len(strap_pts), segments=6, up_hint=Z_AXIS, cap_start=False, cap_end=False)
+    tube(bm, strap_pts, [(0.012, 0.005)] * len(strap_pts), segments=6, up_hint=Z_AXIS, cap_start=False, cap_end=False)
     return bm
 
 
@@ -443,22 +442,22 @@ def build_stone_pouch_bmesh():
     Molded thick leather pouch bulging with heavy smooth sling stones, secured with leather flap and buckle.
     """
     bm = bmesh.new()
-    pouch_center = Vector((0.035, 0.160, 0.440))
+    pouch_center = Vector((0.025, 0.120, 0.440))
 
     # Main bulging pouch body
     body = bmesh.ops.create_uvsphere(bm, u_segments=10, v_segments=8, radius=1.0)
-    bmesh.ops.scale(bm, verts=body["verts"], vec=(0.048, 0.042, 0.058))
+    bmesh.ops.scale(bm, verts=body["verts"], vec=(0.044, 0.036, 0.052))
     bmesh.ops.translate(bm, verts=body["verts"], vec=pouch_center)
 
     # Overlapping leather flap
     flap = bmesh.ops.create_cube(bm, size=1.0)
-    bmesh.ops.scale(bm, verts=flap["verts"], vec=(0.046, 0.040, 0.012))
+    bmesh.ops.scale(bm, verts=flap["verts"], vec=(0.042, 0.036, 0.012))
     bmesh.ops.rotate(bm, verts=flap["verts"], cent=(0, 0, 0), matrix=Euler((math.radians(20), 0, math.radians(-10))).to_matrix())
-    bmesh.ops.translate(bm, verts=flap["verts"], vec=(pouch_center.x + 0.010, pouch_center.y, pouch_center.z + 0.032))
+    bmesh.ops.translate(bm, verts=flap["verts"], vec=(pouch_center.x + 0.008, pouch_center.y, pouch_center.z + 0.028))
 
     # Small brass closure stud/toggle
-    stud = bmesh.ops.create_uvsphere(bm, u_segments=6, v_segments=4, radius=0.007)
-    bmesh.ops.translate(bm, verts=stud["verts"], vec=(pouch_center.x + 0.042, pouch_center.y, pouch_center.z + 0.010))
+    stud = bmesh.ops.create_uvsphere(bm, u_segments=6, v_segments=4, radius=0.006)
+    bmesh.ops.translate(bm, verts=stud["verts"], vec=(pouch_center.x + 0.038, pouch_center.y, pouch_center.z + 0.008))
 
     bm.normal_update()
     return bm
@@ -489,8 +488,8 @@ def build_collar_bmesh():
         Vector((-0.004, 0.0, 0.835)),
     ]
     radii = [
-        (0.054, 0.056),
         (0.050, 0.052),
+        (0.046, 0.048),
     ]
     tube(bm, path, radii, segments=12, up_hint=Y_AXIS, cap_start=False, cap_end=False)
     return bm
@@ -532,13 +531,13 @@ def build_pauldron_bmesh(side):
     bm = bmesh.new()
     # Main curved cap over shoulder
     ret = bmesh.ops.create_uvsphere(bm, u_segments=12, v_segments=8, radius=1.0)
-    bmesh.ops.scale(bm, verts=ret["verts"], vec=(0.064, 0.070, 0.048))
-    bmesh.ops.translate(bm, verts=ret["verts"], vec=(0.002, -side * 0.018, 0.024))
+    bmesh.ops.scale(bm, verts=ret["verts"], vec=(0.060, 0.064, 0.046))
+    bmesh.ops.translate(bm, verts=ret["verts"], vec=(0.002, -side * 0.016, 0.022))
 
     # Leather retention strap under deltoid
-    strap = bmesh.ops.create_cone(bm, segments=10, radius1=0.052, radius2=0.052, depth=0.016)
+    strap = bmesh.ops.create_cone(bm, segments=10, radius1=0.050, radius2=0.050, depth=0.016)
     bmesh.ops.scale(bm, verts=strap["verts"], vec=(1.0, 0.85, 1.0))
-    bmesh.ops.translate(bm, verts=strap["verts"], vec=(0.006, -side * 0.010, -0.018))
+    bmesh.ops.translate(bm, verts=strap["verts"], vec=(0.006, -side * 0.008, -0.018))
 
     bm.normal_update()
     return bm

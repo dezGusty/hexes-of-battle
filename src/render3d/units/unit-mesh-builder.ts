@@ -797,6 +797,8 @@ function prepareHumanoidHierarchyBeforeCompaction(
         applyHumanoidUVMapping(mesh.geometry, 'knight_horse_leg');
       } else if (rawName.includes('barding')) {
         applyHumanoidUVMapping(mesh.geometry, 'knight_horse_barding');
+      } else if (mesh.name === 'Shield' || rawName.includes('shield')) {
+        applyHumanoidUVMapping(mesh.geometry, 'swordsman_shield');
       } else if (rawName.includes('saddle')) {
         applyHumanoidUVMapping(mesh.geometry, 'knight_saddle');
       } else if (rawName.includes('neck')) {
@@ -943,6 +945,8 @@ function getUnitLimbMaterial(
       switch (limbName) {
         case 'Weapon':
           return getHumanoidPartMaterial('armored_knight_gear', 0.40, 0.72);
+        case 'Shield':
+          return getHumanoidPartMaterial('swordsman_gear', 0.42, 0.72);
         case 'Root':
         case 'Horse_Body':
         case 'Horse_Head':
@@ -1307,6 +1311,8 @@ export function instantiateGlbUnitTemplate(
           !isArcherHat &&
           (origMat.name?.toLowerCase().includes('team') ||
             mesh.name.toLowerCase().includes('team') ||
+            mesh.name.toLowerCase().includes('barding') ||
+            origMat.name?.toLowerCase().includes('barding') ||
             (mesh.name.toLowerCase().includes('shield') && !isShieldMetalPart) ||
             mesh.name.toLowerCase().includes('hood') ||
             mesh.name.toLowerCase().includes('cap') ||
@@ -1432,46 +1438,67 @@ function createProceduralArmoredKnightTemplate(teamColor: number, _isHero: boole
   rumpGeo.translate(-0.28, 0.46, 0);
   horseRoot.add(new THREE.Mesh(rumpGeo, matGear));
 
-  // Barding / Caparison draped over the horse flank
-  const bardingGeo = new THREE.BoxGeometry(0.68, 0.28, 0.38);
+  // Barding / Caparison draped over the horse flank (player team colored!)
+  const bardingGeo = new THREE.BoxGeometry(0.72, 0.32, 0.40);
   bardingGeo.translate(0, 0.36, 0);
   const bardingMesh = new THREE.Mesh(bardingGeo, matTeam);
   bardingMesh.name = 'Horse_Barding';
   horseRoot.add(bardingMesh);
 
-  // Steel Crinet / Neck Armor & Neck
-  const neckGeo = new THREE.CylinderGeometry(0.13, 0.09, 0.38, 12);
-  neckGeo.rotateZ(-0.73);
-  neckGeo.translate(0.32, 0.62, 0);
+  // Muscular Arched Neck & Steel Crinet
+  const neckGeo = new THREE.CylinderGeometry(0.10, 0.13, 0.36, 12);
+  neckGeo.rotateZ(-0.64);
+  neckGeo.translate(0.30, 0.58, 0);
   const neckMesh = new THREE.Mesh(neckGeo, matGear);
   neckMesh.name = 'Horse_Neck';
+
+  // Segmented Crinet neck armor plates along crest
+  const crinetGeo = new THREE.BoxGeometry(0.24, 0.08, 0.12);
+  crinetGeo.rotateZ(-0.64);
+  crinetGeo.translate(0.32, 0.64, 0);
+  neckMesh.add(new THREE.Mesh(crinetGeo, matSteel));
   horseRoot.add(neckMesh);
 
-  // Horse Head & Muzzle
-  const headGeo = new THREE.CylinderGeometry(0.095, 0.055, 0.28, 12);
-  headGeo.rotateZ(0.84);
-  headGeo.translate(0.48, 0.76, 0);
+  // Warhorse Head & Muzzle (Angled FORWARD and DOWN, not looking up at the sky!)
+  // Axis slopes from poll at (0.38, 0.76) down to muzzle at (0.58, 0.50)
+  const headGeo = new THREE.CylinderGeometry(0.040, 0.075, 0.28, 12);
+  headGeo.rotateZ(-2.25);
+  headGeo.translate(0.48, 0.63, 0);
   const horseHeadMesh = new THREE.Mesh(headGeo, matGear);
   horseHeadMesh.name = 'Horse_Head';
 
-  // Armored Chanfron plate over forehead & nose
-  const chanfronGeo = new THREE.BoxGeometry(0.11, 0.22, 0.14);
-  chanfronGeo.rotateZ(0.84);
-  chanfronGeo.translate(0.50, 0.79, 0);
+  // Distinctive large circular jaw cheeks (ganache) at lower-back head
+  for (const zSign of [-1, 1]) {
+    const jowlGeo = new THREE.SphereGeometry(0.062, 10, 8);
+    jowlGeo.scale(1.0, 0.9, 0.45);
+    jowlGeo.translate(0.38, 0.64, zSign * 0.062);
+    horseHeadMesh.add(new THREE.Mesh(jowlGeo, matGear));
+  }
+
+  // Squared equine muzzle with nostrils
+  const muzzleGeo = new THREE.BoxGeometry(0.08, 0.07, 0.07);
+  muzzleGeo.rotateZ(-0.60);
+  muzzleGeo.translate(0.58, 0.51, 0);
+  horseHeadMesh.add(new THREE.Mesh(muzzleGeo, matGear));
+
+  // Armored Chamfron plate fitted along forehead and nasal slope
+  const chanfronGeo = new THREE.BoxGeometry(0.24, 0.035, 0.12);
+  chanfronGeo.rotateZ(-0.62);
+  chanfronGeo.translate(0.48, 0.65, 0);
   horseHeadMesh.add(new THREE.Mesh(chanfronGeo, matSteel));
 
-  // Forehead Chanfron spike
-  const spikeGeo = new THREE.CylinderGeometry(0.002, 0.02, 0.12, 8);
-  spikeGeo.rotateZ(0.84);
-  spikeGeo.translate(0.57, 0.88, 0);
+  // Forehead Chanfron spike projecting forward
+  const spikeGeo = new THREE.ConeGeometry(0.016, 0.12, 8);
+  spikeGeo.rotateZ(-1.35);
+  spikeGeo.translate(0.51, 0.69, 0);
   horseHeadMesh.add(new THREE.Mesh(spikeGeo, matSteel));
 
-  // Horse Ears
+  // Alert equine ears atop poll
   for (const zSign of [-1, 1]) {
-    const earGeo = new THREE.CylinderGeometry(0.022, 0.004, 0.09, 6);
-    earGeo.rotateZ(-0.31);
-    earGeo.rotateX(zSign * 0.24);
-    earGeo.translate(0.38, 0.86, zSign * 0.065);
+    const earGeo = new THREE.ConeGeometry(0.020, 0.085, 6);
+    earGeo.rotateZ(-0.15);
+    earGeo.rotateX(zSign * 0.20);
+    earGeo.translate(0.36, 0.76, zSign * 0.048);
     horseHeadMesh.add(new THREE.Mesh(earGeo, matGear));
   }
   horseRoot.add(horseHeadMesh);
@@ -1583,6 +1610,26 @@ function createProceduralArmoredKnightTemplate(teamColor: number, _isHero: boole
   armLGeo.translate(0.10, 0.01, 0.17);
   const armLMesh = new THREE.Mesh(armLGeo, matSteel);
   armLMesh.name = 'Arm_L';
+
+  // Medieval Heater Shield (player team colored!)
+  const shieldGeo = new THREE.BoxGeometry(0.04, 0.36, 0.26);
+  shieldGeo.rotateY(0.42);
+  shieldGeo.translate(0.12, -0.05, 0.14);
+  const shieldMesh = new THREE.Mesh(shieldGeo, matTeam);
+  shieldMesh.name = 'Shield';
+
+  // Steel perimeter rim
+  const rimGeo = new THREE.BoxGeometry(0.045, 0.38, 0.024);
+  rimGeo.rotateY(0.42);
+  rimGeo.translate(0.12, -0.05, 0.27);
+  shieldMesh.add(new THREE.Mesh(rimGeo, matSteel));
+
+  // Central shield boss (dome)
+  const bossGeo = new THREE.SphereGeometry(0.045, 12, 8);
+  bossGeo.translate(0.14, 0.02, 0.14);
+  shieldMesh.add(new THREE.Mesh(bossGeo, matWeapon));
+
+  armLMesh.add(shieldMesh);
   torsoMesh.add(armLMesh);
 
   // Arm_R (holding heavy flanged mace)
@@ -1701,8 +1748,9 @@ export function buildArticulatedUnit3DMesh(
   }
 
   // 1. Root Torso Mesh (y = 0.38..0.82)
-  const chestRadius = isMuscular ? 0.19 : 0.165;
-  const waistRadius = 0.14;
+  const isSlender = unitKey === 'healer' || unitKey === 'peasant' || unitKey === 'maceman' || unitKey === 'slinger';
+  const chestRadius = isMuscular ? 0.19 : isSlender ? 0.138 : 0.165;
+  const waistRadius = isSlender ? 0.108 : 0.14;
   const torsoGeo = new THREE.CylinderGeometry(chestRadius, waistRadius, 0.42, 16);
   torsoGeo.translate(0, 0.59, 0);
   const torsoMesh = new THREE.Mesh(torsoGeo, torsoMat);
@@ -1711,14 +1759,14 @@ export function buildArticulatedUnit3DMesh(
   torsoMesh.receiveShadow = true;
 
   // Team-colored tabard / surcoat on torso
-  const tabardGeo = new THREE.BoxGeometry(0.22, 0.34, 0.18);
+  const tabardGeo = new THREE.BoxGeometry(0.22, 0.34, isSlender ? 0.14 : 0.18);
   tabardGeo.translate(0.02, 0.56, 0);
   const tabardMesh = new THREE.Mesh(tabardGeo, matTeam);
   tabardMesh.name = 'Tabard_Team';
   torsoMesh.add(tabardMesh);
 
   // Leather belt
-  const beltGeo = new THREE.CylinderGeometry(0.155, 0.155, 0.045, 16);
+  const beltGeo = new THREE.CylinderGeometry(isSlender ? 0.118 : 0.155, isSlender ? 0.118 : 0.155, 0.045, 16);
   beltGeo.translate(0, 0.44, 0);
   const beltMesh = new THREE.Mesh(beltGeo, matDarkLeather);
   beltMesh.name = 'Belt';
@@ -2197,7 +2245,7 @@ export function buildArticulatedUnit3DMesh(
 
       // Stone Pouch at hip
       const pouchGeo = new THREE.SphereGeometry(0.075, 16, 12);
-      pouchGeo.translate(0.04, 0.42, 0.15);
+      pouchGeo.translate(0.03, 0.42, 0.12);
       torsoMesh.add(new THREE.Mesh(pouchGeo, matLeather));
 
       // Small Buckler on Arm_L
