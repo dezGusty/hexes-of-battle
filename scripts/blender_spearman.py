@@ -77,14 +77,33 @@ def bridge_rings(bm, rings, closed_bottom=False, closed_top=False):
     """Skin consecutive rings with quads; orientation is fixed automatically so normals face out."""
     n = len(rings[0])
     faces = []
+    side_faces = []
     for i in range(len(rings) - 1):
         for k in range(n):
             k2 = (k + 1) % n
-            faces.append(bm.faces.new((rings[i][k], rings[i][k2], rings[i + 1][k2], rings[i + 1][k])))
-    if closed_bottom:
-        faces.append(bm.faces.new(list(rings[0])))
-    if closed_top:
-        faces.append(bm.faces.new(list(reversed(rings[-1]))))
+            side_faces.append(bm.faces.new((rings[i][k], rings[i + 1][k], rings[i + 1][k2], rings[i][k2])))
+    bm.normal_update()
+    if side_faces and len(rings) > 1:
+        c_mid = (sum((v.co for v in rings[0]), Vector()) / n + sum((v.co for v in rings[-1]), Vector()) / n) * 0.5
+        score = sum(f.normal.dot(f.calc_center_median() - c_mid) for f in side_faces)
+        if score < 0:
+            bmesh.ops.reverse_faces(bm, faces=side_faces)
+    faces.extend(side_faces)
+
+    if closed_bottom and len(rings) > 1:
+        f = bm.faces.new(list(rings[0]))
+        bm.normal_update()
+        d = rings[1][0].co - rings[0][0].co
+        if f.normal.dot(d) > 0:
+            bmesh.ops.reverse_faces(bm, faces=[f])
+        faces.append(f)
+    if closed_top and len(rings) > 1:
+        f = bm.faces.new(list(rings[-1]))
+        bm.normal_update()
+        d = rings[-1][0].co - rings[-2][0].co
+        if f.normal.dot(d) < 0:
+            bmesh.ops.reverse_faces(bm, faces=[f])
+        faces.append(f)
     return faces
 
 
@@ -516,24 +535,43 @@ def build_javelin_bmesh():
 
 
 # ---------------------------------------------------------------------------------------
-# Arms, Bracers, and Articulated Hands
+# Arms, Bracers, Shoulder Pads, and Articulated Hands
 # ---------------------------------------------------------------------------------------
 def build_arm_bmesh(side):
-    """Gambeson upper arm sleeve in shoulder-relative coordinates."""
+    """Gambeson upper arm sleeve in shoulder-relative coordinates, curved inward at the top to connect to torso."""
     bm = bmesh.new()
+    y_inward = 0.016
     path = [
-        Vector((0.0, 0, 0.030)),
-        Vector((0.004, 0, -0.030)),
-        Vector((0.012, 0, -0.090)),
+        Vector((0.0, -side * y_inward, 0.038)),
+        Vector((0.002, -side * (y_inward * 0.5), 0.008)),
+        Vector((0.005, 0, -0.040)),
+        Vector((0.012, 0, -0.095)),
         Vector((0.020, 0, -0.150)),
     ]
     radii = [
-        (0.048, 0.050),
+        (0.052, 0.054),
+        (0.050, 0.052),
         (0.046, 0.048),
         (0.043, 0.044),
         (0.040, 0.041),
     ]
     tube(bm, path, radii, segments=12, cap_start=True, cap_end=True)
+    return bm
+
+
+def build_pauldron_bmesh(side):
+    """Reinforced gambeson and leather shoulder pad / spaudler with iron trim protecting the shoulder joint."""
+    bm = bmesh.new()
+    # Main curved cap over shoulder extending inward to meet torso collar and down over upper arm
+    ret = bmesh.ops.create_uvsphere(bm, u_segments=12, v_segments=8, radius=1.0)
+    bmesh.ops.scale(bm, verts=ret["verts"], vec=(0.068, 0.078, 0.054))
+    bmesh.ops.translate(bm, verts=ret["verts"], vec=(0.005, -side * 0.018, 0.024))
+
+    # Lower articulated leather lame strap bridging upper arm sleeve
+    strap = bmesh.ops.create_uvsphere(bm, u_segments=10, v_segments=6, radius=1.0)
+    bmesh.ops.scale(bm, verts=strap["verts"], vec=(0.062, 0.070, 0.040))
+    bmesh.ops.translate(bm, verts=strap["verts"], vec=(0.008, -side * 0.012, -0.018))
+    bm.normal_update()
     return bm
 
 
@@ -869,6 +907,7 @@ def assemble_spearman(create_mesh_object, make_material):
 
     # 3. Left Arm (pivot at y = +0.185, z = 0.77)
     arm_l = create_mesh_object("Arm_L", build_arm_bmesh(1.0), mats["armor"], parent=torso, location=(0, SHOULDER_Y, SHOULDER_Z))
+    create_mesh_object("Pauldron_L", build_pauldron_bmesh(1.0), mats["leather"], parent=arm_l)
     create_mesh_object("Bracer_L", build_bracer_bmesh(1.0), mats["leather"], parent=arm_l)
     create_mesh_object("Hand_L", build_hand_bmesh(1.0, is_spear_hand=False), mats["skin"], parent=arm_l)
 
@@ -886,6 +925,7 @@ def assemble_spearman(create_mesh_object, make_material):
 
     # 4. Right Arm (pivot at y = -0.185, z = 0.77)
     arm_r = create_mesh_object("Arm_R", build_arm_bmesh(-1.0), mats["armor"], parent=torso, location=(0, -SHOULDER_Y, SHOULDER_Z))
+    create_mesh_object("Pauldron_R", build_pauldron_bmesh(-1.0), mats["leather"], parent=arm_r)
     create_mesh_object("Bracer_R", build_bracer_bmesh(-1.0), mats["leather"], parent=arm_r)
     create_mesh_object("Hand_R", build_hand_bmesh(-1.0, is_spear_hand=True), mats["skin"], parent=arm_r)
 

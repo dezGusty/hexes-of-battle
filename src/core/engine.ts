@@ -12,6 +12,7 @@ import { Coords } from '../shared';
 import { PixiSoundSystem } from './sound-system';
 import { parseTraitsConfig } from '../battle/trait-system';
 import { validateMoraleBreakpoints } from '../battle/combat-rules';
+import { configurePlayerColors } from '../render3d/units/unit-mesh-builder';
 
 export const GAME_VERSION: string = pkg.version;
 
@@ -119,6 +120,17 @@ export class HexesEngine {
       if (this.templates.combatConfig?.morale) {
         this.templates.combatConfig.morale.breakpoints = validateMoraleBreakpoints(
           this.templates.combatConfig.morale.breakpoints
+        );
+      }
+      if (
+        this.templates.combatConfig?.playerColors ||
+        this.templates.combatConfig?.player_colors ||
+        this.templates.combatConfig?.teamColors
+      ) {
+        configurePlayerColors(
+          this.templates.combatConfig.playerColors ??
+            this.templates.combatConfig.player_colors ??
+            this.templates.combatConfig.teamColors
         );
       }
     } catch {

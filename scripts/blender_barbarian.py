@@ -81,14 +81,33 @@ def bridge_rings(bm, rings, closed_bottom=False, closed_top=False):
     """Skin consecutive rings with quads; orientation is fixed automatically so normals face out."""
     n = len(rings[0])
     faces = []
+    side_faces = []
     for i in range(len(rings) - 1):
         for k in range(n):
             k2 = (k + 1) % n
-            faces.append(bm.faces.new((rings[i][k], rings[i][k2], rings[i + 1][k2], rings[i + 1][k])))
-    if closed_bottom:
-        faces.append(bm.faces.new(list(rings[0])))
-    if closed_top:
-        faces.append(bm.faces.new(list(reversed(rings[-1]))))
+            side_faces.append(bm.faces.new((rings[i][k], rings[i + 1][k], rings[i + 1][k2], rings[i][k2])))
+    bm.normal_update()
+    if side_faces and len(rings) > 1:
+        c_mid = (sum((v.co for v in rings[0]), Vector()) / n + sum((v.co for v in rings[-1]), Vector()) / n) * 0.5
+        score = sum(f.normal.dot(f.calc_center_median() - c_mid) for f in side_faces)
+        if score < 0:
+            bmesh.ops.reverse_faces(bm, faces=side_faces)
+    faces.extend(side_faces)
+
+    if closed_bottom and len(rings) > 1:
+        f = bm.faces.new(list(rings[0]))
+        bm.normal_update()
+        d = rings[1][0].co - rings[0][0].co
+        if f.normal.dot(d) > 0:
+            bmesh.ops.reverse_faces(bm, faces=[f])
+        faces.append(f)
+    if closed_top and len(rings) > 1:
+        f = bm.faces.new(list(rings[-1]))
+        bm.normal_update()
+        d = rings[-1][0].co - rings[-2][0].co
+        if f.normal.dot(d) < 0:
+            bmesh.ops.reverse_faces(bm, faces=[f])
+        faces.append(f)
     return faces
 
 
@@ -508,24 +527,43 @@ def build_neck_bmesh():
 
 
 # ---------------------------------------------------------------------------------------
-# Arms, Heavy Studded Bracers, and Articulated Hands
+# Arms, Heavy Studded Bracers, Shoulder Pads, and Articulated Hands
 # ---------------------------------------------------------------------------------------
 def build_arm_bmesh(side):
-    """Muscular upper arm with bicep and deltoid volume, shoulder-relative."""
+    """Muscular upper arm with bicep and deltoid volume, curved inward at the top to meet torso under fur mantle."""
     bm = bmesh.new()
+    y_inward = 0.018
     path = [
-        Vector((0.0, 0, 0.030)),
-        Vector((0.005, 0, -0.030)),
-        Vector((0.014, 0, -0.090)),
+        Vector((0.0, -side * y_inward, 0.040)),
+        Vector((0.002, -side * (y_inward * 0.5), 0.010)),
+        Vector((0.005, 0, -0.035)),
+        Vector((0.014, 0, -0.095)),
         Vector((0.022, 0, -0.150)),
     ]
     radii = [
-        (0.054, 0.056),
+        (0.058, 0.060),
+        (0.056, 0.058),
         (0.052, 0.054),
         (0.048, 0.049),
         (0.044, 0.045),
     ]
     tube(bm, path, radii, segments=12, cap_start=True, cap_end=True)
+    return bm
+
+
+def build_pauldron_bmesh(side):
+    """Rugged barbarian beast-bone & hardened studded leather shoulder guard with curved horn spike."""
+    bm = bmesh.new()
+    # Main curved leather cap over shoulder extending inward under fur mantle
+    ret = bmesh.ops.create_uvsphere(bm, u_segments=12, v_segments=8, radius=1.0)
+    bmesh.ops.scale(bm, verts=ret["verts"], vec=(0.076, 0.084, 0.060))
+    bmesh.ops.translate(bm, verts=ret["verts"], vec=(0.005, -side * 0.020, 0.026))
+
+    # Swept curved beast bone / horn spike jutting outward from the shoulder pad
+    bone = bmesh.ops.create_cone(bm, segments=8, cap_ends=True, radius1=0.018, radius2=0.004, depth=0.065)
+    bmesh.ops.rotate(bm, verts=bone["verts"], cent=(0, 0, 0), matrix=Euler((math.radians(35) if side > 0 else math.radians(-35), 0, math.radians(20))).to_matrix())
+    bmesh.ops.translate(bm, verts=bone["verts"], vec=(0.035, side * 0.045, 0.028))
+    bm.normal_update()
     return bm
 
 
@@ -755,11 +793,13 @@ def assemble_barbarian(create_mesh_object, make_material):
 
     # 3. Left Arm (pivot at y = +0.205, z = 0.77)
     arm_l = create_mesh_object("Arm_L", build_arm_bmesh(1.0), mats["skin"], parent=torso, location=(0, SHOULDER_Y, SHOULDER_Z))
+    create_mesh_object("Pauldron_L", build_pauldron_bmesh(1.0), mats["leather"], parent=arm_l)
     create_mesh_object("Bracer_L", build_bracer_bmesh(1.0), mats["leather"], parent=arm_l)
     create_mesh_object("Hand_L", build_hand_bmesh(1.0, is_weapon_hand=False), mats["skin"], parent=arm_l)
 
     # 4. Right Arm (pivot at y = -0.205, z = 0.77)
     arm_r = create_mesh_object("Arm_R", build_arm_bmesh(-1.0), mats["skin"], parent=torso, location=(0, -SHOULDER_Y, SHOULDER_Z))
+    create_mesh_object("Pauldron_R", build_pauldron_bmesh(-1.0), mats["leather"], parent=arm_r)
     create_mesh_object("Bracer_R", build_bracer_bmesh(-1.0), mats["leather"], parent=arm_r)
     create_mesh_object("Hand_R", build_hand_bmesh(-1.0, is_weapon_hand=True), mats["skin"], parent=arm_r)
 

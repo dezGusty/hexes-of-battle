@@ -125,6 +125,21 @@ export interface HeroConfig {
   presenceMoraleBonus: number;
 }
 
+export type ColorCode =
+  | string
+  | number
+  | [number, number, number]
+  | [number, number, number, number]
+  | { r: number; g: number; b: number; a?: number }
+  | { red: number; green: number; blue: number; alpha?: number };
+
+export interface PlayerColorsConfig {
+  player1?: ColorCode;
+  player2?: ColorCode;
+  hero?: ColorCode;
+  [key: string]: ColorCode | undefined;
+}
+
 export interface CombatConfig {
   terrain: TerrainCombatConfig;
   stamina: StaminaConfig;
@@ -134,6 +149,9 @@ export interface CombatConfig {
   morale: MoraleConfig;
   hero: HeroConfig;
   traits?: TraitsConfig;
+  playerColors?: PlayerColorsConfig;
+  player_colors?: PlayerColorsConfig;
+  teamColors?: PlayerColorsConfig;
 }
 
 export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
@@ -242,6 +260,11 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
     presenceMoraleBonus: 5,
   },
   traits: DEFAULT_TRAITS_CONFIG,
+  playerColors: {
+    player1: "rgb(47, 99, 199)",
+    player2: "rgb(199, 54, 54)",
+    hero: "rgb(212, 175, 55)",
+  },
 };
 
 export const MIN_MORALE = 0;

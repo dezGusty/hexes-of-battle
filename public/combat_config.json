@@ -165,5 +165,12 @@
       "damageBonusPerHex": 0.08,
       "retaliationDamageTakenPerHex": 0.08
     }
+  },
+  "playerColors": {
+    "player1backup": "rgb(47, 99, 199)",
+    "player1": "rgb(199, 199, 47)",
+    "player2backup": "rgb(199, 54, 54)",
+    "player2": "rgb(54, 199, 54)",
+    "hero": "rgb(212, 175, 55)"
   }
 }

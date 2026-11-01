@@ -40,6 +40,24 @@ X_AXIS = Vector((1.0, 0.0, 0.0))
 Y_AXIS = Vector((0.0, 1.0, 0.0))
 Z_AXIS = Vector((0.0, 0.0, 1.0))
 
+# ---------------------------------------------------------------------------------------
+# Two-handed pitchfork grip positions & direction in world space (Torso at 0,0,0)
+# ---------------------------------------------------------------------------------------
+# Left hand (Hand_L) grips around the middle (50%) of the shaft:
+HAND_L_WORLD = Vector((0.170, 0.020, 0.460))
+# Right hand (Hand_R) grips towards 3 quarters (74%) of the shaft:
+HAND_R_WORLD = Vector((0.260, -0.050, 0.700))
+
+# Direction of the tilted pitchfork shaft:
+FORK_DIR = (HAND_R_WORLD - HAND_L_WORLD).normalized()
+SHAFT_LEN = 1.12
+HAND_R_FRAC = 0.74
+HAND_L_FRAC = 0.50
+
+# Wrist positions in local arm spaces:
+WRIST_R = HAND_R_WORLD - Vector((0.0, -SHOULDER_Y, SHOULDER_Z))
+WRIST_L = HAND_L_WORLD - Vector((0.0, SHOULDER_Y, SHOULDER_Z))
+
 
 # ---------------------------------------------------------------------------------------
 # Loft helpers
@@ -69,14 +87,33 @@ def bridge_rings(bm, rings, closed_bottom=False, closed_top=False):
     """Skin consecutive rings with quads; orientation is fixed automatically so normals face out."""
     n = len(rings[0])
     faces = []
+    side_faces = []
     for i in range(len(rings) - 1):
         for k in range(n):
             k2 = (k + 1) % n
-            faces.append(bm.faces.new((rings[i][k], rings[i][k2], rings[i + 1][k2], rings[i + 1][k])))
-    if closed_bottom:
-        faces.append(bm.faces.new(list(rings[0])))
-    if closed_top:
-        faces.append(bm.faces.new(list(reversed(rings[-1]))))
+            side_faces.append(bm.faces.new((rings[i][k], rings[i + 1][k], rings[i + 1][k2], rings[i][k2])))
+    bm.normal_update()
+    if side_faces and len(rings) > 1:
+        c_mid = (sum((v.co for v in rings[0]), Vector()) / n + sum((v.co for v in rings[-1]), Vector()) / n) * 0.5
+        score = sum(f.normal.dot(f.calc_center_median() - c_mid) for f in side_faces)
+        if score < 0:
+            bmesh.ops.reverse_faces(bm, faces=side_faces)
+    faces.extend(side_faces)
+
+    if closed_bottom and len(rings) > 1:
+        f = bm.faces.new(list(rings[0]))
+        bm.normal_update()
+        d = rings[1][0].co - rings[0][0].co
+        if f.normal.dot(d) > 0:
+            bmesh.ops.reverse_faces(bm, faces=[f])
+        faces.append(f)
+    if closed_top and len(rings) > 1:
+        f = bm.faces.new(list(rings[-1]))
+        bm.normal_update()
+        d = rings[-1][0].co - rings[-2][0].co
+        if f.normal.dot(d) < 0:
+            bmesh.ops.reverse_faces(bm, faces=[f])
+        faces.append(f)
     return faces
 
 
@@ -371,41 +408,104 @@ def build_neck_bmesh():
     return bm
 
 
-def build_sleeve_bmesh():
+def build_sleeve_bmesh(side):
     """Rolled-up linen sleeve: deltoid -> elbow, in shoulder-relative coordinates."""
     bm = bmesh.new()
-    path = [Vector(p) for p in [(0.0, 0, 0.040), (0.0, 0, 0.020), (0.004, 0, -0.020), (0.010, 0, -0.080), (0.020, 0, -0.140), (0.030, 0, -0.172), (0.032, 0, -0.184)]]
-    radii = [(0.028, 0.026), (0.046, 0.048), (0.049, 0.051), (0.043, 0.044), (0.041, 0.041), (0.049, 0.049), (0.044, 0.044)]
+    if side < 0:
+        # Arm_R: shoulder -> elbow bent forward/inward to hold upper shaft
+        path = [
+            Vector((0.0, 0.015, 0.038)),
+            Vector((0.0, 0.000, 0.015)),
+            Vector((0.020, -0.005, -0.030)),
+            Vector((0.055, 0.005, -0.085)),
+            Vector((0.095, 0.015, -0.135)),
+            Vector((0.120, 0.020, -0.160)),
+        ]
+    else:
+        # Arm_L: shoulder -> elbow reaching down/forward across to middle shaft
+        path = [
+            Vector((0.0, -0.015, 0.038)),
+            Vector((0.0, 0.000, 0.015)),
+            Vector((0.012, 0.005, -0.035)),
+            Vector((0.028, -0.005, -0.095)),
+            Vector((0.048, -0.018, -0.145)),
+            Vector((0.065, -0.028, -0.175)),
+        ]
+    radii = [
+        (0.030, 0.028),
+        (0.046, 0.048),
+        (0.049, 0.051),
+        (0.043, 0.044),
+        (0.047, 0.047),
+        (0.042, 0.042),
+    ]
     tube(bm, path, radii, segments=12, cap_start=True, cap_end=True)
     return bm
 
 
-FOREARM_POINTS = [(0.026, 0, -0.160), (0.040, 0, -0.198), (0.058, 0, -0.250), (0.074, 0, -0.298)]
-WRIST = Vector(FOREARM_POINTS[-1])
-HAND_DIR = Vector((0.27, 0.0, -0.96)).normalized()
-
-
-def build_forearm_bmesh():
+def build_forearm_bmesh(side):
+    """Bare peasant forearm from elbow to wrist."""
     bm = bmesh.new()
-    path = [Vector(p) for p in FOREARM_POINTS]
-    tube(bm, path, [(0.036, 0.036), (0.038, 0.034), (0.031, 0.029), (0.025, 0.023)], segments=10, cap_start=False, cap_end=False)
+    if side < 0:
+        # Arm_R: elbow -> WRIST_R
+        path = [
+            Vector((0.120, 0.020, -0.160)),
+            Vector((0.160, 0.038, -0.135)),
+            Vector((0.210, 0.060, -0.108)),
+            WRIST_R,
+        ]
+    else:
+        # Arm_L: elbow -> WRIST_L
+        path = [
+            Vector((0.065, -0.028, -0.175)),
+            Vector((0.098, -0.052, -0.218)),
+            Vector((0.132, -0.080, -0.265)),
+            WRIST_L,
+        ]
+    tube(bm, path, [(0.036, 0.036), (0.034, 0.032), (0.028, 0.026), (0.024, 0.022)], segments=10, cap_start=False, cap_end=False)
     return bm
 
 
 def build_hand_bmesh(side):
-    """Relaxed hand: broad palm, slightly curled fingers and a thumb on the inner side."""
+    """
+    Peasant hand gripping the pitchfork shaft:
+      - Wrist transition
+      - Palm block
+      - Curled fingers wrapped around the wooden shaft
+      - Thumb locking the grip
+    """
     bm = bmesh.new()
-    pts, radii = [], []
-    for s, ra, rb in [(-0.008, 0.026, 0.019), (0.018, 0.033, 0.021), (0.045, 0.034, 0.020), (0.070, 0.031, 0.018), (0.090, 0.022, 0.013)]:
-        c = WRIST + HAND_DIR * s + X_AXIS * (0.55 * max(0.0, s - 0.03) ** 2 * 6.0)
-        pts.append(c)
-        radii.append((ra, rb))
-    tube(bm, pts, radii, segments=8, cap_start=False, cap_end=True)
-    inner = -side  # towards the body
-    thumb = [WRIST + HAND_DIR * 0.012 + Y_AXIS * (inner * 0.026),
-             WRIST + HAND_DIR * 0.040 + Y_AXIS * (inner * 0.033) + X_AXIS * 0.012,
-             WRIST + HAND_DIR * 0.064 + Y_AXIS * (inner * 0.030) + X_AXIS * 0.026]
-    tube(bm, thumb, [(0.011, 0.011), (0.010, 0.010), (0.007, 0.007)], segments=6, cap_start=True, cap_end=True)
+    wrist = WRIST_L if side > 0 else WRIST_R
+    sdir = FORK_DIR
+
+    # Coordinate frame perpendicular to the shaft:
+    up_hint = Z_AXIS
+    lat = (up_hint - sdir * up_hint.dot(sdir)).normalized()
+    fwd = sdir.cross(lat).normalized()
+
+    # Wrist transition
+    cuff_pts = [wrist - sdir * 0.030, wrist]
+    tube(bm, cuff_pts, [(0.028, 0.025), (0.025, 0.023)], segments=8, up_hint=lat, cap_start=True, cap_end=False)
+
+    # Palm block around shaft
+    palm = bmesh.ops.create_cube(bm, size=1.0)
+    bmesh.ops.scale(bm, verts=palm["verts"], vec=(0.036, 0.030, 0.044))
+    bmesh.ops.translate(bm, verts=palm["verts"], vec=wrist + fwd * (side * 0.012))
+
+    # Curled fingers wrapped around shaft perimeter (shaft radius ~0.020m)
+    grip_angles = [math.pi * (-0.4 + 1.6 * k / 6) for k in range(7)]
+    grip_pts = [wrist + lat * (math.cos(a) * 0.022) + fwd * (math.sin(a) * 0.022) for a in grip_angles]
+    tube(bm, grip_pts, [(0.014, 0.018)] * len(grip_pts), segments=6, up_hint=sdir, cap_start=True, cap_end=True)
+
+    # Opposing thumb pressing against shaft
+    thumb_pts = [
+        wrist + fwd * (side * 0.020),
+        wrist + lat * (side * 0.018) + fwd * (side * 0.014),
+        wrist + lat * (side * 0.022),
+    ]
+    tube(bm, thumb_pts, [(0.009, 0.009), (0.008, 0.008), (0.006, 0.006)], segments=6, up_hint=sdir, cap_start=True, cap_end=True)
+
+    bm.normal_update()
     return bm
 
 
@@ -445,36 +545,56 @@ def build_boot_bmesh():
 # Pitchfork (shoulder-relative so it moves with Arm_R)
 # ---------------------------------------------------------------------------------------
 def build_pitchfork():
-    tilt = math.radians(12.0)
-    d = Vector((math.sin(tilt), 0.0, math.cos(tilt)))
-    grip = WRIST + HAND_DIR * 0.052 + X_AXIS * 0.002
-    bottom = grip - d * 0.398
-    shaft_len = 1.20
-    top = bottom + d * shaft_len
+    d = FORK_DIR
+    bottom = WRIST_R - d * (HAND_R_FRAC * SHAFT_LEN)
+    top = bottom + d * SHAFT_LEN
 
     bm_shaft = bmesh.new()
-    tube(bm_shaft, [bottom, bottom + d * 0.4, top], [(0.0185, 0.0185), (0.0205, 0.0205), (0.0185, 0.0185)], segments=10, cap_start=True, cap_end=True)
+    tube(
+        bm_shaft,
+        [bottom, bottom + d * 0.35, bottom + d * 0.70, top],
+        [(0.0185, 0.0185), (0.0200, 0.0200), (0.0195, 0.0195), (0.0185, 0.0185)],
+        segments=10,
+        cap_start=True,
+        cap_end=True,
+    )
 
     bm_head = bmesh.new()
-    lateral = Y_AXIS
+    lat_hint = Y_AXIS
+    fwd = d.cross(lat_hint).normalized()
+    lateral = fwd.cross(d).normalized()
+
     # iron socket
-    sock_top = top + d * 0.100
+    sock_top = top + d * 0.095
     tube(bm_head, [top - d * 0.02, top + d * 0.03, sock_top], [(0.024, 0.024), (0.020, 0.020), (0.015, 0.015)], segments=10, cap_start=True, cap_end=True)
     # yoke / crossbar with a slight upward bow
-    yoke_c = top + d * 0.092
+    yoke_c = top + d * 0.088
     yoke = []
     yoke_r = []
     for i in range(-3, 4):
         t = i / 3.0
         yoke.append(yoke_c + lateral * (0.078 * t) + d * (0.014 * (t * t)))
         yoke_r.append((0.0085, 0.0085))
-    tube(bm_head, yoke, yoke_r, segments=6, up_hint=d.cross(lateral), cap_start=True, cap_end=True)
+    tube(bm_head, yoke, yoke_r, segments=6, up_hint=fwd, cap_start=True, cap_end=True)
     # three tines, outer ones flaring slightly outwards then back in
     for ty in (-0.078, 0.0, 0.078):
         base = yoke_c + lateral * ty + d * (0.014 * (ty / 0.078) ** 2)
         bow = 0.012 * (1 if ty > 0 else -1 if ty < 0 else 0)
-        pts = [base, base + d * 0.080 + lateral * bow, base + d * 0.165 + lateral * (bow * 1.2), base + d * 0.245 + lateral * (bow * 0.6)]
-        tube(bm_head, pts, [(0.0095, 0.0095), (0.0085, 0.0085), (0.0060, 0.0060), (0.0012, 0.0012)], segments=6, up_hint=d.cross(lateral), cap_start=True, cap_end=True)
+        pts = [
+            base,
+            base + d * 0.080 + lateral * bow,
+            base + d * 0.165 + lateral * (bow * 1.2),
+            base + d * 0.245 + lateral * (bow * 0.6),
+        ]
+        tube(
+            bm_head,
+            pts,
+            [(0.0095, 0.0095), (0.0085, 0.0085), (0.0060, 0.0060), (0.0012, 0.0012)],
+            segments=6,
+            up_hint=fwd,
+            cap_start=True,
+            cap_end=True,
+        )
     return bm_shaft, bm_head
 
 
@@ -510,8 +630,8 @@ def assemble_peasant(create_mesh_object, make_material):
 
     arms = {}
     for name, side in (("Arm_L", +1.0), ("Arm_R", -1.0)):
-        arm = create_mesh_object(name, build_sleeve_bmesh(), mats["linen"], parent=torso, location=(0, side * SHOULDER_Y, SHOULDER_Z))
-        create_mesh_object(name.replace("Arm", "Forearm"), build_forearm_bmesh(), mats["skin"], parent=arm)
+        arm = create_mesh_object(name, build_sleeve_bmesh(side), mats["linen"], parent=torso, location=(0, side * SHOULDER_Y, SHOULDER_Z))
+        create_mesh_object(name.replace("Arm", "Forearm"), build_forearm_bmesh(side), mats["skin"], parent=arm)
         create_mesh_object(name.replace("Arm", "Hand"), build_hand_bmesh(side), mats["skin"], parent=arm)
         arms[name] = arm
 

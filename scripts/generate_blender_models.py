@@ -24,6 +24,10 @@ from blender_swordsman import assemble_swordsman  # noqa: E402
 from blender_archer import assemble_archer  # noqa: E402
 from blender_spearman import assemble_spearman  # noqa: E402
 from blender_barbarian import assemble_barbarian  # noqa: E402
+from blender_maceman import assemble_maceman  # noqa: E402
+from blender_slinger import assemble_slinger  # noqa: E402
+from blender_crossbowman import assemble_crossbowman  # noqa: E402
+from blender_healer import assemble_healer  # noqa: E402
 
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 UNITS_GLB_DIR = os.path.join(ROOT_DIR, "public", "models", "units")
@@ -293,32 +297,9 @@ def build_spearman():
 
 
 def build_crossbowman():
+    """Higher-fidelity crossbowman with kettle helmet, pavise shield, and heavy siege crossbow (see scripts/blender_crossbowman.py)."""
     clear_scene()
-    pal = create_common_palette()
-    rig = build_base_humanoid("crossbowman", pal, pal["dark_leather"], pal["cloth_brown"], pal["leather"], has_pauldrons=True)
-
-    # Kettle / Sallet Helmet
-    bm_helm = bmesh.new()
-    bm_add_sphere(bm_helm, 0.138, segments=10, ring_count=8, center=(0, 0, 0.03), scale=(1.06, 1.0, 1.0))
-    bm_add_cylinder(bm_helm, 0.18, 0.14, 0.03, segments=10, center=(-0.02, 0, 0.01))
-    create_mesh_object("Helmet", bm_helm, pal["iron"], parent=rig["head"])
-
-    # Pavise shield strapped on back
-    bm_pavise = bmesh.new()
-    bm_add_box(bm_pavise, 0.04, 0.28, 0.42, center=(-0.14, 0, 0.62))
-    create_mesh_object("Back_Pavise", bm_pavise, pal["team"], parent=rig["torso"])
-
-    # Heavy Crossbow in Arm_R
-    bm_stock = bmesh.new()
-    bm_add_box(bm_stock, 0.46, 0.055, 0.075, center=(0.24, 0, -0.22), rot_euler=(0, math.radians(10), 0))
-    xbow_obj = create_mesh_object("Weapon", bm_stock, pal["wood"], parent=rig["arm_r"])
-
-    bm_prod = bmesh.new()
-    bm_add_box(bm_prod, 0.045, 0.44, 0.032, center=(0.42, 0, -0.19), rot_euler=(0, math.radians(10), 0))
-    # Stirrup at front
-    bm_add_cylinder(bm_prod, 0.04, 0.04, 0.02, segments=6, center=(0.48, 0, -0.18))
-    create_mesh_object("Crossbow_Prod", bm_prod, pal["steel"], parent=xbow_obj)
-
+    assemble_crossbowman(create_mesh_object, make_material)
     export_current_model("crossbowman")
 
 
@@ -330,166 +311,22 @@ def build_barbarian():
 
 
 def build_slinger():
+    """Higher-fidelity slinger with woven headband, shepherd sling, skirmisher buckler, and stone pouch (see scripts/blender_slinger.py)."""
     clear_scene()
-    pal = create_common_palette()
-    rig = build_base_humanoid("slinger", pal, pal["cloth_brown"], pal["cloth_brown"], pal["skin"], has_pauldrons=False)
-
-    # Slinger Headband
-    bm_band = bmesh.new()
-    bm_add_cylinder(bm_band, 0.132, 0.132, 0.04, segments=10, center=(0, 0, 0.04))
-    create_mesh_object("Headband", bm_band, pal["team"], parent=rig["head"])
-
-    # Stone Pouch at hip
-    bm_pouch = bmesh.new()
-    bm_add_sphere(bm_pouch, 0.075, segments=8, ring_count=6, center=(0.04, -0.15, 0.42))
-    create_mesh_object("Stone_Pouch", bm_pouch, pal["leather"], parent=rig["torso"])
-
-    # Small Buckler on Arm_L
-    bm_buckler = bmesh.new()
-    bm_add_cylinder(bm_buckler, 0.13, 0.13, 0.03, segments=10, center=(0.08, 0.08, -0.20), rot_euler=(math.radians(80), 0, 0))
-    create_mesh_object("Shield", bm_buckler, pal["brass"], parent=rig["arm_l"])
-
-    # Braided Leather Sling & Stone in Arm_R
-    bm_sling = bmesh.new()
-    bm_add_cylinder(bm_sling, 0.012, 0.016, 0.34, segments=6, center=(0.08, -0.02, -0.40), rot_euler=(math.radians(15), 0, 0))
-    sling_obj = create_mesh_object("Weapon", bm_sling, pal["leather"], parent=rig["arm_r"])
-
-    bm_stone = bmesh.new()
-    bm_add_icosphere(bm_stone, 0.045, subdivisions=1, center=(0.09, -0.05, -0.56))
-    create_mesh_object("Sling_Stone", bm_stone, pal["stone"], parent=sling_obj)
-
+    assemble_slinger(create_mesh_object, make_material)
     export_current_model("slinger")
 
 
 def build_healer():
+    """Higher-fidelity healer with light beige robe, player-colored headband & armbands & stole, remedies satchel, buckler, and remedy knife connected to hand (see scripts/blender_healer.py)."""
     clear_scene()
-    pal = create_common_palette()
-
-    mat_cloth = make_textured_material(
-        "PeasantCloth",
-        os.path.join(UNIT_TEXTURES_DIR, "peasant_cloth.png"),
-        rgba=(0.42, 0.30, 0.19, 1.0),
-        metallic=0.02,
-        roughness=0.86,
-    )
-    mat_face = make_textured_material(
-        "PeasantFace",
-        os.path.join(UNIT_TEXTURES_DIR, "peasant_face.png"),
-        rgba=(1.0, 1.0, 1.0, 1.0),
-        metallic=0.04,
-        roughness=0.76,
-    )
-    mat_gear = make_textured_material(
-        "HealerGear",
-        os.path.join(UNIT_TEXTURES_DIR, "healer_gear.png"),
-        rgba=(0.55, 0.42, 0.28, 1.0),
-        metallic=0.45,
-        roughness=0.60,
-    )
-
-    rig = build_base_humanoid("healer", pal, mat_cloth, mat_cloth, mat_cloth)
-    rig["head"].data.materials[0] = mat_face
-
-    # 1. Cloth Coif / Hood on Head
-    bm_coif = bmesh.new()
-    bm_add_sphere(bm_coif, 0.138, segments=20, ring_count=14, center=(-0.01, 0, 0.02), scale=(1.05, 1.02, 1.05))
-    bm_add_cylinder(bm_coif, 0.15, 0.13, 0.08, segments=16, center=(-0.02, 0, -0.06))
-    create_mesh_object("Helmet_Coif", bm_coif, pal["team"], parent=rig["head"])
-
-    # 2. Remedies Satchel at Hip / Torso
-    bm_satchel = bmesh.new()
-    bm_add_box(bm_satchel, 0.12, 0.08, 0.14, center=(0.08, 0.16, 0.40))
-    bm_add_box(bm_satchel, 0.125, 0.085, 0.065, center=(0.08, 0.16, 0.44))
-    bm_add_box(bm_satchel, 0.035, 0.02, 0.03, center=(0.145, 0.16, 0.42))
-    bm_add_box(bm_satchel, 0.028, 0.015, 0.46, center=(0.09, 0.05, 0.60), rot_euler=(0, math.radians(-24), math.radians(14)))
-    create_mesh_object("Satchel", bm_satchel, mat_gear, parent=rig["torso"])
-
-    # 3. Simple Wooden Buckler Shield on Arm_L
-    bm_buckler = bmesh.new()
-    bm_add_cylinder(bm_buckler, 0.18, 0.18, 0.028, segments=16, center=(0.09, 0.08, -0.18), rot_euler=(0, math.radians(90), 0))
-    bm_add_sphere(bm_buckler, 0.05, segments=14, ring_count=10, center=(0.105, 0.08, -0.18))
-    create_mesh_object("Shield", bm_buckler, mat_gear, parent=rig["arm_l"])
-
-    # 4. Remedy Knife / Dagger in Arm_R
-    bm_knife = bmesh.new()
-    bm_add_box(bm_knife, 0.015, 0.038, 0.22, center=(0.12, 0, -0.10), rot_euler=(0, math.radians(-26), 0))
-    bm_add_cylinder(bm_knife, 0.022, 0.0, 0.08, segments=6, center=(0.19, 0, -0.03), rot_euler=(0, math.radians(-26), 0))
-    bm_add_box(bm_knife, 0.028, 0.075, 0.025, center=(0.05, 0, -0.17), rot_euler=(0, math.radians(-26), 0))
-    bm_add_cylinder(bm_knife, 0.02, 0.022, 0.10, segments=10, center=(0.015, 0, -0.21), rot_euler=(0, math.radians(-26), 0))
-    create_mesh_object("Weapon", bm_knife, mat_gear, parent=rig["arm_r"])
-
+    assemble_healer(create_mesh_object, make_material)
     export_current_model("healer")
 
 
 def build_maceman():
     clear_scene()
-    pal = create_common_palette()
-
-    mat_armor = make_textured_material(
-        "MacemanArmor",
-        os.path.join(UNIT_TEXTURES_DIR, "maceman_armor.png"),
-        rgba=(0.78, 0.71, 0.58, 1.0),
-        metallic=0.05,
-        roughness=0.82,
-    )
-    mat_face = make_textured_material(
-        "SpearmanFace",
-        os.path.join(UNIT_TEXTURES_DIR, "spearman_face.png"),
-        rgba=(1.0, 1.0, 1.0, 1.0),
-        metallic=0.25,
-        roughness=0.68,
-    )
-    mat_gear = make_textured_material(
-        "MacemanGear",
-        os.path.join(UNIT_TEXTURES_DIR, "maceman_gear.png"),
-        rgba=(0.60, 0.62, 0.65, 1.0),
-        metallic=0.65,
-        roughness=0.40,
-    )
-
-    # 1. Lightly armored humanoid in quilted gambeson
-    rig = build_base_humanoid("maceman", pal, mat_armor, mat_armor, mat_armor, has_pauldrons=False)
-    rig["head"].data.materials[0] = mat_face
-
-    # Padded Arming Cap / Gambeson Coif on Head
-    bm_coif = bmesh.new()
-    bm_add_sphere(bm_coif, 0.138, segments=20, ring_count=14, center=(-0.01, 0, 0.02), scale=(1.04, 1.02, 1.04))
-    bm_add_cylinder(bm_coif, 0.155, 0.135, 0.08, segments=16, center=(-0.01, 0, -0.06))
-    create_mesh_object("Helmet_Coif", bm_coif, mat_armor, parent=rig["head"])
-
-    # Gambeson Collar / Padded Shoulder Mantle on Torso
-    bm_collar = bmesh.new()
-    bm_add_cylinder(bm_collar, 0.21, 0.18, 0.12, segments=14, center=(0, 0, 0.72))
-    create_mesh_object("Gambeson_Collar", bm_collar, mat_armor, parent=rig["torso"])
-
-    # 2. Two-Handed Stance (no shield, holds mace with both hands)
-    # Rotate Arm_L forward/inward to grasp lower haft, and Arm_R forward to grip upper haft
-    rig["arm_l"].rotation_euler = (math.radians(-32), math.radians(-38), math.radians(24))
-    rig["arm_r"].rotation_euler = (math.radians(22), math.radians(-30), math.radians(-15))
-
-    # Mace Haft (Long reinforced hardwood haft) in Arm_R
-    bm_mace = bmesh.new()
-    bm_add_cylinder(bm_mace, 0.020, 0.022, 0.95, segments=12, center=(0.14, 0.08, -0.06), rot_euler=(0, math.radians(34), 0))
-    mace_obj = create_mesh_object("Weapon", bm_mace, mat_gear, parent=rig["arm_r"])
-
-    # Heavy Flanged Mace Head
-    bm_head = bmesh.new()
-    bm_add_cylinder(bm_head, 0.045, 0.040, 0.18, segments=12, center=(0.42, 0.08, 0.35), rot_euler=(0, math.radians(34), 0))
-    for i in range(6):
-        flange_rot = math.radians(i * 60)
-        bm_add_box(bm_head, 0.08, 0.016, 0.16, center=(0.42, 0.08, 0.35), rot_euler=(flange_rot, math.radians(34), 0))
-    create_mesh_object("Weapon_Flanges", bm_head, mat_gear, parent=mace_obj)
-
-    # Armor-penetrating top spike
-    bm_spike = bmesh.new()
-    bm_add_cylinder(bm_spike, 0.002, 0.024, 0.14, segments=8, center=(0.51, 0.08, 0.48), rot_euler=(0, math.radians(34), 0))
-    create_mesh_object("Weapon_Spike", bm_spike, mat_gear, parent=mace_obj)
-
-    # Pommel counterweight at base of haft
-    bm_pommel = bmesh.new()
-    bm_add_sphere(bm_pommel, 0.038, segments=12, ring_count=8, center=(-0.16, 0.08, -0.48))
-    create_mesh_object("Weapon_Pommel", bm_pommel, mat_gear, parent=mace_obj)
-
+    assemble_maceman(create_mesh_object, make_material)
     export_current_model("maceman")
 
 

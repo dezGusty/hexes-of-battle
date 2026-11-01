@@ -12,6 +12,7 @@ import { CombatConfig, DEFAULT_COMBAT_CONFIG, ExhaustionState, MoraleState, getR
 import { TerrainType } from "./battle/terrain-types";
 import { SeedableRNG } from "./shared/prng";
 import { calculateDamageWithTraits, DEFAULT_TRAITS_CONFIG, TraitsConfig } from "./battle/trait-system";
+import { configurePlayerColors } from "./render3d/units/unit-mesh-builder";
 
 export enum AnimationType {
   NONE = 0,
@@ -183,6 +184,9 @@ export class Battle {
 
   public setCombatConfig(config: CombatConfig): void {
     this.combatConfig = config;
+    if (config?.playerColors || (config as any)?.player_colors || (config as any)?.teamColors) {
+      configurePlayerColors(config.playerColors ?? (config as any)?.player_colors ?? (config as any)?.teamColors);
+    }
     this.creatures?.forEach((c) => {
       c.combatConfig = config;
       c.updateMoraleState();
@@ -221,6 +225,9 @@ export class Battle {
   public initializeFromConfig(config: BattleConfig): void {
     if (config.combatConfig) {
       this.combatConfig = config.combatConfig;
+      if (this.combatConfig.playerColors || (this.combatConfig as any).player_colors || (this.combatConfig as any).teamColors) {
+        configurePlayerColors(this.combatConfig.playerColors ?? (this.combatConfig as any).player_colors ?? (this.combatConfig as any).teamColors);
+      }
     }
     if (config.seed !== undefined) {
       this.setSeed(config.seed);

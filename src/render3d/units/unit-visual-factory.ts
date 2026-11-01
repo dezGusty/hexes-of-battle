@@ -11,6 +11,7 @@ import { SquadVisual3D } from './squad-visual-3d';
 import {
   UNIT_SIZE_SCALE,
   buildArticulatedUnit3DMesh,
+  getTeamColorHex,
   instantiateGlbUnitTemplate,
   isUnit3DModelSupported,
   loadBlenderUnitGlbTemplates,
@@ -214,7 +215,7 @@ export class UnitVisualFactory {
     const isMonster = creature.creatureType === CreatureType.BEHEMOTH;
 
     // Procedural placeholder stylized 3D geometry for non-standard/monster units
-    const bodyColor = creature.armyAlignment === 0 ? 0x3366cc : 0xcc3333;
+    const bodyColor = getTeamColorHex(creature.armyAlignment, isHero);
     const armorColor = isHero ? 0xffcc00 : 0x888899;
 
     const bodyGeo = isMonster

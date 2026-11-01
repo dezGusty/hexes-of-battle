@@ -219,9 +219,197 @@ function makeMat(color: number, roughness = 0.75, metalness = 0.08): THREE.MeshS
   return mat;
 }
 
+export type ColorCode =
+  | string
+  | number
+  | [number, number, number]
+  | [number, number, number, number]
+  | { r: number; g: number; b: number; a?: number }
+  | { red: number; green: number; blue: number; alpha?: number };
+
+export interface PlayerColorsConfig {
+  player1?: ColorCode;
+  player2?: ColorCode;
+  hero?: ColorCode;
+  [key: string]: ColorCode | undefined;
+}
+
+const DEFAULT_PLAYER_COLORS = {
+  player1: 0x2f63c7,
+  player2: 0xc73636,
+  hero: 0xd4af37,
+};
+
+const currentPlayerColors = { ...DEFAULT_PLAYER_COLORS };
+
+export function parseColorToHex(input: any, defaultHex: number = 0x2f63c7): number {
+  if (input === undefined || input === null) return defaultHex;
+
+  if (typeof input === 'number') {
+    return Math.floor(input) & 0xffffff;
+  }
+
+  if (Array.isArray(input)) {
+    if (input.length >= 3) {
+      let [r, g, b] = input;
+      if (r <= 1 && g <= 1 && b <= 1 && (r % 1 !== 0 || g % 1 !== 0 || b % 1 !== 0)) {
+        r = Math.round(r * 255);
+        g = Math.round(g * 255);
+        b = Math.round(b * 255);
+      }
+      const nr = Math.min(255, Math.max(0, Math.round(r)));
+      const ng = Math.min(255, Math.max(0, Math.round(g)));
+      const nb = Math.min(255, Math.max(0, Math.round(b)));
+      return (nr << 16) | (ng << 8) | nb;
+    }
+  }
+
+  if (typeof input === 'object') {
+    const r = input.r ?? input.red;
+    const g = input.g ?? input.green;
+    const b = input.b ?? input.blue;
+    if (typeof r === 'number' && typeof g === 'number' && typeof b === 'number') {
+      let [nr, ng, nb] = [r, g, b];
+      if (nr <= 1 && ng <= 1 && nb <= 1 && (nr % 1 !== 0 || ng % 1 !== 0 || nb % 1 !== 0)) {
+        nr = Math.round(nr * 255);
+        ng = Math.round(ng * 255);
+        nb = Math.round(nb * 255);
+      }
+      const fr = Math.min(255, Math.max(0, Math.round(nr)));
+      const fg = Math.min(255, Math.max(0, Math.round(ng)));
+      const fb = Math.min(255, Math.max(0, Math.round(nb)));
+      return (fr << 16) | (fg << 8) | fb;
+    }
+  }
+
+  if (typeof input === 'string') {
+    const trimmed = input.trim().toLowerCase();
+
+    // RGB / RGBA: e.g. "rgb(47, 99, 199)" or "rgba(47, 99, 199, 1.0)"
+    const rgbMatch = trimmed.match(/^rgba?\s*\(\s*([0-9.]+)\s*[, ]\s*([0-9.]+)\s*[, ]\s*([0-9.]+)/);
+    if (rgbMatch) {
+      let r = parseFloat(rgbMatch[1]);
+      let g = parseFloat(rgbMatch[2]);
+      let b = parseFloat(rgbMatch[3]);
+      if (r <= 1 && g <= 1 && b <= 1 && (r % 1 !== 0 || g % 1 !== 0 || b % 1 !== 0)) {
+        r = Math.round(r * 255);
+        g = Math.round(g * 255);
+        b = Math.round(b * 255);
+      }
+      const nr = Math.min(255, Math.max(0, Math.round(r)));
+      const ng = Math.min(255, Math.max(0, Math.round(g)));
+      const nb = Math.min(255, Math.max(0, Math.round(b)));
+      return (nr << 16) | (ng << 8) | nb;
+    }
+
+    // Hex: e.g. "#2f63c7" or "0x2f63c7" or "2f63c7"
+    let hexStr = trimmed;
+    if (hexStr.startsWith('0x')) hexStr = hexStr.slice(2);
+    else if (hexStr.startsWith('#')) hexStr = hexStr.slice(1);
+
+    if (hexStr.length >= 6) {
+      const parsed = parseInt(hexStr.slice(0, 6), 16);
+      if (!isNaN(parsed)) return parsed;
+    } else if (hexStr.length === 3) {
+      const r = parseInt(hexStr[0] + hexStr[0], 16);
+      const g = parseInt(hexStr[1] + hexStr[1], 16);
+      const b = parseInt(hexStr[2] + hexStr[2], 16);
+      if (!isNaN(r) && !isNaN(g) && !isNaN(b)) {
+        return (r << 16) | (g << 8) | b;
+      }
+    }
+  }
+
+  return defaultHex;
+}
+
+export function parseColorToRgba(
+  input: any,
+  defaultHex: number = 0x2f63c7
+): { r: number; g: number; b: number; a: number } {
+  let alpha = 1.0;
+  if (Array.isArray(input) && input.length >= 4 && typeof input[3] === 'number') {
+    alpha = input[3];
+  } else if (typeof input === 'object' && input !== null) {
+    if (typeof (input.a ?? input.alpha) === 'number') {
+      alpha = input.a ?? input.alpha;
+    }
+  } else if (typeof input === 'string') {
+    const trimmed = input.trim().toLowerCase();
+    const rgbaMatch = trimmed.match(/^rgba\s*\(\s*[0-9.]+\s*[, ]\s*[0-9.]+\s*[, ]\s*[0-9.]+\s*[,/ ]\s*([0-9.]+)\s*\)/);
+    if (rgbaMatch) {
+      alpha = parseFloat(rgbaMatch[1]);
+    }
+  }
+  const hex = parseColorToHex(input, defaultHex);
+  const r = (hex >> 16) & 0xff;
+  const g = (hex >> 8) & 0xff;
+  const b = hex & 0xff;
+  return { r, g, b, a: alpha };
+}
+
+let proceduralUnitTemplateCache: Map<string, THREE.Mesh> = new Map();
+let glbUnitTemplateCache: WeakMap<THREE.Object3D, Map<string, THREE.Mesh>> = new WeakMap();
+
+export function configurePlayerColors(config?: PlayerColorsConfig | any): void {
+  if (!config) return;
+
+  const p1 = config.player1 ?? config['0'] ?? config.p1 ?? config.blue ?? config.player_1;
+  const p2 = config.player2 ?? config['1'] ?? config.p2 ?? config.red ?? config.player_2;
+  const hero = config.hero ?? config.gold;
+
+  if (p1 !== undefined) {
+    currentPlayerColors.player1 = parseColorToHex(p1, DEFAULT_PLAYER_COLORS.player1);
+  }
+  if (p2 !== undefined) {
+    currentPlayerColors.player2 = parseColorToHex(p2, DEFAULT_PLAYER_COLORS.player2);
+  }
+  if (hero !== undefined) {
+    currentPlayerColors.hero = parseColorToHex(hero, DEFAULT_PLAYER_COLORS.hero);
+  }
+
+  proceduralUnitTemplateCache.clear();
+  glbUnitTemplateCache = new WeakMap();
+}
+
+export function resetPlayerColorsToDefault(): void {
+  currentPlayerColors.player1 = DEFAULT_PLAYER_COLORS.player1;
+  currentPlayerColors.player2 = DEFAULT_PLAYER_COLORS.player2;
+  currentPlayerColors.hero = DEFAULT_PLAYER_COLORS.hero;
+  proceduralUnitTemplateCache.clear();
+  glbUnitTemplateCache = new WeakMap();
+}
+
+export function getPlayerColorsConfig(): { player1: number; player2: number; hero: number } {
+  return { ...currentPlayerColors };
+}
+
+function tryLoadInitialPlayerColorsFromDisk(): void {
+  try {
+    const proc = (globalThis as any).process;
+    if (proc?.versions?.node) {
+      const req = (globalThis as any).require;
+      if (typeof req === 'function') {
+        const fs = req('fs');
+        const path = req('path');
+        const p = path.resolve(proc.cwd(), 'public/combat_config.json');
+        if (fs.existsSync(p)) {
+          const raw = JSON.parse(fs.readFileSync(p, 'utf-8'));
+          if (raw.playerColors || raw.player_colors || raw.teamColors) {
+            configurePlayerColors(raw.playerColors ?? raw.player_colors ?? raw.teamColors);
+          }
+        }
+      }
+    }
+  } catch {
+    // Ignore in browser or when bundler treeshakes
+  }
+}
+tryLoadInitialPlayerColorsFromDisk();
+
 export function getTeamColorHex(armyAlignment: number, isHero: boolean = false): number {
-  if (isHero) return 0xd4af37;
-  return armyAlignment === 0 ? 0x2f63c7 : 0xc73636;
+  if (isHero) return currentPlayerColors.hero;
+  return armyAlignment === 0 ? currentPlayerColors.player1 : currentPlayerColors.player2;
 }
 
 /**
@@ -320,6 +508,7 @@ function prepareBarbarianHierarchyBeforeCompaction(rootMesh: THREE.Mesh): void {
       mesh.name === 'Arm_R' ||
       rawName.includes('hand') ||
       rawName.includes('bracer') ||
+      rawName.includes('pauldron') ||
       parentName.startsWith('arm_')
     ) {
       if (mesh.name !== 'Weapon' && !parentName.includes('weapon')) {
@@ -426,7 +615,7 @@ function prepareHumanoidHierarchyBeforeCompaction(
         applyHumanoidUVMapping(mesh.geometry, 'archer_quiver');
       } else if (rawName.includes('hand') || rawName.includes('ear') || rawName.includes('bracer') || rawName.includes('neck')) {
         applyHumanoidUVMapping(mesh.geometry, 'humanoid_hand');
-      } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R' || rawName.includes('forearm')) {
+      } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R' || rawName.includes('forearm') || rawName.includes('pauldron')) {
         applyHumanoidUVMapping(mesh.geometry, 'archer_arm');
       } else if (mesh.name === 'Leg_L' || mesh.name === 'Leg_R' || rawName.includes('boot')) {
         applyHumanoidUVMapping(mesh.geometry, 'archer_leg');
@@ -447,7 +636,7 @@ function prepareHumanoidHierarchyBeforeCompaction(
         applyHumanoidUVMapping(mesh.geometry, 'spearman_javelin');
       } else if (rawName.includes('hand') || rawName.includes('ear') || rawName.includes('neck')) {
         applyHumanoidUVMapping(mesh.geometry, 'humanoid_hand');
-      } else if (rawName.includes('bracer') || rawName.includes('vambrace')) {
+      } else if (rawName.includes('bracer') || rawName.includes('vambrace') || rawName.includes('pauldron')) {
         applyHumanoidUVMapping(mesh.geometry, 'spearman_arm');
       } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R') {
         applyHumanoidUVMapping(mesh.geometry, 'spearman_arm');
@@ -507,17 +696,17 @@ function prepareHumanoidHierarchyBeforeCompaction(
       if (mesh.name === 'Head') {
         applyHumanoidUVMapping(mesh.geometry, 'peasant_head_face');
         mesh.material = makeMat(0xffffff, 0.76, 0.05);
-      } else if (rawName.includes('hood') || rawName.includes('coif') || rawName.includes('helmet')) {
+      } else if (rawName.includes('hood') || rawName.includes('coif') || rawName.includes('helmet') || rawName.includes('headband')) {
         applyHumanoidUVMapping(mesh.geometry, 'peasant_hood');
-      } else if (mesh.name === 'Torso' || rawName.includes('tabard')) {
+      } else if (mesh.name === 'Torso' || rawName.includes('tabard') || rawName.includes('vest') || rawName.includes('stole')) {
         applyHumanoidUVMapping(mesh.geometry, 'peasant_torso');
       } else if (rawName.includes('belt')) {
         applyHumanoidUVMapping(mesh.geometry, 'peasant_belt');
       } else if (rawName.includes('satchel') || rawName.includes('strap') || rawName.includes('pouch') || rawName.includes('flap') || rawName.includes('vial') || rawName.includes('buckle')) {
         applyHumanoidUVMapping(mesh.geometry, 'healer_satchel');
-      } else if (rawName.includes('hand')) {
+      } else if (rawName.includes('hand') || rawName.includes('ear') || rawName.includes('neck')) {
         applyHumanoidUVMapping(mesh.geometry, 'humanoid_hand');
-      } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R') {
+      } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R' || rawName.includes('pauldron') || rawName.includes('armband') || rawName.includes('bracer')) {
         applyHumanoidUVMapping(mesh.geometry, 'peasant_arm');
       } else if (mesh.name === 'Leg_L' || mesh.name === 'Leg_R' || rawName.includes('boot')) {
         applyHumanoidUVMapping(mesh.geometry, 'peasant_leg');
@@ -530,20 +719,70 @@ function prepareHumanoidHierarchyBeforeCompaction(
       if (mesh.name === 'Head') {
         applyHumanoidUVMapping(mesh.geometry, 'spearman_head_face');
         mesh.material = makeMat(0xffffff, 0.76, 0.05);
-      } else if (rawName.includes('coif') || rawName.includes('cap') || rawName.includes('hood') || rawName.includes('helmet')) {
+      } else if (rawName.includes('kettle') || rawName.includes('helmet') || rawName.includes('coif') || rawName.includes('cap') || rawName.includes('hood')) {
         applyHumanoidUVMapping(mesh.geometry, 'maceman_coif');
       } else if (rawName.includes('collar')) {
         applyHumanoidUVMapping(mesh.geometry, 'maceman_gambeson_collar');
-      } else if (mesh.name === 'Torso' || rawName.includes('tabard') || rawName.includes('gambeson')) {
+      } else if (mesh.name === 'Torso' || rawName.includes('tabard') || rawName.includes('gambeson') || rawName.includes('vest')) {
         applyHumanoidUVMapping(mesh.geometry, 'maceman_gambeson_torso');
-      } else if (rawName.includes('hand')) {
+      } else if (rawName.includes('belt')) {
+        applyHumanoidUVMapping(mesh.geometry, 'spearman_belt');
+      } else if (rawName.includes('hand') || rawName.includes('ear') || rawName.includes('neck')) {
         applyHumanoidUVMapping(mesh.geometry, 'humanoid_hand');
-      } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R') {
+      } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R' || rawName.includes('bracer') || rawName.includes('pauldron')) {
         applyHumanoidUVMapping(mesh.geometry, 'maceman_gambeson_arm');
-      } else if (mesh.name === 'Leg_L' || mesh.name === 'Leg_R' || rawName.includes('boot')) {
+      } else if (mesh.name === 'Leg_L' || mesh.name === 'Leg_R' || rawName.includes('boot') || rawName.includes('greave')) {
         applyHumanoidUVMapping(mesh.geometry, 'maceman_gambeson_leg');
       } else if (mesh.name === 'Weapon' || rawName.includes('mace') || rawName.includes('flange') || rawName.includes('spike') || rawName.includes('pommel') || rawName.includes('haft') || rawName.includes('shaft')) {
         applyHumanoidUVMapping(mesh.geometry, 'maceman_mace');
+      }
+    } else if (unitKey === 'slinger') {
+      if (mesh.name === 'Head') {
+        applyHumanoidUVMapping(mesh.geometry, 'spearman_head_face');
+        mesh.material = makeMat(0xffffff, 0.74, 0.05);
+      } else if (rawName.includes('headband')) {
+        applyHumanoidUVMapping(mesh.geometry, 'peasant_belt');
+      } else if (rawName.includes('hair')) {
+        applyHumanoidUVMapping(mesh.geometry, 'peasant_hood');
+      } else if (mesh.name === 'Torso' || rawName.includes('tabard') || rawName.includes('vest') || rawName.includes('collar')) {
+        applyHumanoidUVMapping(mesh.geometry, 'peasant_torso');
+      } else if (rawName.includes('belt')) {
+        applyHumanoidUVMapping(mesh.geometry, 'peasant_belt');
+      } else if (rawName.includes('pouch') || rawName.includes('strap')) {
+        applyHumanoidUVMapping(mesh.geometry, 'healer_satchel');
+      } else if (rawName.includes('hand') || rawName.includes('ear') || rawName.includes('neck')) {
+        applyHumanoidUVMapping(mesh.geometry, 'humanoid_hand');
+      } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R' || rawName.includes('bracer') || rawName.includes('pauldron')) {
+        applyHumanoidUVMapping(mesh.geometry, 'peasant_arm');
+      } else if (mesh.name === 'Leg_L' || mesh.name === 'Leg_R' || rawName.includes('boot') || rawName.includes('greave') || rawName.includes('sandal')) {
+        applyHumanoidUVMapping(mesh.geometry, 'peasant_leg');
+      } else if (mesh.name === 'Weapon' || rawName.includes('sling') || rawName.includes('stone') || rawName.includes('cord')) {
+        applyHumanoidUVMapping(mesh.geometry, 'peasant_pitchfork_shaft');
+      } else if (mesh.name === 'Shield' || rawName.includes('shield') || rawName.includes('buckler') || rawName.includes('boss') || rawName.includes('rim')) {
+        applyHumanoidUVMapping(mesh.geometry, 'spearman_shield');
+      }
+    } else if (unitKey === 'crossbowman') {
+      if (mesh.name === 'Head') {
+        applyHumanoidUVMapping(mesh.geometry, 'spearman_head_face');
+        mesh.material = makeMat(0xffffff, 0.72, 0.08);
+      } else if (rawName.includes('kettle') || rawName.includes('helmet') || rawName.includes('coif')) {
+        applyHumanoidUVMapping(mesh.geometry, 'spearman_helmet');
+      } else if (mesh.name === 'Torso' || rawName.includes('tabard') || rawName.includes('vest') || rawName.includes('collar')) {
+        applyHumanoidUVMapping(mesh.geometry, 'spearman_torso');
+      } else if (rawName.includes('belt')) {
+        applyHumanoidUVMapping(mesh.geometry, 'spearman_belt');
+      } else if (rawName.includes('pavise')) {
+        applyHumanoidUVMapping(mesh.geometry, 'spearman_shield');
+      } else if (rawName.includes('pouch') || rawName.includes('quarrel')) {
+        applyHumanoidUVMapping(mesh.geometry, 'healer_satchel');
+      } else if (rawName.includes('hand') || rawName.includes('ear') || rawName.includes('neck')) {
+        applyHumanoidUVMapping(mesh.geometry, 'humanoid_hand');
+      } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R' || rawName.includes('bracer') || rawName.includes('pauldron')) {
+        applyHumanoidUVMapping(mesh.geometry, 'spearman_arm');
+      } else if (mesh.name === 'Leg_L' || mesh.name === 'Leg_R' || rawName.includes('boot') || rawName.includes('greave')) {
+        applyHumanoidUVMapping(mesh.geometry, 'spearman_leg');
+      } else if (mesh.name === 'Weapon' || rawName.includes('crossbow') || rawName.includes('prod') || rawName.includes('stirrup') || rawName.includes('bolt') || rawName.includes('stock') || rawName.includes('string')) {
+        applyHumanoidUVMapping(mesh.geometry, 'archer_bow');
       }
     } else if (unitKey === 'armored_knight') {
       if (mesh.name === 'Head' || rawName.includes('helm') || rawName.includes('visor')) {
@@ -669,6 +908,36 @@ function getUnitLimbMaterial(
         case 'Leg_R':
         default:
           return getHumanoidPartMaterial('maceman_armor', 0.82, 0.05);
+      }
+    case 'slinger':
+      switch (limbName) {
+        case 'Head':
+          return getHumanoidPartMaterial('spearman_face', 0.74, 0.05);
+        case 'Weapon':
+          return getHumanoidPartMaterial('spearman_gear', 0.65, 0.20);
+        case 'Shield':
+          return getHumanoidPartMaterial('spearman_gear', 0.60, 0.35);
+        case 'Torso':
+        case 'Arm_L':
+        case 'Arm_R':
+        case 'Leg_L':
+        case 'Leg_R':
+        default:
+          return getHumanoidPartMaterial('peasant_cloth', 0.86, 0.02);
+      }
+    case 'crossbowman':
+      switch (limbName) {
+        case 'Head':
+          return getHumanoidPartMaterial('spearman_face', 0.72, 0.08);
+        case 'Weapon':
+          return getHumanoidPartMaterial('spearman_gear', 0.50, 0.55);
+        case 'Torso':
+        case 'Arm_L':
+        case 'Arm_R':
+        case 'Leg_L':
+        case 'Leg_R':
+        default:
+          return getHumanoidPartMaterial('spearman_armor', 0.70, 0.22);
       }
     case 'armored_knight':
       switch (limbName) {
@@ -920,6 +1189,8 @@ export function compactArticulatedUnitHierarchy(
     effectiveUnitKey === 'swordsman' ||
     effectiveUnitKey === 'healer' ||
     effectiveUnitKey === 'maceman' ||
+    effectiveUnitKey === 'slinger' ||
+    effectiveUnitKey === 'crossbowman' ||
     effectiveUnitKey === 'armored_knight';
 
   if (isBarbarian) {
@@ -976,9 +1247,6 @@ export function compactArticulatedUnitHierarchy(
 
   return rootMesh;
 }
-
-const proceduralUnitTemplateCache: Map<string, THREE.Mesh> = new Map();
-const glbUnitTemplateCache: WeakMap<THREE.Object3D, Map<string, THREE.Mesh>> = new WeakMap();
 
 /**
  * Clones a compacted articulated unit template, sharing its cached BufferGeometries
@@ -1043,7 +1311,8 @@ export function instantiateGlbUnitTemplate(
             mesh.name.toLowerCase().includes('hood') ||
             mesh.name.toLowerCase().includes('cap') ||
             mesh.name.toLowerCase().includes('pavise') ||
-            mesh.name.toLowerCase().includes('headband'))
+            mesh.name.toLowerCase().includes('headband') ||
+            mesh.name.toLowerCase().includes('armband'))
         ) {
           matClone.color.setHex(teamHex);
         }
@@ -1398,7 +1667,12 @@ export function buildArticulatedUnit3DMesh(
   const matStone = makeMat(0x858078, 0.85, 0.05);
 
   const isMuscular = unitKey === 'barbarian';
-  const hasPauldrons = unitKey === 'swordsman' || unitKey === 'crossbowman';
+  const hasPauldrons =
+    unitKey === 'swordsman' ||
+    unitKey === 'crossbowman' ||
+    unitKey === 'spearman' ||
+    unitKey === 'barbarian' ||
+    unitKey === 'peasant_archer';
 
   let torsoMat = matCloth;
   let legMat = matCloth;
@@ -1779,6 +2053,21 @@ export function buildArticulatedUnit3DMesh(
     }
 
     case 'crossbowman': {
+      // Shoulder Pads (Pauldron_L, Pauldron_R)
+      const pauldronLGeo = new THREE.SphereGeometry(0.07, 14, 10);
+      pauldronLGeo.scale(0.85, 0.65, 0.95);
+      pauldronLGeo.translate(0, 0.02, 0);
+      const pauldronL = new THREE.Mesh(pauldronLGeo, matLeather);
+      pauldronL.name = 'Pauldron_L';
+      armL.add(pauldronL);
+
+      const pauldronRGeo = new THREE.SphereGeometry(0.07, 14, 10);
+      pauldronRGeo.scale(0.85, 0.65, 0.95);
+      pauldronRGeo.translate(0, 0.02, 0);
+      const pauldronR = new THREE.Mesh(pauldronRGeo, matLeather);
+      pauldronR.name = 'Pauldron_R';
+      armR.add(pauldronR);
+
       // Kettle Helmet
       const helmGeo = new THREE.SphereGeometry(0.138, 20, 14);
       helmGeo.translate(0, 0.03, 0);
@@ -1884,6 +2173,21 @@ export function buildArticulatedUnit3DMesh(
     }
 
     case 'slinger': {
+      // Shoulder Pads (Pauldron_L, Pauldron_R)
+      const pauldronLGeo = new THREE.SphereGeometry(0.07, 14, 10);
+      pauldronLGeo.scale(0.85, 0.65, 0.95);
+      pauldronLGeo.translate(0, 0.02, 0);
+      const pauldronL = new THREE.Mesh(pauldronLGeo, matLeather);
+      pauldronL.name = 'Pauldron_L';
+      armL.add(pauldronL);
+
+      const pauldronRGeo = new THREE.SphereGeometry(0.07, 14, 10);
+      pauldronRGeo.scale(0.85, 0.65, 0.95);
+      pauldronRGeo.translate(0, 0.02, 0);
+      const pauldronR = new THREE.Mesh(pauldronRGeo, matLeather);
+      pauldronR.name = 'Pauldron_R';
+      armR.add(pauldronR);
+
       // Headband
       const bandGeo = new THREE.CylinderGeometry(0.132, 0.132, 0.04, 18);
       bandGeo.translate(0, 0.04, 0);
