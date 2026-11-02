@@ -329,7 +329,7 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(rInset).toBeCloseTo(hexBoard.hexRadius * 0.76, 2);
 
       const depression = hexBoard.getSwampDepression(2, 2);
-      expect(depression).toBe(-0.04);
+      expect(depression).toBe(-0.08);
 
       // Verify procedural swamp tile mesh
       const tileMesh = (hexBoard as any).tileMeshes.get('2,2') as THREE.Mesh;
@@ -379,7 +379,7 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       // Hover and selection overlays scale to fit inside inset basin
       hexBoard.setHoverHex({ x: 2, y: 2 });
       const hoverMesh = (hexBoard as any).hoverMesh as THREE.Mesh;
-      expect(hoverMesh.position.y).toBeCloseTo(-0.04 + 0.03, 3);
+      expect(hoverMesh.position.y).toBeCloseTo(-0.08 + 0.03, 3);
       expect(hoverMesh.scale.x).toBeLessThan(1.0);
 
       hexBoard.dispose();
@@ -402,7 +402,7 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       const positions = swampGeo.attributes.position.array;
       let depressionCount = 0;
       for (let i = 1; i < positions.length; i += 3) {
-        if (Math.abs(positions[i] - (-0.04)) < 1e-4) depressionCount++;
+        if (Math.abs(positions[i] - (-0.08)) < 1e-4) depressionCount++;
       }
       expect(depressionCount).toBeGreaterThanOrEqual(13); // center + inset rim + extended boundary
 

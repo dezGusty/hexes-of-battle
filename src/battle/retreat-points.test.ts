@@ -692,4 +692,71 @@ describe('Configurable Fixed Retreat Points & Animated Flags', () => {
       hexBoard.dispose();
     });
   });
+
+  describe('7. Retreat Flag Edge Alignment & Positioning', () => {
+    it('should position retreat poles/flags closer to the edge, centrally on North-South axis, and towards the nearest map edge on East-West axis', () => {
+      const hexMap = new HexMap(10, 8);
+      const hexBoard = new HexBoard3D(hexMap, {
+        getRetreatPoints: (armyIndex) => [
+          { x: armyIndex === 0 ? 0 : 9, y: 3 },
+        ],
+      });
+
+      // 1. Verify getRetreatFlagOffset helper
+      // Left player (army 0, x = 0): to the West (negative X), centered on Z (North-South)
+      const offsetP1 = hexBoard.getRetreatFlagOffset(0, 0, 3);
+      expect(offsetP1.x).toBeLessThan(0);
+      expect(offsetP1.x).toBeCloseTo(-0.68, 2);
+      expect(offsetP1.z).toBe(0);
+
+      // Right player (army 1, x = 9): to the East (positive X), centered on Z (North-South)
+      const offsetP2 = hexBoard.getRetreatFlagOffset(1, 9, 3);
+      expect(offsetP2.x).toBeGreaterThan(0);
+      expect(offsetP2.x).toBeCloseTo(0.68, 2);
+      expect(offsetP2.z).toBe(0);
+
+      // 2. Verify actual 3D flag positions on the board
+      const flags = hexBoard.retreatFlagsGroup.children;
+      const flagP1 = flags.find((f) => f.userData.armyIndex === 0 && f.userData.hexX === 0);
+      const flagP2 = flags.find((f) => f.userData.armyIndex === 1 && f.userData.hexX === 9);
+
+      expect(flagP1).toBeDefined();
+      expect(flagP2).toBeDefined();
+
+      const worldPosP1 = hexBoard.hexToWorld(0, 3);
+      const worldPosP2 = hexBoard.hexToWorld(9, 3);
+
+      // P1 flag is offset westwards, aligned centrally on Z
+      expect(flagP1!.position.x).toBeCloseTo(worldPosP1.x - 0.68, 2);
+      expect(flagP1!.position.z).toBeCloseTo(worldPosP1.z, 4);
+
+      // P2 flag is offset eastwards, aligned centrally on Z
+      expect(flagP2!.position.x).toBeCloseTo(worldPosP2.x + 0.68, 2);
+      expect(flagP2!.position.z).toBeCloseTo(worldPosP2.z, 4);
+
+      hexBoard.dispose();
+    });
+
+    it('should align flag to the nearest map edge when custom retreat points are specified', () => {
+      const hexMap = new HexMap(12, 8);
+      const hexBoard = new HexBoard3D(hexMap);
+
+      // Custom point on left half (x = 2): nearest edge is West
+      const westOffset = hexBoard.getRetreatFlagOffset(0, 2, 4);
+      expect(westOffset.x).toBeCloseTo(-0.68, 2);
+      expect(westOffset.z).toBe(0);
+
+      // Custom point on right half (x = 10): nearest edge is East
+      const eastOffset = hexBoard.getRetreatFlagOffset(0, 10, 4);
+      expect(eastOffset.x).toBeCloseTo(0.68, 2);
+      expect(eastOffset.z).toBe(0);
+
+      // Midpoint tie (x = 5.5 in integer space, e.g. x = 6 on 12-wide map, distance to west = 6, distance to east = 5)
+      // x = 6: distToWest = 6, distToEast = (12 - 1) - 6 = 5 -> closer to East
+      const midOffset = hexBoard.getRetreatFlagOffset(0, 6, 4);
+      expect(midOffset.x).toBeCloseTo(0.68, 2);
+
+      hexBoard.dispose();
+    });
+  });
 });

@@ -609,7 +609,7 @@ float terrainEdgeNoise(vec2 p) {
   }
 
   public getSwampDepression(_x?: number, _y?: number): number {
-    return -0.04;
+    return -0.08;
   }
 
   /**
@@ -1970,11 +1970,11 @@ float hillTerrainNoise(vec2 p) {
         const worldPos = this.hexToWorld(pt.x, pt.y);
         const elevation = this.getHexElevation(pt.x, pt.y);
 
-        // Position flagpole at the South-West area of the hex so the SW->NE streaming cloth (length 0.288m)
-        // billows naturally across towards the center/North-East of the hex, keeping squads unblocked
-        const offsetX = -0.22;
-        const offsetZ = 0.16;
-        flag.position.set(worldPos.x + offsetX, worldPos.y + elevation, worldPos.z + offsetZ);
+        // Position flagpole closer to the hex edge:
+        // - Aligned centrally on the North-South axis (z = 0)
+        // - To the side of the nearest map edge on the East-West axis (west for left player, east for right player)
+        const offset = this.getRetreatFlagOffset(armyIndex, pt.x, pt.y);
+        flag.position.set(worldPos.x + offset.x, worldPos.y + elevation, worldPos.z + offset.z);
 
         this.retreatFlagsGroup.add(flag);
 
@@ -1984,6 +1984,30 @@ float hillTerrainNoise(vec2 p) {
         }
       }
     }
+  }
+
+  /**
+   * Calculates the local position offset for a retreat flag within its hex tile.
+   * Aligned centrally on the North-South axis (z = 0) and positioned towards the nearest
+   * map edge on the East-West axis (west for left-side player, east for right-side player).
+   */
+  public getRetreatFlagOffset(armyIndex: number, hexX: number, _hexY?: number): { x: number; z: number } {
+    const distToWestEdge = hexX;
+    const distToEastEdge = (this.hexMap.width - 1) - hexX;
+    let isWest: boolean;
+    if (distToWestEdge < distToEastEdge) {
+      isWest = true;
+    } else if (distToEastEdge < distToWestEdge) {
+      isWest = false;
+    } else {
+      isWest = (armyIndex === 0);
+    }
+
+    const edgeDistance = this.hexRadius * 0.68;
+    return {
+      x: isWest ? -edgeDistance : edgeDistance,
+      z: 0,
+    };
   }
 
   private getRetreatPointsForArmy(armyIndex: number): Coords[] {
@@ -2312,7 +2336,7 @@ float hillTerrainNoise(vec2 p) {
       }
       return 0.21;
     }
-    if (terrain === TerrainType.SWAMP) return -0.04;
+    if (terrain === TerrainType.SWAMP) return this.getSwampDepression(x, y);
     return 0;
   }
 
