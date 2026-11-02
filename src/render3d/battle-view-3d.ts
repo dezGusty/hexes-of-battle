@@ -1,4 +1,4 @@
-import { Battle, InputState, MapRenderUpdate, RangedAttackData } from '../battle';
+import { Battle, DamagePreviewResult, InputState, MapRenderUpdate, RangedAttackData } from '../battle';
 import { HexDirection, HexFlankStatus, HexMap, checkFlankingStatus } from '../shared/hex-map';
 import { Coords } from '../shared';
 import { PinchGestureHandler } from '../shared/pinch-gesture-handler';
@@ -41,6 +41,8 @@ export class BattleView3D {
   // Interaction & Input State
   private hoveredHex: Coords | null = null;
   private hoveredDirection: HexDirection = HexDirection.NONE;
+  private targetHoverHex: Coords | null = null;
+  private targetHoverDuration: number = 0;
   private isPointerDown: boolean = false;
   private isCtrlPressed: boolean = false;
   private lastPointerPos: Coords = { x: 0, y: 0 };
@@ -571,8 +573,86 @@ export class BattleView3D {
     // 3.5 Update scene debugger
     this.sceneDebugger?.update(deltaMS);
 
+    // 3.8 Update hover duration and damage preview tooltip
+    this.updateDamagePreviewHover(deltaMS);
+
     // 4. Render 3D scene
     this.sceneManager.render();
+  }
+
+  private updateDamagePreviewHover(deltaMS: number): void {
+    const activeCreature = this.battle.getActiveCreature();
+    if (!activeCreature || !this.hoveredHex) {
+      if (this.targetHoverHex !== null || this.targetHoverDuration > 0) {
+        this.targetHoverHex = null;
+        this.targetHoverDuration = 0;
+        this.hud?.hideDamagePreview?.();
+      }
+      return;
+    }
+
+    if (this.battle.input_state === InputState.SELECT_ABILITY_TARGET) {
+      if (!this.battle.abilityToApply || !this.battle.isDamageAbility(this.battle.abilityToApply)) {
+        if (this.targetHoverHex !== null || this.targetHoverDuration > 0) {
+          this.targetHoverHex = null;
+          this.targetHoverDuration = 0;
+          this.hud?.hideDamagePreview?.();
+        }
+        return;
+      }
+    }
+
+    const targetCreatureInBattle = this.battle.getCreatureAtPosition(this.hoveredHex);
+    const targetCreature = targetCreatureInBattle?.creature;
+
+    // Must be a valid enemy target creature
+    if (!targetCreature || targetCreature.armyAlignment === activeCreature.armyAlignment || !targetCreature.isAlive) {
+      if (this.targetHoverHex !== null || this.targetHoverDuration > 0) {
+        this.targetHoverHex = null;
+        this.targetHoverDuration = 0;
+        this.hud?.hideDamagePreview?.();
+      }
+      return;
+    }
+
+    if (
+      this.targetHoverHex &&
+      this.targetHoverHex.x === this.hoveredHex.x &&
+      this.targetHoverHex.y === this.hoveredHex.y
+    ) {
+      this.targetHoverDuration += deltaMS;
+    } else {
+      this.targetHoverHex = { ...this.hoveredHex };
+      this.targetHoverDuration = deltaMS;
+      this.hud?.hideDamagePreview?.();
+    }
+
+    if (this.targetHoverDuration >= 1000) {
+      let preview: DamagePreviewResult | null = null;
+      if (this.battle.input_state === InputState.SELECT_ABILITY_TARGET && this.battle.abilityToApply) {
+        preview = this.battle.calculateDamagePreview(
+          this.hoveredHex,
+          activeCreature,
+          activeCreature.pos,
+          false,
+          this.battle.abilityToApply
+        );
+      } else {
+        const { originHex, isRanged } = this.computeAttackAndHoverPaths();
+        preview = this.battle.calculateDamagePreview(
+          this.hoveredHex,
+          activeCreature,
+          originHex ?? undefined,
+          !isRanged && this.hoveredDirection !== HexDirection.NONE
+        );
+      }
+
+      if (preview) {
+        const worldPos = this.hexBoard.hexToWorldWithElevation(this.hoveredHex.x, this.hoveredHex.y, true);
+        const screenPos = this.sceneManager.projectToScreen(worldPos);
+        this.hud?.showDamagePreview?.(preview, screenPos.x, screenPos.y);
+      }
+    }
   }
 
   public resize(width: number, height: number): void {
@@ -592,6 +672,9 @@ export class BattleView3D {
   private clearHoverState(): void {
     this.hoveredHex = null;
     this.hoveredDirection = HexDirection.NONE;
+    this.targetHoverHex = null;
+    this.targetHoverDuration = 0;
+    this.hud?.hideDamagePreview?.();
     this.hexBoard.setHoverHex(null);
     this.hexBoard.clearAttackPreview();
     this.hexBoard.clearPathPreview();
@@ -839,6 +922,9 @@ export class BattleView3D {
     };
 
     this.boundPointerDown = (e: PointerEvent) => {
+      this.targetHoverHex = null;
+      this.targetHoverDuration = 0;
+      this.hud?.hideDamagePreview?.();
       if (this.pinchHandler?.shouldSuppressClick() || this.pinchHandler?.isPinching()) {
         this.touchDragSourceHex = null;
         this.isTouchDraggingAction = false;

@@ -1,19 +1,29 @@
 import { Ability, AbilityResourceUse, AbilityTarget, AbilityType } from "./battle/ability";
 import { Buff, Creature, CreatureStats } from "./battle/creature";
-import { checkFlankingStatus, HexDirection, HexFlankStatus, HexMap, reverseDirection } from "./shared/hex-map";
+import { HexDirection, HexFlankStatus, HexMap, reverseDirection } from "./shared/hex-map";
 import { Coords } from "./shared";
 import { NumMatrix } from "./shared/num-matrix";
 import { BattleHexMapPath } from "./battle/battle-hex-map-path";
 import { ReachData } from "./shared/reach-data";
 import { CreatureInBattle } from "./battle/creature-in-battle";
 import { BattleAction, BattleActionType } from "./battle/battle-action";
-import { BattleConfig, BattleResult } from "./battle/battle-types";
+import { BattleConfig, BattleResult, DamagePreviewResult } from "./battle/battle-types";
 import { CombatConfig, DEFAULT_COMBAT_CONFIG, ExhaustionState, MoraleState, getRetaliationDamageMultiplier, getHealingMoraleConfig } from "./battle/combat-rules";
 import { TerrainType } from "./battle/terrain-types";
 import { SeedableRNG } from "./shared/prng";
 import { calculateDamageWithTraits, DEFAULT_TRAITS_CONFIG, TraitsConfig } from "./battle/trait-system";
+import {
+  computeDamagePreview,
+  computeVirtualLiveStatsAt,
+  executeAttackCalculation,
+  isDamageAbility,
+  resolveFlankAndFacingBonus,
+  resolveTargetDefense,
+} from "./battle/damage-calculator";
 import { configurePlayerColors } from "./render3d/units/unit-mesh-builder";
 import { configurePlayerBanners, getPlayerBanner } from "./render3d/decorations/retreat-flag-3d";
+
+export type { DamagePreviewResult };
 
 export enum AnimationType {
   NONE = 0,
@@ -405,6 +415,63 @@ export class Battle {
   public getActiveCreature(): Creature | null {
     if (this.activeCreatureIndex < 0 || this.activeCreatureIndex >= this.creatures.length) return null;
     return this.creatures[this.activeCreatureIndex];
+  }
+
+  public computeVirtualLiveStatsAt(creature: Creature, position: Coords): CreatureStats {
+    const terrainType = this.getTerrainAt(position);
+    return computeVirtualLiveStatsAt(creature, position, terrainType, this.combatConfig);
+  }
+
+  /**
+   * Computes a deterministic damage preview for the currently selected unit (or provided attacker)
+   * targeting a creature at targetHex.
+   * Takes into account all buffs/debuffs: terrain on attacker/defender, morale, stamina exhaustion,
+   * model counts, facing/flanking bonuses, and combat traits.
+   */
+  public isDamageAbility(ability?: Ability | null): boolean {
+    return isDamageAbility(ability);
+  }
+
+  public calculateDamagePreview(
+    targetHex: Coords,
+    attacker?: Creature,
+    approachHex?: Coords,
+    meleePreference?: boolean,
+    abilityOverride?: Ability | null
+  ): DamagePreviewResult | null {
+    const actAttacker = attacker ?? this.getActiveCreature();
+    if (!actAttacker || !actAttacker.isAlive) return null;
+
+    const targetCreatureInBattle = this.getCreatureAtPosition(targetHex);
+    if (!targetCreatureInBattle) return null;
+    const defender = targetCreatureInBattle.creature;
+    if (!defender || !defender.isAlive) return null;
+
+    const ability = abilityOverride !== undefined
+      ? abilityOverride
+      : (this.input_state === InputState.SELECT_ABILITY_TARGET ? this.abilityToApply : null);
+
+    if (ability && !this.isDamageAbility(ability)) {
+      return null;
+    }
+
+    return computeDamagePreview({
+      targetHex,
+      attacker: actAttacker,
+      defender,
+      hexMap: this.hexMap,
+      combatConfig: this.combatConfig,
+      traitsConfig: this.traitsConfig,
+      approachHex,
+      meleePreference,
+      ability: ability ?? undefined,
+      isTargetAllowedForAbilityFn: ability ? (ab, act, hex) => this.isTargetAllowedForAbility(ab, act, hex) : undefined,
+      findPathFn: (hex) => this.findPathFromSelectedUnitToCell(hex),
+      getTerrainAtFn: (hex) => this.getTerrainAt(hex),
+      getStaminaCostForPathFn: (path, creature) => this.getStaminaCostForPath(path, creature),
+      isHexInRangedReachFn: (hex) => (this.rangereach_tiles[hex.x]?.[hex.y] ?? 0) > 0 || (this.rangereach_targets[hex.x]?.[hex.y] ?? 0) > 0,
+      isAbilityReachFn: ability ? (hex) => (this.ability_reach_tiles[hex.x]?.[hex.y] ?? 0) > 0 || (this.ability_reach_targets[hex.x]?.[hex.y] ?? 0) > 0 : undefined,
+    });
   }
 
   public getStaminaCostForTerrain(terrainType: number): number {
@@ -1405,14 +1472,12 @@ export class Battle {
     for (const [defender, count] of targetHitCounts.entries()) {
       const proportion = count / totalArrows;
       const attackFromDir = reverseDirection(attacker.facingDirection);
-      const flankStatus = checkFlankingStatus(defender.facingDirection, attackFromDir);
-      let facingBonus = 0;
-      if (flankStatus === HexFlankStatus.BACKSTAB) {
-        facingBonus = this.combatConfig.facing.rear.damageBonus;
-      } else if (flankStatus === HexFlankStatus.FLANK) {
-        facingBonus = this.combatConfig.facing.flank.damageBonus;
-      }
-      const targetArmor = defender.live_stats.defense_ranged;
+      const { flankStatus, facingBonus } = resolveFlankAndFacingBonus(
+        defender.facingDirection,
+        attackFromDir,
+        this.combatConfig
+      );
+      const targetArmor = resolveTargetDefense(defender, BattleActionType.ATTACK_RANGED);
       const traitResult = calculateDamageWithTraits({
         attacker,
         defender,
@@ -1739,42 +1804,17 @@ export class Battle {
     customMultiplier: number = 1.0,
     traveledHexes: number = 0
   ) {
-    let baseDamage = 0;
-    let targetArmor = 0;
-
-    if (attackType === BattleActionType.ATTACK_MELEE || attackType === BattleActionType.COUNTER_ATTACK_MELEE) {
-      baseDamage = source.getRandomAttackDamageMelee(this.rng);
-      targetArmor = target.live_stats.defense_melee;
-    } else {
-      baseDamage = source.getRandomAttackDamageRanged(this.rng);
-      targetArmor = target.live_stats.defense_ranged;
-    }
-
-    const attackFromDir = reverseDirection(source.facingDirection);
-    let flankStatus = checkFlankingStatus(target.facingDirection, attackFromDir);
-    let facingBonus = 0;
-
-    if (flankStatus === HexFlankStatus.BACKSTAB) {
-      facingBonus = this.combatConfig.facing.rear.damageBonus;
-    } else if (flankStatus === HexFlankStatus.FLANK) {
-      facingBonus = this.combatConfig.facing.flank.damageBonus;
-    }
-
-    const traitResult = calculateDamageWithTraits({
+    const { damage, flankStatus } = executeAttackCalculation({
       attacker: source,
       defender: target,
       attackType,
-      baseDamage,
-      facingBonus,
-      targetArmor,
-      attackFromDir,
-      flankStatus,
-      customMultiplier,
+      combatConfig: this.combatConfig,
       traitsConfig: this.traitsConfig,
-      commit: true,
+      rng: this.rng,
+      customMultiplier,
       traveledHexes,
+      commit: true,
     });
-    let damage = traitResult.damage;
 
     this.hookDoingAttack(source, target, damage, attackType, flankStatus, attackType === BattleActionType.COUNTER_ATTACK_MELEE);
     const { modelsLost } = target.takeDamage(damage);
@@ -2223,7 +2263,7 @@ export class Battle {
     let targetArmor = 0;
     this.makeCreatureFaceTargetIfNeeded(source, target.pos);
     const attackFromDir = reverseDirection(source.facingDirection);
-    const flankStatus = checkFlankingStatus(target.facingDirection, attackFromDir);
+    const { flankStatus } = resolveFlankAndFacingBonus(target.facingDirection, attackFromDir, this.combatConfig);
     let damage = Math.max(0, sourceDamage - targetArmor);
 
     const { modelsLost } = target.takeDamage(damage);
@@ -2529,7 +2569,7 @@ export class Battle {
     return cost;
   }
 
-  private getStaminaCostForPath(path: Coords[], _creature: Creature): number {
+  public getStaminaCostForPath(path: Coords[], _creature: Creature): number {
     const startIndex = (path.length > 1 && path[0].x === _creature.position.x && path[0].y === _creature.position.y) ? 1 : 0;
     let stamina = 0;
     for (let i = startIndex; i < path.length; i++) {

@@ -3,7 +3,7 @@ import { sound } from "@pixi/sound";
 import { AdvancedBloomFilter } from "pixi-filters";
 import { GameAssets } from "../core/scene";
 import { BattleSettings } from "../battle/settings";
-import { Battle, ArmyControlType, InputState } from "../battle";
+import { Battle, ArmyControlType, InputState, DamagePreviewResult } from "../battle";
 import pkg from "../../package.json";
 import { CPUPlayer } from "../battle/cpu-player";
 import { Creature, CreatureType } from "../battle/creature";
@@ -14,6 +14,7 @@ import { TopSidePanel } from "../ui/top-side-panel";
 import { BattleMenuPanel } from "../ui/battle-menu";
 import { UnitStatsPanel } from "../ui/unit-stats-panel";
 import { EnemyStatsPanel } from "../ui/enemy-stats-panel";
+import { DamagePreviewTooltip } from "../ui/damage-preview-tooltip";
 import { TurnChangeCollection } from "../ui/turn-change-display";
 import { PostBattlePanel } from "../ui/post-battle-panel";
 
@@ -60,6 +61,7 @@ export class BattleHud2D {
   public postBattlePanel?: PostBattlePanel;
   public unitStats?: UnitStatsPanel;
   public enemyStats?: EnemyStatsPanel;
+  public damagePreviewTooltip?: DamagePreviewTooltip;
   public onShowEnemyStats?: (creature: Creature) => void;
   public onHideEnemyStats?: () => void;
   public fpsText?: BitmapText;
@@ -140,6 +142,8 @@ export class BattleHud2D {
       }
       this.enemyStats = new EnemyStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet, this.battle.traitsConfig);
       this.enemyStats.hide();
+      this.damagePreviewTooltip = new DamagePreviewTooltip(this.uiPlusRenderGroup, this.assets.uiSheet);
+      this.damagePreviewTooltip.hide();
     }
 
     this.initializeCommonControls(events);
@@ -683,6 +687,14 @@ export class BattleHud2D {
   public hideEnemyStats(): void {
     this.enemyStats?.hide();
     this.onHideEnemyStats?.();
+  }
+
+  public showDamagePreview(preview: DamagePreviewResult, anchorX: number, anchorY: number): void {
+    this.damagePreviewTooltip?.show(preview, anchorX, anchorY, this.screenWidth, this.screenHeight);
+  }
+
+  public hideDamagePreview(): void {
+    this.damagePreviewTooltip?.hide();
   }
 
   public getSelectedEnemyCreature(): Creature | undefined {

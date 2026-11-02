@@ -20,6 +20,7 @@ import { TopSidePanel } from '../ui/top-side-panel';
 import { DamageValueCollection } from '../ui/damage-value-display';
 import { TurnChangeCollection } from '../ui/turn-change-display';
 import { PostBattlePanel } from '../ui/post-battle-panel';
+import { DamagePreviewTooltip } from '../ui/damage-preview-tooltip';
 
 import { ExhaustionState } from './combat-rules';
 
@@ -48,6 +49,10 @@ export class BattleView {
   public postBattlePanel?: PostBattlePanel;
   public unitStats?: UnitStatsPanel;
   public topSidePanel?: TopSidePanel;
+  public damagePreviewTooltip?: DamagePreviewTooltip;
+
+  private targetHoverHex: Coords | null = null;
+  private targetHoverDuration: number = 0;
 
   private terrainSprites: Sprite[] = [];
   private uiAnimationSprites: Sprite[] = [];
@@ -260,6 +265,9 @@ export class BattleView {
       this.hexCellsContainer.removeChild(this.hexHoverSprite);
       this.hexHoverSprite = undefined;
     }
+    this.targetHoverHex = null;
+    this.targetHoverDuration = 0;
+    this.damagePreviewTooltip?.hide();
   }
 
   public update(deltaMS: number, fps: number): void {
@@ -280,6 +288,64 @@ export class BattleView {
     this.damageValueDisplay.update(deltaMS);
     this.turnChangeDisplay.update(deltaMS);
     this.updateTargetAcquirementHint();
+    this.updateDamagePreviewHover(deltaMS);
+  }
+
+  private updateDamagePreviewHover(deltaMS: number): void {
+    const activeCreature = this.battle.getActiveCreature();
+    const hoverCell = this.battle.nextRenderUpdate.hoverOverCell;
+    if (!activeCreature || !hoverCell) {
+      if (this.targetHoverHex !== null || this.targetHoverDuration > 0) {
+        this.targetHoverHex = null;
+        this.targetHoverDuration = 0;
+        this.damagePreviewTooltip?.hide();
+      }
+      return;
+    }
+
+    if (this.battle.input_state === InputState.SELECT_ABILITY_TARGET) {
+      if (!this.battle.abilityToApply || !this.battle.isDamageAbility(this.battle.abilityToApply)) {
+        if (this.targetHoverHex !== null || this.targetHoverDuration > 0) {
+          this.targetHoverHex = null;
+          this.targetHoverDuration = 0;
+          this.damagePreviewTooltip?.hide();
+        }
+        return;
+      }
+    }
+
+    const targetCreatureInBattle = this.battle.getCreatureAtPosition(hoverCell);
+    const targetCreature = targetCreatureInBattle?.creature;
+
+    if (!targetCreature || targetCreature.armyAlignment === activeCreature.armyAlignment || !targetCreature.isAlive) {
+      if (this.targetHoverHex !== null || this.targetHoverDuration > 0) {
+        this.targetHoverHex = null;
+        this.targetHoverDuration = 0;
+        this.damagePreviewTooltip?.hide();
+      }
+      return;
+    }
+
+    if (
+      this.targetHoverHex &&
+      this.targetHoverHex.x === hoverCell.x &&
+      this.targetHoverHex.y === hoverCell.y
+    ) {
+      this.targetHoverDuration += deltaMS;
+    } else {
+      this.targetHoverHex = { ...hoverCell };
+      this.targetHoverDuration = deltaMS;
+      this.damagePreviewTooltip?.hide();
+    }
+
+    if (this.targetHoverDuration >= 1000) {
+      const preview = this.battle.calculateDamagePreview(hoverCell, activeCreature);
+      if (preview) {
+        const hexPixel = this.hexMap.hexToPixel(hoverCell.x, hoverCell.y);
+        const screenPos = this.camera.worldToStageCoords(hexPixel);
+        this.damagePreviewTooltip?.show(preview, screenPos.x, screenPos.y, this.screenWidth, this.screenHeight);
+      }
+    }
   }
 
   public showAttackVisuals(
@@ -569,6 +635,8 @@ export class BattleView {
       } else {
         this.unitStats.hide();
       }
+      this.damagePreviewTooltip = new DamagePreviewTooltip(this.uiPlusRenderGroup, this.assets.uiSheet);
+      this.damagePreviewTooltip.hide();
     }
 
     dockedButtons.forEach((control) => {
