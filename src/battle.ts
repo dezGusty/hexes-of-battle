@@ -1326,6 +1326,8 @@ export class Battle {
             this.completeQuickDrawInstant(currentAction);
           } else {
             this.updateDoApplyAbilityEffect(currentAction);
+            this.input_state = InputState.SELECT_UNIT_OR_TARGET;
+            this.abilityToApply = null;
           }
           this.currentActions.shift();
           break;
@@ -1336,6 +1338,38 @@ export class Battle {
           break;
       }
     }
+  }
+
+  /**
+   * Automatically computes/simulates the battle to completion without animation delays.
+   * This operates purely on the battle state and AI controllers, completely independent
+   * of view rendering or animation speed settings.
+   */
+  public computeAutomatically(
+    controllers: [{ update: (dt: number) => void }, { update: (dt: number) => void }],
+    maxSafetySteps?: number
+  ): BattleResult {
+    const previousControl = [...this.army_control];
+    this.army_control = [ArmyControlType.AI, ArmyControlType.AI];
+
+    this.stepInstant();
+
+    let stepCount = 0;
+    const maxSteps = maxSafetySteps ?? Math.max(1, this.maxTurns) * 200;
+
+    while (!this.isFinished() && this.turnNumber < this.maxTurns && stepCount < maxSteps) {
+      stepCount++;
+      const currentController = this.currentArmyIndex === 0 ? controllers[0] : controllers[1];
+      currentController.update(0);
+      this.stepInstant();
+    }
+
+    if (!this.isFinished() && this.turnNumber >= this.maxTurns) {
+      this.checkVictoryConditionsAndState();
+    }
+
+    this.army_control = previousControl;
+    return this.getBattleResult();
   }
 
   private updateDoAttackApplyDamageAndCounter(currentAction: BattleAction): boolean {

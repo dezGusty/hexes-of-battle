@@ -196,22 +196,7 @@ export class BatchSimulationRunner {
     const cpu0 = CPUPlayerFactory.create(p0, battle);
     const cpu1 = CPUPlayerFactory.create(p1, battle);
 
-    // Simulation loop
-    let stepCount = 0;
-    const maxSafetySteps = battle.maxTurns * 200;
-
-    while (!battle.isFinished() && battle.turnNumber < battle.maxTurns && stepCount < maxSafetySteps) {
-      stepCount++;
-      const currentCpu = battle.currentArmyIndex === 0 ? cpu0 : cpu1;
-      currentCpu.update(16);
-      battle.stepInstant();
-    }
-
-    if (!battle.isFinished() && battle.turnNumber >= battle.maxTurns) {
-      battle.checkVictoryConditionsAndState();
-    }
-
-    return battle.getBattleResult();
+    return battle.computeAutomatically([cpu0, cpu1]);
   }
 
   public runBatch(options: BatchSimulationOptions = {}): ScenarioAggregateMetrics[] {

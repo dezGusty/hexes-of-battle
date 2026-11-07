@@ -174,6 +174,15 @@ export class BattleView3D {
     });
   }
 
+  public getAnimationSpeedMultiplier(): number {
+    return this.settings.getAnimationSpeedMultiplier();
+  }
+
+  public setAnimationSpeed(speed: number): void {
+    this.settings.setAnimationSpeed(speed);
+    this.settings.save();
+  }
+
   public setSceneInspectorVisible(visible: boolean): void {
     this.sceneDebugger?.setVisible(visible);
   }
@@ -399,16 +408,17 @@ export class BattleView3D {
       });
     };
 
+    const animMultiplier = this.getAnimationSpeedMultiplier();
     const attackerKey = data.attacker.GUID.toString();
     const now = performance.now();
     const lastTime = this.lastRangedAttackTimes.get(attackerKey) ?? -9999;
     const timeDelta = now - lastTime;
     this.lastRangedAttackTimes.set(attackerKey, now);
 
-    if (timeDelta < 350) {
+    if (timeDelta < 350 / animMultiplier) {
       setTimeout(() => {
         fireVolley();
-      }, 450);
+      }, 450 / animMultiplier);
     } else {
       fireVolley();
     }
@@ -464,9 +474,10 @@ export class BattleView3D {
         this.soundSystem.play(SoundCategory.SOUND, SoundType.SWORD, true);
       }
 
+      const animMultiplier = this.getAnimationSpeedMultiplier();
       setTimeout(() => {
         this.applyDamageVisuals(defenderSquad, damage, flankStatus);
-      }, 180);
+      }, 180 / animMultiplier);
     }
   }
 
@@ -522,15 +533,42 @@ export class BattleView3D {
     }
   }
 
+  public showHealVisuals(healer: Creature, target: Creature, amount: number, moraleBoost?: number): void {
+    const healerSquad = this.squadVisuals.get(healer.GUID.toString());
+    if (healerSquad) {
+      healerSquad.setFacing(healer.facingDirection);
+      healerSquad.playAnimation('rest', 500);
+    }
+
+    const targetSquad = this.squadVisuals.get(target.GUID.toString());
+    if (targetSquad) {
+      targetSquad.playAnimation('rest', 600);
+      targetSquad.updateStats(false);
+      if (this.settings.hex.showDamageIndicators) {
+        if (amount > 0) {
+          targetSquad.addDamageIndicator('health', amount);
+        }
+        if (moraleBoost && moraleBoost > 0) {
+          targetSquad.addDamageIndicator('morale', moraleBoost);
+        }
+      } else if (amount > 0) {
+        targetSquad.addFloatingCombatText(`+${amount} HP`, '#44ee66', 1200);
+      }
+    }
+  }
+
   public update(deltaMS: number): void {
+    const animMultiplier = this.getAnimationSpeedMultiplier();
+    const scaledDeltaMS = deltaMS * animMultiplier;
+
     // 0. Update smooth continuous camera keyboard inputs (W, A, S, D, Q, E)
     this.updateCameraKeyboardInput(deltaMS);
 
     // 0.5. Update hex board animations (slowly rotating selected unit halo disc)
-    this.hexBoard.update(deltaMS);
+    this.hexBoard.update(scaledDeltaMS);
 
     // 1. Process battle engine actions and updates
-    const mapUpdate: MapRenderUpdate = this.battle.update(deltaMS);
+    const mapUpdate: MapRenderUpdate = this.battle.update(scaledDeltaMS);
 
     if (mapUpdate.somethingChanged || mapUpdate.unitRenderUpdate) {
       // Sync unit positions and alive counts
@@ -552,7 +590,7 @@ export class BattleView3D {
     // 2. Update 3D squads (overhead bars, animations, floating text) and cleanup eliminated squads
     const toRemoveGuids: string[] = [];
     this.squadVisuals.forEach((squad, guidStr) => {
-      squad.update(deltaMS, this.sceneManager.camera);
+      squad.update(scaledDeltaMS, this.sceneManager.camera);
       if (squad.isEliminated && !squad.hasActiveEffects) {
         toRemoveGuids.push(guidStr);
       }
@@ -568,7 +606,7 @@ export class BattleView3D {
     }
 
     // 3. Update 3D projectiles
-    this.projectileSystem.update(deltaMS);
+    this.projectileSystem.update(scaledDeltaMS);
 
     // 3.5 Update scene debugger
     this.sceneDebugger?.update(deltaMS);
@@ -777,7 +815,7 @@ export class BattleView3D {
     }
   }
 
-  private updateHoverVisuals(): void {
+  public updateHoverVisuals(): void {
     if (!this.hoveredHex) {
       this.clearHoverState();
       return;

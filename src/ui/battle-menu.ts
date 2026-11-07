@@ -2,6 +2,12 @@ import { ButtonOptions, FancyButton, Slider } from "@pixi/ui";
 import { Container, NineSliceSprite, Sprite, Spritesheet, Text, TextOptions, Texture } from "pixi.js";
 import { BattleSaveEntry, SaveManager } from "../battle/save-manager";
 import { Battle } from "../battle";
+import {
+    clampAnimationSpeed,
+    DEFAULT_ANIMATION_SPEED,
+    MAX_ANIMATION_SPEED,
+    MIN_ANIMATION_SPEED,
+} from "../battle/settings";
 
 export class BattleMenuPanel {
     static DEFAULT_FONT_STYLE: TextOptions = { style: { fill: { color: '#ffffff', alpha: 1 }, fontSize: 16, align: 'left' } };
@@ -45,9 +51,13 @@ export class BattleMenuPanel {
     public loadButton?: FancyButton;
     public toggleHardwareCursorButton?: FancyButton;
     public toggleDamageIndicatorsButton?: FancyButton;
+    public animationSpeedButton?: FancyButton;
+    public animationSpeedSlider?: Slider;
+    public animationSpeedValueText?: Text;
 
     private hardwareCursorText?: Text;
     private isHardwareCursorHidden: boolean = false;
+    private isUpdatingAnimationSpeed: boolean = false;
 
     private closeButton: FancyButton = new FancyButton({
         ...this.THIN_BUTTON_STYLE
@@ -75,6 +85,7 @@ export class BattleMenuPanel {
     public onToggleStats?: () => void;
     public onToggleFps?: (showFps: boolean) => void;
     public onToggleHardwareCursor?: (hide: boolean) => void;
+    public onAnimationSpeedChange?: (speed: number) => void;
 
     public constructor(private view: Container, private uiSheet: Spritesheet) {
         const windowBg = new NineSliceSprite({
@@ -143,6 +154,28 @@ export class BattleMenuPanel {
         }
     }
 
+    public setAnimationSpeed(speed: number): void {
+        const clamped = clampAnimationSpeed(speed);
+        this.isUpdatingAnimationSpeed = true;
+        try {
+            if (this.animationSpeedSlider) {
+                this.animationSpeedSlider.value = clamped;
+            }
+            if (this.animationSpeedValueText) {
+                this.animationSpeedValueText.text = `${clamped}`;
+            }
+        } finally {
+            this.isUpdatingAnimationSpeed = false;
+        }
+    }
+
+    public getAnimationSpeed(): number {
+        if (this.animationSpeedSlider) {
+            return clampAnimationSpeed(this.animationSpeedSlider.value);
+        }
+        return DEFAULT_ANIMATION_SPEED;
+    }
+
     private initializeMainContainer(panelWidth: number): void {
         const title = new Text({
             text: `Battle Menu`,
@@ -189,6 +222,8 @@ export class BattleMenuPanel {
         });
         this.hardwareCursorText.position = { x: col2TextX, y: 430 + 8 };
         this.mainContainer.addChild(this.hardwareCursorText);
+
+        addMenuOption(col2TextX, 505, 'Animation Speed (1-8).');
 
         // Column 1 Buttons
         this.fullscreenToggleButton = new FancyButton({
@@ -359,6 +394,55 @@ export class BattleMenuPanel {
         this.toggleHardwareCursorButton.width = 64;
         this.toggleHardwareCursorButton.height = 60;
 
+        this.animationSpeedButton = new FancyButton({
+            ...this.DEFAULT_BUTTON_STYLE,
+            icon: this.uiSheet.textures['glyph_movement'] ? 'glyph_movement' : 'glyph_next_unit.png',
+        });
+        this.animationSpeedButton.position.set(col2BtnX, 505);
+        this.animationSpeedButton.width = 64;
+        this.animationSpeedButton.height = 60;
+
+        this.animationSpeedSlider = new Slider({
+            bg: sliderBg,
+            fill: sliderFill,
+            slider: new Sprite(sliderHandle),
+            nineSliceSprite: {
+                bg: [4, 4, 4, 4],
+                fill: [4, 4, 4, 4],
+            },
+            fillPaddings: {
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+            },
+            min: MIN_ANIMATION_SPEED,
+            max: MAX_ANIMATION_SPEED,
+            step: 1,
+            value: DEFAULT_ANIMATION_SPEED,
+            showValue: false,
+        });
+        this.animationSpeedSlider.position.set(col2TextX, 505 + 34);
+        this.animationSpeedSlider.width = 200;
+        this.animationSpeedSlider.height = 14;
+
+        this.animationSpeedValueText = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: `${DEFAULT_ANIMATION_SPEED}`,
+            style: { fontSize: 13, fill: '#AACCFF' },
+        });
+        this.animationSpeedValueText.position.set(col2TextX + 210, 505 + 31);
+
+        this.animationSpeedSlider.onUpdate.connect((val) => {
+            const speed = clampAnimationSpeed(val);
+            if (this.animationSpeedValueText) {
+                this.animationSpeedValueText.text = `${speed}`;
+            }
+            if (!this.isUpdatingAnimationSpeed && this.onAnimationSpeedChange) {
+                this.onAnimationSpeedChange(speed);
+            }
+        });
+
         this.closeButton.position.set((panelWidth - 140) / 2, 580);
         this.closeButton.width = 140;
         this.closeButton.height = 36;
@@ -385,6 +469,9 @@ export class BattleMenuPanel {
         this.mainContainer.addChild(this.loadButton);
         this.mainContainer.addChild(this.toggleStatsButton);
         this.mainContainer.addChild(this.toggleHardwareCursorButton);
+        this.mainContainer.addChild(this.animationSpeedButton);
+        this.mainContainer.addChild(this.animationSpeedSlider);
+        this.mainContainer.addChild(this.animationSpeedValueText);
         this.mainContainer.addChild(this.closeButton);
 
         this.connectMainEventHandlers();
@@ -583,6 +670,13 @@ export class BattleMenuPanel {
             this.setHardwareCursorHidden(this.isHardwareCursorHidden);
             if (this.onToggleHardwareCursor) {
                 this.onToggleHardwareCursor(this.isHardwareCursorHidden);
+            }
+        });
+
+        this.animationSpeedButton?.onPress.connect(() => {
+            this.setAnimationSpeed(DEFAULT_ANIMATION_SPEED);
+            if (this.onAnimationSpeedChange) {
+                this.onAnimationSpeedChange(DEFAULT_ANIMATION_SPEED);
             }
         });
 

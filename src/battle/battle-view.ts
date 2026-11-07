@@ -12,7 +12,8 @@ import { Creature, CreatureType } from './creature';
 import { Ability } from './ability';
 import { AnimationType, ArmyControlType, Battle, InputState, MapRenderUpdate } from '../battle';
 import { BattleActionType } from './battle-action';
-import { CPUPlayer } from './cpu-player';
+import { CPUPersonalityType, CPUPlayer } from './cpu-player';
+import { CPUPlayerFactory } from './cpu-player-factory';
 import { CommonControls } from '../ui/common-controls';
 import { BattleMenuPanel } from '../ui/battle-menu';
 import { UnitStatsPanel } from '../ui/unit-stats-panel';
@@ -37,6 +38,8 @@ export interface BattleViewEvents {
   onReset: () => void;
   onActiveAbility1: () => void;
   onRest?: () => void;
+  onToggleAutoBattle?: (enabled: boolean) => void;
+  onAutoBattlePersonalityChange?: (personality: CPUPersonalityType) => void;
   onSaveBattle?: (name: string) => boolean;
   onLoadSave?: (entry: BattleSaveEntry) => void;
 }
@@ -98,6 +101,9 @@ export class BattleView {
   private hexUiRenderGroup: Container = new Container({ isRenderGroup: true });
 
   public camera!: HexViewportCamera;
+  private playerCpuPlayer?: CPUPlayer;
+  public isAutoBattleEnabled: boolean = false;
+  public autoBattlePersonality: CPUPersonalityType = CPUPersonalityType.DEFENSIVE;
   private screenWidth: number =
     typeof window !== 'undefined' && window.innerWidth > 0 ? window.innerWidth : 1920;
   private screenHeight: number =
@@ -119,10 +125,55 @@ export class BattleView {
     if (gameVersion) {
       this.gameVersion = gameVersion;
     }
+    this.playerCpuPlayer = CPUPlayerFactory.create(this.autoBattlePersonality, this.battle);
   }
 
   public setCpuPlayer(cpuPlayer: CPUPlayer | undefined): void {
     this.cpuPlayer = cpuPlayer;
+    this.updateArmyNames();
+  }
+
+  public getPlayerCpuPlayer(): CPUPlayer | undefined {
+    return this.playerCpuPlayer;
+  }
+
+  public setAutoBattleEnabled(enabled: boolean): void {
+    this.isAutoBattleEnabled = enabled;
+    this.commonControls?.setAutoBattleEnabled(enabled);
+    this.battle.army_control[0] = enabled ? ArmyControlType.AI : ArmyControlType.PLAYER;
+
+    if (enabled) {
+      this.battle.cancelTargetForAbilityIfApplicable();
+      this.damagePreviewTooltip?.hide();
+      if (!this.playerCpuPlayer || this.playerCpuPlayer.personalityName !== this.autoBattlePersonality) {
+        this.playerCpuPlayer = CPUPlayerFactory.create(this.autoBattlePersonality, this.battle);
+      } else {
+        this.playerCpuPlayer.reset();
+      }
+    } else {
+      this.playerCpuPlayer?.reset();
+      if (this.battle.currentArmyIndex === 0 && !this.battle.isFinished()) {
+        if (this.battle.activeCreatureIndex < 0 || !this.battle.getActiveCreature()) {
+          this.battle.selectNextUnitAndGetIndex();
+        } else {
+          this.battle.reselectCurrentUnit();
+        }
+      }
+    }
+
+    this.updateArmyNames();
+    this.updateTargetAcquirementHint();
+  }
+
+  public toggleAutoBattle(): boolean {
+    this.setAutoBattleEnabled(!this.isAutoBattleEnabled);
+    return this.isAutoBattleEnabled;
+  }
+
+  public setAutoBattlePersonality(personality: CPUPersonalityType): void {
+    this.autoBattlePersonality = personality;
+    this.commonControls?.setAutoBattlePersonality(personality, false);
+    this.playerCpuPlayer = CPUPlayerFactory.create(personality, this.battle);
     this.updateArmyNames();
   }
 
@@ -139,7 +190,10 @@ export class BattleView {
     if (isPlayer) {
       tag = 'Human';
     } else {
-      const personality = this.cpuPlayer?.personalityName;
+      const personality =
+        armyIndex === 0 && this.isAutoBattleEnabled
+          ? (this.playerCpuPlayer?.personalityName ?? this.autoBattlePersonality)
+          : this.cpuPlayer?.personalityName;
       if (personality) {
         const capitalized = personality.charAt(0).toUpperCase() + personality.slice(1);
         tag = `CPU ${capitalized}`;
@@ -279,14 +333,17 @@ export class BattleView {
       this.versionText.visible = this.settings.debug.showFps;
     }
 
-    const mapUpdate: MapRenderUpdate = this.battle.update(deltaMS);
+    const animMultiplier = this.settings.getAnimationSpeedMultiplier();
+    const scaledDeltaMS = deltaMS * animMultiplier;
+
+    const mapUpdate: MapRenderUpdate = this.battle.update(scaledDeltaMS);
 
     if (mapUpdate.somethingChanged) {
       this.updateMapRendering(mapUpdate);
     }
 
-    this.damageValueDisplay.update(deltaMS);
-    this.turnChangeDisplay.update(deltaMS);
+    this.damageValueDisplay.update(scaledDeltaMS);
+    this.turnChangeDisplay.update(scaledDeltaMS);
     this.updateTargetAcquirementHint();
     this.updateDamagePreviewHover(deltaMS);
   }
@@ -474,6 +531,11 @@ export class BattleView {
       this.battleMenuPanel = new BattleMenuPanel(this.uiPlusRenderGroup, this.assets.uiSheet);
       this.battleMenuPanel.battle = this.battle;
       this.battleMenuPanel.setSoundValues(this.settings.sound.musicVolume, this.settings.sound.soundVolume);
+      this.battleMenuPanel.setAnimationSpeed(this.settings.animationSpeed);
+      this.battleMenuPanel.onAnimationSpeedChange = (speed) => {
+        this.settings.setAnimationSpeed(speed);
+        this.settings.save();
+      };
       this.battleMenuPanel.onSaveBattle = (name) => {
         if (events.onSaveBattle) {
           return events.onSaveBattle(name);
@@ -508,6 +570,21 @@ export class BattleView {
     this.commonControls.menuButton?.onPress.connect(() => {
       this.battleMenuPanel?.toggleVisibility();
     });
+
+    this.commonControls.setAutoBattleEnabled(this.isAutoBattleEnabled);
+    this.commonControls.setAutoBattlePersonality(this.autoBattlePersonality, false);
+
+    this.commonControls.autoBattleButton?.onPress.connect(() => {
+      const enabled = this.toggleAutoBattle();
+      events.onToggleAutoBattle?.(enabled);
+    });
+
+    if (this.commonControls.autoBattlePersonalityDropdown) {
+      this.commonControls.autoBattlePersonalityDropdown.onChange = (personality) => {
+        this.setAutoBattlePersonality(personality);
+        events.onAutoBattlePersonalityChange?.(personality);
+      };
+    }
 
     this.commonControls.zoomInButton?.onPress.connect(() => events.onZoomIn());
     this.commonControls.zoomOutButton?.onPress.connect(() => events.onZoomOut());
@@ -1318,7 +1395,7 @@ export class BattleView {
         if (textures) {
           const animSprite = new AnimatedSprite(textures);
           const cell = mapUpdate.animationAtCoords.coords;
-          animSprite.animationSpeed = 0.4;
+          animSprite.animationSpeed = 0.4 * this.settings.getAnimationSpeedMultiplier();
           animSprite.x = this.hexMap.hexToPixel(cell.x, cell.y).x - this.hexMap.cellSize().x / 2;
           animSprite.y = this.hexMap.hexToPixel(cell.x, cell.y).y - this.hexMap.cellSize().y / 2;
           animSprite.play();

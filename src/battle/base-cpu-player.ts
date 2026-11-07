@@ -1,5 +1,5 @@
 import { ArmyControlType, Battle } from "../battle";
-import { checkFlankingStatus, HexDirection, HexFlankStatus } from "../shared/hex-map";
+import { checkFlankingStatus, HexDirection, HexFlankStatus, HexMap } from "../shared/hex-map";
 import { Coords } from "../shared";
 import { HobGUID } from "./guid";
 import { BattleHexMapPath } from "./battle-hex-map-path";
@@ -8,6 +8,7 @@ import { Creature } from "./creature";
 import { CPUPlayer } from "./cpu-player";
 import { BattleActionType } from "./battle-action";
 import { calculateDamageWithTraits } from "./trait-system";
+import { AbilityTarget, AbilityType } from "./ability";
 
 export enum CPUPlayerState {
   NONE = 0,
@@ -15,6 +16,7 @@ export enum CPUPlayerState {
   DECIDE_ACTION_FOR_SELECTED_UNIT,
   SELECT_MOVE,
   SELECT_ATTACK,
+  SELECT_ABILITY,
   SELECT_REST,
   SELECT_END_TURN,
 }
@@ -28,6 +30,7 @@ export abstract class BaseCPUPlayer implements CPUPlayer {
   protected targetCoords: Coords = { x: 0, y: 0 };
   protected attackDirection: HexDirection = HexDirection.NONE;
   protected attackMeleePreference: boolean = false;
+  protected selectedAbilityIndex: number = -1;
   protected moveDestinationCoords: Coords = { x: 0, y: 0 };
   protected handledCreatures: HobGUID[] = [];
 
@@ -38,6 +41,7 @@ export abstract class BaseCPUPlayer implements CPUPlayer {
     this.targetCoords = { x: 0, y: 0 };
     this.attackDirection = HexDirection.NONE;
     this.attackMeleePreference = false;
+    this.selectedAbilityIndex = -1;
     this.moveDestinationCoords = { x: 0, y: 0 };
     this.handledCreatures = [];
   }
@@ -70,6 +74,9 @@ export abstract class BaseCPUPlayer implements CPUPlayer {
         break;
       case CPUPlayerState.SELECT_ATTACK:
         this.selectAttack();
+        break;
+      case CPUPlayerState.SELECT_ABILITY:
+        this.selectAbility();
         break;
       case CPUPlayerState.SELECT_REST:
         this.selectRest();
@@ -127,7 +134,33 @@ export abstract class BaseCPUPlayer implements CPUPlayer {
       return;
     }
 
-    // 1. Ranged Attack Decision
+    // 0a. Active Healing Ability Decision (e.g. Mend Wounds, Patch Up)
+    if (selectedCreature.live_stats.remaining_attacks > 0) {
+      const healChoice = this.chooseHealAbilityAction(selectedCreature);
+      if (healChoice) {
+        this.selectedAbilityIndex = healChoice.abilityIndex;
+        this.targetCoords = healChoice.target;
+        this.attackDirection = HexDirection.NONE;
+        this.attackMeleePreference = false;
+        this.state = CPUPlayerState.SELECT_ABILITY;
+        return;
+      }
+    }
+
+    // 0b. Active Ranged Damage Ability Decision (e.g. Spearman's Throw Javelin)
+    if (selectedCreature.live_stats.remaining_attacks > 0) {
+      const damageAbilityChoice = this.chooseDamageAbilityAction(selectedCreature);
+      if (damageAbilityChoice) {
+        this.selectedAbilityIndex = damageAbilityChoice.abilityIndex;
+        this.targetCoords = damageAbilityChoice.target;
+        this.attackDirection = HexDirection.NONE;
+        this.attackMeleePreference = false;
+        this.state = CPUPlayerState.SELECT_ABILITY;
+        return;
+      }
+    }
+
+    // 1. Ranged Attack & Quick Draw Decision
     if (selectedCreature.live_stats.is_ranged && selectedCreature.live_stats.remaining_ammo > 0 && selectedCreature.live_stats.remaining_attacks > 0) {
       const rangedTargets = this.findRangedTargets(selectedCreature);
       if (rangedTargets.length > 0) {
@@ -136,7 +169,13 @@ export abstract class BaseCPUPlayer implements CPUPlayer {
           this.targetCoords = target;
           this.attackDirection = HexDirection.NONE;
           this.attackMeleePreference = false;
-          this.state = CPUPlayerState.SELECT_ATTACK;
+          const quickDrawIndex = this.findQuickDrawAbilityIndex(selectedCreature, target);
+          if (quickDrawIndex >= 0 && this.shouldUseQuickDraw(selectedCreature, target)) {
+            this.selectedAbilityIndex = quickDrawIndex;
+            this.state = CPUPlayerState.SELECT_ABILITY;
+          } else {
+            this.state = CPUPlayerState.SELECT_ATTACK;
+          }
           return;
         }
       }
@@ -157,10 +196,14 @@ export abstract class BaseCPUPlayer implements CPUPlayer {
       }
     }
 
-    // 3. Movement Decision
+    // 3. Movement Decision (including healer movement towards wounded allies)
     if (selectedCreature.live_stats.remaining_movement > 0) {
-      const destination = this.chooseMoveDestination(selectedCreature);
-      if (destination) {
+      const healerDestination = this.chooseHealerMoveDestination(selectedCreature);
+      const destination = healerDestination ?? this.chooseMoveDestination(selectedCreature);
+      if (
+        destination &&
+        (destination.x !== selectedCreature.position.x || destination.y !== selectedCreature.position.y)
+      ) {
         this.moveDestinationCoords = destination;
         this.state = CPUPlayerState.SELECT_MOVE;
         return;
@@ -175,6 +218,166 @@ export abstract class BaseCPUPlayer implements CPUPlayer {
 
     this.markCreatureHandled(selectedCreature.GUID);
     this.state = CPUPlayerState.SELECT_UNIT;
+  }
+
+  protected selectAbility(): void {
+    const selectedCreature = this.battle.getSelectedCreature();
+    if (!selectedCreature || this.selectedAbilityIndex < 0) {
+      this.state = CPUPlayerState.SELECT_UNIT;
+      return;
+    }
+
+    this.battle.selectActiveAbilityForCurrentUnit(this.selectedAbilityIndex, selectedCreature);
+    const applied = this.battle.selectTargetForAbility(this.targetCoords, HexDirection.NONE);
+    if (!applied) {
+      this.battle.cancelTargetForAbilityIfApplicable();
+    }
+
+    this.selectedAbilityIndex = -1;
+    this.markCreatureHandled(selectedCreature.GUID);
+    this.state = CPUPlayerState.SELECT_UNIT;
+  }
+
+  protected chooseHealAbilityAction(creature: Creature): { abilityIndex: number; target: Coords } | null {
+    if (!creature.abilities || creature.abilities.length === 0) return null;
+
+    for (let i = 0; i < creature.abilities.length; i++) {
+      const ability = creature.abilities[i];
+      if (!ability || ability.abilityType !== AbilityType.Active) continue;
+      if (!this.battle.isHealAbility(ability)) continue;
+      if (!this.battle.verifyAbilityUseByCreatureHasResources(ability, creature)) continue;
+
+      const range = this.battle.getAbilityRange(ability, creature);
+      const allies = this.getAllies(creature.armyAlignment);
+
+      let bestAlly: Creature | null = null;
+      let highestMissingHealth = 0;
+
+      for (const ally of allies) {
+        if (!ally.isAlive) continue;
+        const missingHealth = ally.stats.health - ally.live_stats.remaining_health;
+        if (missingHealth <= 0) continue;
+
+        const isSelf = ally.GUID.equals(creature.GUID);
+        if (isSelf && !ability.allowedTargets.includes(AbilityTarget.Self)) continue;
+        if (!isSelf && !ability.allowedTargets.includes(AbilityTarget.Allies)) continue;
+
+        const dist = HexMap.getHexDistance(creature.position, ally.position);
+        if (dist <= range) {
+          if (missingHealth > highestMissingHealth) {
+            highestMissingHealth = missingHealth;
+            bestAlly = ally;
+          }
+        }
+      }
+
+      if (bestAlly) {
+        return { abilityIndex: i, target: { ...bestAlly.position } };
+      }
+    }
+
+    return null;
+  }
+
+  protected chooseDamageAbilityAction(creature: Creature): { abilityIndex: number; target: Coords } | null {
+    if (!creature.abilities || creature.abilities.length === 0) return null;
+
+    for (let i = 0; i < creature.abilities.length; i++) {
+      const ability = creature.abilities[i];
+      if (!ability || ability.abilityType !== AbilityType.Active) continue;
+      if (!this.battle.isDamageAbility(ability) || this.battle.isQuickDrawAbility(ability)) continue;
+      if (!this.battle.verifyAbilityUseByCreatureHasResources(ability, creature)) continue;
+      if (!ability.allowedTargets.includes(AbilityTarget.Enemies)) continue;
+
+      const range = this.battle.getAbilityRange(ability, creature);
+      const enemies = this.getEnemies(creature.armyAlignment);
+      const candidateCoords: Coords[] = [];
+
+      for (const enemy of enemies) {
+        const dist = HexMap.getHexDistance(creature.position, enemy.position);
+        if (dist <= range) {
+          candidateCoords.push({ ...enemy.position });
+        }
+      }
+
+      if (candidateCoords.length > 0) {
+        const target = this.chooseRangedTarget(creature, candidateCoords) ?? candidateCoords[0];
+        return { abilityIndex: i, target };
+      }
+    }
+
+    return null;
+  }
+
+  protected findQuickDrawAbilityIndex(creature: Creature, targetCoords: Coords): number {
+    if (!creature.abilities || creature.abilities.length === 0) return -1;
+    if (!this.battle.canCreatureUseQuickDraw(creature)) return -1;
+
+    for (let i = 0; i < creature.abilities.length; i++) {
+      const ability = creature.abilities[i];
+      if (this.battle.isQuickDrawAbility(ability)) {
+        const range = this.battle.getAbilityRange(ability, creature);
+        const dist = HexMap.getHexDistance(creature.position, targetCoords);
+        if (dist <= range) {
+          return i;
+        }
+      }
+    }
+    return -1;
+  }
+
+  protected shouldUseQuickDraw(attacker: Creature, targetCoords: Coords): boolean {
+    if (!this.battle.canCreatureUseQuickDraw(attacker)) return false;
+    const defender = this.getCreatureAt(targetCoords);
+    if (!defender || !defender.isAlive) return false;
+    return true;
+  }
+
+  protected chooseHealerMoveDestination(creature: Creature): Coords | null {
+    if (!creature.abilities || creature.abilities.length === 0) return null;
+    const hasUsableHeal = creature.abilities.some(
+      (a) =>
+        a &&
+        a.abilityType === AbilityType.Active &&
+        this.battle.isHealAbility(a) &&
+        this.battle.verifyAbilityUseByCreatureHasResources(a, creature)
+    );
+    if (!hasUsableHeal) return null;
+
+    const woundedAllies = this.getAllies(creature.armyAlignment).filter(
+      (ally) =>
+        ally.isAlive &&
+        !ally.GUID.equals(creature.GUID) &&
+        ally.live_stats.remaining_health < ally.stats.health
+    );
+    if (woundedAllies.length === 0) return null;
+
+    let targetAlly = woundedAllies[0];
+    let bestDist = Infinity;
+    for (const ally of woundedAllies) {
+      const dist = HexMap.getHexDistance(creature.position, ally.position);
+      if (dist < bestDist) {
+        bestDist = dist;
+        targetAlly = ally;
+      }
+    }
+
+    const neighbours = this.battle.hexMap.getNeighbours(targetAlly.position);
+    for (const n of neighbours) {
+      if (this.battle.getCreatureAtPosition(n) && (n.x !== creature.pos.x || n.y !== creature.pos.y)) {
+        continue;
+      }
+      const longPath = this.findLongPathToTarget(creature.position, n);
+      if (longPath.length > 0) {
+        const numMoves = creature.live_stats.remaining_movement;
+        const stepIndex = Math.min(numMoves, longPath.length) - 1;
+        if (stepIndex >= 0 && longPath[stepIndex]) {
+          return longPath[stepIndex];
+        }
+      }
+    }
+
+    return null;
   }
 
   protected selectRest(): void {
@@ -193,8 +396,15 @@ export abstract class BaseCPUPlayer implements CPUPlayer {
       return;
     }
 
+    const prevMoves = selectedCreature.live_stats.remaining_movement;
+    const prevAttacks = selectedCreature.live_stats.remaining_attacks;
     this.battle.moveOrAttackWithActiveCreatureAtLocation(this.moveDestinationCoords, HexDirection.NONE);
-    if (selectedCreature.live_stats.remaining_attacks <= 0) {
+    const didAct =
+      this.battle.hasRunningActions() ||
+      selectedCreature.live_stats.remaining_movement < prevMoves ||
+      selectedCreature.live_stats.remaining_attacks < prevAttacks;
+
+    if (!didAct || selectedCreature.live_stats.remaining_attacks <= 0) {
       this.markCreatureHandled(selectedCreature.GUID);
       this.state = CPUPlayerState.SELECT_UNIT;
     } else {

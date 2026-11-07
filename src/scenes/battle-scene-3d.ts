@@ -3,7 +3,7 @@ import { GameContext, Scene } from "../core/scene";
 import { HexDirection, HexMap } from "../shared/hex-map";
 import { ISoundSystem, PixiSoundSystem, SoundCategory, SoundType } from "../battle/sound-system";
 import { Coords } from "../shared";
-import { Battle } from "../battle";
+import { ArmyControlType, Battle } from "../battle";
 import { BattleActionType } from "../battle/battle-action";
 import { CreatureType } from "../battle/creature";
 import { CPUPersonalityType, CPUPlayer } from "../battle/cpu-player";
@@ -58,6 +58,9 @@ export class BattleScene3D implements Scene {
       }
       this.initializeDefaultMapAndArmies();
     }
+
+    // The battle always starts with manual (human player) control for Army 0
+    this.battle.army_control[0] = ArmyControlType.PLAYER;
 
     let overrideDefaultPersonality: string = CPUPersonalityType.AGGRESSIVE;
     if (params?.config?.aiPersonality != null) {
@@ -145,6 +148,18 @@ export class BattleScene3D implements Scene {
       onToggleDamageIndicators: (show) => {
         this.view.setShowDamageIndicators(show);
       },
+      onToggleAutoBattle: () => {
+        const active = this.battle.getActiveCreature();
+        if (active) {
+          this.hud.updateActiveUnitAbility(active);
+          this.hud.updateUnitStats(active);
+        }
+        this.view.updateActiveUnitSelection();
+        this.view.updateHoverVisuals();
+      },
+      onAutoBattlePersonalityChange: () => {
+        this.view.updateActiveUnitSelection();
+      },
       onSaveBattle: (name) => {
         SaveManager.saveBattle(this.battle, name);
         return true;
@@ -152,6 +167,7 @@ export class BattleScene3D implements Scene {
       onLoadSave: (entry) => {
         const ok = SaveManager.loadBattle(entry, this.battle, this.context.templates.abilityTypes);
         if (ok) {
+          this.hud.setAutoBattleEnabled(false);
           this.cpuPlayer = CPUPlayerFactory.create(this.currentConfig?.aiPersonality, this.battle);
           this.view.setCpuPlayer(this.cpuPlayer);
           this.hud.setCpuPlayer(this.cpuPlayer);
@@ -212,7 +228,13 @@ export class BattleScene3D implements Scene {
     if (!this.view || !this.hud || !this.cpuPlayer) return;
     this.view.update(deltaMS);
     this.hud.update(deltaMS, this.context?.app?.ticker?.FPS ?? 60);
-    this.cpuPlayer.update(deltaMS);
+    if (this.battle.currentArmyIndex === 0) {
+      if (this.battle.army_control[0] === ArmyControlType.AI) {
+        this.hud.getPlayerCpuPlayer()?.update(deltaMS);
+      }
+    } else {
+      this.cpuPlayer.update(deltaMS);
+    }
   }
 
   public resize(width: number, height: number): void {
@@ -258,6 +280,7 @@ export class BattleScene3D implements Scene {
 
   private resetBattle(): void {
     this.initializeDefaultMapAndArmies();
+    this.hud.setAutoBattleEnabled(false);
     this.cpuPlayer = CPUPlayerFactory.create(this.currentConfig?.aiPersonality, this.battle);
     this.view.setCpuPlayer(this.cpuPlayer);
     this.hud.setCpuPlayer(this.cpuPlayer);
@@ -274,6 +297,10 @@ export class BattleScene3D implements Scene {
       if (attackType !== BattleActionType.ATTACK_RANGED) {
         this.view.showAttackVisuals(attacker, defender, damage, attackType, flankStatus);
       }
+    };
+
+    this.battle.hookDoingHeal = (data) => {
+      this.view.showHealVisuals(data.healer, data.target, data.amount, data.moraleBoost);
     };
 
     this.battle.hookNextTurn = (turnNum, armyIdx) => {

@@ -1,4 +1,34 @@
 
+export const MIN_ANIMATION_SPEED = 1;
+export const MAX_ANIMATION_SPEED = 8;
+export const DEFAULT_ANIMATION_SPEED = 8;
+export const MIN_ANIMATION_SPEED_MULTIPLIER = 0.25;
+export const MAX_ANIMATION_SPEED_MULTIPLIER = 1.0;
+
+/**
+ * Clamps a numeric animation speed setting to an integer within [1, 8].
+ */
+export function clampAnimationSpeed(speed: number): number {
+  if (!Number.isFinite(speed)) {
+    return DEFAULT_ANIMATION_SPEED;
+  }
+  return Math.max(MIN_ANIMATION_SPEED, Math.min(MAX_ANIMATION_SPEED, Math.round(speed)));
+}
+
+/**
+ * Converts a discrete animation speed setting (1..8) into a time-scale multiplier.
+ * - Speed 8 (default & max): 1.0x (100% of current animation speed)
+ * - Speed 1 (slowest):       0.25x (4 times slower than speed 8)
+ */
+export function getAnimationSpeedMultiplier(speed: number): number {
+  const clamped = clampAnimationSpeed(speed);
+  return (
+    MIN_ANIMATION_SPEED_MULTIPLIER +
+    ((clamped - MIN_ANIMATION_SPEED) / (MAX_ANIMATION_SPEED - MIN_ANIMATION_SPEED)) *
+      (MAX_ANIMATION_SPEED_MULTIPLIER - MIN_ANIMATION_SPEED_MULTIPLIER)
+  );
+}
+
 export class SoundSettings {
   public musicOn: boolean = false;
   public soundOn: boolean = true;
@@ -53,6 +83,15 @@ export class BattleSettings {
   public debug: DebugSettings = new DebugSettings();
   public hotkeys: HotkeysSettings = new HotkeysSettings();
   public hideHardwareCursor: boolean = false;
+  public animationSpeed: number = DEFAULT_ANIMATION_SPEED;
+
+  public setAnimationSpeed(speed: number): void {
+    this.animationSpeed = clampAnimationSpeed(speed);
+  }
+
+  public getAnimationSpeedMultiplier(): number {
+    return getAnimationSpeedMultiplier(this.animationSpeed);
+  }
 
   public load() {
     if (typeof localStorage === 'undefined') return;
@@ -110,6 +149,14 @@ export class BattleSettings {
       this.hideHardwareCursor = hideHardwareCursor === 'true';
     }
 
+    const animationSpeed = localStorage.getItem('hob.animationSpeed');
+    if (animationSpeed !== null) {
+      const parsed = Number(animationSpeed);
+      if (Number.isFinite(parsed)) {
+        this.animationSpeed = clampAnimationSpeed(parsed);
+      }
+    }
+
     const hotkeys = localStorage.getItem('hob.hotkeys');
     if (hotkeys) {
       try {
@@ -135,6 +182,8 @@ export class BattleSettings {
     localStorage.setItem('hob.debug.showFps', String(this.debug.showFps));
     // Save the hardware cursor visibility setting to local storage
     localStorage.setItem('hob.hideHardwareCursor', String(this.hideHardwareCursor));
+    // Save the animation speed setting to local storage
+    localStorage.setItem('hob.animationSpeed', String(clampAnimationSpeed(this.animationSpeed)));
     // Save the hotkeys settings to the browser's local storage
     localStorage.setItem('hob.hotkeys', JSON.stringify(this.hotkeys));
   }

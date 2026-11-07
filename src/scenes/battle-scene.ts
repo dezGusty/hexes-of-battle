@@ -3,7 +3,7 @@ import { GameContext, Scene } from "../core/scene";
 import { HexDirection, HexMap } from "../shared/hex-map";
 import { ISoundSystem, PixiSoundSystem, SoundCategory, SoundType } from "../battle/sound-system";
 import { Coords } from "../shared";
-import { Battle } from "../battle";
+import { ArmyControlType, Battle } from "../battle";
 import { CreatureType } from "../battle/creature";
 import { CPUPersonalityType, CPUPlayer } from "../battle/cpu-player";
 import { CPUPlayerFactory } from "../battle/cpu-player-factory";
@@ -12,6 +12,7 @@ import { BattleView } from "../battle/battle-view";
 import { BattleInputController } from "../battle/battle-input-controller";
 import { BattleConfig } from "../battle/battle-types";
 import { SaveManager } from "../battle/save-manager";
+import { CommonControls } from "../ui/common-controls";
 
 export class BattleScene implements Scene {
   public readonly name = "battle";
@@ -61,6 +62,9 @@ export class BattleScene implements Scene {
       this.initializeDefaultMapAndArmies();
     }
 
+    // The battle always starts with manual (human player) control for Army 0
+    this.battle.army_control[0] = ArmyControlType.PLAYER;
+
     // temporary - remove when shipping
     let overrideDefaultPersonality: string = CPUPersonalityType.AGGRESSIVE;
     if (null != params?.config?.aiPersonality) {
@@ -98,6 +102,7 @@ export class BattleScene implements Scene {
       onLoadSave: (entry) => {
         const ok = SaveManager.loadBattle(entry, this.battle, this.context.templates.abilityTypes);
         if (ok) {
+          this.view.setAutoBattleEnabled(false);
           this.cpuPlayer = CPUPlayerFactory.create(this.currentConfig?.aiPersonality, this.battle);
           this.view.setCpuPlayer(this.cpuPlayer);
           this.view.resetGridAndTerrain();
@@ -120,6 +125,20 @@ export class BattleScene implements Scene {
     this.inputController = new BattleInputController(this.battle, this.hexMap, {
       isMenuBlockingInput: () => this.view.battleMenuPanel?.isVisible() ?? false,
       isPointerOverUI: (stageCoords) => {
+        if (this.view.commonControls?.autoBattleButton?.visible) {
+          const abBounds = CommonControls.AUTO_BATTLE_BUTTON_BOUNDS;
+          if (
+            stageCoords.x >= abBounds.x &&
+            stageCoords.x <= abBounds.x + abBounds.width &&
+            stageCoords.y >= abBounds.y &&
+            stageCoords.y <= abBounds.y + abBounds.height
+          ) {
+            return true;
+          }
+        }
+        if (this.view.commonControls?.autoBattlePersonalityDropdown?.containsStagePoint(stageCoords.x, stageCoords.y)) {
+          return true;
+        }
         if (this.view.unitStats?.isVisible() && this.view.unitStats.containsPoint(stageCoords.x, stageCoords.y)) {
           this.view.unitStats.click(stageCoords);
           return true;
@@ -148,7 +167,13 @@ export class BattleScene implements Scene {
 
   public update(deltaMS: number): void {
     this.view.update(deltaMS, this.context.app.ticker.FPS);
-    this.cpuPlayer.update(deltaMS);
+    if (this.battle.currentArmyIndex === 0) {
+      if (this.battle.army_control[0] === ArmyControlType.AI) {
+        this.view.getPlayerCpuPlayer()?.update(deltaMS);
+      }
+    } else {
+      this.cpuPlayer.update(deltaMS);
+    }
   }
 
   public resize(width: number, height: number): void {
@@ -190,6 +215,7 @@ export class BattleScene implements Scene {
 
   private resetBattle(): void {
     this.initializeDefaultMapAndArmies();
+    this.view.setAutoBattleEnabled(false);
     this.cpuPlayer = CPUPlayerFactory.create(this.currentConfig?.aiPersonality, this.battle);
     this.view.setCpuPlayer(this.cpuPlayer);
     this.view.resetGridAndTerrain();

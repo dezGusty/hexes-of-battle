@@ -18,7 +18,7 @@ import { MeshRigidVisual } from './units/mesh-rigid-visual';
 import { drawMoraleVector } from './units/squad-visual-3d';
 import { ProjectileSystem3D } from './projectiles/projectile-system-3d';
 import { BattleHud2D } from './battle-hud-2d';
-import { Battle, InputState } from '../battle';
+import { ArmyControlType, Battle, InputState } from '../battle';
 import { BattleSettings } from '../battle/settings';
 import { UnitStatsPanel } from '../ui/unit-stats-panel';
 import { EnemyStatsPanel } from '../ui/enemy-stats-panel';
@@ -3467,6 +3467,247 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(instantiatedNodes.has('Head')).toBe(true);
       expect(instantiatedNodes.has('Arm_R')).toBe(true);
       expect(instantiatedNodes.has('Weapon')).toBe(true);
+    });
+  });
+
+  describe('20. Animation Speed Scaling in BattleHud2D & BattleView3D', () => {
+    it('should wire BattleMenuPanel animationSpeedSlider in BattleHud2D and scale TurnChangeDisplay updates', () => {
+      const settings = new BattleSettings();
+      const battle = new Battle(new HexMap(10, 8));
+      const dummyUiSheet = {
+        textures: new Proxy({}, { get: () => PixiTexture.EMPTY }),
+      };
+      const assets = {
+        uiSheet: dummyUiSheet as any,
+        unitsSheet: dummyUiSheet as any,
+        bannersSheet: dummyUiSheet as any,
+        softCursorTextures: {},
+      };
+
+      const hud = new BattleHud2D(assets, settings, battle);
+      let callbackSpeed: number | undefined;
+      hud.initialize({
+        onZoomIn: vi.fn(),
+        onZoomOut: vi.fn(),
+        onZoomSliderUpdate: vi.fn(),
+        onNextTurn: vi.fn(),
+        onNextUnit: vi.fn(),
+        onReset: vi.fn(),
+        onRest: vi.fn(),
+        onAnimationSpeedChange: (speed) => {
+          callbackSpeed = speed;
+        },
+      });
+
+      expect(hud.battleMenuPanel?.animationSpeedSlider?.value).toBe(8);
+      expect(hud.battleMenuPanel?.animationSpeedValueText?.text).toBe('8');
+
+      // Change speed to 1 via slider
+      hud.battleMenuPanel!.animationSpeedSlider!.value = 1;
+      expect(settings.animationSpeed).toBe(1);
+      expect(settings.getAnimationSpeedMultiplier()).toBeCloseTo(0.25, 5);
+      expect(callbackSpeed).toBe(1);
+
+      const turnUpdateSpy = vi.spyOn(hud.turnChangeDisplay, 'update');
+      hud.update(100, 60);
+      expect(turnUpdateSpy).toHaveBeenCalledWith(25); // 100 * 0.25
+
+      // Change speed back to 8
+      hud.battleMenuPanel!.animationSpeedSlider!.value = 8;
+      expect(settings.animationSpeed).toBe(8);
+      hud.update(100, 60);
+      expect(turnUpdateSpy).toHaveBeenLastCalledWith(100); // 100 * 1.0
+
+      hud.destroy();
+    });
+
+    it('should scale 3D animations and battle actions by animationSpeedMultiplier in BattleView3D.update while keeping camera and hover unscaled', () => {
+      const settings = new BattleSettings();
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+      battle.initializeToSize(10, 8);
+
+      const mockHexBoard = {
+        update: vi.fn(),
+        hexToWorldWithElevation: vi.fn().mockReturnValue(new THREE.Vector3()),
+      };
+      const mockSquad = {
+        update: vi.fn(),
+        isEliminated: false,
+        hasActiveEffects: false,
+        rootGroup: new THREE.Group(),
+        setFacing: vi.fn(),
+        updateStats: vi.fn(),
+      };
+      const mockProjectileSystem = {
+        update: vi.fn(),
+      };
+      const mockSceneDebugger = {
+        update: vi.fn(),
+      };
+      const mockSceneManager = {
+        camera: new THREE.PerspectiveCamera(),
+        render: vi.fn(),
+      };
+
+      const viewContext: any = {
+        settings,
+        hexMap,
+        battle,
+        hexBoard: mockHexBoard,
+        squadVisuals: new Map([['squad-1', mockSquad]]),
+        projectileSystem: mockProjectileSystem,
+        sceneDebugger: mockSceneDebugger,
+        sceneManager: mockSceneManager,
+        updateCameraKeyboardInput: vi.fn(),
+        updateDamagePreviewHover: vi.fn(),
+        updateActiveUnitSelection: vi.fn(),
+        updateHoverVisuals: vi.fn(),
+        getAnimationSpeedMultiplier: BattleView3D.prototype.getAnimationSpeedMultiplier,
+      };
+
+      const battleUpdateSpy = vi.spyOn(battle, 'update');
+
+      // Speed 8 (default, multiplier = 1.0)
+      settings.setAnimationSpeed(8);
+      BattleView3D.prototype.update.call(viewContext, 40);
+
+      expect(viewContext.updateCameraKeyboardInput).toHaveBeenLastCalledWith(40);
+      expect(mockHexBoard.update).toHaveBeenLastCalledWith(40);
+      expect(battleUpdateSpy).toHaveBeenLastCalledWith(40);
+      expect(mockSquad.update).toHaveBeenLastCalledWith(40, mockSceneManager.camera);
+      expect(mockProjectileSystem.update).toHaveBeenLastCalledWith(40);
+      expect(mockSceneDebugger.update).toHaveBeenLastCalledWith(40);
+      expect(viewContext.updateDamagePreviewHover).toHaveBeenLastCalledWith(40);
+
+      // Speed 1 (slowest, multiplier = 0.25 -> 4x slower)
+      settings.setAnimationSpeed(1);
+      BattleView3D.prototype.update.call(viewContext, 40);
+
+      expect(viewContext.updateCameraKeyboardInput).toHaveBeenLastCalledWith(40);
+      expect(mockHexBoard.update).toHaveBeenLastCalledWith(10);
+      expect(battleUpdateSpy).toHaveBeenLastCalledWith(10);
+      expect(mockSquad.update).toHaveBeenLastCalledWith(10, mockSceneManager.camera);
+      expect(mockProjectileSystem.update).toHaveBeenLastCalledWith(10);
+      expect(mockSceneDebugger.update).toHaveBeenLastCalledWith(40);
+      expect(viewContext.updateDamagePreviewHover).toHaveBeenLastCalledWith(40);
+    });
+
+    it('should provide an Auto-Battle toggle button and CPU Personality dropdown next to it in BattleHud2D, starting with manual control', () => {
+      const textureNames = [
+        'thin_button_normal.png',
+        'thin_button_hover.png',
+        'thin_button_2_normal.png',
+        'thin_button_2_hover.png',
+        'btn_simple.png',
+        'btn_simple_hover.png',
+        'btn_simple_click.png',
+        'glyph_plus.png',
+        'glyph_minus.png',
+        'glyph_next_turn.png',
+        'glyph_next_unit.png',
+        'glyph_reset.png',
+        'glyph_ability1.png',
+        'glyph_stamina',
+        'panel.png',
+      ];
+      textureNames.forEach((name) => {
+        try {
+          PixiAssets.cache.set(name, PixiTexture.EMPTY);
+        } catch {
+          // ignore
+        }
+      });
+
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+      battle.initializeToSize(10, 8);
+      const settings = new BattleSettings();
+
+      const dummyUiSheet = {
+        textures: new Proxy({}, {
+          get: () => PixiTexture.EMPTY,
+        }),
+      };
+
+      const hud = new BattleHud2D(
+        { uiSheet: dummyUiSheet as any, softCursorTextures: {} },
+        settings,
+        battle
+      );
+
+      let autoBattleState: boolean | undefined;
+      let chosenPersonality: string | undefined;
+
+      hud.initialize({
+        onZoomIn: () => {},
+        onZoomOut: () => {},
+        onZoomSliderUpdate: () => {},
+        onNextTurn: () => {},
+        onNextUnit: () => {},
+        onReset: () => {},
+        onRest: () => {},
+        onToggleAutoBattle: (enabled) => {
+          autoBattleState = enabled;
+        },
+        onAutoBattlePersonalityChange: (personality) => {
+          chosenPersonality = personality;
+        },
+      });
+
+      // Battle always starts with manual human player control
+      expect(hud.isAutoBattleEnabled).toBe(false);
+      expect(battle.army_control[0]).toBe(ArmyControlType.PLAYER);
+      expect(hud.getFormattedArmyName(0)).toContain('Human');
+
+      const autoBtn = hud.commonControls.autoBattleButton;
+      const dropdown = hud.commonControls.autoBattlePersonalityDropdown;
+      expect(autoBtn).toBeDefined();
+      expect(dropdown).toBeDefined();
+
+      // Dropdown is placed next to the auto-battle button
+      expect(dropdown!.x).toBeGreaterThan(autoBtn!.x);
+      expect(dropdown!.y).toBe(autoBtn!.y);
+      expect(dropdown!.selectedPersonality).toBe('defensive');
+
+      // UI hit testing covers the auto-battle button and dropdown
+      expect(hud.isPointerOverUI(autoBtn!.x + 10, autoBtn!.y + 10)).toBe(true);
+      expect(hud.isPointerOverUI(dropdown!.x + 10, dropdown!.y + 10)).toBe(true);
+
+      // Toggle auto-battle ON
+      autoBtn!.onPress.emit();
+      expect(hud.isAutoBattleEnabled).toBe(true);
+      expect(autoBattleState).toBe(true);
+      expect(battle.army_control[0]).toBe(ArmyControlType.AI);
+      expect(hud.getFormattedArmyName(0)).toContain('CPU Defensive');
+
+      // Open dropdown and select Aggressive
+      dropdown!.headerButton.onPress.emit();
+      expect(dropdown!.isOpen).toBe(true);
+      // Expanded dropdown area is also covered by isPointerOverUI
+      expect(hud.isPointerOverUI(dropdown!.x + 10, dropdown!.y + 60)).toBe(true);
+
+      dropdown!.optionButtonsByPersonality.get('aggressive' as any)!.onPress.emit();
+      expect(dropdown!.isOpen).toBe(false);
+      expect(chosenPersonality).toBe('aggressive');
+      expect(hud.getPlayerCpuPlayer()?.personalityName).toBe('aggressive');
+      expect(hud.getFormattedArmyName(0)).toContain('CPU Aggressive');
+
+      // Select Dumb personality
+      dropdown!.headerButton.onPress.emit();
+      dropdown!.optionButtonsByPersonality.get('dumb' as any)!.onPress.emit();
+      expect(chosenPersonality).toBe('dumb');
+      expect(hud.getPlayerCpuPlayer()?.personalityName).toBe('dumb');
+      expect(hud.getFormattedArmyName(0)).toContain('CPU Dumb');
+
+      // Toggle auto-battle OFF -> returns to manual control
+      autoBtn!.onPress.emit();
+      expect(hud.isAutoBattleEnabled).toBe(false);
+      expect(autoBattleState).toBe(false);
+      expect(battle.army_control[0]).toBe(ArmyControlType.PLAYER);
+      expect(hud.getFormattedArmyName(0)).toContain('Human');
+
+      hud.destroy();
     });
   });
 });
