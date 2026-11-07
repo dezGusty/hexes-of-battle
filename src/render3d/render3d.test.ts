@@ -845,6 +845,40 @@ describe('3D Graphics Engine & Rendering Systems', () => {
 
       projectileSys.dispose();
     });
+
+    it('should scale arrow projectiles to 66% of their original dimensions and use small gray low-poly spherical pebbles for slingers', () => {
+      const projectileSys = new ProjectileSystem3D();
+      expect(ProjectileSystem3D.ARROW_SCALE).toBeCloseTo(0.66, 2);
+
+      // 1. Arrow projectile size (66% of original 0.6m shaft / ~0.725m total length)
+      const arrowGroup = projectileSys.createProjectileMesh('arrow');
+      expect(arrowGroup.userData.scaleFactor).toBeCloseTo(0.66, 2);
+      const arrowBox = new THREE.Box3().setFromObject(arrowGroup);
+      const arrowSize = new THREE.Vector3();
+      arrowBox.getSize(arrowSize);
+      // Total length along Z (since arrow is rotated 90 deg around X) was ~0.725m, at 66% is ~0.4785m
+      expect(arrowSize.z).toBeCloseTo(0.725 * 0.66, 2);
+      expect(arrowSize.x).toBeCloseTo(0.1 * 0.66, 2);
+
+      // 2. Slinger pebble projectile (small, gray, low-poly spherical shape)
+      const pebbleGroup = projectileSys.createProjectileMesh('stone');
+      expect(pebbleGroup.userData.isPebble).toBe(true);
+      const pebbleMesh = pebbleGroup.children[0] as THREE.Mesh;
+      expect(pebbleMesh).toBeInstanceOf(THREE.Mesh);
+      expect(pebbleMesh.geometry).toBeInstanceOf(THREE.SphereGeometry);
+      const sphereParams = (pebbleMesh.geometry as THREE.SphereGeometry).parameters;
+      expect(sphereParams.radius).toBeLessThanOrEqual(0.06);
+      expect(sphereParams.widthSegments).toBeLessThanOrEqual(8);
+      expect(sphereParams.heightSegments).toBeLessThanOrEqual(8);
+
+      const pebbleMat = pebbleMesh.material as THREE.MeshStandardMaterial;
+      expect(pebbleMat.flatShading).toBe(true);
+      // Gray color (R === G === B)
+      expect(pebbleMat.color.r).toBeCloseTo(pebbleMat.color.g, 2);
+      expect(pebbleMat.color.g).toBeCloseTo(pebbleMat.color.b, 2);
+
+      projectileSys.dispose();
+    });
   });
 
   describe('4. 2D Tactical HUD Overlay for 3D Battle Arena', () => {

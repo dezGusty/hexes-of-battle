@@ -2,6 +2,7 @@ import { ButtonOptions, FancyButton, Slider } from "@pixi/ui";
 import { TextStyle, TextStyleOptions, Text, Container, Graphics } from "pixi.js";
 import { drawMedievalBestiaryMotif, drawMetallicRivet } from "./medieval-ui-decorations";
 import { CPUPersonalityType } from "../battle/cpu-player";
+import { bindButtonUISound, bindSliderUISound } from "../battle/ui-sounds";
 
 export interface CPUPersonalityOption {
   value: CPUPersonalityType;
@@ -56,6 +57,7 @@ export class CPUPersonalityDropdown extends Container {
       text: this.formatHeaderText(),
     });
     this.decorateDropdownButton(this.headerButton, width, height);
+    bindButtonUISound(this.headerButton);
     this.headerButton.onPress.connect(() => {
       this.toggle();
     });
@@ -87,6 +89,7 @@ export class CPUPersonalityDropdown extends Container {
         text: opt.label,
       });
       this.decorateDropdownButton(itemBtn, width, this.itemHeight);
+      bindButtonUISound(itemBtn);
       itemBtn.onPress.connect(() => {
         this.selectPersonality(opt.value, true);
         this.close();
@@ -472,6 +475,19 @@ export class CommonControls {
     );
     this.autoBattlePersonalityDropdown.position.set(dropdownBounds.x, dropdownBounds.y);
     this.cpuPersonalityDropdown = this.autoBattlePersonalityDropdown;
+
+    bindButtonUISound(this.zoomOutButton);
+    bindButtonUISound(this.zoomInButton);
+    bindButtonUISound(this.altitudeUpButton);
+    bindButtonUISound(this.altitudeDownButton);
+    bindButtonUISound(this.resetButton);
+    bindButtonUISound(this.activeAbility1Button);
+    bindButtonUISound(this.restButton);
+    bindButtonUISound(this.nextUnitButton);
+    bindButtonUISound(this.nextTurnButton);
+    bindButtonUISound(this.menuButton);
+    bindButtonUISound(this.autoBattleButton);
+    bindSliderUISound(this.zoomSlider);
   }
 
   public setAutoBattleEnabled(enabled: boolean): void {

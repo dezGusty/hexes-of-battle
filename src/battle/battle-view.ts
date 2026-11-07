@@ -26,6 +26,7 @@ import { DamagePreviewTooltip } from '../ui/damage-preview-tooltip';
 import { ExhaustionState } from './combat-rules';
 
 import { BattleSaveEntry, SaveManager } from './save-manager';
+import { getActiveUISoundSystem, setActiveUISoundSystem, SoundCategory, SoundType } from './ui-sounds';
 
 export interface BattleViewEvents {
   onZoomIn: () => void;
@@ -125,6 +126,7 @@ export class BattleView {
     if (gameVersion) {
       this.gameVersion = gameVersion;
     }
+    setActiveUISoundSystem(undefined, this.settings);
     this.playerCpuPlayer = CPUPlayerFactory.create(this.autoBattlePersonality, this.battle);
   }
 
@@ -427,7 +429,28 @@ export class BattleView {
       sound.play('sword', { speed: 0.9 + Math.random() * 0.2, volume: this.settings.sound.soundVolume });
     }
     if (attackType === BattleActionType.ATTACK_RANGED) {
-      sound.play('arrow', { speed: 0.9 + Math.random() * 0.2, volume: this.settings.sound.soundVolume });
+      const isSlinger = _attacker?.creatureType === CreatureType.SLINGER;
+      const rangedSoundType = isSlinger ? SoundType.STONE : SoundType.ARROW;
+      const activeSoundSystem = getActiveUISoundSystem();
+      const shooterCount = Math.max(1, _attacker?.aliveModelCount ?? 1);
+      const maxSquadSize = Math.max(
+        shooterCount,
+        _attacker?.maxModels ?? _attacker?.stats?.model_count ?? shooterCount
+      );
+      if (isSlinger && activeSoundSystem?.playStoneVolley) {
+        activeSoundSystem.playStoneVolley(shooterCount, maxSquadSize);
+      } else if (activeSoundSystem?.playRangedVolley) {
+        activeSoundSystem.playRangedVolley(rangedSoundType, shooterCount, maxSquadSize);
+      } else if (activeSoundSystem?.playArrowVolley) {
+        activeSoundSystem.playArrowVolley(shooterCount, maxSquadSize, undefined, rangedSoundType);
+      } else if (activeSoundSystem) {
+        activeSoundSystem.play(SoundCategory.SOUND, rangedSoundType, true);
+      } else {
+        sound.play(isSlinger ? '47495__kwandalist__steinwurf_1.ogg' : 'arrow', {
+          speed: 0.9 + Math.random() * 0.2,
+          volume: this.settings.sound.soundVolume,
+        });
+      }
     }
   }
 

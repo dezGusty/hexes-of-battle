@@ -12,6 +12,7 @@ import {
   resetPlayerBannersToDefault,
   getPlayerBanner,
   createBannerSubTexture,
+  setSharedBannersTexture,
 } from '../render3d/decorations/retreat-flag-3d';
 import fs from 'fs';
 import path from 'path';
@@ -690,6 +691,51 @@ describe('Configurable Fixed Retreat Points & Animated Flags', () => {
       expect(flag1?.userData.bannerName).toBe('banner15.png');
 
       hexBoard.dispose();
+    });
+
+    it('should texture retreat flags with player1Banner and player2Banner from combat_config.json using the banners.png atlas', () => {
+      const cfgPath = path.resolve(process.cwd(), 'public/combat_config.json');
+      const rawConfig = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+      configurePlayerBanners(rawConfig);
+
+      const atlasTex = new THREE.Texture();
+      atlasTex.name = 'banners.png';
+      setSharedBannersTexture(atlasTex);
+
+      const hexMap = new HexMap(8, 6);
+      const hexBoard = new HexBoard3D(hexMap, {
+        getRetreatPoints: (a) => [{ x: a === 0 ? 0 : 7, y: 2 }],
+      });
+
+      // Rebuild board to verify shared atlas texture is preserved across rebuilds
+      hexBoard.rebuildBoard();
+
+      const flag0 = hexBoard.retreatFlagsGroup.children.find((f) => f.userData.armyIndex === 0);
+      const flag1 = hexBoard.retreatFlagsGroup.children.find((f) => f.userData.armyIndex === 1);
+
+      expect(flag0?.userData.bannerName).toBe(rawConfig.player1Banner);
+      expect(flag1?.userData.bannerName).toBe(rawConfig.player2Banner);
+
+      const cloth0 = flag0?.getObjectByName('Cloth') as THREE.Mesh;
+      const cloth1 = flag1?.getObjectByName('Cloth') as THREE.Mesh;
+      const mat0 = cloth0?.material as THREE.MeshStandardMaterial;
+      const mat1 = cloth1?.material as THREE.MeshStandardMaterial;
+
+      expect(mat0.map).toBeDefined();
+      expect(mat1.map).toBeDefined();
+      expect(mat0.map?.name).toBe(rawConfig.player1Banner);
+      expect(mat1.map?.name).toBe(rawConfig.player2Banner);
+
+      const frame0 = BANNER_FRAMES[rawConfig.player1Banner];
+      const frame1 = BANNER_FRAMES[rawConfig.player2Banner];
+      expect(mat0.map?.offset.x).toBeCloseTo(frame0.x / BANNERS_ATLAS_SIZE.w, 4);
+      expect(mat0.map?.offset.y).toBeCloseTo((BANNERS_ATLAS_SIZE.h - frame0.y - frame0.h) / BANNERS_ATLAS_SIZE.h, 4);
+      expect(mat1.map?.offset.x).toBeCloseTo(frame1.x / BANNERS_ATLAS_SIZE.w, 4);
+      expect(mat1.map?.offset.y).toBeCloseTo((BANNERS_ATLAS_SIZE.h - frame1.y - frame1.h) / BANNERS_ATLAS_SIZE.h, 4);
+
+      hexBoard.dispose();
+      setSharedBannersTexture(null);
+      resetPlayerBannersToDefault();
     });
   });
 

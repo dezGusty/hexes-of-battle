@@ -402,5 +402,24 @@ describe("Slinger Unit and Imprecise Volley Perk", () => {
       expect(fs.statSync(glbPath).size).toBeGreaterThan(10000);
       expect(fs.statSync(blendPath).size).toBeGreaterThan(50000);
     });
+
+    it("should have stone throwing sound files in public/audio and configured in sounds.json", () => {
+      const audioDir = path.resolve(__dirname, "../../public/audio");
+      const expectedFiles = [
+        "47495__kwandalist__steinwurf_1.ogg",
+        "47495__kwandalist__steinwurf_2.ogg",
+        "47495__kwandalist__steinwurf_3.ogg",
+      ];
+      for (const file of expectedFiles) {
+        const filePath = path.join(audioDir, file);
+        expect(fs.existsSync(filePath)).toBe(true);
+        expect(fs.statSync(filePath).size).toBeGreaterThan(1000);
+      }
+
+      const soundsCfg = JSON.parse(
+        fs.readFileSync(path.resolve(__dirname, "../../public/sounds.json"), "utf-8")
+      );
+      expect(soundsCfg.soundGroups.stone).toEqual(expectedFiles);
+    });
   });
 });

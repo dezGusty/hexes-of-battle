@@ -2,7 +2,7 @@ import { Battle, DamagePreviewResult, InputState, MapRenderUpdate, RangedAttackD
 import { HexDirection, HexFlankStatus, HexMap, checkFlankingStatus } from '../shared/hex-map';
 import { Coords } from '../shared';
 import { PinchGestureHandler } from '../shared/pinch-gesture-handler';
-import { Creature } from '../battle/creature';
+import { Creature, CreatureType } from '../battle/creature';
 import { BattleActionType } from '../battle/battle-action';
 import { CPUPlayer } from '../battle/cpu-player';
 import { BattleSettings } from '../battle/settings';
@@ -371,8 +371,26 @@ export class BattleView3D {
         attackerSquad.playAnimation('attack_ranged', 400);
       }
 
+      const isSlinger = data.attacker?.creatureType === CreatureType.SLINGER;
       if (this.soundSystem) {
-        this.soundSystem.play(SoundCategory.SOUND, SoundType.ARROW, true);
+        const rangedSoundType = isSlinger ? SoundType.STONE : SoundType.ARROW;
+        const shooterCount = Math.max(
+          1,
+          data.attacker?.aliveModelCount ?? data.projectiles?.length ?? 1
+        );
+        const maxSquadSize = Math.max(
+          shooterCount,
+          data.attacker?.maxModels ?? data.attacker?.stats?.model_count ?? shooterCount
+        );
+        if (isSlinger && this.soundSystem.playStoneVolley) {
+          this.soundSystem.playStoneVolley(shooterCount, maxSquadSize);
+        } else if (this.soundSystem.playRangedVolley) {
+          this.soundSystem.playRangedVolley(rangedSoundType, shooterCount, maxSquadSize);
+        } else if (this.soundSystem.playArrowVolley) {
+          this.soundSystem.playArrowVolley(shooterCount, maxSquadSize, undefined, rangedSoundType);
+        } else {
+          this.soundSystem.play(SoundCategory.SOUND, rangedSoundType, true);
+        }
       }
 
       // Build array of individual projectile trajectories with distinct destination hexes
@@ -401,7 +419,7 @@ export class BattleView3D {
       this.projectileSystem.spawnVolley({
         sourcePos,
         projectiles,
-        projectileType: 'arrow',
+        projectileType: isSlinger ? 'stone' : 'arrow',
         durationMs: 480,
         apexHeight: Math.max(1.8, dist * 0.38),
         onImpact,
@@ -448,14 +466,29 @@ export class BattleView3D {
         attackerSquad.playAnimation('attack_ranged', 400);
       }
 
+      const isSlinger = attacker?.creatureType === CreatureType.SLINGER;
       if (this.soundSystem) {
-        this.soundSystem.play(SoundCategory.SOUND, SoundType.ARROW, true);
+        const rangedSoundType = isSlinger ? SoundType.STONE : SoundType.ARROW;
+        const shooterCount = Math.max(1, attacker.aliveModelCount ?? 1);
+        const maxSquadSize = Math.max(
+          shooterCount,
+          attacker.maxModels ?? attacker.stats?.model_count ?? shooterCount
+        );
+        if (isSlinger && this.soundSystem.playStoneVolley) {
+          this.soundSystem.playStoneVolley(shooterCount, maxSquadSize);
+        } else if (this.soundSystem.playRangedVolley) {
+          this.soundSystem.playRangedVolley(rangedSoundType, shooterCount, maxSquadSize);
+        } else if (this.soundSystem.playArrowVolley) {
+          this.soundSystem.playArrowVolley(shooterCount, maxSquadSize, undefined, rangedSoundType);
+        } else {
+          this.soundSystem.play(SoundCategory.SOUND, rangedSoundType, true);
+        }
       }
 
       this.projectileSystem.spawnVolley({
         sourcePos,
         targetPos,
-        projectileType: 'arrow',
+        projectileType: isSlinger ? 'stone' : 'arrow',
         durationMs: 480,
         apexHeight: Math.max(1.8, sourcePos.distanceTo(targetPos) * 0.38),
         volleyCount: Math.min(8, Math.max(3, attacker.aliveModelCount)),

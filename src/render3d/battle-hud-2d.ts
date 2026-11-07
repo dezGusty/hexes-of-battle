@@ -20,6 +20,7 @@ import { TurnChangeCollection } from "../ui/turn-change-display";
 import { PostBattlePanel } from "../ui/post-battle-panel";
 
 import { BattleSaveEntry, SaveManager } from "../battle/save-manager";
+import { setActiveUISoundSystem } from "../battle/ui-sounds";
 
 export interface BattleHud2DEvents {
   onZoomIn: () => void;
@@ -101,6 +102,7 @@ export class BattleHud2D {
   ) {
     this.assets = assets;
     this.settings = settings;
+    setActiveUISoundSystem(undefined, this.settings);
     this.battle = battle;
     this.cpuPlayer = cpuPlayer;
     this.playerCpuPlayer = CPUPlayerFactory.create(this.autoBattlePersonality, this.battle);

@@ -1,7 +1,19 @@
 import { Container } from "pixi.js";
+import * as THREE from "three";
 import { GameContext, Scene } from "../core/scene";
+import { setSharedBannersTexture } from "../render3d/decorations/retreat-flag-3d";
 import { HexDirection, HexMap } from "../shared/hex-map";
-import { ISoundSystem, PixiSoundSystem, SoundCategory, SoundType } from "../battle/sound-system";
+import {
+  configureArrowVolleySounds,
+  configureSoundGroups,
+  configureUISounds,
+  ISoundSystem,
+  PixiSoundSystem,
+  setActiveUISoundSystem,
+  SoundCategory,
+  SoundType,
+} from "../battle/sound-system";
+import { MoraleState } from "../battle/combat-rules";
 import { Coords } from "../shared";
 import { ArmyControlType, Battle } from "../battle";
 import { BattleActionType } from "../battle/battle-action";
@@ -33,6 +45,32 @@ export class BattleScene3D implements Scene {
     this.context = context;
     this.currentConfig = params?.config;
     this.soundSystem = params?.soundSystem ?? context.soundSystem ?? new PixiSoundSystem(context.settings);
+    setActiveUISoundSystem(this.soundSystem, context.settings);
+    if (context.templates.hudConfig?.sounds !== undefined || context.templates.hudConfig?.uiSounds !== undefined) {
+      configureUISounds(
+        context.templates.hudConfig.sounds ?? context.templates.hudConfig.uiSounds,
+        this.soundSystem,
+        context.settings
+      );
+    }
+    const soundGroups =
+      context.templates.soundsConfig?.soundGroups ??
+      context.templates.soundsConfig?.groups ??
+      context.templates.hudConfig?.soundGroups ??
+      (context.templates.combatConfig as any)?.soundGroups;
+    if (soundGroups !== undefined) {
+      configureSoundGroups(soundGroups, this.soundSystem);
+    }
+    const arrowVolleyCfg =
+      context.templates.soundsConfig?.arrowVolley ??
+      context.templates.soundsConfig?.arrow_volley ??
+      context.templates.hudConfig?.arrowVolley ??
+      context.templates.hudConfig?.arrow_volley ??
+      (context.templates.combatConfig as any)?.arrowVolley ??
+      (context.templates.combatConfig as any)?.arrow_volley;
+    if (arrowVolleyCfg !== undefined) {
+      configureArrowVolleySounds(arrowVolleyCfg, this.soundSystem);
+    }
 
     this.creatureRepository.setAbilities(context.templates.abilityTypes);
     this.creatureRepository.setCreatureTemplates(context.templates.creatureTemplates);
@@ -84,6 +122,24 @@ export class BattleScene3D implements Scene {
         ? rawResource
         : undefined;
     const spriteFrames = context.assets.unitsSheet?.data?.frames;
+
+    const rawBannersResource =
+      context.assets.bannersSheet?.textureSource?.source ??
+      context.assets.bannersSheet?.textureSource?.resource;
+    if (
+      rawBannersResource &&
+      (rawBannersResource instanceof HTMLImageElement ||
+        rawBannersResource instanceof HTMLCanvasElement ||
+        (typeof ImageBitmap !== 'undefined' && rawBannersResource instanceof ImageBitmap))
+    ) {
+      const bannersTex = new THREE.Texture(rawBannersResource as any);
+      bannersTex.colorSpace = THREE.SRGBColorSpace;
+      bannersTex.minFilter = THREE.LinearFilter;
+      bannersTex.magFilter = THREE.LinearFilter;
+      bannersTex.generateMipmaps = false;
+      bannersTex.needsUpdate = true;
+      setSharedBannersTexture(bannersTex);
+    }
 
     this.view = new BattleView3D(
       gameElement as HTMLElement,
@@ -300,6 +356,7 @@ export class BattleScene3D implements Scene {
     };
 
     this.battle.hookDoingHeal = (data) => {
+      this.soundSystem.play(SoundCategory.SOUND, SoundType.HEAL, true);
       this.view.showHealVisuals(data.healer, data.target, data.amount, data.moraleBoost);
     };
 
@@ -320,8 +377,14 @@ export class BattleScene3D implements Scene {
     };
 
     this.battle.hookUnitRetreated = (creature) => {
-      this.soundSystem.play(SoundCategory.SOUND, SoundType.MOVE, true);
+      this.soundSystem.play(SoundCategory.SOUND, SoundType.RETREAT, true);
       this.view.removeSquad(creature.GUID.toString());
+    };
+
+    this.battle.hookMoraleBreak = (_creature, state) => {
+      if (state === MoraleState.ROUTING) {
+        this.soundSystem.play(SoundCategory.SOUND, SoundType.RETREAT, true);
+      }
     };
 
     this.battle.hookBattleFinished = (victor) => {

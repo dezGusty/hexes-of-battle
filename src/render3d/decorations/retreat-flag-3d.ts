@@ -162,6 +162,9 @@ export function createBannerSubTexture(atlasTexture: THREE.Texture, bannerName: 
   const frame = BANNER_FRAMES[bannerName] || BANNER_FRAMES['banner1.png'];
   const tex = atlasTexture.clone();
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.generateMipmaps = false;
   // Three.js UV: (0,0) is bottom-left, (1,1) is top-right
   const rx = frame.w / BANNERS_ATLAS_SIZE.w;
   const ry = frame.h / BANNERS_ATLAS_SIZE.h;
@@ -169,8 +172,10 @@ export function createBannerSubTexture(atlasTexture: THREE.Texture, bannerName: 
   const oy = (BANNERS_ATLAS_SIZE.h - frame.y - frame.h) / BANNERS_ATLAS_SIZE.h;
   tex.repeat.set(rx, ry);
   tex.offset.set(ox, oy);
+  tex.updateMatrix();
   tex.needsUpdate = true;
   tex.name = bannerName;
+  tex.userData = { ...tex.userData, isSharedBannerAtlas: true };
   return tex;
 }
 

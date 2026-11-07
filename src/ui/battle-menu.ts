@@ -8,6 +8,7 @@ import {
     MAX_ANIMATION_SPEED,
     MIN_ANIMATION_SPEED,
 } from "../battle/settings";
+import { bindButtonUISound, bindSliderUISound } from "../battle/ui-sounds";
 
 export class BattleMenuPanel {
     static DEFAULT_FONT_STYLE: TextOptions = { style: { fill: { color: '#ffffff', alpha: 1 }, fontSize: 16, align: 'left' } };
@@ -58,6 +59,7 @@ export class BattleMenuPanel {
     private hardwareCursorText?: Text;
     private isHardwareCursorHidden: boolean = false;
     private isUpdatingAnimationSpeed: boolean = false;
+    private isUpdatingSoundValues: boolean = false;
 
     private closeButton: FancyButton = new FancyButton({
         ...this.THIN_BUTTON_STYLE
@@ -140,17 +142,22 @@ export class BattleMenuPanel {
     public setSoundValues(musicVolume: number, soundVolume: number): void {
         const mPercent = Math.max(0, Math.min(100, Math.round(musicVolume * 100)));
         const sPercent = Math.max(0, Math.min(100, Math.round(soundVolume * 100)));
-        if (this.musicVolumeSlider) {
-            this.musicVolumeSlider.value = mPercent;
-        }
-        if (this.musicVolumeValueText) {
-            this.musicVolumeValueText.text = `${mPercent}%`;
-        }
-        if (this.soundVolumeSlider) {
-            this.soundVolumeSlider.value = sPercent;
-        }
-        if (this.soundVolumeValueText) {
-            this.soundVolumeValueText.text = `${sPercent}%`;
+        this.isUpdatingSoundValues = true;
+        try {
+            if (this.musicVolumeSlider) {
+                this.musicVolumeSlider.value = mPercent;
+            }
+            if (this.musicVolumeValueText) {
+                this.musicVolumeValueText.text = `${mPercent}%`;
+            }
+            if (this.soundVolumeSlider) {
+                this.soundVolumeSlider.value = sPercent;
+            }
+            if (this.soundVolumeValueText) {
+                this.soundVolumeValueText.text = `${sPercent}%`;
+            }
+        } finally {
+            this.isUpdatingSoundValues = false;
         }
     }
 
@@ -474,6 +481,26 @@ export class BattleMenuPanel {
         this.mainContainer.addChild(this.animationSpeedValueText);
         this.mainContainer.addChild(this.closeButton);
 
+        bindButtonUISound(this.fullscreenToggleButton);
+        bindButtonUISound(this.toggleCoordsButton);
+        bindButtonUISound(this.toggleGridButton);
+        bindButtonUISound(this.showHealthbarsButton);
+        bindButtonUISound(this.toggleSceneInspectorButton);
+        bindButtonUISound(this.toggleFpsButton);
+        bindButtonUISound(this.toggleDamageIndicatorsButton);
+        bindButtonUISound(this.toggleMusicButton);
+        bindButtonUISound(this.toggleSoundButton);
+        bindButtonUISound(this.saveButton);
+        bindButtonUISound(this.loadButton);
+        bindButtonUISound(this.toggleStatsButton);
+        bindButtonUISound(this.toggleHardwareCursorButton);
+        bindButtonUISound(this.animationSpeedButton);
+        bindButtonUISound(this.closeButton);
+
+        bindSliderUISound(this.musicVolumeSlider, () => this.isUpdatingSoundValues);
+        bindSliderUISound(this.soundVolumeSlider, () => this.isUpdatingSoundValues);
+        bindSliderUISound(this.animationSpeedSlider, () => this.isUpdatingAnimationSpeed);
+
         this.connectMainEventHandlers();
     }
 
@@ -544,6 +571,7 @@ export class BattleMenuPanel {
             text: 'Save Game',
             style: { fontSize: 16, fill: '#CCFFCC' },
         });
+        bindButtonUISound(confirmSaveBtn);
         confirmSaveBtn.onPress.connect(() => this.executeSave());
         this.saveDialogContainer.addChild(confirmSaveBtn);
 
@@ -558,6 +586,7 @@ export class BattleMenuPanel {
             text: 'Cancel',
             style: { fontSize: 16, fill: '#FFDDDD' },
         });
+        bindButtonUISound(cancelSaveBtn);
         cancelSaveBtn.onPress.connect(() => this.showMainMenu());
         this.saveDialogContainer.addChild(cancelSaveBtn);
     }
@@ -592,6 +621,7 @@ export class BattleMenuPanel {
             text: '▲',
             style: { fontSize: 16, fill: '#FFFFCC' },
         });
+        bindButtonUISound(upBtn);
         upBtn.onPress.connect(() => {
             if (this.loadScrollIndex > 0) {
                 this.loadScrollIndex--;
@@ -612,6 +642,7 @@ export class BattleMenuPanel {
             text: '▼',
             style: { fontSize: 16, fill: '#FFFFCC' },
         });
+        bindButtonUISound(downBtn);
         downBtn.onPress.connect(() => {
             if (this.loadScrollIndex + this.LOAD_PAGE_SIZE < this.currentSavesList.length) {
                 this.loadScrollIndex++;
@@ -634,6 +665,7 @@ export class BattleMenuPanel {
             text: 'Back to Menu',
             style: { fontSize: 16, fill: '#DDFFFF' },
         });
+        bindButtonUISound(backBtn);
         backBtn.onPress.connect(() => this.showMainMenu());
         this.loadDialogContainer.addChild(backBtn);
     }
@@ -809,6 +841,7 @@ export class BattleMenuPanel {
                 text: 'Load',
                 style: { fontSize: 14, fill: '#DDFFFF' },
             });
+            bindButtonUISound(loadBtn);
             loadBtn.onPress.connect(() => {
                 this.executeLoad(entry);
             });
@@ -826,6 +859,7 @@ export class BattleMenuPanel {
                 text: 'Del',
                 style: { fontSize: 14, fill: '#FFAAAA' },
             });
+            bindButtonUISound(delBtn);
             delBtn.onPress.connect(() => {
                 SaveManager.deleteSave(entry.id);
                 this.refreshSavesList();

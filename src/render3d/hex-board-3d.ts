@@ -18,6 +18,7 @@ import {
   getPlayerBanner,
   createBannerSubTexture,
   setSharedBannersTexture,
+  getSharedBannersTexture,
 } from './decorations/retreat-flag-3d';
 
 export interface HexBoard3DOptions {
@@ -304,11 +305,15 @@ export class HexBoard3D {
         opacity: 0.88,
       });
 
-      loadTex(`${basePath}banners.png`)
+      await loadTex('banners.png')
+        .catch(() => loadTex(`${basePath}banners.png`))
         .then((bannersTex) => {
+          bannersTex.minFilter = THREE.LinearFilter;
+          bannersTex.magFilter = THREE.LinearFilter;
+          bannersTex.generateMipmaps = false;
+          bannersTex.needsUpdate = true;
           this.bannersTexture = bannersTex;
           setSharedBannersTexture(bannersTex);
-          this.rebuildRetreatFlags();
         })
         .catch(() => { });
 
@@ -1934,6 +1939,14 @@ float hillTerrainNoise(vec2 p) {
    * Flags are purely decorative pass-through objects and do not block squad placement.
    */
   public rebuildRetreatFlags(): void {
+    const sharedSource = this.bannersTexture?.source ?? getSharedBannersTexture()?.source;
+    const disposeMaterialMapIfStandalone = (m: any) => {
+      const map = m?.map;
+      if (map && !map.userData?.isSharedBannerAtlas && (!sharedSource || map.source !== sharedSource)) {
+        map.dispose?.();
+      }
+    };
+
     while (this.retreatFlagsGroup.children.length > 0) {
       const child = this.retreatFlagsGroup.children[0];
       this.retreatFlagsGroup.remove(child);
@@ -1943,11 +1956,11 @@ float hillTerrainNoise(vec2 p) {
           mesh.geometry?.dispose();
           if (Array.isArray(mesh.material)) {
             mesh.material.forEach((m) => {
-              (m as any).map?.dispose();
+              disposeMaterialMapIfStandalone(m);
               m.dispose();
             });
           } else if (mesh.material) {
-            (mesh.material as any).map?.dispose();
+            disposeMaterialMapIfStandalone(mesh.material);
             mesh.material.dispose();
           }
         }
@@ -1955,12 +1968,14 @@ float hillTerrainNoise(vec2 p) {
     }
     this.animatedFlagCloths = [];
 
+    const atlasTex = this.bannersTexture ?? getSharedBannersTexture();
+
     // Place square war standard flags for army 0 and army 1
     for (const armyIndex of [0, 1]) {
       const points = this.getRetreatPointsForArmy(armyIndex);
       const bannerName = this.getBannerForArmy(armyIndex);
-      const bannerTexture = this.bannersTexture
-        ? createBannerSubTexture(this.bannersTexture, bannerName)
+      const bannerTexture = atlasTex
+        ? createBannerSubTexture(atlasTex, bannerName)
         : undefined;
       for (const pt of points) {
         if (pt.x < 0 || pt.x >= this.hexMap.width || pt.y < 0 || pt.y >= this.hexMap.height) {

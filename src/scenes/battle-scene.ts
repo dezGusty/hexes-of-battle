@@ -1,7 +1,17 @@
 import { Container } from "pixi.js";
 import { GameContext, Scene } from "../core/scene";
 import { HexDirection, HexMap } from "../shared/hex-map";
-import { ISoundSystem, PixiSoundSystem, SoundCategory, SoundType } from "../battle/sound-system";
+import {
+  configureArrowVolleySounds,
+  configureSoundGroups,
+  configureUISounds,
+  ISoundSystem,
+  PixiSoundSystem,
+  setActiveUISoundSystem,
+  SoundCategory,
+  SoundType,
+} from "../battle/sound-system";
+import { MoraleState } from "../battle/combat-rules";
 import { Coords } from "../shared";
 import { ArmyControlType, Battle } from "../battle";
 import { CreatureType } from "../battle/creature";
@@ -34,6 +44,32 @@ export class BattleScene implements Scene {
     this.context = context;
     this.currentConfig = params?.config;
     this.soundSystem = params?.soundSystem ?? context.soundSystem ?? new PixiSoundSystem(context.settings);
+    setActiveUISoundSystem(this.soundSystem, context.settings);
+    if (context.templates.hudConfig?.sounds !== undefined || context.templates.hudConfig?.uiSounds !== undefined) {
+      configureUISounds(
+        context.templates.hudConfig.sounds ?? context.templates.hudConfig.uiSounds,
+        this.soundSystem,
+        context.settings
+      );
+    }
+    const soundGroups =
+      context.templates.soundsConfig?.soundGroups ??
+      context.templates.soundsConfig?.groups ??
+      context.templates.hudConfig?.soundGroups ??
+      (context.templates.combatConfig as any)?.soundGroups;
+    if (soundGroups !== undefined) {
+      configureSoundGroups(soundGroups, this.soundSystem);
+    }
+    const arrowVolleyCfg =
+      context.templates.soundsConfig?.arrowVolley ??
+      context.templates.soundsConfig?.arrow_volley ??
+      context.templates.hudConfig?.arrowVolley ??
+      context.templates.hudConfig?.arrow_volley ??
+      (context.templates.combatConfig as any)?.arrowVolley ??
+      (context.templates.combatConfig as any)?.arrow_volley;
+    if (arrowVolleyCfg !== undefined) {
+      configureArrowVolleySounds(arrowVolleyCfg, this.soundSystem);
+    }
 
     console.log("Entering BattleScene with params:", params);
 
@@ -227,6 +263,10 @@ export class BattleScene implements Scene {
       this.view.showAttackVisuals(attacker, defender, damage, attackType, flankStatus);
     };
 
+    this.battle.hookDoingHeal = (_data) => {
+      this.soundSystem.play(SoundCategory.SOUND, SoundType.HEAL, true);
+    };
+
     this.battle.hookNextTurn = (turnNum, armyIdx) => {
       this.view.showTurnBanner(turnNum, armyIdx);
       if (!this.battle.isCurrentTurnAI()) {
@@ -243,7 +283,13 @@ export class BattleScene implements Scene {
     };
 
     this.battle.hookUnitRetreated = (_creature) => {
-      this.soundSystem.play(SoundCategory.SOUND, SoundType.MOVE, true);
+      this.soundSystem.play(SoundCategory.SOUND, SoundType.RETREAT, true);
+    };
+
+    this.battle.hookMoraleBreak = (_creature, state) => {
+      if (state === MoraleState.ROUTING) {
+        this.soundSystem.play(SoundCategory.SOUND, SoundType.RETREAT, true);
+      }
     };
 
     this.battle.hookBattleFinished = (victor) => {

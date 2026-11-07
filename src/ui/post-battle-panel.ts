@@ -3,6 +3,7 @@ import { Battle } from "../battle";
 import { Creature } from "../battle/creature";
 import { MoraleState } from "../battle/combat-rules";
 import { getTeamColorHex } from "../render3d/units/unit-mesh-builder";
+import { playUISound } from "../battle/ui-sounds";
 
 export interface SquadPostBattleInfo {
   creature: Creature;
@@ -350,7 +351,11 @@ export class PostBattlePanel {
     closeText.anchor.set(0.5);
     closeText.position.set(panelW - 45, 42);
     closeBtn.addChild(closeBg, closeText);
-    closeBtn.on("pointerdown", () => this.hide());
+    closeBtn.on("pointerover", () => playUISound("hover"));
+    closeBtn.on("pointerdown", () => {
+      playUISound("click");
+      this.hide();
+    });
     this.contentContainer.addChild(closeBtn);
 
     // 3. Central Vertical Divider
@@ -391,7 +396,11 @@ export class PostBattlePanel {
     btnText.position.set(btnX + btnW * 0.5, btnY + btnH * 0.5);
 
     bottomBtn.addChild(btnBg, btnText);
-    bottomBtn.on("pointerdown", () => this.hide());
+    bottomBtn.on("pointerover", () => playUISound("hover"));
+    bottomBtn.on("pointerdown", () => {
+      playUISound("click");
+      this.hide();
+    });
     this.contentContainer.addChild(bottomBtn);
   }
 
