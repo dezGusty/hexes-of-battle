@@ -559,6 +559,11 @@ export class BattleView {
         this.settings.setAnimationSpeed(speed);
         this.settings.save();
       };
+      this.battleMenuPanel.setWeather(this.settings.weather);
+      this.battleMenuPanel.onWeatherChange = (weather) => {
+        this.settings.weather = weather;
+        this.settings.save();
+      };
       this.battleMenuPanel.onSaveBattle = (name) => {
         if (events.onSaveBattle) {
           return events.onSaveBattle(name);

@@ -9,6 +9,7 @@ import {
     MIN_ANIMATION_SPEED,
 } from "../battle/settings";
 import { bindButtonUISound, bindSliderUISound } from "../battle/ui-sounds";
+import { WeatherDropdown, WeatherType } from "./weather-dropdown";
 
 export class BattleMenuPanel {
     static DEFAULT_FONT_STYLE: TextOptions = { style: { fill: { color: '#ffffff', alpha: 1 }, fontSize: 16, align: 'left' } };
@@ -55,6 +56,8 @@ export class BattleMenuPanel {
     public animationSpeedButton?: FancyButton;
     public animationSpeedSlider?: Slider;
     public animationSpeedValueText?: Text;
+    public weatherButton?: FancyButton;
+    public weatherDropdown?: WeatherDropdown;
 
     private hardwareCursorText?: Text;
     private isHardwareCursorHidden: boolean = false;
@@ -88,6 +91,7 @@ export class BattleMenuPanel {
     public onToggleFps?: (showFps: boolean) => void;
     public onToggleHardwareCursor?: (hide: boolean) => void;
     public onAnimationSpeedChange?: (speed: number) => void;
+    public onWeatherChange?: (weather: WeatherType) => void;
 
     public constructor(private view: Container, private uiSheet: Spritesheet) {
         const windowBg = new NineSliceSprite({
@@ -99,7 +103,7 @@ export class BattleMenuPanel {
         });
 
         windowBg.width = 920;
-        windowBg.height = 640;
+        windowBg.height = 700;
         windowBg.alpha = 0.95;
 
         this.window.addChild(windowBg);
@@ -183,6 +187,14 @@ export class BattleMenuPanel {
         return DEFAULT_ANIMATION_SPEED;
     }
 
+    public setWeather(weather: WeatherType): void {
+        this.weatherDropdown?.selectWeather(weather, false);
+    }
+
+    public getWeather(): WeatherType {
+        return this.weatherDropdown?.selectedWeather ?? WeatherType.NONE;
+    }
+
     private initializeMainContainer(panelWidth: number): void {
         const title = new Text({
             text: `Battle Menu`,
@@ -215,6 +227,7 @@ export class BattleMenuPanel {
         addMenuOption(col1TextX, 355, 'Toggle 3D Scene Inspector.\n(Same effect as pressing F2)');
         addMenuOption(col1TextX, 430, 'Show FPS\nToggle frames per second counter.');
         addMenuOption(col1TextX, 505, 'Show damage indicators.\nFloating indicators on morale/HP/stamina change.');
+        addMenuOption(col1TextX, 575, 'Weather Effects (Visual)\nSelect atmospheric weather.');
 
         // Column 2 Options
         addMenuOption(col2TextX, 55, 'Toggle music on/off.');
@@ -279,6 +292,32 @@ export class BattleMenuPanel {
         this.toggleDamageIndicatorsButton.position.set(col1BtnX, 505);
         this.toggleDamageIndicatorsButton.width = 64;
         this.toggleDamageIndicatorsButton.height = 60;
+
+        this.weatherButton = new FancyButton({
+            ...this.DEFAULT_BUTTON_STYLE,
+            icon: this.uiSheet.textures['glyph_toggle_perf_stats.png'] ? 'glyph_toggle_perf_stats.png' : 'btn_simple.png',
+        });
+        this.weatherButton.position.set(col1BtnX, 575);
+        this.weatherButton.width = 64;
+        this.weatherButton.height = 60;
+        this.weatherButton.onPress.connect(() => {
+            this.weatherDropdown?.toggle();
+        });
+
+        this.weatherDropdown = new WeatherDropdown(
+            this.THIN_BUTTON_STYLE,
+            WeatherType.NONE,
+            200,
+            34,
+            30,
+            true
+        );
+        this.weatherDropdown.position.set(col1TextX, 575 + 34);
+        this.weatherDropdown.onChange = (weather) => {
+            if (this.onWeatherChange) {
+                this.onWeatherChange(weather);
+            }
+        };
 
         // Column 2 Buttons & Sliders
         this.toggleMusicButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_toggle_music.png' });
@@ -450,7 +489,7 @@ export class BattleMenuPanel {
             }
         });
 
-        this.closeButton.position.set((panelWidth - 140) / 2, 580);
+        this.closeButton.position.set((panelWidth - 140) / 2, 648);
         this.closeButton.width = 140;
         this.closeButton.height = 36;
         this.closeButton.text = new Text({
@@ -466,6 +505,8 @@ export class BattleMenuPanel {
         this.mainContainer.addChild(this.toggleSceneInspectorButton);
         this.mainContainer.addChild(this.toggleFpsButton);
         this.mainContainer.addChild(this.toggleDamageIndicatorsButton);
+        if (this.weatherButton) this.mainContainer.addChild(this.weatherButton);
+        if (this.weatherDropdown) this.mainContainer.addChild(this.weatherDropdown);
         this.mainContainer.addChild(this.toggleMusicButton);
         this.mainContainer.addChild(this.musicVolumeSlider);
         this.mainContainer.addChild(this.musicVolumeValueText);
@@ -488,6 +529,7 @@ export class BattleMenuPanel {
         bindButtonUISound(this.toggleSceneInspectorButton);
         bindButtonUISound(this.toggleFpsButton);
         bindButtonUISound(this.toggleDamageIndicatorsButton);
+        if (this.weatherButton) bindButtonUISound(this.weatherButton);
         bindButtonUISound(this.toggleMusicButton);
         bindButtonUISound(this.toggleSoundButton);
         bindButtonUISound(this.saveButton);

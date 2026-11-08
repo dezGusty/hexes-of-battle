@@ -1,4 +1,6 @@
 
+import { WeatherType, normalizeWeatherType } from '../ui/weather-dropdown';
+
 export const MIN_ANIMATION_SPEED = 1;
 export const MAX_ANIMATION_SPEED = 8;
 export const DEFAULT_ANIMATION_SPEED = 8;
@@ -84,6 +86,7 @@ export class BattleSettings {
   public hotkeys: HotkeysSettings = new HotkeysSettings();
   public hideHardwareCursor: boolean = false;
   public animationSpeed: number = DEFAULT_ANIMATION_SPEED;
+  public weather: WeatherType = WeatherType.NONE;
 
   public setAnimationSpeed(speed: number): void {
     this.animationSpeed = clampAnimationSpeed(speed);
@@ -157,6 +160,11 @@ export class BattleSettings {
       }
     }
 
+    const weather = localStorage.getItem('hob.weather');
+    if (weather !== null) {
+      this.weather = normalizeWeatherType(weather);
+    }
+
     const hotkeys = localStorage.getItem('hob.hotkeys');
     if (hotkeys) {
       try {
@@ -184,6 +192,8 @@ export class BattleSettings {
     localStorage.setItem('hob.hideHardwareCursor', String(this.hideHardwareCursor));
     // Save the animation speed setting to local storage
     localStorage.setItem('hob.animationSpeed', String(clampAnimationSpeed(this.animationSpeed)));
+    // Save the weather setting to local storage
+    localStorage.setItem('hob.weather', String(this.weather));
     // Save the hotkeys settings to the browser's local storage
     localStorage.setItem('hob.hotkeys', JSON.stringify(this.hotkeys));
   }

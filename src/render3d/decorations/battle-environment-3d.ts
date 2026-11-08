@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildLowPolyForestTreeMesh } from '../units/unit-mesh-builder';
+import { buildLowPolyForestTreeMesh, ForestTreeVariant } from '../units/unit-mesh-builder';
 
 /**
  * Supported major terrain / battle location types for the surrounding 3D environment.
@@ -693,7 +693,7 @@ export function populateOuterEnvironmentDecorations(
   locationType: BattleLocationType,
   bounds: BoardWorldBounds,
   hexHeight: number = 0.25,
-  treeTemplates?: { pine?: THREE.Object3D; oak?: THREE.Object3D }
+  treeTemplates?: Partial<Record<ForestTreeVariant, THREE.Object3D>>
 ): { animatedWindmillSails: THREE.Object3D[] } {
   const normalizedType = normalizeBattleLocationType(locationType);
   const animatedWindmillSails: THREE.Object3D[] = [];
@@ -766,10 +766,11 @@ export function populateOuterEnvironmentDecorations(
     // FOREST LOCATION: Dense woodland perimeter of Pines, Oaks, Rocks & Logs
     // ------------------------------------------------------------------------
     const spawnTreeAt = (wx: number, wz: number, seed: number) => {
-      const variant: 'pine' | 'oak' = seed % 2 === 0 ? 'pine' : 'oak';
+      const treeVariants: ForestTreeVariant[] = ['pine', 'oak', 'birch', 'willow', 'maple'];
+      const variant: ForestTreeVariant = treeVariants[seed % treeVariants.length];
       const scale = 1.05 + seededRand(seed * 13) * 0.55;
       let treeObj: THREE.Object3D;
-      const glbTpl = variant === 'pine' ? treeTemplates?.pine : treeTemplates?.oak;
+      const glbTpl = treeTemplates?.[variant];
       if (glbTpl) {
         treeObj = glbTpl.clone(true);
         treeObj.scale.set(scale, scale, scale);
@@ -902,30 +903,32 @@ export function populateOuterEnvironmentDecorations(
       targetGroup.add(hay);
     }
 
-    // A few solitary oak trees in the plains
-    const plainsTrees: Array<{ x: number; z: number; scale: number }> = [
-      { x: nwX + 4.8, z: nwZ - 1.8, scale: 1.15 },
-      { x: innerMaxX + 3.2, z: innerMinZ - 1.8, scale: 1.05 },
-      { x: innerMinX - 3.0, z: innerMaxZ + 2.2, scale: 1.1 },
-      { x: innerMaxX + 3.5, z: innerMaxZ + 3.0, scale: 1.2 },
+    // A few solitary trees in the plains (oak, birch, maple, willow)
+    const plainsTrees: Array<{ x: number; z: number; scale: number; variant: ForestTreeVariant }> = [
+      { x: nwX + 4.8, z: nwZ - 1.8, scale: 1.15, variant: 'oak' },
+      { x: innerMaxX + 3.2, z: innerMinZ - 1.8, scale: 1.05, variant: 'birch' },
+      { x: innerMinX - 3.0, z: innerMaxZ + 2.2, scale: 1.1, variant: 'maple' },
+      { x: innerMaxX + 3.5, z: innerMaxZ + 3.0, scale: 1.2, variant: 'willow' },
     ];
     for (let i = 0; i < plainsTrees.length; i++) {
       const pt = plainsTrees[i];
-      const oak = treeTemplates?.oak
-        ? treeTemplates.oak.clone(true)
-        : buildLowPolyForestTreeMesh('oak', pt.scale);
-      if (treeTemplates?.oak) {
-        oak.scale.set(pt.scale, pt.scale, pt.scale);
+      const tpl = treeTemplates?.[pt.variant];
+      const tree = tpl
+        ? tpl.clone(true)
+        : buildLowPolyForestTreeMesh(pt.variant, pt.scale);
+      if (tpl) {
+        tree.scale.set(pt.scale, pt.scale, pt.scale);
       }
-      oak.name = `OuterPlainsTree_${i}`;
-      oak.position.set(pt.x, groundY, pt.z);
-      oak.userData = {
-        ...oak.userData,
+      tree.name = `OuterPlainsTree_${i}`;
+      tree.position.set(pt.x, groundY, pt.z);
+      tree.userData = {
+        ...tree.userData,
         isOuterDecoration: true,
         decorationType: 'plains_tree',
+        treeVariant: pt.variant,
         locationType: BattleLocationType.FARM,
       };
-      targetGroup.add(oak);
+      targetGroup.add(tree);
     }
   }
 

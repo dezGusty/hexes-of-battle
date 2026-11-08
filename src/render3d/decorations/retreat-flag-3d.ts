@@ -436,8 +436,9 @@ export function createRetreatFlagMesh(
   const clothMesh = new THREE.Mesh(clothGeo, clothMat);
   clothMesh.name = 'Cloth';
   clothMesh.position.set(0, 0.68, 0);
-  // Default wind angle = +45 deg (+PI/4) streaming from South-West towards North-East
-  clothMesh.rotation.y = Math.PI * 0.25;
+  // Default wind angle = +45 deg (+PI/4) blowing toward South-East (+X, +Z)
+  // In Three.js (+X = East, +Z = South), rotating local +X by rotation.y = -angle points to (cos(angle), 0, sin(angle))
+  clothMesh.rotation.y = -Math.PI * 0.25;
   clothMesh.castShadow = true;
   clothMesh.receiveShadow = true;
 
@@ -450,7 +451,7 @@ export function createRetreatFlagMesh(
     length: flagLength,
     height: flagHeight,
     phaseOffset: hexX * 0.91 + hexY * 0.73 + armyIndex * 1.5,
-    windDirection: new THREE.Vector3(Math.SQRT1_2, 0, -Math.SQRT1_2), // SW -> NE
+    windDirection: new THREE.Vector3(Math.SQRT1_2, 0, Math.SQRT1_2), // SW -> SE (+X, +Z)
     bannerName: resolvedBannerName,
     windAngleRad: Math.PI * 0.25,
     windStrength: 1.0,
@@ -466,7 +467,10 @@ export function createRetreatFlagMesh(
  * - windStrength: wind speed/intensity factor (e.g. 0.5 to 2.0)
  */
 export function setRetreatFlagWindState(clothMesh: THREE.Mesh, windAngleRad: number, windStrength: number = 1.0): void {
-  clothMesh.rotation.y = windAngleRad;
+  // In Three.js right-handed coordinates (+X = East, +Y = Up, +Z = South),
+  // rotating local forward (+X) by rotation.y = -windAngleRad aligns the flag to (cos(windAngleRad), 0, sin(windAngleRad)),
+  // pointing parallel to downwind blowing leaves, grass sway, and tree lean.
+  clothMesh.rotation.y = -windAngleRad;
   if (!clothMesh.userData) clothMesh.userData = {};
   clothMesh.userData.windAngleRad = windAngleRad;
   clothMesh.userData.windStrength = windStrength;
@@ -495,8 +499,8 @@ export function updateRetreatFlagWind(
   const posAttr = geo.attributes.position as THREE.BufferAttribute;
   if (!posAttr) return;
 
-  if (windAngleRad !== undefined && clothMesh.rotation.y !== windAngleRad) {
-    clothMesh.rotation.y = windAngleRad;
+  if (windAngleRad !== undefined && clothMesh.rotation.y !== -windAngleRad) {
+    clothMesh.rotation.y = -windAngleRad;
     clothMesh.userData.windAngleRad = windAngleRad;
     clothMesh.userData.windDirection = new THREE.Vector3(Math.cos(windAngleRad), 0, Math.sin(windAngleRad));
   }

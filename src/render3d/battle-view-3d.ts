@@ -16,6 +16,7 @@ import { ThreeSceneDebugger } from './debug/three-scene-debugger';
 import { ExhaustionState } from '../battle/combat-rules';
 import { ISoundSystem, SoundCategory, SoundType } from '../battle/sound-system';
 import { BattleLocationType } from './decorations/battle-environment-3d';
+import { WeatherType } from '../ui/weather-dropdown';
 
 export interface BattleView3DEvents {
   onNextTurn: () => void;
@@ -100,6 +101,7 @@ export class BattleView3D {
 
     this.sceneManager = new ThreeSceneManager(container);
     this.sceneManager.setSkyboxTheme(this.battle.getMajorTerrainType());
+    this.sceneManager.setWeather(this.settings.weather ?? WeatherType.NONE);
     this.hexBoard = new HexBoard3D(this.hexMap, {
       showGrid: settings.hex.showGrid,
       borderThickness: settings.hex.gridBorderThickness,
@@ -146,6 +148,9 @@ export class BattleView3D {
     this.hud = hud;
     this.getStageInfo = getStageInfo;
     if (this.hud) {
+      if (this.hud.battleMenuPanel) {
+        this.hud.battleMenuPanel.setWeather(this.settings.weather);
+      }
       this.hud.onShowEnemyStats = (creature: Creature) => {
         this.updateEnemyRangePerimeter(creature);
       };
@@ -153,6 +158,19 @@ export class BattleView3D {
         this.clearEnemyRangePerimeter();
       };
     }
+  }
+
+  public setWeather(weather: WeatherType): void {
+    this.settings.weather = weather;
+    this.settings.save();
+    this.sceneManager.setWeather(weather);
+    if (this.hud?.battleMenuPanel) {
+      this.hud.battleMenuPanel.setWeather(weather);
+    }
+  }
+
+  public getWeather(): WeatherType {
+    return this.sceneManager.getWeather();
   }
 
   public setGridVisible(visible: boolean): void {
@@ -645,6 +663,13 @@ export class BattleView3D {
 
     // 3. Update 3D projectiles
     this.projectileSystem.update(scaledDeltaMS);
+
+    // 3.2 Update weather system (rain particles, lightning, ground fog)
+    if (this.sceneManager?.weatherSystem) {
+      const windState = this.battle?.getWindState ? this.battle.getWindState() : { angleRad: 0, strength: 1 };
+      this.sceneManager.weatherSystem.setWindState(windState.angleRad, windState.strength);
+      this.sceneManager.weatherSystem.update(scaledDeltaMS);
+    }
 
     // 3.5 Update scene debugger
     this.sceneDebugger?.update(deltaMS);

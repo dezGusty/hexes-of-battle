@@ -26,6 +26,7 @@ import { UnitStatsPanel, DisplayedStat } from "../ui/unit-stats-panel";
 import { EnemyStatsPanel } from "../ui/enemy-stats-panel";
 import { Creature, CreatureType } from "./creature";
 import { BattleMenuPanel } from "../ui/battle-menu";
+import { WeatherType } from "../ui/weather-dropdown";
 import { MoraleState } from "./combat-rules";
 import { getMoraleTexture } from "../ui/morale-icon-utils";
 import { Ability, AbilityType } from "./ability";
@@ -537,6 +538,81 @@ describe("BattleMenuPanel 2-Column Layout & Scene Inspector Toggle", () => {
     const freshSettings2 = new BattleSettings();
     freshSettings2.load();
     expect(freshSettings2.hideHardwareCursor).toBe(false);
+  });
+
+  it("should provide WeatherDropdown in BattleMenuPanel and trigger onWeatherChange callback", () => {
+    const container = new Container();
+    const dummyUiSheet = {
+      textures: new Proxy({}, {
+        get: () => Texture.EMPTY,
+      }),
+    } as unknown as Spritesheet;
+
+    const menu = new BattleMenuPanel(container, dummyUiSheet);
+    expect(menu.weatherDropdown).toBeDefined();
+    expect(menu.weatherButton).toBeDefined();
+    expect(menu.weatherDropdown!.options).toHaveLength(4);
+    expect(menu.getWeather()).toBe(WeatherType.NONE);
+
+    let changedWeather: WeatherType | undefined;
+    menu.onWeatherChange = (w) => {
+      changedWeather = w;
+    };
+
+    // Toggle dropdown open
+    expect(menu.weatherDropdown!.isOpen).toBe(false);
+    menu.weatherButton!.onPress.emit();
+    expect(menu.weatherDropdown!.isOpen).toBe(true);
+
+    // Select Rain
+    const rainBtn = menu.weatherDropdown!.optionButtonsByWeather.get(WeatherType.RAIN);
+    expect(rainBtn).toBeDefined();
+    rainBtn!.onPress.emit();
+
+    expect(menu.weatherDropdown!.isOpen).toBe(false);
+    expect(menu.getWeather()).toBe(WeatherType.RAIN);
+    expect(changedWeather).toBe(WeatherType.RAIN);
+
+    // Set weather via setWeather without notifying
+    menu.setWeather(WeatherType.THUNDERSTORM);
+    expect(menu.getWeather()).toBe(WeatherType.THUNDERSTORM);
+
+    menu.setWeather(WeatherType.FOG);
+    expect(menu.getWeather()).toBe(WeatherType.FOG);
+
+    menu.destroy();
+  });
+
+  it("should persist and load weather setting in hob.weather in localStorage", () => {
+    const storage: Record<string, string> = {};
+    (globalThis as any).localStorage = {
+      getItem: (key: string) => storage[key] ?? null,
+      setItem: (key: string, value: string) => {
+        storage[key] = value;
+      },
+      removeItem: (key: string) => {
+        delete storage[key];
+      },
+      clear: () => {
+        Object.keys(storage).forEach((k) => delete storage[k]);
+      },
+    };
+
+    const settings = new BattleSettings();
+    expect(settings.weather).toBe(WeatherType.NONE);
+
+    settings.weather = WeatherType.RAIN;
+    settings.save();
+    expect(storage['hob.weather']).toBe('rain');
+
+    const fresh = new BattleSettings();
+    expect(fresh.weather).toBe(WeatherType.NONE);
+    fresh.load();
+    expect(fresh.weather).toBe(WeatherType.RAIN);
+
+    fresh.weather = WeatherType.THUNDERSTORM;
+    fresh.save();
+    expect(storage['hob.weather']).toBe('thunderstorm');
   });
 
   it("should display game version text in top-right corner when FPS is displayed and sync visibility with FPS", () => {

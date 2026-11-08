@@ -225,11 +225,11 @@ describe('Configurable Fixed Retreat Points & Animated Flags', () => {
       const poleGeo = pole.geometry as THREE.CylinderGeometry;
       expect(poleGeo.parameters.height).toBeCloseTo(0.88, 2);
 
-      // Verify South-West to North-East wind direction (+45 deg around Y)
-      expect(cloth.rotation.y).toBeCloseTo(Math.PI * 0.25, 4);
+      // Verify wind direction (+45 deg around Y pointing to South-East +X, +Z)
+      expect(cloth.rotation.y).toBeCloseTo(-Math.PI * 0.25, 4);
       const windDir = cloth.userData.windDirection as THREE.Vector3;
       expect(windDir.x).toBeCloseTo(Math.SQRT1_2, 3);
-      expect(windDir.z).toBeCloseTo(-Math.SQRT1_2, 3);
+      expect(windDir.z).toBeCloseTo(Math.SQRT1_2, 3);
     });
 
     it('should allow both a squad and a flag to occupy the same hex without blocking', () => {
@@ -387,7 +387,7 @@ describe('Configurable Fixed Retreat Points & Animated Flags', () => {
       // Gentle breeze: strength = 0.5, wind blowing towards 90 deg (South)
       const angleRadSouth = Math.PI * 0.5;
       updateRetreatFlagWind(cloth, 1.5, 0.5, angleRadSouth);
-      expect(cloth.rotation.y).toBeCloseTo(angleRadSouth, 4);
+      expect(cloth.rotation.y).toBeCloseTo(-angleRadSouth, 4);
 
       // Measure amplitude at free fly tip
       const tipIndex = posAttr.count - 1;
@@ -396,7 +396,7 @@ describe('Configurable Fixed Retreat Points & Animated Flags', () => {
       // Strong gale: strength = 2.0, wind blowing towards 0 deg (East)
       const angleRadEast = 0;
       updateRetreatFlagWind(cloth, 1.5, 2.0, angleRadEast);
-      expect(cloth.rotation.y).toBeCloseTo(angleRadEast, 4);
+      expect(cloth.rotation.y).toBeCloseTo(-angleRadEast, 4);
 
       const tipZStrong = Math.abs(posAttr.getZ(tipIndex));
       // Stronger wind creates higher billow/ripple wave displacement

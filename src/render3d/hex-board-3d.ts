@@ -10,6 +10,8 @@ import {
   getTreePartTexture,
   applyTreeUVMapping,
   smoothGeometryNormals,
+  ForestTreeVariant,
+  updateTreeWindState,
 } from './units/unit-mesh-builder';
 import { createSelectedHaloTexture } from './units/selected-halo-texture';
 import {
@@ -28,6 +30,8 @@ import {
   populateOuterEnvironmentDecorations,
 } from './decorations/battle-environment-3d';
 import { WindState } from './decorations/wind-system';
+import { GrassFieldSystem, GrassModelType, GrassClumpInstanceData } from './decorations/grass-system-3d';
+import { BlowingLeavesSystem } from './decorations/blowing-leaves-3d';
 
 export interface HexBoard3DOptions {
   showGrid?: boolean;
@@ -64,9 +68,11 @@ export class HexBoard3D {
   private coordsGroup: THREE.Group = new THREE.Group();
   public readonly forestTreesGroup: THREE.Group = new THREE.Group();
   private forestTreesByHex: Map<string, THREE.Object3D[]> = new Map();
-  private forestTreeTemplates: { pine?: THREE.Object3D; oak?: THREE.Object3D } = {};
+  private forestTreeTemplates: Partial<Record<ForestTreeVariant, THREE.Object3D>> = {};
   public readonly retreatFlagsGroup: THREE.Group = new THREE.Group();
   public readonly outerDecorationsGroup: THREE.Group = new THREE.Group();
+  public readonly grassSystem: GrassFieldSystem = new GrassFieldSystem();
+  public readonly blowingLeavesSystem: BlowingLeavesSystem = new BlowingLeavesSystem();
   private animatedFlagCloths: THREE.Mesh[] = [];
   private animatedWindmillSails: THREE.Object3D[] = [];
   private windTime: number = 0;
@@ -204,6 +210,8 @@ export class HexBoard3D {
     this.group.add(this.forestTreesGroup);
     this.group.add(this.retreatFlagsGroup);
     this.group.add(this.outerDecorationsGroup);
+    this.group.add(this.grassSystem.group);
+    this.group.add(this.blowingLeavesSystem.group);
 
     this.buildBoard();
   }
@@ -1604,6 +1612,8 @@ float hillTerrainNoise(vec2 p) {
     this.rebuildCoords();
     this.rebuildRetreatFlags();
     this.rebuildOuterDecorations();
+    this.rebuildGrassField();
+    this.updateTreeCanopiesForBlowingLeaves();
   }
 
   /**
@@ -1627,14 +1637,16 @@ float hillTerrainNoise(vec2 p) {
     // Symmetric scale variations around 1.0 so the average height is exactly 0.75 * AVERAGE_UNIT_3D_HEIGHT
     const scaleOffsets = [0.0, -0.06, 0.06, -0.04, 0.04];
 
+    const treeVariants: ForestTreeVariant[] = ['pine', 'oak', 'birch', 'willow', 'maple'];
+
     for (let i = 0; i < treeCount; i++) {
       const subSeed = (((tileSeed + i * 2654435761) >>> 0) % 1000) / 1000;
-      const variant: 'pine' | 'oak' = (tileSeed + i) % 2 === 0 ? 'pine' : 'oak';
+      const variant: ForestTreeVariant = treeVariants[(tileSeed + i) % treeVariants.length];
       const heightScale = 1.0 + scaleOffsets[i % scaleOffsets.length];
       const treeHeight = FOREST_TREE_TARGET_HEIGHT * heightScale;
 
       let treeObj: THREE.Object3D;
-      const glbTpl = variant === 'pine' ? this.forestTreeTemplates.pine : this.forestTreeTemplates.oak;
+      const glbTpl = this.forestTreeTemplates[variant];
       if (glbTpl) {
         treeObj = glbTpl.clone(true);
         treeObj.scale.set(heightScale, heightScale, heightScale);
@@ -1970,6 +1982,14 @@ float hillTerrainNoise(vec2 p) {
           (this.animatedWindmillSails[i].rotation.z - sailDeltaAngle) % (2 * Math.PI);
       }
     }
+
+    // Update wind-animated instanced grass field sway
+    this.grassSystem.update(deltaMS);
+
+    // Update tree wind swaying (trunk & branches & leaf flutter) and blowing leaves system
+    const deltaSec = Math.max(0.001, deltaMS * 0.001);
+    updateTreeWindState(this.currentWindAngleRad, this.currentWindStrength, deltaSec);
+    this.blowingLeavesSystem.update(deltaMS);
   }
 
   public setWindState(windAngleRad: number, windStrength: number = 1.0): void {
@@ -1978,6 +1998,9 @@ float hillTerrainNoise(vec2 p) {
     for (let i = 0; i < this.animatedFlagCloths.length; i++) {
       setRetreatFlagWindState(this.animatedFlagCloths[i], windAngleRad, windStrength);
     }
+    this.grassSystem.setWindState(windAngleRad, windStrength);
+    this.blowingLeavesSystem.setWindState(windAngleRad, windStrength);
+    updateTreeWindState(windAngleRad, windStrength);
   }
 
   public getWindState(): { angleRad: number; strength: number } {
@@ -2044,6 +2067,95 @@ float hillTerrainNoise(vec2 p) {
       this.forestTreeTemplates
     );
     this.animatedWindmillSails = animatedWindmillSails;
+    this.rebuildGrassField();
+    this.updateTreeCanopiesForBlowingLeaves();
+  }
+
+  /**
+   * Scans all forest trees on the board and outer scenery trees to register their canopy
+   * positions with the blowing leaves particle system.
+   */
+  public updateTreeCanopiesForBlowingLeaves(): void {
+    const canopies: THREE.Vector3[] = [];
+    this.forestTreesGroup.traverse((obj) => {
+      if (obj.userData?.isForestTree) {
+        const h = (obj.userData.treeHeight ?? 0.9) * 0.75;
+        canopies.push(new THREE.Vector3(obj.position.x, obj.position.y + h, obj.position.z));
+      }
+    });
+    this.outerDecorationsGroup.traverse((obj) => {
+      if (
+        obj.userData?.decorationType === 'forest_tree' ||
+        obj.userData?.decorationType === 'plains_tree'
+      ) {
+        canopies.push(new THREE.Vector3(obj.position.x, obj.position.y + 0.75, obj.position.z));
+      }
+    });
+    this.blowingLeavesSystem.setTreeCanopyPositions(canopies);
+  }
+
+  /**
+   * Rebuilds the lightweight instanced grass field across playable plain/forest hexes
+   * and perimeter meadows, orienting and swaying in the direction of the wind.
+   */
+  public rebuildGrassField(): void {
+    this.grassSystem.clear();
+    const positions: GrassClumpInstanceData[] = [];
+
+    // Deterministic pseudo-random seed helper
+    const seededRand = (seed: number) => {
+      const s = Math.sin(seed * 91.345 + 0.123) * 43758.5453;
+      return s - Math.floor(s);
+    };
+
+    // 1. Scatter grass clumps on playable PLAIN and FOREST tiles (excluding WATER)
+    for (let x = 0; x < this.hexMap.width; x++) {
+      for (let y = 0; y < this.hexMap.height; y++) {
+        const terrain = this.getTerrainAt(x, y);
+        if (terrain === TerrainType.WATER) continue;
+
+        const worldPos = this.hexToWorld(x, y);
+        const elev = this.getHexElevation(x, y);
+        const tileSeed = ((x * 73856093) ^ (y * 19349663)) >>> 0;
+
+        // 2 to 4 grass clumps per eligible hex tile placed near edges/corners so center remains readable (doubled frequency)
+        const clumpCount = 2 + (tileSeed % 3);
+        for (let i = 0; i < clumpCount; i++) {
+          const subSeed = (tileSeed + i * 179) >>> 0;
+          const angle = (seededRand(subSeed) * Math.PI * 2);
+          const dist = this.hexRadius * (0.38 + seededRand(subSeed + 1) * 0.40);
+          const gx = worldPos.x + Math.cos(angle) * dist;
+          const gz = worldPos.z + Math.sin(angle) * dist;
+          const gy = worldPos.y + elev;
+          const scale = 0.85 + seededRand(subSeed + 2) * 0.35;
+          const rotY = seededRand(subSeed + 3) * Math.PI * 2;
+          const modelType: GrassModelType = ((subSeed + i) % 3) as GrassModelType;
+
+          positions.push({ x: gx, y: gy, z: gz, scale, rotationY: rotY, modelType });
+        }
+      }
+    }
+
+    // 2. Scatter perimeter grass clumps on outer ground apron (doubled count: 72 clumps)
+    const bounds = this.getBoardWorldBounds();
+    const margin = 2.4;
+    const groundY = -this.hexHeight + 0.005;
+    const outerCount = 72;
+    for (let i = 0; i < outerCount; i++) {
+      const angle = (i * Math.PI * 2) / outerCount + seededRand(i * 13) * 0.15;
+      const baseSpan = Math.max(bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ) * 0.5 + margin;
+      const dist = baseSpan + seededRand(i * 29) * 8.5;
+      const gx = bounds.centerX + Math.cos(angle) * dist;
+      const gz = bounds.centerZ + Math.sin(angle) * dist;
+      const scale = 0.95 + seededRand(i * 47) * 0.45;
+      const rotY = seededRand(i * 53) * Math.PI * 2;
+      const modelType: GrassModelType = (i % 3) as GrassModelType;
+
+      positions.push({ x: gx, y: groundY, z: gz, scale, rotationY: rotY, modelType });
+    }
+
+    this.grassSystem.setWindState(this.currentWindAngleRad, this.currentWindStrength);
+    this.grassSystem.buildGrassField(positions);
   }
 
   private clearOuterDecorations(): void {
@@ -2751,6 +2863,8 @@ float hillTerrainNoise(vec2 p) {
     }
     this.clearForestTrees();
     this.clearOuterDecorations();
+    this.grassSystem.dispose();
+    this.blowingLeavesSystem.dispose();
     this.clearReachOverlays();
     this.clearRangePerimeter();
     this.clearEnemyRangePerimeter();

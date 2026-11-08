@@ -216,6 +216,9 @@ export class BattleScene3D implements Scene {
       onAutoBattlePersonalityChange: () => {
         this.view.updateActiveUnitSelection();
       },
+      onWeatherChange: (weather) => {
+        this.view.setWeather(weather);
+      },
       onSaveBattle: (name) => {
         SaveManager.saveBattle(this.battle, name);
         return true;

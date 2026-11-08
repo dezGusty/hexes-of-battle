@@ -21,6 +21,7 @@ import { PostBattlePanel } from "../ui/post-battle-panel";
 
 import { BattleSaveEntry, SaveManager } from "../battle/save-manager";
 import { setActiveUISoundSystem } from "../battle/ui-sounds";
+import { WeatherType } from "../ui/weather-dropdown";
 
 export interface BattleHud2DEvents {
   onZoomIn: () => void;
@@ -44,6 +45,7 @@ export interface BattleHud2DEvents {
   onAnimationSpeedChange?: (speed: number) => void;
   onToggleAutoBattle?: (enabled: boolean) => void;
   onAutoBattlePersonalityChange?: (personality: CPUPersonalityType) => void;
+  onWeatherChange?: (weather: WeatherType) => void;
   onSaveBattle?: (name: string) => boolean;
   onLoadSave?: (entry: BattleSaveEntry) => void;
 }
@@ -315,6 +317,14 @@ export class BattleHud2D {
         this.settings.save();
         if (events.onAnimationSpeedChange) {
           events.onAnimationSpeedChange(this.settings.animationSpeed);
+        }
+      };
+      this.battleMenuPanel.setWeather(this.settings.weather);
+      this.battleMenuPanel.onWeatherChange = (weather) => {
+        this.settings.weather = weather;
+        this.settings.save();
+        if (events.onWeatherChange) {
+          events.onWeatherChange(weather);
         }
       };
       this.battleMenuPanel.onSaveBattle = (name) => {
@@ -799,6 +809,14 @@ export class BattleHud2D {
 
   public setHardwareCursorHidden(hidden: boolean): void {
     this.battleMenuPanel?.setHardwareCursorHidden(hidden);
+  }
+
+  public setWeather(weather: WeatherType): void {
+    this.battleMenuPanel?.setWeather(weather);
+  }
+
+  public getWeather(): WeatherType {
+    return this.battleMenuPanel?.getWeather() ?? this.settings.weather;
   }
 
   public setCursor(cursorHint?: string): void {

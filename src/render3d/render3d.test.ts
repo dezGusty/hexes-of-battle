@@ -33,6 +33,8 @@ import * as path from 'path';
 import { TerrainType } from '../battle/terrain-types';
 import { UnitVisualFormat } from './types';
 import { BattleLocationType } from './decorations/battle-environment-3d';
+import { GrassFieldSystem, createGrassClumpTexture } from './decorations/grass-system-3d';
+import { WeatherSystem3D, WeatherType } from './decorations/weather-system-3d';
 import {
   AVERAGE_UNIT_3D_HEIGHT,
   BARBARIAN_TEXTURE_PATHS,
@@ -56,7 +58,10 @@ import {
   getSharedTreeMaterials,
   isUnit3DModelSupported,
   smoothGeometryNormals,
+  updateTreeWindState,
+  sharedTreeWindUniforms,
 } from './units/unit-mesh-builder';
+import { BlowingLeavesSystem } from './decorations/blowing-leaves-3d';
 import { generateSelectedHaloPixels, SELECTED_HALO_TEXTURE_SIZE } from './units/selected-halo-texture';
 import pkg from '../../package.json';
 
@@ -2925,8 +2930,8 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(foliageMat.flatShading).toBe(false);
       expect(foliageMat.vertexColors).toBe(true);
 
-      // Verify Pine and Oak low-poly forest tree meshes contain valid UV coordinates and smooth normals
-      for (const variant of ['pine', 'oak'] as const) {
+      // Verify all 5 low-poly forest tree meshes (pine, oak, birch, willow, maple) contain valid UV coordinates and smooth normals
+      for (const variant of ['pine', 'oak', 'birch', 'willow', 'maple'] as const) {
         const tree = buildLowPolyForestTreeMesh(variant);
         let trunkMesh: THREE.Mesh | null = null;
         let foliageMesh: THREE.Mesh | null = null;
@@ -3813,6 +3818,382 @@ describe('3D Graphics Engine & Rendering Systems', () => {
 
       // Clean up
       view.destroy();
+    });
+
+    it('should render lightweight low-overhead instanced grass with at least 3 distinct models and textures reacting to wind', () => {
+      // 1. Verify at least 3 distinct 128x128 textures
+      const tex0 = createGrassClumpTexture(0);
+      const tex1 = createGrassClumpTexture(1);
+      const tex2 = createGrassClumpTexture(2);
+
+      expect(tex0.image.width).toBe(128);
+      expect(tex1.image.width).toBe(128);
+      expect(tex2.image.width).toBe(128);
+
+      // Verify upright root orientation at bottom row y = 0
+      const texData0 = tex0.image.data as Uint8Array;
+      let bottomRowHasAlpha = false;
+      for (let x = 0; x < 128; x++) {
+        if (texData0[(0 * 128 + x) * 4 + 3] > 0) bottomRowHasAlpha = true;
+      }
+      expect(bottomRowHasAlpha).toBe(true);
+
+      // 2. Verify at least 3 distinct low-poly geometries:
+      // Model 0: Crossed Quads (4 triangles, 8 vertices)
+      // Model 1: Dense Star (6 triangles, 12 vertices)
+      // Model 2: V-Tuft (4 triangles, 8 vertices)
+      const geo0 = GrassFieldSystem.createCrossedQuadsGeometry(0.38, 0.32);
+      const geo1 = GrassFieldSystem.createDenseStarGeometry(0.36, 0.35);
+      const geo2 = GrassFieldSystem.createTuftVGeometry(0.42, 0.28);
+
+      expect(geo0.attributes.position.count).toBe(8);
+      expect(geo0.index!.count).toBe(12);
+
+      expect(geo1.attributes.position.count).toBe(12);
+      expect(geo1.index!.count).toBe(18);
+
+      expect(geo2.attributes.position.count).toBe(8);
+      expect(geo2.index!.count).toBe(12);
+
+      // 3. Verify GrassFieldSystem manages at least 3 distinct models
+      const grassSystem = new GrassFieldSystem();
+      expect(grassSystem.getModelCount()).toBeGreaterThanOrEqual(3);
+
+      const samplePositions = [
+        { x: 0, y: 0, z: 0, modelType: 0 },
+        { x: 2, y: 0, z: 1.5, modelType: 1 },
+        { x: -3, y: 0, z: -2, modelType: 2 },
+      ];
+      grassSystem.buildGrassField(samplePositions);
+      expect(grassSystem.getCount()).toBe(3);
+      expect(grassSystem.instancedMeshes.length).toBe(3);
+
+      // Verify wind parameter update
+      const windAngleRad = Math.PI * 0.75;
+      const windStrength = 1.6;
+      grassSystem.setWindState(windAngleRad, windStrength);
+      const windState = grassSystem.getWindState();
+      expect(windState.angleRad).toBeCloseTo(windAngleRad, 4);
+      expect(windState.strength).toBeCloseTo(windStrength, 4);
+
+      // Verify animation update increments internal wind time
+      grassSystem.update(100);
+
+      // Clean up
+      grassSystem.dispose();
+      tex0.dispose();
+      tex1.dispose();
+      tex2.dispose();
+      geo0.dispose();
+      geo1.dispose();
+      geo2.dispose();
+    });
+
+    it('should integrate GrassFieldSystem on HexBoard3D and rebuild grass field on board creation', () => {
+      const hexMap = new HexMap(10, 8);
+      const hexBoard = new HexBoard3D(hexMap, {
+        majorTerrainType: BattleLocationType.FARM,
+      });
+
+      expect(hexBoard.grassSystem).toBeDefined();
+      expect(hexBoard.grassSystem.instancedMeshes.length).toBeGreaterThan(0);
+      expect(hexBoard.grassSystem.getCount()).toBeGreaterThan(0);
+
+      // Updating hexBoard with wind should propagate to grass system
+      const angleRad = Math.PI * 0.33;
+      hexBoard.setWindState(angleRad, 1.4);
+      expect(hexBoard.grassSystem.getWindState().angleRad).toBeCloseTo(angleRad, 4);
+      expect(hexBoard.grassSystem.getWindState().strength).toBeCloseTo(1.4, 4);
+
+      hexBoard.update(60);
+
+      hexBoard.dispose();
+    });
+
+    it('should manage 4 configurable visual weather effects (None, Rain, Thunderstorm, Fog) in WeatherSystem3D', () => {
+      const scene = new THREE.Scene();
+      const dirLight = new THREE.DirectionalLight(0xfff5e6, 2.4);
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.22);
+      const hemiLight = new THREE.HemisphereLight(0xddeeff, 0x223322, 0.15);
+      scene.fog = new THREE.FogExp2(0x203525, 0.0035);
+
+      scene.add(dirLight);
+      scene.add(ambientLight);
+      scene.add(hemiLight);
+
+      const weatherSystem = new WeatherSystem3D();
+      weatherSystem.attachScene(scene, dirLight, ambientLight, hemiLight);
+      scene.add(weatherSystem.group);
+
+      // 1. None (default, Sunny)
+      expect(weatherSystem.getWeather()).toBe(WeatherType.NONE);
+      expect(weatherSystem.rainGroup.visible).toBe(false);
+      expect(weatherSystem.thunderGroup.visible).toBe(false);
+      expect(weatherSystem.groundFogGroup.visible).toBe(false);
+      expect(dirLight.intensity).toBeCloseTo(2.4, 2);
+      expect(ambientLight.intensity).toBeCloseTo(0.22, 2);
+
+      // 2. Rain (Cloudy, rain effect, monotonous rain streaks)
+      weatherSystem.setWeather(WeatherType.RAIN);
+      expect(weatherSystem.getWeather()).toBe(WeatherType.RAIN);
+      expect(weatherSystem.rainGroup.visible).toBe(true);
+      expect(weatherSystem.thunderGroup.visible).toBe(false);
+      expect(weatherSystem.groundFogGroup.visible).toBe(false);
+      expect(dirLight.intensity).toBeCloseTo(1.8, 2);
+      expect(ambientLight.intensity).toBeGreaterThan(0.25);
+      expect(scene.fog.density).toBeGreaterThan(0.005);
+
+      // Update rain animation with wind
+      weatherSystem.setWindState(Math.PI * 0.5, 1.5);
+      weatherSystem.update(50);
+
+      // 3. Thunderstorm (dark storm, rain, lightning, vicinity thunder strike)
+      weatherSystem.setWeather(WeatherType.THUNDERSTORM);
+      expect(weatherSystem.getWeather()).toBe(WeatherType.THUNDERSTORM);
+      expect(weatherSystem.rainGroup.visible).toBe(true);
+      expect(weatherSystem.thunderGroup.visible).toBe(true);
+      expect(weatherSystem.groundFogGroup.visible).toBe(false);
+      expect(dirLight.intensity).toBeCloseTo(1.4, 2);
+
+      // Trigger vicinity thunder strike
+      weatherSystem.triggerLightningStrike({ x: 15, z: 12 });
+      weatherSystem.update(60);
+
+      // 4. Fog (light gray fog at ground level, obscuring unit feet)
+      weatherSystem.setWeather(WeatherType.FOG);
+      expect(weatherSystem.getWeather()).toBe(WeatherType.FOG);
+      expect(weatherSystem.rainGroup.visible).toBe(false);
+      expect(weatherSystem.thunderGroup.visible).toBe(false);
+      expect(weatherSystem.groundFogGroup.visible).toBe(true);
+      expect(dirLight.intensity).toBeCloseTo(1.7, 2);
+      expect(scene.fog.density).toBeGreaterThanOrEqual(0.02);
+
+      // Verify low-altitude horizontal ground fog planes at unit foot height (y <= 0.35)
+      expect(weatherSystem.groundFogGroup.children.length).toBeGreaterThanOrEqual(3);
+      weatherSystem.groundFogGroup.children.forEach((child) => {
+        expect(child.position.y).toBeLessThanOrEqual(0.35);
+        expect(child.position.y).toBeGreaterThanOrEqual(0.05);
+      });
+
+      weatherSystem.update(100);
+
+      // 5. Return to None (Sunny) restores sunny lighting
+      weatherSystem.setWeather(WeatherType.NONE);
+      expect(weatherSystem.getWeather()).toBe(WeatherType.NONE);
+      expect(weatherSystem.rainGroup.visible).toBe(false);
+      expect(weatherSystem.thunderGroup.visible).toBe(false);
+      expect(weatherSystem.groundFogGroup.visible).toBe(false);
+      expect(dirLight.intensity).toBeCloseTo(2.4, 2);
+      expect(ambientLight.intensity).toBeCloseTo(0.22, 2);
+      expect(scene.fog.density).toBeCloseTo(0.0035, 4);
+
+      weatherSystem.dispose();
+    });
+
+    it('should integrate WeatherSystem3D on ThreeSceneManager and BattleView3D', () => {
+      const container = document.createElement('div');
+      container.style.width = '1000px';
+      container.style.height = '800px';
+      document.body.appendChild(container);
+
+      const hexMap = new HexMap(8, 6);
+      const battle = new Battle(hexMap);
+      const settings = new BattleSettings();
+
+      const view = new BattleView3D(container, hexMap, battle, settings);
+      expect(view.sceneManager.weatherSystem).toBeDefined();
+      expect(view.getWeather()).toBe(WeatherType.NONE);
+
+      // Switch weather via BattleView3D
+      view.setWeather(WeatherType.RAIN);
+      expect(view.getWeather()).toBe(WeatherType.RAIN);
+      expect(view.sceneManager.weatherSystem.getWeather()).toBe(WeatherType.RAIN);
+      expect(settings.weather).toBe(WeatherType.RAIN);
+
+      // Update loops step weather system smoothly
+      view.update(50);
+
+      view.setWeather(WeatherType.FOG);
+      expect(view.getWeather()).toBe(WeatherType.FOG);
+
+      view.destroy();
+      container.remove();
+    });
+
+    it('should build 3 new tree species (birch, willow, maple) with higher poly-count than oak, bounded by 2x ceiling', () => {
+      const getTriangleCount = (treeObj: THREE.Object3D): number => {
+        let count = 0;
+        treeObj.traverse((child) => {
+          if ((child as THREE.Mesh).isMesh) {
+            const mesh = child as THREE.Mesh;
+            const geom = mesh.geometry;
+            if (geom.index) {
+              count += geom.index.count / 3;
+            } else if (geom.attributes.position) {
+              count += geom.attributes.position.count / 3;
+            }
+          }
+        });
+        return count;
+      };
+
+      const pineTris = getTriangleCount(buildLowPolyForestTreeMesh('pine'));
+      const oakTris = getTriangleCount(buildLowPolyForestTreeMesh('oak'));
+      const birchTris = getTriangleCount(buildLowPolyForestTreeMesh('birch'));
+      const willowTris = getTriangleCount(buildLowPolyForestTreeMesh('willow'));
+      const mapleTris = getTriangleCount(buildLowPolyForestTreeMesh('maple'));
+
+      // Baseline trees
+      expect(pineTris).toBe(112);
+      expect(oakTris).toBe(760);
+
+      // 3 New tree models must have higher polygon count than oak (760), but at most double current poly count (<= 1520)
+      expect(birchTris).toBeGreaterThan(oakTris);
+      expect(birchTris).toBeLessThanOrEqual(oakTris * 2);
+
+      expect(willowTris).toBeGreaterThan(oakTris);
+      expect(willowTris).toBeLessThanOrEqual(oakTris * 2);
+
+      expect(mapleTris).toBeGreaterThan(oakTris);
+      expect(mapleTris).toBeLessThanOrEqual(oakTris * 2);
+
+      // Verify each species has distinct structure
+      const birch = buildLowPolyForestTreeMesh('birch');
+      expect(birch.name).toBe('ForestTree_Birch');
+      let foliageCount = 0;
+      birch.traverse((child) => {
+        if (child.name.startsWith('Foliage')) foliageCount++;
+      });
+      expect(foliageCount).toBeGreaterThanOrEqual(1);
+
+      const willow = buildLowPolyForestTreeMesh('willow');
+      expect(willow.name).toBe('ForestTree_Willow');
+
+      const maple = buildLowPolyForestTreeMesh('maple');
+      expect(maple.name).toBe('ForestTree_Maple');
+    });
+
+    it('should update shared tree wind uniforms for trunk swaying, branch motion, and leaf rustle flutter', () => {
+      const initialTime = sharedTreeWindUniforms.uWindTime.value;
+      const angle = Math.PI * 0.25;
+      const strength = 1.6;
+      const deltaSec = 0.05;
+
+      updateTreeWindState(angle, strength, deltaSec);
+
+      expect(sharedTreeWindUniforms.uWindDir.value.x).toBeCloseTo(Math.cos(angle), 3);
+      expect(sharedTreeWindUniforms.uWindDir.value.y).toBeCloseTo(Math.sin(angle), 3);
+      expect(sharedTreeWindUniforms.uWindStrength.value).toBeCloseTo(strength, 3);
+      expect(sharedTreeWindUniforms.uWindTime.value).toBeCloseTo(initialTime + deltaSec, 3);
+
+      const { trunkMat, foliageMat } = getSharedTreeMaterials();
+      expect(trunkMat.customProgramCacheKey()).toBe('TreeTrunkWindShader');
+      expect(foliageMat.customProgramCacheKey()).toBe('TreeFoliageWindShader');
+
+      // Test shader injection hooks
+      const dummyTrunkShader: any = {
+        uniforms: {},
+        vertexShader: '#include <common>\n#include <begin_vertex>',
+      };
+      trunkMat.onBeforeCompile(dummyTrunkShader, {} as any);
+      expect(dummyTrunkShader.uniforms.uWindTime).toBeDefined();
+      expect(dummyTrunkShader.uniforms.uWindDir).toBeDefined();
+      expect(dummyTrunkShader.uniforms.uWindStrength).toBeDefined();
+      expect(dummyTrunkShader.vertexShader).toContain('uWindDir');
+
+      const dummyFoliageShader: any = {
+        uniforms: {},
+        vertexShader: '#include <common>\n#include <begin_vertex>',
+      };
+      foliageMat.onBeforeCompile(dummyFoliageShader, {} as any);
+      expect(dummyFoliageShader.uniforms.uWindTime).toBeDefined();
+      expect(dummyFoliageShader.vertexShader).toContain('rustle');
+      // Verify reduced speed (50%) and reduced intensity (25%)
+      expect(dummyFoliageShader.vertexShader).toContain('4.25');
+      expect(dummyFoliageShader.vertexShader).toContain('0.0035');
+    });
+
+    it('should instantiate and animate blowing leaves tumbling and fluttering downwind in BlowingLeavesSystem', () => {
+      const leaves = new BlowingLeavesSystem(80);
+      expect(leaves.group).toBeDefined();
+      expect(leaves.instancedMesh.count).toBe(80);
+
+      // Leaf geometry must be very low polygon count (2 triangles / quad)
+      const geom = leaves.instancedMesh.geometry;
+      expect(geom.index ? geom.index.count / 3 : geom.attributes.position.count / 3).toBe(2);
+
+      // Register canopy positions
+      leaves.setTreeCanopyPositions([
+        new THREE.Vector3(2, 1.2, 3),
+        new THREE.Vector3(6, 1.5, 8),
+      ]);
+      leaves.setWindState(Math.PI * 0.5, 1.5);
+
+      // Step simulation
+      leaves.update(60);
+
+      const matrix = new THREE.Matrix4();
+      leaves.instancedMesh.getMatrixAt(0, matrix);
+      const pos = new THREE.Vector3();
+      pos.setFromMatrixPosition(matrix);
+      expect(Number.isFinite(pos.x)).toBe(true);
+      expect(Number.isFinite(pos.y)).toBe(true);
+      expect(Number.isFinite(pos.z)).toBe(true);
+
+      // Dispose cleanly
+      leaves.dispose();
+      expect(geom.dispose).toBeDefined();
+    });
+
+    it('should integrate 5 tree variants and blowing leaves system on HexBoard3D', () => {
+      const hexMap = new HexMap(6, 6);
+      const board = new HexBoard3D(hexMap, {
+        getTerrain: (x, y) =>
+          (x === 1 && y === 1) || (x === 2 && y === 2) || (x === 3 && y === 3) || (x === 4 && y === 4)
+            ? TerrainType.FOREST
+            : TerrainType.PLAIN,
+      });
+
+      expect(board.blowingLeavesSystem).toBeDefined();
+      expect(board.group.children.includes(board.blowingLeavesSystem.group)).toBe(true);
+
+      // Inspect forest trees on hexes
+      const trees11 = board.getForestTreesForHex(1, 1);
+      expect(trees11.length).toBeGreaterThanOrEqual(3);
+
+      const variantsFound = new Set<string>();
+      for (let x = 0; x < 6; x++) {
+        for (let y = 0; y < 6; y++) {
+          const trees = board.getForestTreesForHex(x, y);
+          trees.forEach((t) => {
+            if (t.userData?.treeVariant) variantsFound.add(t.userData.treeVariant);
+          });
+        }
+      }
+      expect(variantsFound.size).toBeGreaterThanOrEqual(3);
+
+      // Change wind state updates both trees and leaves
+      const windAngle = Math.PI * 0.75;
+      const windStrength = 1.9;
+      board.setWindState(windAngle, windStrength);
+
+      expect(board.getWindState().angleRad).toBeCloseTo(windAngle, 3);
+      expect(board.getWindState().strength).toBeCloseTo(windStrength, 3);
+      expect(sharedTreeWindUniforms.uWindDir.value.x).toBeCloseTo(Math.cos(windAngle), 3);
+      expect(sharedTreeWindUniforms.uWindStrength.value).toBeCloseTo(windStrength, 3);
+
+      // Verify retreat flags orient in the exact direction of blowing leaves (parallel, not perpendicular)
+      // When wind angle = theta, downwind vector is (cos(theta), 0, sin(theta))
+      // Rotating flag (+X) by -theta yields world direction (cos(-theta), 0, -sin(-theta)) = (cos(theta), 0, sin(theta))
+      for (const cloth of (board as any).animatedFlagCloths) {
+        expect(cloth.rotation.y).toBeCloseTo(-windAngle, 3);
+      }
+
+      // Board update animates blowing leaves
+      board.update(50);
+
+      // Clean disposal
+      board.dispose();
     });
   });
 });

@@ -8,12 +8,14 @@ import {
   normalizeBattleLocationType,
   updateSkyboxMeshTheme,
 } from './decorations/battle-environment-3d';
+import { WeatherSystem3D, WeatherType } from './decorations/weather-system-3d';
 
 export class ThreeSceneManager {
   public readonly scene: THREE.Scene = new THREE.Scene();
   public readonly camera: THREE.PerspectiveCamera;
   public readonly renderer: THREE.WebGLRenderer;
   public skyboxMesh!: THREE.Mesh;
+  public readonly weatherSystem: WeatherSystem3D = new WeatherSystem3D();
   private skyboxTheme: BattleLocationType = BattleLocationType.FARM;
 
   public readonly canvas: HTMLCanvasElement;
@@ -97,6 +99,7 @@ export class ThreeSceneManager {
 
     this.setupLighting();
     this.setupSkyBackground();
+    this.setupWeatherSystem();
     this.updateCameraPosition();
   }
 
@@ -112,7 +115,7 @@ export class ThreeSceneManager {
     this.scene.add(this.hemiLight);
 
     // Directional Sunlight angled from northwest to cast prominent shadows towards the camera
-    this.dirLight = new THREE.DirectionalLight(0xfff5e6, 2.0);
+    this.dirLight = new THREE.DirectionalLight(0xfff5e6, 2.4);
     this.dirLight.name = 'DirectionalLight';
     this.dirLight.position.set(-16, 20, -12);
     this.dirLight.castShadow = true;
@@ -187,6 +190,17 @@ export class ThreeSceneManager {
     this.scene.add(this.skyboxMesh);
   }
 
+  private setupWeatherSystem(): void {
+    this.scene.add(this.weatherSystem.group);
+    this.weatherSystem.attachScene(
+      this.scene,
+      this.dirLight,
+      this.ambientLight,
+      this.hemiLight,
+      this.renderer
+    );
+  }
+
   public setSkyboxTheme(locationType: BattleLocationType | string): void {
     const normalized = normalizeBattleLocationType(locationType, this.skyboxTheme);
     this.skyboxTheme = normalized;
@@ -199,6 +213,15 @@ export class ThreeSceneManager {
       this.skyboxMesh = createSkyboxMesh(normalized, 120);
       this.scene.add(this.skyboxMesh);
     }
+    this.weatherSystem.setBaseEnvironment(theme.fogHex, theme.fogDensity, theme.horizonHex);
+  }
+
+  public setWeather(weather: WeatherType): void {
+    this.weatherSystem.setWeather(weather);
+  }
+
+  public getWeather(): WeatherType {
+    return this.weatherSystem.getWeather();
   }
 
   public getSkyboxTheme(): BattleLocationType {
@@ -370,6 +393,7 @@ export class ThreeSceneManager {
   }
 
   public dispose(): void {
+    this.weatherSystem.dispose();
     if (this.skyboxMesh) {
       this.scene.remove(this.skyboxMesh);
       this.skyboxMesh.geometry?.dispose();

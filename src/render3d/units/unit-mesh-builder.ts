@@ -2431,9 +2431,35 @@ export function buildArticulatedUnit3DMesh(
   return cloneCompactedUnitTemplate(torsoMesh);
 }
 
+export type ForestTreeVariant = 'pine' | 'oak' | 'birch' | 'willow' | 'maple';
+
+export interface TreeWindUniforms {
+  uWindTime: { value: number };
+  uWindDir: { value: THREE.Vector2 };
+  uWindStrength: { value: number };
+}
+
+export const sharedTreeWindUniforms: TreeWindUniforms = {
+  uWindTime: { value: 0 },
+  uWindDir: { value: new THREE.Vector2(Math.cos(Math.PI * 0.25), Math.sin(Math.PI * 0.25)) },
+  uWindStrength: { value: 1.0 },
+};
+
+export function updateTreeWindState(
+  windAngleRad: number,
+  windStrength: number,
+  deltaSeconds?: number
+): void {
+  if (deltaSeconds !== undefined) {
+    sharedTreeWindUniforms.uWindTime.value += deltaSeconds;
+  }
+  sharedTreeWindUniforms.uWindDir.value.set(Math.cos(windAngleRad), Math.sin(windAngleRad));
+  sharedTreeWindUniforms.uWindStrength.value = Math.max(0.1, windStrength);
+}
+
 let sharedTreeTrunkMaterial: THREE.MeshStandardMaterial | null = null;
 let sharedTreeFoliageMaterial: THREE.MeshStandardMaterial | null = null;
-const forestTreeTemplateCache: Map<'pine' | 'oak', THREE.Group> = new Map();
+const forestTreeTemplateCache: Map<ForestTreeVariant, THREE.Group> = new Map();
 
 export function getSharedTreeMaterials(): {
   trunkMat: THREE.MeshStandardMaterial;
@@ -2443,12 +2469,50 @@ export function getSharedTreeMaterials(): {
     sharedTreeTrunkMaterial = new THREE.MeshStandardMaterial({
       color: 0xffffff,
       map: getTreePartTexture('bark'),
+      vertexColors: true,
       roughness: 0.92,
       metalness: 0.0,
       flatShading: false,
       transparent: false,
     });
     sharedTreeTrunkMaterial.userData = { isSharedAsset: true, treePart: 'bark' };
+    sharedTreeTrunkMaterial.customProgramCacheKey = () => 'TreeTrunkWindShader';
+
+    sharedTreeTrunkMaterial.onBeforeCompile = (shader) => {
+      shader.uniforms.uWindTime = sharedTreeWindUniforms.uWindTime;
+      shader.uniforms.uWindDir = sharedTreeWindUniforms.uWindDir;
+      shader.uniforms.uWindStrength = sharedTreeWindUniforms.uWindStrength;
+
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <common>',
+        `#include <common>
+uniform float uWindTime;
+uniform vec2 uWindDir;
+uniform float uWindStrength;
+`
+      );
+
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+// Trunk and branch wind reaction: base (y=0) anchored to ground, higher limbs sway
+float heightFactor = clamp(position.y / 0.90, 0.0, 1.0);
+float bendFactor = heightFactor * heightFactor;
+
+vec4 worldPos = modelMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+float treePhase = worldPos.x * 1.4 + worldPos.z * 1.1;
+
+// Wind sway oscillation (speed reduced to 50%)
+float swayCycle = sin(uWindTime * (1.1 + uWindStrength * 0.5) + treePhase);
+float gustCycle = sin(uWindTime * 0.6 + worldPos.x * 0.4 + worldPos.z * 0.4);
+float swayAmt = (0.025 + 0.035 * uWindStrength) * bendFactor * (0.7 + 0.3 * swayCycle) + (0.015 * uWindStrength * gustCycle * bendFactor);
+
+transformed.x += uWindDir.x * swayAmt;
+transformed.z += uWindDir.y * swayAmt;
+transformed.y -= abs(swayAmt) * 0.15;
+`
+      );
+    };
   }
   if (!sharedTreeFoliageMaterial) {
     sharedTreeFoliageMaterial = new THREE.MeshStandardMaterial({
@@ -2461,24 +2525,71 @@ export function getSharedTreeMaterials(): {
       transparent: false,
     });
     sharedTreeFoliageMaterial.userData = { isSharedAsset: true, treePart: 'foliage' };
+    sharedTreeFoliageMaterial.customProgramCacheKey = () => 'TreeFoliageWindShader';
+
+    sharedTreeFoliageMaterial.onBeforeCompile = (shader) => {
+      shader.uniforms.uWindTime = sharedTreeWindUniforms.uWindTime;
+      shader.uniforms.uWindDir = sharedTreeWindUniforms.uWindDir;
+      shader.uniforms.uWindStrength = sharedTreeWindUniforms.uWindStrength;
+
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <common>',
+        `#include <common>
+uniform float uWindTime;
+uniform vec2 uWindDir;
+uniform float uWindStrength;
+`
+      );
+
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+float heightFactor = clamp(position.y / 0.90, 0.0, 1.0);
+float bendFactor = heightFactor * heightFactor;
+
+vec4 worldPos = modelMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+float treePhase = worldPos.x * 1.4 + worldPos.z * 1.1;
+
+// Branch & canopy sway (speed reduced to 50%)
+float swayCycle = sin(uWindTime * (1.1 + uWindStrength * 0.5) + treePhase);
+float gustCycle = sin(uWindTime * 0.6 + worldPos.x * 0.4 + worldPos.z * 0.4);
+float swayAmt = (0.04 + 0.05 * uWindStrength) * bendFactor * (0.65 + 0.35 * swayCycle) + (0.025 * uWindStrength * gustCycle * bendFactor);
+
+// High-frequency leaves rustling:
+// Speed reduced to 50% of previous value (4.25 + 2.25 * strength vs 8.5 + 4.5 * strength)
+float rustleFreq = uWindTime * (4.25 + uWindStrength * 2.25);
+float rustle = sin(rustleFreq + position.x * 14.0 + position.z * 12.0) * cos(rustleFreq * 0.75 + position.y * 13.0);
+// Intensity reduced to 25% of previous value (0.0035 + 0.0045 * strength vs 0.014 + 0.018 * strength)
+float rustleAmt = rustle * (0.0035 + 0.0045 * uWindStrength) * heightFactor;
+
+transformed.x += (uWindDir.x * swayAmt) + rustleAmt * (0.8 + uWindDir.x * 0.4);
+transformed.z += (uWindDir.y * swayAmt) + rustleAmt * (0.8 + uWindDir.y * 0.4);
+transformed.y += rustleAmt * 0.35 - abs(swayAmt) * 0.20;
+`
+      );
+    };
   }
   return { trunkMat: sharedTreeTrunkMaterial, foliageMat: sharedTreeFoliageMaterial };
 }
 
 /**
- * Builds a low-poly 3D forest tree (pine or oak) with total height ~0.90 world units
+ * Builds a low-poly 3D forest tree (pine, oak, birch, willow, or maple) with total height ~0.90 world units
  * (75% of the 1.20 average humanoid unit height).
  * Compacts all foliage tiers/clusters into a single vertex-colored `Foliage` mesh
  * and caches the template per variant so all forest trees share geometries and materials.
  */
 export function buildLowPolyForestTreeMesh(
-  variant: 'pine' | 'oak' = 'pine',
+  variant: ForestTreeVariant = 'pine',
   heightScale: number = 1.0
 ): THREE.Group {
   let templateGroup = forestTreeTemplateCache.get(variant);
   if (!templateGroup) {
     templateGroup = new THREE.Group();
-    templateGroup.name = variant === 'pine' ? 'ForestTree_Pine' : 'ForestTree_Oak';
+    templateGroup.name =
+      variant === 'pine' ? 'ForestTree_Pine' :
+      variant === 'oak' ? 'ForestTree_Oak' :
+      variant === 'birch' ? 'ForestTree_Birch' :
+      variant === 'willow' ? 'ForestTree_Willow' : 'ForestTree_Maple';
 
     const { trunkMat, foliageMat } = getSharedTreeMaterials();
     const identityMat = new THREE.Matrix4().identity();
@@ -2519,7 +2630,7 @@ export function buildLowPolyForestTreeMesh(
       foliageMesh.castShadow = true;
       foliageMesh.receiveShadow = true;
       templateGroup.add(foliageMesh);
-    } else {
+    } else if (variant === 'oak') {
       const trunkGeo = new THREE.CylinderGeometry(0.050, 0.075, 0.36, 10);
       applyTreeUVMapping(trunkGeo, 'trunk');
       trunkGeo.translate(0, 0.18, 0);
@@ -2557,6 +2668,223 @@ export function buildLowPolyForestTreeMesh(
       const foliageGeo = mergeMeshesWithVertexColors(foliageItems);
       const foliageMesh = new THREE.Mesh(foliageGeo, foliageMat);
       foliageMesh.name = 'Foliage_Oak';
+      foliageMesh.castShadow = true;
+      foliageMesh.receiveShadow = true;
+      templateGroup.add(foliageMesh);
+    } else if (variant === 'birch') {
+      // 1. Slender birch trunk (12 segments, 3 height segments, graceful curve)
+      const trunkGeo = new THREE.CylinderGeometry(0.024, 0.038, 0.44, 12, 3);
+      const pos = trunkGeo.getAttribute('position');
+      for (let i = 0; i < pos.count; i++) {
+        const y = pos.getY(i);
+        const ny = Math.max(0, y) / 0.44;
+        pos.setX(i, pos.getX(i) + Math.sin(ny * Math.PI) * 0.016);
+      }
+      trunkGeo.computeVertexNormals();
+      trunkGeo.translate(0, 0.22, 0);
+
+      const birchBark = makeMat(0xf0ede6, 0.90, 0.0);
+      const trunkItems: Array<{ mesh: THREE.Mesh; relMatrix: THREE.Matrix4 }> = [
+        { mesh: new THREE.Mesh(trunkGeo, birchBark), relMatrix: identityMat },
+      ];
+
+      // 3 ascending limbs
+      const limbDefs = [
+        { y: 0.28, len: 0.15, angleZ: -0.42, angleY: 0.5 },
+        { y: 0.35, len: 0.14, angleZ: 0.45, angleY: 2.5 },
+        { y: 0.40, len: 0.12, angleZ: -0.38, angleY: -1.8 },
+      ];
+      for (const limb of limbDefs) {
+        const limbGeo = new THREE.CylinderGeometry(0.009, 0.016, limb.len, 6);
+        limbGeo.translate(0, limb.len * 0.5, 0);
+        limbGeo.rotateZ(limb.angleZ);
+        limbGeo.rotateY(limb.angleY);
+        limbGeo.translate(0, limb.y, 0);
+        trunkItems.push({ mesh: new THREE.Mesh(limbGeo, birchBark), relMatrix: identityMat });
+      }
+
+      const mergedTrunkGeo = mergeMeshesWithVertexColors(trunkItems);
+      applyTreeUVMapping(mergedTrunkGeo, 'trunk');
+      mergedTrunkGeo.userData = { isSharedAsset: true };
+      const trunkMesh = new THREE.Mesh(mergedTrunkGeo, trunkMat);
+      trunkMesh.name = 'Trunk';
+      trunkMesh.castShadow = true;
+      trunkMesh.receiveShadow = true;
+      templateGroup.add(trunkMesh);
+
+      // 4 airy foliage clusters with early autumn palette: luminous gold, yellow-green, warm ochre, amber
+      const birchGold = makeMat(0xe8c734, 0.82, 0.0);   // Golden yellow crown
+      const birchGreen = makeMat(0x9fc838, 0.84, 0.0);  // Lingering late-summer yellow-green
+      const birchOchre = makeMat(0xdfa628, 0.83, 0.0);  // Warm autumn ochre
+      const birchAmber = makeMat(0xd88824, 0.82, 0.0);  // Amber with hint of orange
+
+      const topCrownGeo = new THREE.IcosahedronGeometry(0.18, 2);
+      topCrownGeo.scale(0.9, 1.15, 0.9);
+      topCrownGeo.translate(0.01, 0.68, 0.0);
+
+      const foliageItems: Array<{ mesh: THREE.Mesh; relMatrix: THREE.Matrix4 }> = [
+        { mesh: new THREE.Mesh(topCrownGeo, birchGold), relMatrix: identityMat },
+      ];
+
+      const birchClusters = [
+        { x: 0.10, y: 0.50, z: 0.05, r: 0.13, mat: birchGreen },
+        { x: -0.09, y: 0.54, z: 0.07, r: 0.12, mat: birchOchre },
+        { x: 0.02, y: 0.58, z: -0.09, r: 0.12, mat: birchAmber },
+      ];
+      for (const cl of birchClusters) {
+        const subGeo = new THREE.IcosahedronGeometry(cl.r, 2);
+        subGeo.translate(cl.x, cl.y, cl.z);
+        foliageItems.push({ mesh: new THREE.Mesh(subGeo, cl.mat), relMatrix: identityMat });
+      }
+
+      const foliageGeo = mergeMeshesWithVertexColors(foliageItems);
+      applyTreeUVMapping(foliageGeo, 'oak_foliage');
+      const foliageMesh = new THREE.Mesh(foliageGeo, foliageMat);
+      foliageMesh.name = 'Foliage_Birch';
+      foliageMesh.castShadow = true;
+      foliageMesh.receiveShadow = true;
+      templateGroup.add(foliageMesh);
+    } else if (variant === 'willow') {
+      // 1. Gnarled curved trunk (14 segments, 3 height segments)
+      const trunkGeo = new THREE.CylinderGeometry(0.052, 0.084, 0.36, 14, 3);
+      const pos = trunkGeo.getAttribute('position');
+      for (let i = 0; i < pos.count; i++) {
+        const y = pos.getY(i);
+        const ny = Math.max(0, y) / 0.36;
+        pos.setX(i, pos.getX(i) + Math.sin(ny * Math.PI * 0.8) * 0.022);
+        pos.setZ(i, pos.getZ(i) + Math.cos(ny * Math.PI * 0.8) * 0.016);
+      }
+      trunkGeo.computeVertexNormals();
+      trunkGeo.translate(0, 0.18, 0);
+
+      const willowBark = makeMat(0x564230, 0.92, 0.0);
+      const trunkItems: Array<{ mesh: THREE.Mesh; relMatrix: THREE.Matrix4 }> = [
+        { mesh: new THREE.Mesh(trunkGeo, willowBark), relMatrix: identityMat },
+      ];
+
+      // 4 arching limbs in 4 directions
+      const limbAngles = [0, Math.PI * 0.5, Math.PI, Math.PI * 1.5];
+      for (const ang of limbAngles) {
+        const limbGeo = new THREE.CylinderGeometry(0.018, 0.028, 0.18, 8);
+        limbGeo.translate(0, 0.09, 0);
+        limbGeo.rotateZ(0.65);
+        limbGeo.rotateY(ang);
+        limbGeo.translate(0, 0.28, 0);
+        trunkItems.push({ mesh: new THREE.Mesh(limbGeo, willowBark), relMatrix: identityMat });
+      }
+
+      const mergedTrunkGeo = mergeMeshesWithVertexColors(trunkItems);
+      applyTreeUVMapping(mergedTrunkGeo, 'trunk');
+      mergedTrunkGeo.userData = { isSharedAsset: true };
+      const trunkMesh = new THREE.Mesh(mergedTrunkGeo, trunkMat);
+      trunkMesh.name = 'Trunk';
+      trunkMesh.castShadow = true;
+      trunkMesh.receiveShadow = true;
+      templateGroup.add(trunkMesh);
+
+      // Cascading weeping willow fronds with early autumn palette: olive-lime, golden-yellow, chartreuse, amber-ochre, russet-bronze
+      const willowLime = makeMat(0x7e9e38, 0.84, 0.0);       // Olive-lime green
+      const willowGold = makeMat(0xd4be3a, 0.83, 0.0);       // Pale golden-yellow frond
+      const willowChartreuse = makeMat(0x9eb838, 0.84, 0.0); // Chartreuse yellow-green
+      const willowOchre = makeMat(0xc89832, 0.83, 0.0);      // Warm amber-ochre
+      const willowRusset = makeMat(0xa4782e, 0.85, 0.0);     // Russet-tinted bronze
+
+      const domeGeo = new THREE.IcosahedronGeometry(0.24, 2);
+      domeGeo.scale(1.15, 0.80, 1.15);
+      domeGeo.translate(0, 0.52, 0);
+
+      const foliageItems: Array<{ mesh: THREE.Mesh; relMatrix: THREE.Matrix4 }> = [
+        { mesh: new THREE.Mesh(domeGeo, willowLime), relMatrix: identityMat },
+      ];
+
+      // 4 hanging clusters draped downwards with early autumn gradient
+      const willowFronds = [
+        { x: 0.16, y: 0.38, z: 0.0, mat: willowGold },
+        { x: -0.16, y: 0.39, z: 0.0, mat: willowChartreuse },
+        { x: 0.0, y: 0.37, z: 0.16, mat: willowOchre },
+        { x: 0.0, y: 0.38, z: -0.16, mat: willowRusset },
+      ];
+      for (const cl of willowFronds) {
+        const frondGeo = new THREE.IcosahedronGeometry(0.14, 2);
+        frondGeo.scale(0.75, 1.45, 0.75);
+        frondGeo.translate(cl.x, cl.y, cl.z);
+        foliageItems.push({ mesh: new THREE.Mesh(frondGeo, cl.mat), relMatrix: identityMat });
+      }
+
+      const foliageGeo = mergeMeshesWithVertexColors(foliageItems);
+      applyTreeUVMapping(foliageGeo, 'oak_foliage');
+      const foliageMesh = new THREE.Mesh(foliageGeo, foliageMat);
+      foliageMesh.name = 'Foliage_Willow';
+      foliageMesh.castShadow = true;
+      foliageMesh.receiveShadow = true;
+      templateGroup.add(foliageMesh);
+    } else {
+      // 1. Sturdy flared hardwood maple trunk
+      const trunkGeo = new THREE.CylinderGeometry(0.046, 0.076, 0.32, 12, 2);
+      trunkGeo.translate(0, 0.16, 0);
+      smoothGeometryNormals(trunkGeo);
+
+      const mapleBark = makeMat(0x654732, 0.90, 0.0);
+      const trunkItems: Array<{ mesh: THREE.Mesh; relMatrix: THREE.Matrix4 }> = [
+        { mesh: new THREE.Mesh(trunkGeo, mapleBark), relMatrix: identityMat },
+      ];
+
+      // 4 branch forks
+      const forkDefs = [
+        { len: 0.16, angleZ: -0.50, angleY: 0.3 },
+        { len: 0.15, angleZ: 0.52, angleY: 1.8 },
+        { len: 0.14, angleZ: -0.45, angleY: -1.4 },
+        { len: 0.13, angleZ: 0.40, angleY: -2.8 },
+      ];
+      for (const fork of forkDefs) {
+        const forkGeo = new THREE.CylinderGeometry(0.014, 0.024, fork.len, 6);
+        forkGeo.translate(0, fork.len * 0.5, 0);
+        forkGeo.rotateZ(fork.angleZ);
+        forkGeo.rotateY(fork.angleY);
+        forkGeo.translate(0, 0.24, 0);
+        trunkItems.push({ mesh: new THREE.Mesh(forkGeo, mapleBark), relMatrix: identityMat });
+      }
+
+      const mergedTrunkGeo = mergeMeshesWithVertexColors(trunkItems);
+      applyTreeUVMapping(mergedTrunkGeo, 'trunk');
+      mergedTrunkGeo.userData = { isSharedAsset: true };
+      const trunkMesh = new THREE.Mesh(mergedTrunkGeo, trunkMat);
+      trunkMesh.name = 'Trunk';
+      trunkMesh.castShadow = true;
+      trunkMesh.receiveShadow = true;
+      templateGroup.add(trunkMesh);
+
+      // Autumn maple crown (5 overlapping clusters: golden-yellow -> lingering yellow-green -> bright orange -> deep brown-red/crimson -> warm russet)
+      const mapleAmber = makeMat(0xedb82b, 0.83, 0.0);    // Golden yellow-amber
+      const mapleGreen = makeMat(0x86b032, 0.84, 0.0);    // Lingering late-summer yellow-green
+      const mapleOrange = makeMat(0xdf6c22, 0.82, 0.0);   // Bright autumn orange
+      const mapleBrownRed = makeMat(0xa42d1e, 0.80, 0.0); // Deep brown-red / crimson
+      const mapleRust = makeMat(0xc85222, 0.81, 0.0);     // Warm russet red-orange
+
+      const mainCrownGeo = new THREE.IcosahedronGeometry(0.25, 2);
+      mainCrownGeo.scale(1.10, 0.95, 1.10);
+      mainCrownGeo.translate(0, 0.60, 0);
+
+      const foliageItems: Array<{ mesh: THREE.Mesh; relMatrix: THREE.Matrix4 }> = [
+        { mesh: new THREE.Mesh(mainCrownGeo, mapleAmber), relMatrix: identityMat },
+      ];
+
+      const clusters = [
+        { x: 0.15, y: 0.52, z: 0.10, r: 0.17, mat: mapleGreen },
+        { x: -0.14, y: 0.54, z: -0.08, r: 0.16, mat: mapleBrownRed },
+        { x: -0.06, y: 0.50, z: 0.15, r: 0.16, mat: mapleOrange },
+        { x: 0.08, y: 0.53, z: -0.14, r: 0.15, mat: mapleRust },
+      ];
+      for (const cl of clusters) {
+        const subGeo = new THREE.IcosahedronGeometry(cl.r, 2);
+        subGeo.translate(cl.x, cl.y, cl.z);
+        foliageItems.push({ mesh: new THREE.Mesh(subGeo, cl.mat), relMatrix: identityMat });
+      }
+
+      const foliageGeo = mergeMeshesWithVertexColors(foliageItems);
+      applyTreeUVMapping(foliageGeo, 'oak_foliage');
+      const foliageMesh = new THREE.Mesh(foliageGeo, foliageMat);
+      foliageMesh.name = 'Foliage_Maple';
       foliageMesh.castShadow = true;
       foliageMesh.receiveShadow = true;
       templateGroup.add(foliageMesh);
