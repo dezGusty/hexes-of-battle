@@ -32,6 +32,8 @@ export interface SerializedBattleState {
   finished: boolean;
   armyControl: ArmyControlType[];
   combatConfig?: CombatConfig;
+  majorTerrainType?: string;
+  windState?: { angleDeg: number; strength: number };
   totalDamageDealt: [number, number];
   totalStaminaSpent: [number, number];
   moraleBreaks: [number, number];
@@ -186,6 +188,8 @@ export class SaveManager {
       finished: battle.isFinished(),
       armyControl: [...battle.army_control],
       combatConfig: battle.combatConfig ? { ...battle.combatConfig } : undefined,
+      majorTerrainType: battle.getMajorTerrainType(),
+      windState: { angleDeg: battle.getWindState().angleDeg, strength: battle.getWindState().strength },
       totalDamageDealt: [...battle.totalDamageDealt],
       totalStaminaSpent: [...battle.totalStaminaSpent],
       moraleBreaks: [...battle.moraleBreaks],
@@ -264,6 +268,12 @@ export class SaveManager {
     }
     if (state.combatConfig) {
       battle.combatConfig = { ...state.combatConfig };
+    }
+    if (state.majorTerrainType) {
+      battle.setMajorTerrainType(state.majorTerrainType);
+    }
+    if (state.windState) {
+      battle.windSystem.setWind(state.windState.angleDeg, state.windState.strength);
     }
 
     battle.totalDamageDealt = [...state.totalDamageDealt];

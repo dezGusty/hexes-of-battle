@@ -1,4 +1,5 @@
 import { TraitsConfig, DEFAULT_TRAITS_CONFIG } from "./trait-system";
+import { WindConfig, DEFAULT_WIND_CONFIG } from "../render3d/decorations/wind-system";
 
 export enum ExhaustionState {
   FRESH = "fresh",
@@ -178,6 +179,9 @@ export interface CombatConfig {
   player1Banner?: string;
   player2Banner?: string;
   playerBanners?: Record<string | number, string>;
+  majorTerrainType?: string;
+  battleLocationType?: string;
+  wind?: WindConfig;
 }
 
 export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
@@ -297,6 +301,8 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
   },
   player1Banner: "banner1.png",
   player2Banner: "banner2.png",
+  majorTerrainType: "farm",
+  wind: { ...DEFAULT_WIND_CONFIG },
 };
 
 export const MIN_MORALE = 0;

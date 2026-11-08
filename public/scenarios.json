@@ -3,6 +3,7 @@
     "id": "skirmish_balanced",
     "name": "Standard Skirmish",
     "description": "Balanced infantry and ranged clash on mixed terrain.",
+    "majorTerrainType": "farm",
     "mapWidth": 13,
     "mapHeight": 9,
     "armies": [
@@ -34,6 +35,7 @@
     "id": "swarm_vs_elites",
     "name": "Peasant Swarm vs Heavy Elites",
     "description": "Massive tier 1 peasant swarm testing casualty thresholds and stamina attrition against heavily armored knights.",
+    "majorTerrainType": "farm",
     "mapWidth": 12,
     "mapHeight": 8,
     "armies": [
@@ -63,6 +65,7 @@
     "id": "hero_retinue_showdown",
     "name": "Hero Retinue vs Behemoth",
     "description": "Hero Commander leading bodyguard retinue facing a gargantuan Behemoth.",
+    "majorTerrainType": "forest",
     "mapWidth": 11,
     "mapHeight": 7,
     "armies": [
@@ -89,6 +92,7 @@
     "id": "crossroad_stronghold",
     "name": "Crossroad Stronghold",
     "description": "Factions clash over a central fortress; squads retreat towards central stronghold rally flags in the middle of the map.",
+    "majorTerrainType": "forest",
     "mapWidth": 11,
     "mapHeight": 7,
     "retreatPoints": {

@@ -9,6 +9,8 @@ export interface RetreatFlagUserData {
   phaseOffset: number;
   windDirection?: THREE.Vector3;
   bannerName?: string;
+  windAngleRad?: number;
+  windStrength?: number;
 }
 
 /**
@@ -394,10 +396,11 @@ export function createRetreatFlagMesh(
   flagGroup.add(finialMesh);
 
   // 4. Square Cloth Banner (Flag) (width reduced to match height: 0.288 x 0.288)
+  // Higher subdivisions (20x20) for realistic cloth billowing and ripples under varying wind intensity
   const flagHeight = 0.288;
   const flagLength = flagHeight; // Exactly square: width matches height
-  const widthSegments = 14;
-  const heightSegments = 14;
+  const widthSegments = 20;
+  const heightSegments = 20;
   const clothGeo = new THREE.PlaneGeometry(flagLength, flagHeight, widthSegments, heightSegments);
   // Shift along X so left edge (hoist) is at x = 0
   clothGeo.translate(flagLength * 0.5, 0, 0);
@@ -433,7 +436,7 @@ export function createRetreatFlagMesh(
   const clothMesh = new THREE.Mesh(clothGeo, clothMat);
   clothMesh.name = 'Cloth';
   clothMesh.position.set(0, 0.68, 0);
-  // Rotate around Y by +45 deg (+PI/4) so the cloth streams from South-West towards North-East
+  // Default wind angle = +45 deg (+PI/4) streaming from South-West towards North-East
   clothMesh.rotation.y = Math.PI * 0.25;
   clothMesh.castShadow = true;
   clothMesh.receiveShadow = true;
@@ -449,6 +452,8 @@ export function createRetreatFlagMesh(
     phaseOffset: hexX * 0.91 + hexY * 0.73 + armyIndex * 1.5,
     windDirection: new THREE.Vector3(Math.SQRT1_2, 0, -Math.SQRT1_2), // SW -> NE
     bannerName: resolvedBannerName,
+    windAngleRad: Math.PI * 0.25,
+    windStrength: 1.0,
   };
 
   flagGroup.add(clothMesh);
@@ -456,20 +461,65 @@ export function createRetreatFlagMesh(
 }
 
 /**
- * Animates the cloth vertices as though a mild, natural wind is blowing from South-West to North-East.
- * The edge attached to the pole (x = 0) remains firmly pinned, while waves travel
- * down the length of the fabric toward the free fly edge.
+ * Sets the wind parameters on a cloth mesh:
+ * - windAngleRad: direction angle around the pole Y axis (0 = blowing toward +X East, PI/2 = South, etc.)
+ * - windStrength: wind speed/intensity factor (e.g. 0.5 to 2.0)
  */
-export function updateRetreatFlagWind(clothMesh: THREE.Mesh, timeSec: number): void {
+export function setRetreatFlagWindState(clothMesh: THREE.Mesh, windAngleRad: number, windStrength: number = 1.0): void {
+  clothMesh.rotation.y = windAngleRad;
+  if (!clothMesh.userData) clothMesh.userData = {};
+  clothMesh.userData.windAngleRad = windAngleRad;
+  clothMesh.userData.windStrength = windStrength;
+  clothMesh.userData.windDirection = new THREE.Vector3(Math.cos(windAngleRad), 0, Math.sin(windAngleRad));
+}
+
+/**
+ * Animates the cloth vertices according to the current wind speed/intensity and direction.
+ * The edge attached to the pole (x = 0) remains firmly pinned, while waves and flutter
+ * travel down the length of the fabric toward the free fly edge.
+ *
+ * Wind intensity influences:
+ * - Wave travel frequency / flapping speed
+ * - Primary billowing amplitude and secondary high-frequency flutter ripples
+ * - Flag lift vs. gravity droop (stronger wind lifts the free edge higher; gentle breeze droops with gravity)
+ */
+export function updateRetreatFlagWind(
+  clothMesh: THREE.Mesh,
+  timeSec: number,
+  windStrength?: number,
+  windAngleRad?: number
+): void {
   const geo = clothMesh.geometry as THREE.BufferGeometry;
   if (!geo || !clothMesh.userData?.originalPositions) return;
 
   const posAttr = geo.attributes.position as THREE.BufferAttribute;
   if (!posAttr) return;
 
+  if (windAngleRad !== undefined && clothMesh.rotation.y !== windAngleRad) {
+    clothMesh.rotation.y = windAngleRad;
+    clothMesh.userData.windAngleRad = windAngleRad;
+    clothMesh.userData.windDirection = new THREE.Vector3(Math.cos(windAngleRad), 0, Math.sin(windAngleRad));
+  }
+
+  const strength = windStrength ?? clothMesh.userData.windStrength ?? 1.0;
+  clothMesh.userData.windStrength = strength;
+
   const orig = clothMesh.userData.originalPositions as Float32Array;
   const length = clothMesh.userData.length || 0.288;
   const phase = clothMesh.userData.phaseOffset || 0;
+
+  // Flapping frequency scales with wind strength: gentle breeze is slow, strong gale flaps briskly
+  const freqScale = 0.8 + strength * 0.45;
+  const t = timeSec * freqScale;
+
+  // Wave amplitudes scale with wind strength
+  const billowAmp = 0.034 * Math.sqrt(strength);
+  const rippleAmp = 0.010 * strength;
+
+  // Aerodynamic lift vs. gravity droop:
+  // In light wind (strength < 1), the free fly edge droops slightly under gravity (-Y).
+  // In strong wind (strength > 1), horizontal aerodynamic tension keeps it taut and slightly raised.
+  const liftFactor = (strength - 1.0) * 0.015;
 
   for (let i = 0; i < posAttr.count; i++) {
     const i3 = i * 3;
@@ -478,16 +528,18 @@ export function updateRetreatFlagWind(clothMesh: THREE.Mesh, timeSec: number): v
 
     // Local x goes from 0 (at the pole) to length (at the tip)
     const u = Math.max(0, Math.min(1, ox / length));
-    // Anchored at pole (u=0), maximum wave at tip (u=1)
+    // Anchored firmly at pole (u=0), maximum wave at tip (u=1)
     const weight = Math.pow(u, 1.25);
 
-    // Mild wind scaled to square size: primary waving billow + secondary ripple harmonic
-    const wave1 = Math.sin(10.5 * ox - 3.2 * timeSec + phase) * 0.034;
-    const wave2 = Math.sin(20.0 * ox - 5.0 * timeSec + phase * 1.5) * 0.010;
-    const waveZ = (wave1 + wave2) * weight;
+    // Primary waving billow + secondary ripple harmonic
+    const wave1 = Math.sin(10.5 * ox - 3.2 * t + phase) * billowAmp;
+    const wave2 = Math.sin(20.0 * ox - 5.0 * t + phase * 1.5) * rippleAmp;
+    // Micro flutter ripples visible at higher subdivisions
+    const wave3 = Math.sin(34.0 * ox - 7.5 * t + phase * 2.2) * (0.003 * strength);
+    const waveZ = (wave1 + wave2 + wave3) * weight;
 
-    // Subtle vertical flutter
-    const waveY = -Math.cos(8.0 * ox - 2.8 * timeSec + phase) * 0.009 * weight;
+    // Vertical flutter + aerodynamic lift/droop
+    const waveY = (-Math.cos(8.0 * ox - 2.8 * t + phase) * 0.009 * Math.sqrt(strength) + liftFactor * u) * weight;
 
     posAttr.setZ(i, waveZ);
     posAttr.setY(i, oy + waveY);

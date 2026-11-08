@@ -32,6 +32,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { TerrainType } from '../battle/terrain-types';
 import { UnitVisualFormat } from './types';
+import { BattleLocationType } from './decorations/battle-environment-3d';
 import {
   AVERAGE_UNIT_3D_HEIGHT,
   BARBARIAN_TEXTURE_PATHS,
@@ -3742,6 +3743,76 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(hud.getFormattedArmyName(0)).toContain('Human');
 
       hud.destroy();
+    });
+
+    it('should initialize and switch 3D skybox and outer decorations based on configurable majorTerrainType (forest and farm)', () => {
+      const container = document.createElement('div');
+      const hexMap = new HexMap(11, 7);
+      const battle = new Battle(hexMap);
+      battle.initializeToSize(11, 7);
+      const settings = new BattleSettings();
+
+      // Default should normalize to farm
+      expect(battle.getMajorTerrainType()).toBe(BattleLocationType.FARM);
+
+      const view = new BattleView3D(container, hexMap, battle, settings);
+
+      // Verify SceneManager skybox
+      const skyboxMesh = view.sceneManager.getSkyboxMesh();
+      expect(skyboxMesh).toBeDefined();
+      expect(skyboxMesh.name).toBe('Skybox');
+      expect(skyboxMesh.geometry).toBeInstanceOf(THREE.SphereGeometry);
+      expect((skyboxMesh.material as THREE.MeshBasicMaterial).side).toBe(THREE.BackSide);
+      expect((skyboxMesh.material as THREE.MeshBasicMaterial).depthWrite).toBe(false);
+      expect(skyboxMesh.renderOrder).toBe(-1000);
+      expect(view.sceneManager.getSkyboxTheme()).toBe(BattleLocationType.FARM);
+
+      // Verify HexBoard3D outer decorations group for FARM
+      expect(view.hexBoard.outerDecorationsGroup).toBeDefined();
+      expect(view.hexBoard.getMajorTerrainType()).toBe(BattleLocationType.FARM);
+      const bounds = view.hexBoard.getBoardWorldBounds();
+
+      const farmChildrenNames = view.hexBoard.outerDecorationsGroup.children.map((c) => c.name);
+      expect(farmChildrenNames).toContain('OuterGroundApron');
+      expect(farmChildrenNames.some((n) => n.startsWith('OuterHorizonHill_'))).toBe(true);
+      expect(farmChildrenNames).toContain('OuterFarmhouse');
+      expect(farmChildrenNames).toContain('OuterFarmBarn');
+      expect(farmChildrenNames).toContain('OuterFarmWindmill');
+      expect(farmChildrenNames).toContain('OuterCropField');
+      expect(farmChildrenNames).toContain('OuterFarmFence');
+      expect(farmChildrenNames).toContain('OuterHaystack');
+
+      // Verify that all outer decoration elements are strictly outside the playable hex grid bounding box
+      view.hexBoard.outerDecorationsGroup.children.forEach((child) => {
+        if (child.name === 'OuterGroundApron' || child.name.startsWith('OuterHorizonHill_')) return;
+        const childPos = child.position;
+        const isOutsideBounds =
+          childPos.x < bounds.minX ||
+          childPos.x > bounds.maxX ||
+          childPos.z < bounds.minZ ||
+          childPos.z > bounds.maxZ;
+        expect(isOutsideBounds).toBe(true);
+      });
+
+      // Switch to FOREST terrain type
+      view.setMajorTerrainType('forest');
+      expect(battle.getMajorTerrainType()).toBe(BattleLocationType.FOREST);
+      expect(view.getMajorTerrainType()).toBe(BattleLocationType.FOREST);
+      expect(view.sceneManager.getSkyboxTheme()).toBe(BattleLocationType.FOREST);
+      expect(view.hexBoard.getMajorTerrainType()).toBe(BattleLocationType.FOREST);
+
+      const forestChildrenNames = view.hexBoard.outerDecorationsGroup.children.map((c) => c.name);
+      expect(forestChildrenNames).toContain('OuterGroundApron');
+      expect(forestChildrenNames.some((n) => n.startsWith('OuterHorizonHill_'))).toBe(true);
+      expect(forestChildrenNames.some((n) => n.startsWith('OuterForestTree_'))).toBe(true);
+      expect(forestChildrenNames).toContain('OuterForestRock');
+      expect(forestChildrenNames).toContain('OuterForestLog');
+      // Farm specific objects should be cleared
+      expect(forestChildrenNames).not.toContain('OuterFarmhouse');
+      expect(forestChildrenNames).not.toContain('OuterFarmWindmill');
+
+      // Clean up
+      view.destroy();
     });
   });
 });

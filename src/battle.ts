@@ -22,6 +22,8 @@ import {
 } from "./battle/damage-calculator";
 import { configurePlayerColors } from "./render3d/units/unit-mesh-builder";
 import { configurePlayerBanners, getPlayerBanner } from "./render3d/decorations/retreat-flag-3d";
+import { BattleLocationType, normalizeBattleLocationType } from "./render3d/decorations/battle-environment-3d";
+import { WindConfig, WindState, WindSystem } from "./render3d/decorations/wind-system";
 
 export type { DamagePreviewResult };
 
@@ -72,6 +74,7 @@ export interface BattleHooks {
   hookRangedScatter?: (attacker: Creature, originalTarget: Coords, scatterTarget: Coords, hitCreature: Creature | null) => void;
   hookMoraleBreak?: (creature: Creature, state: MoraleState) => void;
   hookUnitChangedFacing?: (creature: Creature, direction: HexDirection) => void;
+  hookWindChanged?: (windState: WindState) => void;
 }
 
 export enum ArmyControlType {
@@ -164,7 +167,9 @@ export class Battle {
   private lastAbilityTargetCanceledTimestamp: number = 0;
 
   public combatConfig: CombatConfig = { ...DEFAULT_COMBAT_CONFIG };
+  public majorTerrainType: BattleLocationType = BattleLocationType.FARM;
   public rng: SeedableRNG = new SeedableRNG();
+  public windSystem: WindSystem = new WindSystem(undefined, this.rng);
 
   // Metrics
   public totalDamageDealt: [number, number] = [0, 0];
@@ -200,6 +205,17 @@ export class Battle {
 
   public setCombatConfig(config: CombatConfig): void {
     this.combatConfig = config;
+    const rawMajorTerrain =
+      config?.majorTerrainType ??
+      config?.battleLocationType ??
+      (config as any)?.major_terrain_type ??
+      (config as any)?.locationType;
+    if (rawMajorTerrain) {
+      this.majorTerrainType = normalizeBattleLocationType(rawMajorTerrain);
+    }
+    if (config?.wind) {
+      this.windSystem.setConfig(config.wind);
+    }
     if (config?.playerColors || (config as any)?.player_colors || (config as any)?.teamColors) {
       configurePlayerColors(config.playerColors ?? (config as any)?.player_colors ?? (config as any)?.teamColors);
     }
@@ -210,12 +226,29 @@ export class Battle {
     });
   }
 
+  public getWindState(): WindState {
+    return this.windSystem.getState();
+  }
+
+  public setWindConfig(config: WindConfig): void {
+    this.windSystem.setConfig(config);
+  }
+
+  public getMajorTerrainType(): BattleLocationType {
+    return this.majorTerrainType;
+  }
+
+  public setMajorTerrainType(locationType: BattleLocationType | string): void {
+    this.majorTerrainType = normalizeBattleLocationType(locationType);
+  }
+
   public getBannerForArmy(armyIndex: number): string {
     return getPlayerBanner(armyIndex, this.combatConfig);
   }
 
   public setSeed(seed: number): void {
     this.rng = new SeedableRNG(seed);
+    this.windSystem.setRng(this.rng);
   }
 
   public getRetreatPoints(armyIndex: number): Coords[] {
@@ -299,10 +332,32 @@ export class Battle {
   public initializeFromConfig(config: BattleConfig): void {
     if (config.combatConfig) {
       this.combatConfig = config.combatConfig;
+      const rawCombatMajorTerrain =
+        this.combatConfig.majorTerrainType ??
+        this.combatConfig.battleLocationType ??
+        (this.combatConfig as any).major_terrain_type ??
+        (this.combatConfig as any).locationType;
+      if (rawCombatMajorTerrain) {
+        this.majorTerrainType = normalizeBattleLocationType(rawCombatMajorTerrain);
+      }
+      if (this.combatConfig.wind) {
+        this.windSystem.setConfig(this.combatConfig.wind);
+      }
       if (this.combatConfig.playerColors || (this.combatConfig as any).player_colors || (this.combatConfig as any).teamColors) {
         configurePlayerColors(this.combatConfig.playerColors ?? (this.combatConfig as any).player_colors ?? (this.combatConfig as any).teamColors);
       }
       configurePlayerBanners(this.combatConfig);
+    }
+    if (config.wind) {
+      this.windSystem.setConfig(config.wind);
+    }
+    const rawConfigMajorTerrain =
+      config.majorTerrainType ??
+      config.battleLocationType ??
+      config.locationType ??
+      (config as any).major_terrain_type;
+    if (rawConfigMajorTerrain) {
+      this.majorTerrainType = normalizeBattleLocationType(rawConfigMajorTerrain);
     }
     if (config.seed !== undefined) {
       this.setSeed(config.seed);
@@ -1056,6 +1111,10 @@ export class Battle {
 
     // Routing units retreat towards their side on their own at turn start
     this.processRoutingRetreatsForCurrentArmy();
+
+    // Wind direction & strength shift on turn change
+    const newWindState = this.windSystem.onTurnChange();
+    this.hookWindChanged(newWindState);
 
     this.activeCreatureIndex = -1;
     this.hookNextTurn(this.turnNumber, this.currentArmyIndex);
@@ -2627,4 +2686,5 @@ export class Battle {
   hookRangedScatter(_attacker: Creature, _orig: Coords, _scatter: Coords, _hit: Creature | null) {}
   hookMoraleBreak(_creature: Creature, _state: MoraleState) {}
   hookUnitChangedFacing?(_creature: Creature, _direction: HexDirection) {}
+  hookWindChanged(_windState: WindState) {}
 }

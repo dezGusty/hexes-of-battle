@@ -368,6 +368,10 @@ export class BattleScene3D implements Scene {
       }
     };
 
+    this.battle.hookWindChanged = (windState) => {
+      this.view.hexBoard.setWindState(windState.angleRad, windState.strength);
+    };
+
     this.battle.hookMovingUnit = (_creature, _nextStep) => {
       this.soundSystem.play(SoundCategory.SOUND, SoundType.MOVE, true);
     };

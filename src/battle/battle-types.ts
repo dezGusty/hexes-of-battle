@@ -6,6 +6,8 @@ import { CombatConfig } from './combat-rules';
 import { Coords } from '../shared';
 import { BattleActionType } from './battle-action';
 import { HexFlankStatus } from '../shared/hex-map';
+import { BattleLocationType } from '../render3d/decorations/battle-environment-3d';
+import { WindConfig } from '../render3d/decorations/wind-system';
 
 export interface BattleConfig {
   mapWidth: number;
@@ -19,6 +21,10 @@ export interface BattleConfig {
   seed?: number;
   maxTurns?: number;
   retreatPoints?: Record<number, Coords[]> | Coords[][];
+  majorTerrainType?: BattleLocationType | string;
+  battleLocationType?: BattleLocationType | string;
+  locationType?: BattleLocationType | string;
+  wind?: WindConfig;
 }
 
 export interface BattleResult {

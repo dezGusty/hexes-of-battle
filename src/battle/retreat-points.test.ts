@@ -336,6 +336,72 @@ describe('Configurable Fixed Retreat Points & Animated Flags', () => {
 
       expect(zAfter).not.toBe(zBefore);
     });
+
+    it('should update wind direction within [-45...+45 deg] and adjust strength between min and max on turn changes', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+      battle.initializeToSize(10, 8);
+      battle.setCombatConfig({
+        ...battle.combatConfig,
+        wind: {
+          min_strength: 0.6,
+          max_strength: 1.6,
+          min_angle_change_deg: -45,
+          max_angle_change_deg: 45,
+          initial_angle_deg: 45,
+          initial_strength: 1.0,
+        },
+      });
+
+      const initialWind = battle.getWindState();
+      expect(initialWind.angleDeg).toBe(45);
+      expect(initialWind.strength).toBe(1.0);
+
+      // Perform a series of turn changes and track wind shifts
+      let prevAngle = initialWind.angleDeg;
+      for (let i = 0; i < 10; i++) {
+        battle.nextTurn();
+        const state = battle.getWindState();
+
+        // Strength is clamped within configured range [0.6 ... 1.6]
+        expect(state.strength).toBeGreaterThanOrEqual(0.6);
+        expect(state.strength).toBeLessThanOrEqual(1.6);
+
+        // Angle change delta is within [-45 ... +45] degrees (handling 360 wrap-around)
+        let delta = state.angleDeg - prevAngle;
+        while (delta > 180) delta -= 360;
+        while (delta < -180) delta += 360;
+        expect(delta).toBeGreaterThanOrEqual(-45.01);
+        expect(delta).toBeLessThanOrEqual(45.01);
+
+        prevAngle = state.angleDeg;
+      }
+    });
+
+    it('should align flag cloth rotation to wind angle and scale wave amplitude with wind strength', () => {
+      const flag = createRetreatFlagMesh(0, 3, 3);
+      const cloth = flag.getObjectByName('Cloth') as THREE.Mesh;
+      const geo = cloth.geometry as THREE.BufferGeometry;
+      const posAttr = geo.attributes.position as THREE.BufferAttribute;
+
+      // Gentle breeze: strength = 0.5, wind blowing towards 90 deg (South)
+      const angleRadSouth = Math.PI * 0.5;
+      updateRetreatFlagWind(cloth, 1.5, 0.5, angleRadSouth);
+      expect(cloth.rotation.y).toBeCloseTo(angleRadSouth, 4);
+
+      // Measure amplitude at free fly tip
+      const tipIndex = posAttr.count - 1;
+      const tipZGentle = Math.abs(posAttr.getZ(tipIndex));
+
+      // Strong gale: strength = 2.0, wind blowing towards 0 deg (East)
+      const angleRadEast = 0;
+      updateRetreatFlagWind(cloth, 1.5, 2.0, angleRadEast);
+      expect(cloth.rotation.y).toBeCloseTo(angleRadEast, 4);
+
+      const tipZStrong = Math.abs(posAttr.getZ(tipIndex));
+      // Stronger wind creates higher billow/ripple wave displacement
+      expect(tipZStrong).toBeGreaterThan(tipZGentle);
+    });
   });
 
   describe('5. Post-Battle Screen & Unit Losses Recording', () => {

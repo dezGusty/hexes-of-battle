@@ -15,11 +15,19 @@ import { createSelectedHaloTexture } from './units/selected-halo-texture';
 import {
   createRetreatFlagMesh,
   updateRetreatFlagWind,
+  setRetreatFlagWindState,
   getPlayerBanner,
   createBannerSubTexture,
   setSharedBannersTexture,
   getSharedBannersTexture,
 } from './decorations/retreat-flag-3d';
+import {
+  BattleLocationType,
+  BoardWorldBounds,
+  normalizeBattleLocationType,
+  populateOuterEnvironmentDecorations,
+} from './decorations/battle-environment-3d';
+import { WindState } from './decorations/wind-system';
 
 export interface HexBoard3DOptions {
   showGrid?: boolean;
@@ -34,6 +42,9 @@ export interface HexBoard3DOptions {
   getTerrain?: (x: number, y: number) => TerrainType;
   getRetreatPoints?: (armyIndex: number) => Coords[];
   getArmyBanner?: (armyIndex: number) => string;
+  majorTerrainType?: BattleLocationType | string;
+  getMajorTerrainType?: () => BattleLocationType | string;
+  getWindState?: () => WindState;
   blendTransitionWidth?: number;
   blendNoiseStrength?: number;
 }
@@ -55,10 +66,17 @@ export class HexBoard3D {
   private forestTreesByHex: Map<string, THREE.Object3D[]> = new Map();
   private forestTreeTemplates: { pine?: THREE.Object3D; oak?: THREE.Object3D } = {};
   public readonly retreatFlagsGroup: THREE.Group = new THREE.Group();
+  public readonly outerDecorationsGroup: THREE.Group = new THREE.Group();
   private animatedFlagCloths: THREE.Mesh[] = [];
+  private animatedWindmillSails: THREE.Object3D[] = [];
   private windTime: number = 0;
   private getRetreatPoints?: (armyIndex: number) => Coords[];
   private getArmyBanner?: (armyIndex: number) => string;
+  private majorTerrainType: BattleLocationType = BattleLocationType.FARM;
+  private getMajorTerrainTypeFn?: () => BattleLocationType | string;
+  private getWindStateFn?: () => WindState;
+  private currentWindAngleRad: number = Math.PI * 0.25;
+  private currentWindStrength: number = 1.0;
   private bannersTexture?: THREE.Texture;
   private hoverMesh: THREE.Mesh;
   private selectedRingMesh: THREE.Mesh;
@@ -118,6 +136,20 @@ export class HexBoard3D {
     if (options?.getTerrain !== undefined) this.getTerrain = options.getTerrain;
     if (options?.getRetreatPoints !== undefined) this.getRetreatPoints = options.getRetreatPoints;
     if (options?.getArmyBanner !== undefined) this.getArmyBanner = options.getArmyBanner;
+    if (options?.majorTerrainType !== undefined) {
+      this.majorTerrainType = normalizeBattleLocationType(options.majorTerrainType);
+    }
+    if (options?.getMajorTerrainType !== undefined) {
+      this.getMajorTerrainTypeFn = options.getMajorTerrainType;
+    }
+    if (options?.getWindState !== undefined) {
+      this.getWindStateFn = options.getWindState;
+      const initialWind = options.getWindState();
+      if (initialWind) {
+        this.currentWindAngleRad = initialWind.angleRad;
+        this.currentWindStrength = initialWind.strength;
+      }
+    }
     if (options?.blendTransitionWidth !== undefined) this.blendTransitionWidth = options.blendTransitionWidth;
     if (options?.blendNoiseStrength !== undefined) this.blendNoiseStrength = options.blendNoiseStrength;
 
@@ -131,6 +163,7 @@ export class HexBoard3D {
     this.coordsGroup.name = 'CoordsLabels';
     this.forestTreesGroup.name = 'ForestTrees';
     this.retreatFlagsGroup.name = 'RetreatFlags';
+    this.outerDecorationsGroup.name = 'OuterDecorations';
 
     this.hoverMesh = this.createHighlightHexMesh(0xffffff, 0.4);
     this.hoverMesh.name = 'TileHoverMesh';
@@ -170,6 +203,7 @@ export class HexBoard3D {
     this.group.add(this.coordsGroup);
     this.group.add(this.forestTreesGroup);
     this.group.add(this.retreatFlagsGroup);
+    this.group.add(this.outerDecorationsGroup);
 
     this.buildBoard();
   }
@@ -1569,6 +1603,7 @@ float hillTerrainNoise(vec2 p) {
     this.rebuildGridBorders();
     this.rebuildCoords();
     this.rebuildRetreatFlags();
+    this.rebuildOuterDecorations();
   }
 
   /**
@@ -1911,10 +1946,127 @@ float hillTerrainNoise(vec2 p) {
 
     if (this.animatedFlagCloths.length > 0) {
       this.windTime += deltaMS * 0.001;
+      if (this.getWindStateFn) {
+        const currentWind = this.getWindStateFn();
+        if (currentWind) {
+          this.currentWindAngleRad = currentWind.angleRad;
+          this.currentWindStrength = currentWind.strength;
+        }
+      }
       for (let i = 0; i < this.animatedFlagCloths.length; i++) {
-        updateRetreatFlagWind(this.animatedFlagCloths[i], this.windTime);
+        updateRetreatFlagWind(
+          this.animatedFlagCloths[i],
+          this.windTime,
+          this.currentWindStrength,
+          this.currentWindAngleRad
+        );
       }
     }
+
+    if (this.animatedWindmillSails.length > 0) {
+      const sailDeltaAngle = (2 * Math.PI * deltaMS) / 14000;
+      for (let i = 0; i < this.animatedWindmillSails.length; i++) {
+        this.animatedWindmillSails[i].rotation.z =
+          (this.animatedWindmillSails[i].rotation.z - sailDeltaAngle) % (2 * Math.PI);
+      }
+    }
+  }
+
+  public setWindState(windAngleRad: number, windStrength: number = 1.0): void {
+    this.currentWindAngleRad = windAngleRad;
+    this.currentWindStrength = windStrength;
+    for (let i = 0; i < this.animatedFlagCloths.length; i++) {
+      setRetreatFlagWindState(this.animatedFlagCloths[i], windAngleRad, windStrength);
+    }
+  }
+
+  public getWindState(): { angleRad: number; strength: number } {
+    return {
+      angleRad: this.currentWindAngleRad,
+      strength: this.currentWindStrength,
+    };
+  }
+
+  public setMajorTerrainType(locationType: BattleLocationType | string): void {
+    this.majorTerrainType = normalizeBattleLocationType(locationType, this.majorTerrainType);
+    this.rebuildOuterDecorations();
+  }
+
+  public getMajorTerrainType(): BattleLocationType {
+    if (this.getMajorTerrainTypeFn) {
+      return normalizeBattleLocationType(this.getMajorTerrainTypeFn(), this.majorTerrainType);
+    }
+    return this.majorTerrainType;
+  }
+
+  public getBoardWorldBounds(): BoardWorldBounds {
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+
+    for (let x = 0; x < this.hexMap.width; x++) {
+      for (let y = 0; y < this.hexMap.height; y++) {
+        const pos = this.hexToWorld(x, y);
+        if (pos.x - this.hexRadius < minX) minX = pos.x - this.hexRadius;
+        if (pos.x + this.hexRadius > maxX) maxX = pos.x + this.hexRadius;
+        if (pos.z - this.hexRadius < minZ) minZ = pos.z - this.hexRadius;
+        if (pos.z + this.hexRadius > maxZ) maxZ = pos.z + this.hexRadius;
+      }
+    }
+
+    if (!Number.isFinite(minX)) {
+      minX = -10;
+      maxX = 10;
+      minZ = -8;
+      maxZ = 8;
+    }
+
+    return {
+      minX,
+      maxX,
+      minZ,
+      maxZ,
+      centerX: (minX + maxX) * 0.5,
+      centerZ: (minZ + maxZ) * 0.5,
+    };
+  }
+
+  public rebuildOuterDecorations(): void {
+    this.clearOuterDecorations();
+    const locationType = this.getMajorTerrainType();
+    const bounds = this.getBoardWorldBounds();
+    const { animatedWindmillSails } = populateOuterEnvironmentDecorations(
+      this.outerDecorationsGroup,
+      locationType,
+      bounds,
+      this.hexHeight,
+      this.forestTreeTemplates
+    );
+    this.animatedWindmillSails = animatedWindmillSails;
+  }
+
+  private clearOuterDecorations(): void {
+    while (this.outerDecorationsGroup.children.length > 0) {
+      const child = this.outerDecorationsGroup.children[0];
+      this.outerDecorationsGroup.remove(child);
+      child.traverse((obj) => {
+        if ((obj as THREE.Mesh).isMesh) {
+          const mesh = obj as THREE.Mesh;
+          if (mesh.geometry && !mesh.geometry.userData?.isSharedAsset) {
+            mesh.geometry.dispose();
+          }
+          if (Array.isArray(mesh.material)) {
+            mesh.material.forEach((m) => {
+              if (!m.userData?.isSharedAsset) m.dispose();
+            });
+          } else if (mesh.material && !mesh.material.userData?.isSharedAsset) {
+            mesh.material.dispose();
+          }
+        }
+      });
+    }
+    this.animatedWindmillSails = [];
   }
 
   public setRetreatPointsProvider(provider: (armyIndex: number) => Coords[]): void {
@@ -1995,6 +2147,7 @@ float hillTerrainNoise(vec2 p) {
 
         const cloth = flag.getObjectByName('Cloth') as THREE.Mesh;
         if (cloth) {
+          setRetreatFlagWindState(cloth, this.currentWindAngleRad, this.currentWindStrength);
           this.animatedFlagCloths.push(cloth);
         }
       }
@@ -2597,6 +2750,7 @@ float hillTerrainNoise(vec2 p) {
       }
     }
     this.clearForestTrees();
+    this.clearOuterDecorations();
     this.clearReachOverlays();
     this.clearRangePerimeter();
     this.clearEnemyRangePerimeter();

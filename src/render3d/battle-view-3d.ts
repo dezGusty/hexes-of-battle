@@ -15,6 +15,7 @@ import { BattleHexMapPath } from '../battle/battle-hex-map-path';
 import { ThreeSceneDebugger } from './debug/three-scene-debugger';
 import { ExhaustionState } from '../battle/combat-rules';
 import { ISoundSystem, SoundCategory, SoundType } from '../battle/sound-system';
+import { BattleLocationType } from './decorations/battle-environment-3d';
 
 export interface BattleView3DEvents {
   onNextTurn: () => void;
@@ -98,6 +99,7 @@ export class BattleView3D {
     this.container = container;
 
     this.sceneManager = new ThreeSceneManager(container);
+    this.sceneManager.setSkyboxTheme(this.battle.getMajorTerrainType());
     this.hexBoard = new HexBoard3D(this.hexMap, {
       showGrid: settings.hex.showGrid,
       borderThickness: settings.hex.gridBorderThickness,
@@ -111,6 +113,9 @@ export class BattleView3D {
       getTerrain: (x, y) => this.battle.getTerrainAt({ x, y }),
       getRetreatPoints: (armyIndex) => this.battle.getRetreatPoints(armyIndex),
       getArmyBanner: (armyIndex) => this.battle.getBannerForArmy(armyIndex),
+      majorTerrainType: this.battle.getMajorTerrainType(),
+      getMajorTerrainType: () => this.battle.getMajorTerrainType(),
+      getWindState: () => this.battle.getWindState(),
     });
     this.sceneManager.scene.add(this.hexBoard.group);
     this.sceneManager.scene.add(this.projectileSystem.group);
@@ -731,12 +736,28 @@ export class BattleView3D {
   }
 
   public resetGridAndTerrain(): void {
+    this.sceneManager.setSkyboxTheme(this.battle.getMajorTerrainType());
+    const wind = this.battle.getWindState();
+    this.hexBoard.setWindState(wind.angleRad, wind.strength);
     this.hexBoard.rebuildBoard();
     this.syncAllSquads();
     this.sceneManager.resetCamera();
   }
 
+  public setMajorTerrainType(locationType: BattleLocationType | string): void {
+    this.battle.setMajorTerrainType(locationType);
+    const normalized = this.battle.getMajorTerrainType();
+    this.sceneManager.setSkyboxTheme(normalized);
+    this.hexBoard.setMajorTerrainType(normalized);
+  }
+
+  public getMajorTerrainType(): BattleLocationType {
+    return this.battle.getMajorTerrainType();
+  }
+
   public showTurnBanner(_turnNum: number, _armyIdx: number): void {
+    const wind = this.battle.getWindState();
+    this.hexBoard.setWindState(wind.angleRad, wind.strength);
     this.updateActiveUnitSelection();
   }
 

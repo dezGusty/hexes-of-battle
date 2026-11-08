@@ -1,11 +1,20 @@
 import * as THREE from 'three';
 import { Camera3DConfig } from './types';
 import { Coords } from '../shared';
+import {
+  BattleLocationType,
+  createSkyboxMesh,
+  getSkyboxThemeColors,
+  normalizeBattleLocationType,
+  updateSkyboxMeshTheme,
+} from './decorations/battle-environment-3d';
 
 export class ThreeSceneManager {
   public readonly scene: THREE.Scene = new THREE.Scene();
   public readonly camera: THREE.PerspectiveCamera;
   public readonly renderer: THREE.WebGLRenderer;
+  public skyboxMesh!: THREE.Mesh;
+  private skyboxTheme: BattleLocationType = BattleLocationType.FARM;
 
   public readonly canvas: HTMLCanvasElement;
   private containerElement: HTMLElement;
@@ -19,7 +28,7 @@ export class ThreeSceneManager {
   private cameraConfig: Camera3DConfig = {
     fov: 40,
     near: 0.1,
-    far: 200,
+    far: 300,
     initialDistance: 18.0,
     minDistance: 4.5,
     maxDistance: 32.0,
@@ -171,8 +180,33 @@ export class ThreeSceneManager {
   }
 
   private setupSkyBackground(): void {
-    // Soft atmospheric background fog
-    this.scene.fog = new THREE.FogExp2(0x0f1c26, 0.018);
+    const theme = getSkyboxThemeColors(this.skyboxTheme);
+    this.scene.fog = new THREE.FogExp2(theme.fogHex, theme.fogDensity);
+    this.renderer.setClearColor(theme.horizonHex, 1.0);
+    this.skyboxMesh = createSkyboxMesh(this.skyboxTheme, 120);
+    this.scene.add(this.skyboxMesh);
+  }
+
+  public setSkyboxTheme(locationType: BattleLocationType | string): void {
+    const normalized = normalizeBattleLocationType(locationType, this.skyboxTheme);
+    this.skyboxTheme = normalized;
+    const theme = getSkyboxThemeColors(normalized);
+    this.scene.fog = new THREE.FogExp2(theme.fogHex, theme.fogDensity);
+    this.renderer.setClearColor(theme.horizonHex, 1.0);
+    if (this.skyboxMesh) {
+      updateSkyboxMeshTheme(this.skyboxMesh, normalized);
+    } else {
+      this.skyboxMesh = createSkyboxMesh(normalized, 120);
+      this.scene.add(this.skyboxMesh);
+    }
+  }
+
+  public getSkyboxTheme(): BattleLocationType {
+    return this.skyboxTheme;
+  }
+
+  public getSkyboxMesh(): THREE.Mesh {
+    return this.skyboxMesh;
   }
 
   public getCameraConfig(): Camera3DConfig {
@@ -236,6 +270,9 @@ export class ThreeSceneManager {
 
     this.camera.position.set(x, y, z);
     this.camera.lookAt(this.cameraTarget);
+    if (this.skyboxMesh) {
+      this.skyboxMesh.position.set(this.cameraTarget.x, 0, this.cameraTarget.z);
+    }
   }
 
   public rotateCamera(deltaYaw: number, deltaPitch: number = 0): void {
@@ -333,6 +370,11 @@ export class ThreeSceneManager {
   }
 
   public dispose(): void {
+    if (this.skyboxMesh) {
+      this.scene.remove(this.skyboxMesh);
+      this.skyboxMesh.geometry?.dispose();
+      (this.skyboxMesh.material as THREE.Material)?.dispose();
+    }
     this.renderer.dispose();
     if (this.canvas.parentElement) {
       this.canvas.parentElement.removeChild(this.canvas);
