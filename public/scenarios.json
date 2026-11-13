@@ -11,22 +11,92 @@
         "armyIndex": 0,
         "name": "The Count of Ekkina's 1st Army",
         "units": [
-          { "type": "peasant", "pos": { "x": 3, "y": 4 }, "facing": 1 },
-          { "type": "spearman", "pos": { "x": 0, "y": 0 }, "facing": 1 },
-          { "type": "peasant-archer", "pos": { "x": 1, "y": 5 }, "facing": 1 },
-          { "type": "crossbowman", "pos": { "x": 0, "y": 4 }, "facing": 1 },
-          { "type": "spearman", "pos": { "x": 3, "y": 5 }, "facing": 1 }
+          {
+            "type": "peasant",
+            "pos": {
+              "x": 3,
+              "y": 4
+            },
+            "facing": 1
+          },
+          {
+            "type": "spearman",
+            "pos": {
+              "x": 0,
+              "y": 0
+            },
+            "facing": 1
+          },
+          {
+            "type": "peasant-archer",
+            "pos": {
+              "x": 1,
+              "y": 5
+            },
+            "facing": 1
+          },
+          {
+            "type": "crossbowman",
+            "pos": {
+              "x": 0,
+              "y": 4
+            },
+            "facing": 1
+          },
+          {
+            "type": "spearman",
+            "pos": {
+              "x": 3,
+              "y": 5
+            },
+            "facing": 1
+          }
         ]
       },
       {
         "armyIndex": 1,
         "name": "Knights of The Grand Duke",
         "units": [
-          { "type": "spearman", "pos": { "x": 5, "y": 7 }, "facing": 4 },
-          { "type": "swordsman", "pos": { "x": 4, "y": 4 }, "facing": 4 },
-          { "type": "barbarian", "pos": { "x": 4, "y": 6 }, "facing": 4 },
-          { "type": "peasant", "pos": { "x": 4, "y": 3 }, "facing": 4 },
-          { "type": "peasant-archer", "pos": { "x": 7, "y": 4 }, "facing": 4 }
+          {
+            "type": "spearman",
+            "pos": {
+              "x": 5,
+              "y": 7
+            },
+            "facing": 4
+          },
+          {
+            "type": "swordsman",
+            "pos": {
+              "x": 4,
+              "y": 4
+            },
+            "facing": 4
+          },
+          {
+            "type": "barbarian",
+            "pos": {
+              "x": 4,
+              "y": 6
+            },
+            "facing": 4
+          },
+          {
+            "type": "peasant",
+            "pos": {
+              "x": 4,
+              "y": 3
+            },
+            "facing": 4
+          },
+          {
+            "type": "peasant-archer",
+            "pos": {
+              "x": 7,
+              "y": 4
+            },
+            "facing": 4
+          }
         ]
       }
     ]
@@ -43,20 +113,76 @@
         "armyIndex": 0,
         "name": "Peasant Rebellion",
         "units": [
-          { "type": "peasant", "pos": { "x": 1, "y": 2 }, "facing": 1 },
-          { "type": "peasant", "pos": { "x": 1, "y": 3 }, "facing": 1 },
-          { "type": "peasant", "pos": { "x": 1, "y": 4 }, "facing": 1 },
-          { "type": "peasant", "pos": { "x": 1, "y": 5 }, "facing": 1 },
-          { "type": "peasant-archer", "pos": { "x": 0, "y": 3 }, "facing": 1 },
-          { "type": "peasant-archer", "pos": { "x": 0, "y": 4 }, "facing": 1 }
+          {
+            "type": "peasant",
+            "pos": {
+              "x": 1,
+              "y": 2
+            },
+            "facing": 1
+          },
+          {
+            "type": "peasant",
+            "pos": {
+              "x": 1,
+              "y": 3
+            },
+            "facing": 1
+          },
+          {
+            "type": "peasant",
+            "pos": {
+              "x": 1,
+              "y": 4
+            },
+            "facing": 1
+          },
+          {
+            "type": "peasant",
+            "pos": {
+              "x": 1,
+              "y": 5
+            },
+            "facing": 1
+          },
+          {
+            "type": "peasant-archer",
+            "pos": {
+              "x": 0,
+              "y": 3
+            },
+            "facing": 1
+          },
+          {
+            "type": "peasant-archer",
+            "pos": {
+              "x": 0,
+              "y": 4
+            },
+            "facing": 1
+          }
         ]
       },
       {
         "armyIndex": 1,
         "name": "Iron Vanguard",
         "units": [
-          { "type": "heavy-knights", "pos": { "x": 8, "y": 3 }, "facing": 4 },
-          { "type": "heavy-knights", "pos": { "x": 8, "y": 4 }, "facing": 4 }
+          {
+            "type": "heavy-knights",
+            "pos": {
+              "x": 8,
+              "y": 3
+            },
+            "facing": 4
+          },
+          {
+            "type": "heavy-knights",
+            "pos": {
+              "x": 8,
+              "y": 4
+            },
+            "facing": 4
+          }
         ]
       }
     ]
@@ -64,7 +190,7 @@
   {
     "id": "hero_retinue_showdown",
     "name": "Hero Retinue vs Behemoth",
-    "description": "Hero Commander leading bodyguard retinue facing a gargantuan Behemoth.",
+    "description": "Hero Commander leading bodyguard retinue facing barbarians.",
     "majorTerrainType": "forest",
     "mapWidth": 11,
     "mapHeight": 7,
@@ -73,17 +199,52 @@
         "armyIndex": 0,
         "name": "Royal Expedition",
         "units": [
-          { "type": "hero-commander", "pos": { "x": 2, "y": 3 }, "facing": 1 },
-          { "type": "swordsman", "pos": { "x": 1, "y": 2 }, "facing": 1 },
-          { "type": "crossbowman", "pos": { "x": 0, "y": 3 }, "facing": 1 }
+          {
+            "type": "hero-commander",
+            "pos": {
+              "x": 2,
+              "y": 3
+            },
+            "facing": 1
+          },
+          {
+            "type": "swordsman",
+            "pos": {
+              "x": 1,
+              "y": 2
+            },
+            "facing": 1
+          },
+          {
+            "type": "crossbowman",
+            "pos": {
+              "x": 0,
+              "y": 3
+            },
+            "facing": 1
+          }
         ]
       },
       {
         "armyIndex": 1,
-        "name": "Wild Beasts",
+        "name": "Wild People",
         "units": [
-          { "type": "behemoth", "pos": { "x": 7, "y": 3 }, "facing": 4 },
-          { "type": "barbarian", "pos": { "x": 8, "y": 2 }, "facing": 4 }
+          {
+            "type": "barbarian",
+            "pos": {
+              "x": 7,
+              "y": 3
+            },
+            "facing": 4
+          },
+          {
+            "type": "barbarian",
+            "pos": {
+              "x": 8,
+              "y": 2
+            },
+            "facing": 4
+          }
         ]
       }
     ]
@@ -96,24 +257,62 @@
     "mapWidth": 11,
     "mapHeight": 7,
     "retreatPoints": {
-      "0": [{ "x": 4, "y": 3 }],
-      "1": [{ "x": 6, "y": 3 }]
+      "0": [
+        {
+          "x": 4,
+          "y": 3
+        }
+      ],
+      "1": [
+        {
+          "x": 6,
+          "y": 3
+        }
+      ]
     },
     "armies": [
       {
         "armyIndex": 0,
         "name": "Blue Outpost Guards",
         "units": [
-          { "type": "swordsman", "pos": { "x": 2, "y": 3 }, "facing": 1 },
-          { "type": "spearman", "pos": { "x": 3, "y": 2 }, "facing": 1 }
+          {
+            "type": "swordsman",
+            "pos": {
+              "x": 2,
+              "y": 3
+            },
+            "facing": 1
+          },
+          {
+            "type": "spearman",
+            "pos": {
+              "x": 3,
+              "y": 2
+            },
+            "facing": 1
+          }
         ]
       },
       {
         "armyIndex": 1,
         "name": "Red Incursion",
         "units": [
-          { "type": "maceman", "pos": { "x": 8, "y": 3 }, "facing": 4 },
-          { "type": "slinger", "pos": { "x": 7, "y": 4 }, "facing": 4 }
+          {
+            "type": "maceman",
+            "pos": {
+              "x": 8,
+              "y": 3
+            },
+            "facing": 4
+          },
+          {
+            "type": "slinger",
+            "pos": {
+              "x": 7,
+              "y": 4
+            },
+            "facing": 4
+          }
         ]
       }
     ]

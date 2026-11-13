@@ -2,7 +2,7 @@
   {
     "name": "peasant",
     "model_count": 16,
-    "model_hp": 3,
+    "model_hp": 4,
     "tier": 1,
     "flying": false,
     "stats": {
@@ -13,7 +13,7 @@
       "attack_ranged_high": 0,
       "defense_melee": 0,
       "defense_ranged": 0,
-      "health": 48,
+      "health": 64,
       "initiative": 3,
       "is_ranged": false,
       "num_attacks": 1,
@@ -30,7 +30,7 @@
   {
     "name": "swordsman",
     "model_count": 8,
-    "model_hp": 5,
+    "model_hp": 6,
     "tier": 2,
     "flying": false,
     "stats": {
@@ -41,7 +41,7 @@
       "attack_ranged_high": 0,
       "defense_melee": 1,
       "defense_ranged": 1,
-      "health": 40,
+      "health": 48,
       "initiative": 2,
       "is_ranged": false,
       "num_attacks": 1,
@@ -60,7 +60,7 @@
   {
     "name": "spearman",
     "model_count": 8,
-    "model_hp": 5,
+    "model_hp": 6,
     "tier": 2,
     "flying": false,
     "stats": {
@@ -71,7 +71,7 @@
       "attack_ranged_high": 0,
       "defense_melee": 1,
       "defense_ranged": 0,
-      "health": 40,
+      "health": 48,
       "initiative": 5,
       "is_ranged": false,
       "num_attacks": 1,
@@ -93,7 +93,7 @@
   {
     "name": "barbarian",
     "model_count": 8,
-    "model_hp": 6,
+    "model_hp": 7,
     "tier": 2,
     "flying": false,
     "stats": {
@@ -104,7 +104,7 @@
       "attack_ranged_high": 0,
       "defense_melee": 0,
       "defense_ranged": 0,
-      "health": 48,
+      "health": 56,
       "initiative": 4,
       "is_ranged": false,
       "num_attacks": 1,
@@ -121,7 +121,7 @@
   {
     "name": "peasant-archer",
     "model_count": 12,
-    "model_hp": 3,
+    "model_hp": 4,
     "tier": 1,
     "flying": false,
     "stats": {
@@ -132,7 +132,7 @@
       "attack_ranged_high": 9,
       "defense_melee": 0,
       "defense_ranged": 0,
-      "health": 36,
+      "health": 48,
       "initiative": 3,
       "is_ranged": true,
       "num_attacks": 1,
@@ -154,7 +154,7 @@
   {
     "name": "crossbowman",
     "model_count": 8,
-    "model_hp": 5,
+    "model_hp": 6,
     "tier": 2,
     "flying": false,
     "stats": {
@@ -165,7 +165,7 @@
       "attack_ranged_high": 11,
       "defense_melee": 2,
       "defense_ranged": 1,
-      "health": 40,
+      "health": 48,
       "initiative": 2,
       "is_ranged": true,
       "num_attacks": 1,
@@ -211,36 +211,6 @@
     "ability_ids": []
   },
   {
-    "name": "behemoth",
-    "model_count": 1,
-    "model_hp": 120,
-    "tier": 4,
-    "flying": false,
-    "stats": {
-      "ammo": 0,
-      "attack_melee_low": 24,
-      "attack_melee_high": 34,
-      "attack_ranged_low": 0,
-      "attack_ranged_high": 0,
-      "defense_melee": 6,
-      "defense_ranged": 3,
-      "health": 120,
-      "initiative": 3,
-      "is_ranged": false,
-      "num_attacks": 1,
-      "num_counterattacks": 2,
-      "num_moves": 2,
-      "range": 1,
-      "stamina": 28,
-      "morale": 10,
-      "flying": false
-    },
-    "traits": [
-      "CloseQuartersCounter"
-    ],
-    "ability_ids": []
-  },
-  {
     "name": "hero-commander",
     "model_count": 6,
     "model_hp": 15,
@@ -275,7 +245,7 @@
   {
     "name": "slinger",
     "model_count": 8,
-    "model_hp": 3,
+    "model_hp": 4,
     "tier": 1,
     "flying": false,
     "stats": {
@@ -286,7 +256,7 @@
       "attack_ranged_high": 8,
       "defense_melee": 0,
       "defense_ranged": 0,
-      "health": 24,
+      "health": 32,
       "initiative": 3,
       "is_ranged": true,
       "num_attacks": 1,
@@ -309,7 +279,7 @@
   {
     "name": "healer",
     "model_count": 8,
-    "model_hp": 4,
+    "model_hp": 5,
     "tier": 1,
     "flying": false,
     "stats": {
@@ -320,7 +290,7 @@
       "attack_ranged_high": 0,
       "defense_melee": 0,
       "defense_ranged": 1,
-      "health": 32,
+      "health": 40,
       "initiative": 3,
       "is_ranged": false,
       "num_attacks": 1,
@@ -341,7 +311,7 @@
   {
     "name": "maceman",
     "model_count": 8,
-    "model_hp": 5,
+    "model_hp": 6,
     "tier": 2,
     "flying": false,
     "stats": {
@@ -352,7 +322,7 @@
       "attack_ranged_high": 0,
       "defense_melee": 1,
       "defense_ranged": 0,
-      "health": 40,
+      "health": 48,
       "initiative": 5,
       "is_ranged": false,
       "num_attacks": 1,

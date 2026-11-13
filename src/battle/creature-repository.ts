@@ -13,7 +13,6 @@ export class CreatureRepository {
     [CreatureType.ARCHER, "peasant-archer"],
     [CreatureType.BARBARIAN, "barbarian"],
     [CreatureType.HEAVY_KNIGHTS, "heavy-knights"],
-    [CreatureType.BEHEMOTH, "behemoth"],
     [CreatureType.HERO_COMMANDER, "hero-commander"],
     [CreatureType.SLINGER, "slinger"],
     [CreatureType.HEALER, "healer"],
@@ -21,7 +20,7 @@ export class CreatureRepository {
     [CreatureType.ARMORED_KNIGHT, "armored-knight"],
   ]);
 
-  constructor() {}
+  constructor() { }
 
   setAbilities(abilities: Ability[]) {
     this.abilities = abilities;

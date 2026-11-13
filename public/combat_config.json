@@ -46,9 +46,9 @@
     "restRecovery": 5,
     "exhaustionThresholds": {
       "freshMinPercent": 0.55,
-      "windedMinPercent": 0.25,
-      "exhaustedMinPercent": 0.01,
-      "depletedPercent": 0.00
+      "windedMinPercent": 0.30,
+      "exhaustedMinPercent": 0.15,
+      "depletedPercent": 0.05
     },
     "penalties": {
       "winded": {
@@ -61,7 +61,7 @@
       "exhausted": {
         "damageDealtMultiplier": 0.70,
         "movementPenalty": 0,
-        "defenseMultiplier": 1.0,
+        "defenseMultiplier": 0.75,
         "canRetaliate": false,
         "damageTakenMultiplier": 1.20
       },

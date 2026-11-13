@@ -907,7 +907,6 @@ describe("Tactical Systems Validation", () => {
         "peasant-archer": 22,
         "crossbowman": 20,
         "heavy-knights": 24,
-        "behemoth": 28,
         "hero-commander": 26,
         "slinger": 22,
         "healer": 22,

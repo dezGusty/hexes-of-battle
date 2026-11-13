@@ -205,7 +205,6 @@ export class Creature {
     "Archer",
     "Barbarian",
     "Heavy Knights",
-    "Behemoth",
     "Hero Commander",
     "Slinger",
     "Healer",
