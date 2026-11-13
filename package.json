@@ -1,7 +1,7 @@
 {
   "name": "hexes_of_battle",
   "private": true,
-  "version": "0.20.9",
+  "version": "0.25.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

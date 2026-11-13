@@ -3,6 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as THREE from "three";
 import { Creature, CreatureType, CreatureTemplate } from "./creature";
+import { MoraleState, DEFAULT_COMBAT_CONFIG } from "./combat-rules";
 import { CreatureRepository } from "./creature-repository";
 import { Ability } from "./ability";
 import { Battle } from "../battle";
@@ -325,6 +326,165 @@ describe("Healer Squad and Mend Wounds Skill", () => {
       expect(buf.byteLength).toBeGreaterThan(1024);
       expect(buf.toString("ascii", 0, 4)).toBe("glTF");
       expect(buf.readUInt32LE(4)).toBe(2);
+    });
+  });
+
+  describe("5. Healing Skill Morale Boost Dynamics", () => {
+    it("should provide default morale boost: 0.5 * number of healed units, rounded up, at least 1 point", () => {
+      const hexMap = new HexMap(6, 6);
+      const battle = new Battle(hexMap);
+      battle.initializeToSize(6, 6);
+
+      const healer = new Creature(CreatureType.HEALER);
+      healer.position = { x: 1, y: 1 };
+      healer.armyAlignment = 0;
+
+      // Ally swordsman: 8 models (model_count = 8, model_hp = 5, health = 40)
+      const allySwordsman = new Creature(CreatureType.SWORDSMAN);
+      allySwordsman.position = { x: 2, y: 1 };
+      allySwordsman.armyAlignment = 0;
+      allySwordsman.stats.health = 40;
+      allySwordsman.stats.remaining_health = 20; // Wounded
+      allySwordsman.stats.morale = 5; // Wavering morale
+      expect(allySwordsman.aliveModelCount).toBe(4);
+
+      battle.creatures = [healer, allySwordsman];
+      const ability = Ability.createMendWounds();
+
+      let boostReceived = 0;
+      battle.hookDoingHeal = (data) => {
+        boostReceived = data.moraleBoost ?? 0;
+      };
+
+      // Healer has 8 alive models, heals 8 HP: remaining_health becomes 28 -> aliveModelCount becomes ceil(28 / 5) = 6
+      // Default boost = ceil(0.5 * 6) = 3
+      battle.executeHealAbility(healer, allySwordsman, ability);
+
+      expect(allySwordsman.aliveModelCount).toBe(6);
+      expect(boostReceived).toBe(3);
+      expect(allySwordsman.stats.morale).toBe(8); // 5 + 3 = 8
+      expect(allySwordsman.moraleState).toBe(MoraleState.STEADY); // Upgraded from wavering to steady
+    });
+
+    it("should guarantee minimum of 1 morale point for single-unit squads (e.g. heroes / monsters)", () => {
+      const hexMap = new HexMap(6, 6);
+      const battle = new Battle(hexMap);
+      battle.initializeToSize(6, 6);
+
+      const healer = new Creature(CreatureType.HEALER);
+      healer.position = { x: 1, y: 1 };
+      healer.armyAlignment = 0;
+
+      // Single-unit Hero squad (model_count = 1, health = 60)
+      const hero = new Creature(CreatureType.HERO_COMMANDER);
+      hero.position = { x: 2, y: 1 };
+      hero.armyAlignment = 0;
+      hero.stats.model_count = 1;
+      hero.stats.model_hp = 60;
+      hero.stats.health = 60;
+      hero.stats.remaining_health = 30; // Wounded
+      hero.stats.morale = 7;
+      expect(hero.aliveModelCount).toBe(1);
+
+      battle.creatures = [healer, hero];
+      const ability = Ability.createMendWounds();
+
+      let boostReceived = 0;
+      battle.hookDoingHeal = (data) => {
+        boostReceived = data.moraleBoost ?? 0;
+      };
+
+      // 0.5 * 1 = 0.5 -> rounded up is 1 (at least 1 point of morale)
+      battle.executeHealAbility(healer, hero, ability);
+
+      expect(hero.aliveModelCount).toBe(1);
+      expect(boostReceived).toBe(1);
+      expect(hero.stats.morale).toBe(8); // 7 + 1 = 8
+    });
+
+    it("should support custom multiplier and minimum value via battle config (combatConfig)", () => {
+      const hexMap = new HexMap(6, 6);
+      const battle = new Battle(hexMap);
+
+      const healer = new Creature(CreatureType.HEALER);
+      healer.position = { x: 1, y: 1 };
+      healer.armyAlignment = 0;
+
+      const ally = new Creature(CreatureType.SWORDSMAN);
+      ally.position = { x: 2, y: 1 };
+      ally.armyAlignment = 0;
+      ally.stats.model_count = 8;
+      ally.stats.model_hp = 5;
+      ally.stats.health = 40;
+      ally.stats.remaining_health = 38; // 8 alive models
+      ally.stats.morale = 6;
+      expect(ally.aliveModelCount).toBe(8);
+
+      // Custom battle config: multiplier = 0.75, minValue = 2
+      battle.initializeFromConfig({
+        mapWidth: 6,
+        mapHeight: 6,
+        combatConfig: {
+          ...DEFAULT_COMBAT_CONFIG,
+          morale: {
+            ...DEFAULT_COMBAT_CONFIG.morale,
+            healing: {
+              multiplier: 0.75,
+              minValue: 2,
+            },
+          },
+        },
+        creatures: [healer, ally],
+      });
+
+      const ability = Ability.createMendWounds();
+      let boostReceived = 0;
+      battle.hookDoingHeal = (data) => {
+        boostReceived = data.moraleBoost ?? 0;
+      };
+
+      // 8 units * 0.75 = 6 morale boost
+      battle.executeHealAbility(healer, ally, ability);
+
+      expect(boostReceived).toBe(6);
+      expect(ally.stats.morale).toBe(12); // 6 + 6 = 12
+    });
+
+    it("should support ability-level perks (e.g. full morale restoration or percentage upgrade)", () => {
+      const hexMap = new HexMap(6, 6);
+      const battle = new Battle(hexMap);
+      battle.initializeToSize(6, 6);
+
+      const healer = new Creature(CreatureType.HEALER);
+      healer.position = { x: 1, y: 1 };
+      healer.armyAlignment = 0;
+
+      const ally = new Creature(CreatureType.SWORDSMAN);
+      ally.position = { x: 2, y: 1 };
+      ally.armyAlignment = 0;
+      ally.stats.health = 40;
+      ally.stats.remaining_health = 35;
+      ally.stats.morale = 4;
+      ally.stats.max_morale = 30;
+
+      battle.creatures = [healer, ally];
+
+      // Perk 1: Percentage upgrade perk on ability (e.g. 100% / 1.0 multiplier)
+      const boostedAbility = Ability.createMendWounds();
+      boostedAbility.healingMorale = { multiplier: 1.0, minValue: 1 };
+
+      // Ally is restored to 8 models: 1.0 * 8 = 8 boost
+      battle.executeHealAbility(healer, ally, boostedAbility);
+      expect(ally.stats.morale).toBe(12); // 4 + 8 = 12
+
+      // Perk 2: Full morale perk restores morale completely to max_morale
+      const fullMoraleAbility = Ability.createMendWounds();
+      fullMoraleAbility.healingMorale = { fullMorale: true };
+
+      healer.stats.remaining_attacks = 1; // reset attacks
+      battle.executeHealAbility(healer, ally, fullMoraleAbility);
+      expect(ally.stats.morale).toBe(30); // Capped at max_morale (30)
+      expect(ally.moraleState).toBe(MoraleState.HIGH);
     });
   });
 });

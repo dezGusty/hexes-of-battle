@@ -1,17 +1,31 @@
 import { Ability, AbilityResourceUse, AbilityTarget, AbilityType } from "./battle/ability";
 import { Buff, Creature, CreatureStats } from "./battle/creature";
-import { checkFlankingStatus, HexDirection, HexFlankStatus, HexMap, reverseDirection } from "./shared/hex-map";
+import { HexDirection, HexFlankStatus, HexMap, reverseDirection } from "./shared/hex-map";
 import { Coords } from "./shared";
 import { NumMatrix } from "./shared/num-matrix";
 import { BattleHexMapPath } from "./battle/battle-hex-map-path";
 import { ReachData } from "./shared/reach-data";
 import { CreatureInBattle } from "./battle/creature-in-battle";
 import { BattleAction, BattleActionType } from "./battle/battle-action";
-import { BattleConfig, BattleResult } from "./battle/battle-types";
-import { CombatConfig, DEFAULT_COMBAT_CONFIG, ExhaustionState, MoraleState, getRetaliationDamageMultiplier } from "./battle/combat-rules";
+import { BattleConfig, BattleResult, DamagePreviewResult } from "./battle/battle-types";
+import { CombatConfig, DEFAULT_COMBAT_CONFIG, ExhaustionState, MoraleState, getRetaliationDamageMultiplier, getHealingMoraleConfig } from "./battle/combat-rules";
 import { TerrainType } from "./battle/terrain-types";
 import { SeedableRNG } from "./shared/prng";
 import { calculateDamageWithTraits, DEFAULT_TRAITS_CONFIG, TraitsConfig } from "./battle/trait-system";
+import {
+  computeDamagePreview,
+  computeVirtualLiveStatsAt,
+  executeAttackCalculation,
+  isDamageAbility,
+  resolveFlankAndFacingBonus,
+  resolveTargetDefense,
+} from "./battle/damage-calculator";
+import { configurePlayerColors } from "./render3d/units/unit-mesh-builder";
+import { configurePlayerBanners, getPlayerBanner } from "./render3d/decorations/retreat-flag-3d";
+import { BattleLocationType, normalizeBattleLocationType } from "./render3d/decorations/battle-environment-3d";
+import { WindConfig, WindState, WindSystem } from "./render3d/decorations/wind-system";
+
+export type { DamagePreviewResult };
 
 export enum AnimationType {
   NONE = 0,
@@ -53,12 +67,14 @@ export interface BattleHooks {
     isRetaliation?: boolean
   ) => void;
   hookDoingAttackRanged?: (data: RangedAttackData) => void;
-  hookDoingHeal?: (data: { healer: Creature; target: Creature; amount: number; ability: Ability }) => void;
+  hookDoingHeal?: (data: { healer: Creature; target: Creature; amount: number; ability: Ability; moraleBoost?: number }) => void;
   hookUnitDied?: (creature: Creature) => void;
+  hookUnitRetreated?: (creature: Creature) => void;
   hookActiveUnitChanged?: (creature: Creature) => void;
   hookRangedScatter?: (attacker: Creature, originalTarget: Coords, scatterTarget: Coords, hitCreature: Creature | null) => void;
   hookMoraleBreak?: (creature: Creature, state: MoraleState) => void;
   hookUnitChangedFacing?: (creature: Creature, direction: HexDirection) => void;
+  hookWindChanged?: (windState: WindState) => void;
 }
 
 export enum ArmyControlType {
@@ -122,6 +138,8 @@ export class Battle {
   public renderStateChanged: boolean = true;
   public creatures: Creature[] = [];
   public casualties: Creature[] = [];
+  public routedCreatures: Creature[] = [];
+  public initialCreatures: Creature[] = [];
 
   public pathfinding_tiles: number[][] = [];
   public enemy_potential_tiles: number[][] = [];
@@ -149,7 +167,9 @@ export class Battle {
   private lastAbilityTargetCanceledTimestamp: number = 0;
 
   public combatConfig: CombatConfig = { ...DEFAULT_COMBAT_CONFIG };
+  public majorTerrainType: BattleLocationType = BattleLocationType.FARM;
   public rng: SeedableRNG = new SeedableRNG();
+  public windSystem: WindSystem = new WindSystem(undefined, this.rng);
 
   // Metrics
   public totalDamageDealt: [number, number] = [0, 0];
@@ -157,6 +177,8 @@ export class Battle {
   public moraleBreaks: [number, number] = [0, 0];
   public friendlyFireEvents: number = 0;
   public maxTurns: number = 100;
+
+  private retreatPoints: Map<number, Coords[]> = new Map();
 
   public static DIRECTION_TO_ATTACK_CURSOR: Record<HexDirection, AttackCursorHint> = {
     [HexDirection.NONE]: AttackCursorHint.NONE,
@@ -183,14 +205,101 @@ export class Battle {
 
   public setCombatConfig(config: CombatConfig): void {
     this.combatConfig = config;
+    const rawMajorTerrain =
+      config?.majorTerrainType ??
+      config?.battleLocationType ??
+      (config as any)?.major_terrain_type ??
+      (config as any)?.locationType;
+    if (rawMajorTerrain) {
+      this.majorTerrainType = normalizeBattleLocationType(rawMajorTerrain);
+    }
+    if (config?.wind) {
+      this.windSystem.setConfig(config.wind);
+    }
+    if (config?.playerColors || (config as any)?.player_colors || (config as any)?.teamColors) {
+      configurePlayerColors(config.playerColors ?? (config as any)?.player_colors ?? (config as any)?.teamColors);
+    }
+    configurePlayerBanners(config);
     this.creatures?.forEach((c) => {
       c.combatConfig = config;
       c.updateMoraleState();
     });
   }
 
+  public getWindState(): WindState {
+    return this.windSystem.getState();
+  }
+
+  public setWindConfig(config: WindConfig): void {
+    this.windSystem.setConfig(config);
+  }
+
+  public getMajorTerrainType(): BattleLocationType {
+    return this.majorTerrainType;
+  }
+
+  public setMajorTerrainType(locationType: BattleLocationType | string): void {
+    this.majorTerrainType = normalizeBattleLocationType(locationType);
+  }
+
+  public getBannerForArmy(armyIndex: number): string {
+    return getPlayerBanner(armyIndex, this.combatConfig);
+  }
+
   public setSeed(seed: number): void {
     this.rng = new SeedableRNG(seed);
+    this.windSystem.setRng(this.rng);
+  }
+
+  public getRetreatPoints(armyIndex: number): Coords[] {
+    const custom = this.retreatPoints.get(armyIndex);
+    if (custom && custom.length > 0) {
+      return custom.map((p) => ({ x: p.x, y: p.y }));
+    }
+    return this.getDefaultRetreatPoints(armyIndex);
+  }
+
+  public setRetreatPoints(armyIndex: number, points: Coords[]): void {
+    this.retreatPoints.set(
+      armyIndex,
+      points.map((p) => ({ x: p.x, y: p.y }))
+    );
+  }
+
+  public hasCustomRetreatPoints(armyIndex?: number): boolean {
+    if (armyIndex !== undefined) {
+      const pts = this.retreatPoints.get(armyIndex);
+      return !!pts && pts.length > 0;
+    }
+    return this.retreatPoints.size > 0;
+  }
+
+  public clearCustomRetreatPoints(armyIndex?: number): void {
+    if (armyIndex !== undefined) {
+      this.retreatPoints.delete(armyIndex);
+    } else {
+      this.retreatPoints.clear();
+    }
+  }
+
+  public getDefaultRetreatPoints(armyIndex: number): Coords[] {
+    const points: Coords[] = [];
+    const width = this.hexMap.width;
+    const height = this.hexMap.height;
+
+    if (armyIndex === 0) {
+      // First player: left-most hexes (x = 0)
+      for (let y = 0; y < height; y++) {
+        points.push({ x: 0, y });
+      }
+    } else {
+      // Second player: right-most hexes (x = mapWidth - 1)
+      const edgeX = Math.max(0, width - 1);
+      for (let y = 0; y < height; y++) {
+        points.push({ x: edgeX, y });
+      }
+    }
+    return points;
   }
 
   public initializeToSize(mapWidth: number, mapHeight: number) {
@@ -206,6 +315,8 @@ export class Battle {
 
     this.creatures = [];
     this.casualties = [];
+    this.routedCreatures = [];
+    this.initialCreatures = [];
     this.finished = false;
     this.turnNumber = 0;
     this.currentArmyIndex = 0;
@@ -221,6 +332,32 @@ export class Battle {
   public initializeFromConfig(config: BattleConfig): void {
     if (config.combatConfig) {
       this.combatConfig = config.combatConfig;
+      const rawCombatMajorTerrain =
+        this.combatConfig.majorTerrainType ??
+        this.combatConfig.battleLocationType ??
+        (this.combatConfig as any).major_terrain_type ??
+        (this.combatConfig as any).locationType;
+      if (rawCombatMajorTerrain) {
+        this.majorTerrainType = normalizeBattleLocationType(rawCombatMajorTerrain);
+      }
+      if (this.combatConfig.wind) {
+        this.windSystem.setConfig(this.combatConfig.wind);
+      }
+      if (this.combatConfig.playerColors || (this.combatConfig as any).player_colors || (this.combatConfig as any).teamColors) {
+        configurePlayerColors(this.combatConfig.playerColors ?? (this.combatConfig as any).player_colors ?? (this.combatConfig as any).teamColors);
+      }
+      configurePlayerBanners(this.combatConfig);
+    }
+    if (config.wind) {
+      this.windSystem.setConfig(config.wind);
+    }
+    const rawConfigMajorTerrain =
+      config.majorTerrainType ??
+      config.battleLocationType ??
+      config.locationType ??
+      (config as any).major_terrain_type;
+    if (rawConfigMajorTerrain) {
+      this.majorTerrainType = normalizeBattleLocationType(rawConfigMajorTerrain);
     }
     if (config.seed !== undefined) {
       this.setSeed(config.seed);
@@ -243,12 +380,31 @@ export class Battle {
       this.army_control = [...config.armyControl];
     }
 
+    if (config.retreatPoints) {
+      this.clearCustomRetreatPoints();
+      if (Array.isArray(config.retreatPoints)) {
+        config.retreatPoints.forEach((pts, idx) => {
+          if (pts && Array.isArray(pts)) {
+            this.setRetreatPoints(idx, pts);
+          }
+        });
+      } else {
+        for (const [key, pts] of Object.entries(config.retreatPoints)) {
+          const idx = Number(key);
+          if (!isNaN(idx) && pts && Array.isArray(pts)) {
+            this.setRetreatPoints(idx, pts);
+          }
+        }
+      }
+    }
+
     this.creatures = config.creatures.map((c) => {
       c.combatConfig = this.combatConfig;
       c.updateMoraleState();
       c.updateExhaustionState();
       return c;
     });
+    this.initialCreatures = [...this.creatures];
 
     this.start();
   }
@@ -314,6 +470,63 @@ export class Battle {
   public getActiveCreature(): Creature | null {
     if (this.activeCreatureIndex < 0 || this.activeCreatureIndex >= this.creatures.length) return null;
     return this.creatures[this.activeCreatureIndex];
+  }
+
+  public computeVirtualLiveStatsAt(creature: Creature, position: Coords): CreatureStats {
+    const terrainType = this.getTerrainAt(position);
+    return computeVirtualLiveStatsAt(creature, position, terrainType, this.combatConfig);
+  }
+
+  /**
+   * Computes a deterministic damage preview for the currently selected unit (or provided attacker)
+   * targeting a creature at targetHex.
+   * Takes into account all buffs/debuffs: terrain on attacker/defender, morale, stamina exhaustion,
+   * model counts, facing/flanking bonuses, and combat traits.
+   */
+  public isDamageAbility(ability?: Ability | null): boolean {
+    return isDamageAbility(ability);
+  }
+
+  public calculateDamagePreview(
+    targetHex: Coords,
+    attacker?: Creature,
+    approachHex?: Coords,
+    meleePreference?: boolean,
+    abilityOverride?: Ability | null
+  ): DamagePreviewResult | null {
+    const actAttacker = attacker ?? this.getActiveCreature();
+    if (!actAttacker || !actAttacker.isAlive) return null;
+
+    const targetCreatureInBattle = this.getCreatureAtPosition(targetHex);
+    if (!targetCreatureInBattle) return null;
+    const defender = targetCreatureInBattle.creature;
+    if (!defender || !defender.isAlive) return null;
+
+    const ability = abilityOverride !== undefined
+      ? abilityOverride
+      : (this.input_state === InputState.SELECT_ABILITY_TARGET ? this.abilityToApply : null);
+
+    if (ability && !this.isDamageAbility(ability)) {
+      return null;
+    }
+
+    return computeDamagePreview({
+      targetHex,
+      attacker: actAttacker,
+      defender,
+      hexMap: this.hexMap,
+      combatConfig: this.combatConfig,
+      traitsConfig: this.traitsConfig,
+      approachHex,
+      meleePreference,
+      ability: ability ?? undefined,
+      isTargetAllowedForAbilityFn: ability ? (ab, act, hex) => this.isTargetAllowedForAbility(ab, act, hex) : undefined,
+      findPathFn: (hex) => this.findPathFromSelectedUnitToCell(hex),
+      getTerrainAtFn: (hex) => this.getTerrainAt(hex),
+      getStaminaCostForPathFn: (path, creature) => this.getStaminaCostForPath(path, creature),
+      isHexInRangedReachFn: (hex) => (this.rangereach_tiles[hex.x]?.[hex.y] ?? 0) > 0 || (this.rangereach_targets[hex.x]?.[hex.y] ?? 0) > 0,
+      isAbilityReachFn: ability ? (hex) => (this.ability_reach_tiles[hex.x]?.[hex.y] ?? 0) > 0 || (this.ability_reach_targets[hex.x]?.[hex.y] ?? 0) > 0 : undefined,
+    });
   }
 
   public getStaminaCostForTerrain(terrainType: number): number {
@@ -899,6 +1112,10 @@ export class Battle {
     // Routing units retreat towards their side on their own at turn start
     this.processRoutingRetreatsForCurrentArmy();
 
+    // Wind direction & strength shift on turn change
+    const newWindState = this.windSystem.onTurnChange();
+    this.hookWindChanged(newWindState);
+
     this.activeCreatureIndex = -1;
     this.hookNextTurn(this.turnNumber, this.currentArmyIndex);
   }
@@ -1168,6 +1385,8 @@ export class Battle {
             this.completeQuickDrawInstant(currentAction);
           } else {
             this.updateDoApplyAbilityEffect(currentAction);
+            this.input_state = InputState.SELECT_UNIT_OR_TARGET;
+            this.abilityToApply = null;
           }
           this.currentActions.shift();
           break;
@@ -1178,6 +1397,38 @@ export class Battle {
           break;
       }
     }
+  }
+
+  /**
+   * Automatically computes/simulates the battle to completion without animation delays.
+   * This operates purely on the battle state and AI controllers, completely independent
+   * of view rendering or animation speed settings.
+   */
+  public computeAutomatically(
+    controllers: [{ update: (dt: number) => void }, { update: (dt: number) => void }],
+    maxSafetySteps?: number
+  ): BattleResult {
+    const previousControl = [...this.army_control];
+    this.army_control = [ArmyControlType.AI, ArmyControlType.AI];
+
+    this.stepInstant();
+
+    let stepCount = 0;
+    const maxSteps = maxSafetySteps ?? Math.max(1, this.maxTurns) * 200;
+
+    while (!this.isFinished() && this.turnNumber < this.maxTurns && stepCount < maxSteps) {
+      stepCount++;
+      const currentController = this.currentArmyIndex === 0 ? controllers[0] : controllers[1];
+      currentController.update(0);
+      this.stepInstant();
+    }
+
+    if (!this.isFinished() && this.turnNumber >= this.maxTurns) {
+      this.checkVictoryConditionsAndState();
+    }
+
+    this.army_control = previousControl;
+    return this.getBattleResult();
   }
 
   private updateDoAttackApplyDamageAndCounter(currentAction: BattleAction): boolean {
@@ -1314,14 +1565,12 @@ export class Battle {
     for (const [defender, count] of targetHitCounts.entries()) {
       const proportion = count / totalArrows;
       const attackFromDir = reverseDirection(attacker.facingDirection);
-      const flankStatus = checkFlankingStatus(defender.facingDirection, attackFromDir);
-      let facingBonus = 0;
-      if (flankStatus === HexFlankStatus.BACKSTAB) {
-        facingBonus = this.combatConfig.facing.rear.damageBonus;
-      } else if (flankStatus === HexFlankStatus.FLANK) {
-        facingBonus = this.combatConfig.facing.flank.damageBonus;
-      }
-      const targetArmor = defender.live_stats.defense_ranged;
+      const { flankStatus, facingBonus } = resolveFlankAndFacingBonus(
+        defender.facingDirection,
+        attackFromDir,
+        this.combatConfig
+      );
+      const targetArmor = resolveTargetDefense(defender, BattleActionType.ATTACK_RANGED);
       const traitResult = calculateDamageWithTraits({
         attacker,
         defender,
@@ -1648,42 +1897,17 @@ export class Battle {
     customMultiplier: number = 1.0,
     traveledHexes: number = 0
   ) {
-    let baseDamage = 0;
-    let targetArmor = 0;
-
-    if (attackType === BattleActionType.ATTACK_MELEE || attackType === BattleActionType.COUNTER_ATTACK_MELEE) {
-      baseDamage = source.getRandomAttackDamageMelee(this.rng);
-      targetArmor = target.live_stats.defense_melee;
-    } else {
-      baseDamage = source.getRandomAttackDamageRanged(this.rng);
-      targetArmor = target.live_stats.defense_ranged;
-    }
-
-    const attackFromDir = reverseDirection(source.facingDirection);
-    let flankStatus = checkFlankingStatus(target.facingDirection, attackFromDir);
-    let facingBonus = 0;
-
-    if (flankStatus === HexFlankStatus.BACKSTAB) {
-      facingBonus = this.combatConfig.facing.rear.damageBonus;
-    } else if (flankStatus === HexFlankStatus.FLANK) {
-      facingBonus = this.combatConfig.facing.flank.damageBonus;
-    }
-
-    const traitResult = calculateDamageWithTraits({
+    const { damage, flankStatus } = executeAttackCalculation({
       attacker: source,
       defender: target,
       attackType,
-      baseDamage,
-      facingBonus,
-      targetArmor,
-      attackFromDir,
-      flankStatus,
-      customMultiplier,
+      combatConfig: this.combatConfig,
       traitsConfig: this.traitsConfig,
-      commit: true,
+      rng: this.rng,
+      customMultiplier,
       traveledHexes,
+      commit: true,
     });
-    let damage = traitResult.damage;
 
     this.hookDoingAttack(source, target, damage, attackType, flankStatus, attackType === BattleActionType.COUNTER_ATTACK_MELEE);
     const { modelsLost } = target.takeDamage(damage);
@@ -1798,6 +2022,28 @@ export class Battle {
     this.nextRenderUpdate.setUnitRenderUpdate();
   }
 
+  public getInitialCreatures(armyIndex?: number): Creature[] {
+    const list: Creature[] = [];
+    const seen = new Set<string>();
+    const add = (c: Creature) => {
+      if (!c) return;
+      const key = c.GUID ? c.GUID.toString() : (c as any).id || `${c.armyAlignment}_${c.creatureType}_${c.stats.health}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        list.push(c);
+      }
+    };
+    this.initialCreatures.forEach(add);
+    this.creatures.forEach(add);
+    this.routedCreatures.forEach(add);
+    this.casualties.forEach(add);
+
+    if (armyIndex !== undefined) {
+      return list.filter((c) => c.armyAlignment === armyIndex);
+    }
+    return list;
+  }
+
   public getBattleResult(): BattleResult {
     const victor = this.checkVictoryConditions();
     return {
@@ -1805,6 +2051,8 @@ export class Battle {
       turnsTaken: this.turnNumber,
       survivingCreatures: [...this.creatures],
       casualties: [...this.casualties],
+      routedCreatures: [...this.routedCreatures],
+      initialCreatures: this.getInitialCreatures(),
       totalDamageDealt: [...this.totalDamageDealt],
       totalStaminaSpent: [...this.totalStaminaSpent],
       moraleBreaks: [...this.moraleBreaks],
@@ -2108,7 +2356,7 @@ export class Battle {
     let targetArmor = 0;
     this.makeCreatureFaceTargetIfNeeded(source, target.pos);
     const attackFromDir = reverseDirection(source.facingDirection);
-    const flankStatus = checkFlankingStatus(target.facingDirection, attackFromDir);
+    const { flankStatus } = resolveFlankAndFacingBonus(target.facingDirection, attackFromDir, this.combatConfig);
     let damage = Math.max(0, sourceDamage - targetArmor);
 
     const { modelsLost } = target.takeDamage(damage);
@@ -2150,11 +2398,30 @@ export class Battle {
     const healAmount = Math.max(0, availableHealers * healPerModel);
     const healResult = target.heal(healAmount);
 
+    // Morale boost to the healed squad
+    // (default: 0.5 * number of the healed units, rounded up, at least 1 point of morale)
+    const healingMorale = getHealingMoraleConfig(this.combatConfig, ability);
+    const unitsCount = target.aliveModelCount;
+    let moraleBoost = 0;
+
+    if (healingMorale.fullMorale) {
+      const maxMorale = target.stats.max_morale || 30;
+      moraleBoost = Math.max(0, maxMorale - target.stats.morale);
+    } else {
+      const calculatedBoost = Math.ceil(healingMorale.multiplier * unitsCount);
+      moraleBoost = Math.max(healingMorale.minValue, calculatedBoost);
+    }
+
+    if (moraleBoost > 0) {
+      target.recoverMorale(moraleBoost);
+    }
+
     this.hookDoingHeal?.({
       healer: source,
       target,
       amount: healResult.healed,
       ability,
+      moraleBoost,
     });
 
     this.deductCostForAbilityUseByCreature(ability, source);
@@ -2162,10 +2429,15 @@ export class Battle {
     source.stats.remaining_ammo = Math.max(0, source.stats.remaining_ammo);
     source.stats.remaining_movement = 0;
     source.stats.has_attacked = true;
+    this.nextRenderUpdate.setUnitRenderUpdate();
+    this.nextRenderUpdate.somethingChanged = true;
   }
 
   public start() {
     for (const creature of this.creatures) {
+      if (!this.initialCreatures.some((ic) => ic === creature || (ic.GUID && ic.GUID.equals(creature.GUID)))) {
+        this.initialCreatures.push(creature);
+      }
       if (creature.stats.retaliations_done === undefined) {
         creature.stats.retaliations_done = 0;
       }
@@ -2224,14 +2496,44 @@ export class Battle {
   public processRoutingRetreatsForCurrentArmy(): void {
     if (this.finished) return;
 
-    for (let i = 0; i < this.creatures.length; i++) {
+    for (let i = this.creatures.length - 1; i >= 0; i--) {
+      if (i >= this.creatures.length) continue;
       const creature = this.creatures[i];
       if (!creature.isAlive) continue;
       if (creature.armyAlignment !== this.currentArmyIndex) continue;
       if (creature.moraleState !== MoraleState.ROUTING) continue;
 
       this.retreatRoutingCreature(creature);
+      if (this.finished) break;
     }
+  }
+
+  private handleCreatureRetreated(creature: Creature): void {
+    (creature as any).hasRetreated = true;
+    (creature as any).isRoutedFromBattle = true;
+
+    if (!this.routedCreatures.some((c) => c === creature || (c.GUID && c.GUID.equals(creature.GUID)))) {
+      this.routedCreatures.push(creature);
+    }
+
+    this.clearPositionBuffs(creature);
+
+    const idx = this.creatures.findIndex((c) => c === creature || (c.GUID && c.GUID.equals(creature.GUID)));
+    if (idx >= 0) {
+      this.creatures.splice(idx, 1);
+      if (this.activeCreatureIndex === idx) {
+        this.activeCreatureIndex = -1;
+      } else if (this.activeCreatureIndex > idx) {
+        this.activeCreatureIndex--;
+      }
+    }
+
+    this.hookUnitRetreated(creature);
+
+    this.nextRenderUpdate.setUnitRenderUpdate();
+    this.nextRenderUpdate.somethingChanged = true;
+
+    this.checkVictoryConditionsAndState();
   }
 
   private retreatRoutingCreature(creature: Creature): void {
@@ -2240,56 +2542,89 @@ export class Battle {
       return;
     }
 
-    const isPlayer1 = creature.armyAlignment === 0;
+    const armyIndex = creature.armyAlignment;
+    const retreatPoints = this.getRetreatPoints(armyIndex);
+    if (!retreatPoints || retreatPoints.length === 0) {
+      creature.stats.remaining_movement = 0;
+      return;
+    }
+
+    // If creature is already safely at one of its side's retreat points, remove immediately
+    const alreadyAtRetreat = retreatPoints.some(
+      (p) => p.x === creature.position.x && p.y === creature.position.y
+    );
+    if (alreadyAtRetreat) {
+      creature.stats.remaining_movement = 0;
+      this.handleCreatureRetreated(creature);
+      return;
+    }
+
     let remainingMovement = creature.stats.remaining_movement;
     if (creature.exhaustionState === ExhaustionState.WINDED) {
       remainingMovement = Math.max(0, remainingMovement - 1);
     }
 
-    const candidateDirections: HexDirection[] = isPlayer1
-      ? [HexDirection.WEST, HexDirection.NORTHWEST, HexDirection.SOUTHWEST]
-      : [HexDirection.EAST, HexDirection.NORTHEAST, HexDirection.SOUTHEAST];
-
     const visitedHexes = new Set<string>();
     visitedHexes.add(`${creature.position.x},${creature.position.y}`);
 
+    const directDir = armyIndex === 0 ? HexDirection.WEST : HexDirection.EAST;
+
     while (remainingMovement > 0 && creature.stats.stamina > 0) {
-      if (isPlayer1 && creature.position.x <= 0) break;
-      if (!isPlayer1 && creature.position.x >= this.hexMap.width - 1) break;
+      // Distance to the closest retreat point
+      const currentDist = Math.min(
+        ...retreatPoints.map((p) => HexMap.getHexDistance(creature.position, p))
+      );
 
-      let bestNext: { coords: Coords; dir: HexDirection; moveCost: number; staminaCost: number; progress: number } | null = null;
+      let bestNext: {
+        coords: Coords;
+        dir: HexDirection;
+        moveCost: number;
+        staminaCost: number;
+        progress: number;
+        distToClosest: number;
+      } | null = null;
 
-      for (const dir of candidateDirections) {
-        const neighbour = this.hexMap.getNeighbourInDirection(creature.position, dir);
+      for (let dir = 0; dir < 6; dir++) {
+        const neighbour = this.hexMap.getNeighbourInDirection(creature.position, dir as HexDirection);
         if (!neighbour) continue;
         if (visitedHexes.has(`${neighbour.x},${neighbour.y}`)) continue;
         if (this.getCreatureAtPosition(neighbour) !== null) continue;
 
         const terrain = this.getTerrainAt(neighbour);
+        if (terrain === TerrainType.WATER) continue;
+
         const moveCost = this.getMoveCostForTerrain(terrain, creature);
         const staminaCost = this.combatConfig.terrain.staminaCosts[terrain] ?? 1;
 
         if (remainingMovement < moveCost) continue;
         if (creature.stats.stamina < staminaCost) continue;
 
-        const progress = isPlayer1 ? (creature.position.x - neighbour.x) : (neighbour.x - creature.position.x);
-        if (progress < 0) continue;
+        const newDist = Math.min(...retreatPoints.map((p) => HexMap.getHexDistance(neighbour, p)));
+        const progress = currentDist - newDist;
 
-        const isDirect = dir === (isPlayer1 ? HexDirection.WEST : HexDirection.EAST);
+        if (progress <= 0) continue;
+
+        const isDirect = (dir as HexDirection) === directDir;
+
         if (
           !bestNext ||
           progress > bestNext.progress ||
           (progress === bestNext.progress && isDirect) ||
-          (progress === bestNext.progress && moveCost < bestNext.moveCost)
+          (progress === bestNext.progress && !isDirect && moveCost < bestNext.moveCost) ||
+          (progress === bestNext.progress && moveCost === bestNext.moveCost && newDist < bestNext.distToClosest)
         ) {
-          bestNext = { coords: neighbour, dir, moveCost, staminaCost, progress };
+          bestNext = {
+            coords: neighbour,
+            dir: dir as HexDirection,
+            moveCost,
+            staminaCost,
+            progress,
+            distToClosest: newDist,
+          };
         }
       }
 
       if (!bestNext) break;
-      if (bestNext.progress <= 0 && visitedHexes.size > 1) {
-        break;
-      }
 
       remainingMovement -= bestNext.moveCost;
       creature.stats.remaining_movement = remainingMovement;
@@ -2302,6 +2637,13 @@ export class Battle {
       this.setPositionBuffs(creature, creature.pos);
       this.nextRenderUpdate.setUnitRenderUpdate();
       this.nextRenderUpdate.somethingChanged = true;
+
+      // Reached any designated retreat point for its side -> remove from battle
+      if (retreatPoints.some((p) => p.x === creature.position.x && p.y === creature.position.y)) {
+        creature.stats.remaining_movement = 0;
+        this.handleCreatureRetreated(creature);
+        return;
+      }
     }
 
     creature.stats.remaining_movement = 0;
@@ -2320,7 +2662,7 @@ export class Battle {
     return cost;
   }
 
-  private getStaminaCostForPath(path: Coords[], _creature: Creature): number {
+  public getStaminaCostForPath(path: Coords[], _creature: Creature): number {
     const startIndex = (path.length > 1 && path[0].x === _creature.position.x && path[0].y === _creature.position.y) ? 1 : 0;
     let stamina = 0;
     for (let i = startIndex; i < path.length; i++) {
@@ -2333,14 +2675,16 @@ export class Battle {
   // Hook callbacks
   hookDoingAttack(_attacker: Creature, _defender: Creature, _damage: number, _type: BattleActionType, _flank: HexFlankStatus, _isRetaliation?: boolean) {}
   hookDoingAttackRanged?(_data: RangedAttackData) {}
-  hookDoingHeal?(_data: { healer: Creature; target: Creature; amount: number; ability: Ability }) {}
+  hookDoingHeal?(_data: { healer: Creature; target: Creature; amount: number; ability: Ability; moraleBoost?: number }) {}
   hookNextTurn(_turnNumber: number, _armyIndex: number) {}
   hookMovingUnit(_creature: Creature, _nextStep: Coords) {}
   hookUnitDied(_creature: Creature) {}
+  hookUnitRetreated(_creature: Creature) {}
   hookBattleFinished(_victor: number) {}
   hookRecommendEndTurn(_armyIndex: number) {}
   hookActiveUnitChanged(_creature: Creature) {}
   hookRangedScatter(_attacker: Creature, _orig: Coords, _scatter: Coords, _hit: Creature | null) {}
   hookMoraleBreak(_creature: Creature, _state: MoraleState) {}
   hookUnitChangedFacing?(_creature: Creature, _direction: HexDirection) {}
+  hookWindChanged(_windState: WindState) {}
 }

@@ -357,7 +357,7 @@ export class SquadVisual3D {
   }
 
   public get isEliminated(): boolean {
-    return !this.creature.isAlive || this.aliveCount <= 0;
+    return !this.creature.isAlive || this.aliveCount <= 0 || (this.creature as any).hasRetreated === true;
   }
 
   public get hasActiveEffects(): boolean {

@@ -72,6 +72,9 @@ export class Ability {
     public damage_high: number = 0;
     public heal_per_model: number = 0;
     public heal_amount: number = 0;
+    public healing_morale_multiplier?: number;
+    public healing_morale_min?: number;
+    public healingMorale?: { multiplier?: number; minValue?: number; fullMorale?: boolean };
     public resources: AbilityResource[] = [];
 
     public static createQuickDraw(): Ability {

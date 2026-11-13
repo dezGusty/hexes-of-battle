@@ -1,9 +1,19 @@
 import { Container } from "pixi.js";
 import { GameContext, Scene } from "../core/scene";
 import { HexDirection, HexMap } from "../shared/hex-map";
-import { ISoundSystem, PixiSoundSystem, SoundCategory, SoundType } from "../battle/sound-system";
+import {
+  configureArrowVolleySounds,
+  configureSoundGroups,
+  configureUISounds,
+  ISoundSystem,
+  PixiSoundSystem,
+  setActiveUISoundSystem,
+  SoundCategory,
+  SoundType,
+} from "../battle/sound-system";
+import { MoraleState } from "../battle/combat-rules";
 import { Coords } from "../shared";
-import { Battle } from "../battle";
+import { ArmyControlType, Battle } from "../battle";
 import { CreatureType } from "../battle/creature";
 import { CPUPersonalityType, CPUPlayer } from "../battle/cpu-player";
 import { CPUPlayerFactory } from "../battle/cpu-player-factory";
@@ -12,6 +22,7 @@ import { BattleView } from "../battle/battle-view";
 import { BattleInputController } from "../battle/battle-input-controller";
 import { BattleConfig } from "../battle/battle-types";
 import { SaveManager } from "../battle/save-manager";
+import { CommonControls } from "../ui/common-controls";
 
 export class BattleScene implements Scene {
   public readonly name = "battle";
@@ -33,6 +44,32 @@ export class BattleScene implements Scene {
     this.context = context;
     this.currentConfig = params?.config;
     this.soundSystem = params?.soundSystem ?? context.soundSystem ?? new PixiSoundSystem(context.settings);
+    setActiveUISoundSystem(this.soundSystem, context.settings);
+    if (context.templates.hudConfig?.sounds !== undefined || context.templates.hudConfig?.uiSounds !== undefined) {
+      configureUISounds(
+        context.templates.hudConfig.sounds ?? context.templates.hudConfig.uiSounds,
+        this.soundSystem,
+        context.settings
+      );
+    }
+    const soundGroups =
+      context.templates.soundsConfig?.soundGroups ??
+      context.templates.soundsConfig?.groups ??
+      context.templates.hudConfig?.soundGroups ??
+      (context.templates.combatConfig as any)?.soundGroups;
+    if (soundGroups !== undefined) {
+      configureSoundGroups(soundGroups, this.soundSystem);
+    }
+    const arrowVolleyCfg =
+      context.templates.soundsConfig?.arrowVolley ??
+      context.templates.soundsConfig?.arrow_volley ??
+      context.templates.hudConfig?.arrowVolley ??
+      context.templates.hudConfig?.arrow_volley ??
+      (context.templates.combatConfig as any)?.arrowVolley ??
+      (context.templates.combatConfig as any)?.arrow_volley;
+    if (arrowVolleyCfg !== undefined) {
+      configureArrowVolleySounds(arrowVolleyCfg, this.soundSystem);
+    }
 
     console.log("Entering BattleScene with params:", params);
 
@@ -60,6 +97,9 @@ export class BattleScene implements Scene {
       }
       this.initializeDefaultMapAndArmies();
     }
+
+    // The battle always starts with manual (human player) control for Army 0
+    this.battle.army_control[0] = ArmyControlType.PLAYER;
 
     // temporary - remove when shipping
     let overrideDefaultPersonality: string = CPUPersonalityType.AGGRESSIVE;
@@ -98,6 +138,7 @@ export class BattleScene implements Scene {
       onLoadSave: (entry) => {
         const ok = SaveManager.loadBattle(entry, this.battle, this.context.templates.abilityTypes);
         if (ok) {
+          this.view.setAutoBattleEnabled(false);
           this.cpuPlayer = CPUPlayerFactory.create(this.currentConfig?.aiPersonality, this.battle);
           this.view.setCpuPlayer(this.cpuPlayer);
           this.view.resetGridAndTerrain();
@@ -120,6 +161,20 @@ export class BattleScene implements Scene {
     this.inputController = new BattleInputController(this.battle, this.hexMap, {
       isMenuBlockingInput: () => this.view.battleMenuPanel?.isVisible() ?? false,
       isPointerOverUI: (stageCoords) => {
+        if (this.view.commonControls?.autoBattleButton?.visible) {
+          const abBounds = CommonControls.AUTO_BATTLE_BUTTON_BOUNDS;
+          if (
+            stageCoords.x >= abBounds.x &&
+            stageCoords.x <= abBounds.x + abBounds.width &&
+            stageCoords.y >= abBounds.y &&
+            stageCoords.y <= abBounds.y + abBounds.height
+          ) {
+            return true;
+          }
+        }
+        if (this.view.commonControls?.autoBattlePersonalityDropdown?.containsStagePoint(stageCoords.x, stageCoords.y)) {
+          return true;
+        }
         if (this.view.unitStats?.isVisible() && this.view.unitStats.containsPoint(stageCoords.x, stageCoords.y)) {
           this.view.unitStats.click(stageCoords);
           return true;
@@ -148,7 +203,13 @@ export class BattleScene implements Scene {
 
   public update(deltaMS: number): void {
     this.view.update(deltaMS, this.context.app.ticker.FPS);
-    this.cpuPlayer.update(deltaMS);
+    if (this.battle.currentArmyIndex === 0) {
+      if (this.battle.army_control[0] === ArmyControlType.AI) {
+        this.view.getPlayerCpuPlayer()?.update(deltaMS);
+      }
+    } else {
+      this.cpuPlayer.update(deltaMS);
+    }
   }
 
   public resize(width: number, height: number): void {
@@ -190,6 +251,7 @@ export class BattleScene implements Scene {
 
   private resetBattle(): void {
     this.initializeDefaultMapAndArmies();
+    this.view.setAutoBattleEnabled(false);
     this.cpuPlayer = CPUPlayerFactory.create(this.currentConfig?.aiPersonality, this.battle);
     this.view.setCpuPlayer(this.cpuPlayer);
     this.view.resetGridAndTerrain();
@@ -199,6 +261,10 @@ export class BattleScene implements Scene {
   private hookBattleEvents(): void {
     this.battle.hookDoingAttack = (attacker, defender, damage, attackType, flankStatus) => {
       this.view.showAttackVisuals(attacker, defender, damage, attackType, flankStatus);
+    };
+
+    this.battle.hookDoingHeal = (_data) => {
+      this.soundSystem.play(SoundCategory.SOUND, SoundType.HEAL, true);
     };
 
     this.battle.hookNextTurn = (turnNum, armyIdx) => {
@@ -214,6 +280,16 @@ export class BattleScene implements Scene {
 
     this.battle.hookUnitDied = (_creature) => {
       this.soundSystem.play(SoundCategory.SOUND, SoundType.DIE, true);
+    };
+
+    this.battle.hookUnitRetreated = (_creature) => {
+      this.soundSystem.play(SoundCategory.SOUND, SoundType.RETREAT, true);
+    };
+
+    this.battle.hookMoraleBreak = (_creature, state) => {
+      if (state === MoraleState.ROUTING) {
+        this.soundSystem.play(SoundCategory.SOUND, SoundType.RETREAT, true);
+      }
     };
 
     this.battle.hookBattleFinished = (victor) => {

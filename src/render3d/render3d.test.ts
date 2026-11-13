@@ -18,7 +18,7 @@ import { MeshRigidVisual } from './units/mesh-rigid-visual';
 import { drawMoraleVector } from './units/squad-visual-3d';
 import { ProjectileSystem3D } from './projectiles/projectile-system-3d';
 import { BattleHud2D } from './battle-hud-2d';
-import { Battle, InputState } from '../battle';
+import { ArmyControlType, Battle, InputState } from '../battle';
 import { BattleSettings } from '../battle/settings';
 import { UnitStatsPanel } from '../ui/unit-stats-panel';
 import { EnemyStatsPanel } from '../ui/enemy-stats-panel';
@@ -32,6 +32,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { TerrainType } from '../battle/terrain-types';
 import { UnitVisualFormat } from './types';
+import { BattleLocationType } from './decorations/battle-environment-3d';
+import { GrassFieldSystem, createGrassClumpTexture } from './decorations/grass-system-3d';
+import { WeatherSystem3D, WeatherType } from './decorations/weather-system-3d';
 import {
   AVERAGE_UNIT_3D_HEIGHT,
   BARBARIAN_TEXTURE_PATHS,
@@ -55,7 +58,10 @@ import {
   getSharedTreeMaterials,
   isUnit3DModelSupported,
   smoothGeometryNormals,
+  updateTreeWindState,
+  sharedTreeWindUniforms,
 } from './units/unit-mesh-builder';
+import { BlowingLeavesSystem } from './decorations/blowing-leaves-3d';
 import { generateSelectedHaloPixels, SELECTED_HALO_TEXTURE_SIZE } from './units/selected-halo-texture';
 import pkg from '../../package.json';
 
@@ -123,8 +129,8 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(hexBoard.isHill(0, 0)).toBe(false);
 
       const elev = hexBoard.getHexElevation(2, 2);
-      expect(elev).toBeGreaterThanOrEqual(0.28);
-      expect(elev).toBeLessThanOrEqual(0.36);
+      expect(elev).toBeGreaterThanOrEqual(0.18);
+      expect(elev).toBeLessThanOrEqual(0.25);
 
       const mesaRadius = hexBoard.getHillMesaRadius(2, 2);
       expect(mesaRadius).toBeLessThan(hexBoard.hexRadius);
@@ -157,10 +163,10 @@ describe('3D Graphics Engine & Rendering Systems', () => {
 
       // Connected hills must have identical elevation
       expect(elev1).toBe(elev2);
-      expect(elev1).toBeGreaterThanOrEqual(0.28);
+      expect(elev1).toBeGreaterThanOrEqual(0.18);
 
       // Isolated hill should be defined and elevated
-      expect(elevIsolated).toBeGreaterThanOrEqual(0.28);
+      expect(elevIsolated).toBeGreaterThanOrEqual(0.18);
 
       hexBoard.dispose();
     });
@@ -186,6 +192,230 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       hexBoard.dispose();
     });
 
+    it('should generate 3 distinct variations of hill meshes with additional points, smoothing, and roundness', () => {
+      const hexMap = new HexMap(6, 6);
+      const hexBoard = new HexBoard3D(hexMap, {
+        getTerrain: (x, y) => (x === 2 && y === 2 ? TerrainType.HILL : TerrainType.PLAIN),
+      });
+
+      // getHillVariation deterministically returns 0, 1, or 2
+      expect([0, 1, 2]).toContain(hexBoard.getHillVariation(0, 0));
+      expect([0, 1, 2]).toContain(hexBoard.getHillVariation(1, 0));
+      expect([0, 1, 2]).toContain(hexBoard.getHillVariation(2, 2));
+
+      // Generate the 3 distinct variations
+      const geo0 = hexBoard.createHillTileGeometry(2, 2, 0);
+      const geo1 = hexBoard.createHillTileGeometry(2, 2, 1);
+      const geo2 = hexBoard.createHillTileGeometry(2, 2, 2);
+
+      expect(geo0.userData.variation).toBe(0);
+      expect(geo1.userData.variation).toBe(1);
+      expect(geo2.userData.variation).toBe(2);
+
+      // Verify additional points: more than 80 vertices (dome center, intermediate concentric ring, 12 rim points, multi-tier slopes)
+      expect(geo0.attributes.position.count).toBeGreaterThanOrEqual(80);
+      expect(geo1.attributes.position.count).toBeGreaterThanOrEqual(80);
+      expect(geo2.attributes.position.count).toBeGreaterThanOrEqual(80);
+
+      // Smoothing and roundness: vertex normals are computed and smoothed
+      expect(geo0.attributes.normal).toBeDefined();
+      expect(geo1.attributes.normal).toBeDefined();
+      expect(geo2.attributes.normal).toBeDefined();
+
+      // Variations have distinct vertex positions
+      const pos0 = geo0.attributes.position.array;
+      const pos1 = geo1.attributes.position.array;
+      const pos2 = geo2.attributes.position.array;
+
+      let diffCount01 = 0;
+      let diffCount12 = 0;
+      for (let i = 0; i < pos0.length; i++) {
+        if (Math.abs(pos0[i] - pos1[i]) > 0.001) diffCount01++;
+        if (Math.abs(pos1[i] - pos2[i]) > 0.001) diffCount12++;
+      }
+      expect(diffCount01).toBeGreaterThan(10);
+      expect(diffCount12).toBeGreaterThan(10);
+
+      geo0.dispose();
+      geo1.dispose();
+      geo2.dispose();
+      hexBoard.dispose();
+    });
+
+    it('should displace inner hexagon points within 3% of hex size combining X, Y, and Z axes across models', () => {
+      const hexMap = new HexMap(6, 6);
+      const hexBoard = new HexBoard3D(hexMap);
+
+      const hexSize = hexBoard.hexRadius * 2; // 2.0
+      const maxDisplacement = 0.03 * hexSize; // 0.06
+
+      for (let v = 0; v < 3; v++) {
+        for (let ptIdx = 0; ptIdx < 12; ptIdx++) {
+          const disp = hexBoard.getHillInnerHexDisplacement(v, ptIdx);
+
+          // Combined magnitude must be within 3% of hex size
+          const totalDisp = Math.sqrt(disp.dx * disp.dx + disp.dy * disp.dy + disp.dz * disp.dz);
+          expect(totalDisp).toBeLessThanOrEqual(maxDisplacement + 1e-6);
+          expect(totalDisp).toBeGreaterThan(0.01);
+
+          // Must combine displacements in X, Y, and Z axes
+          expect(disp.dx).not.toBe(0);
+          expect(disp.dy).not.toBe(0);
+          expect(disp.dz).not.toBe(0);
+        }
+      }
+
+      // Between model 0, 1, and 2, the displacements for each point differ
+      for (let ptIdx = 0; ptIdx < 12; ptIdx++) {
+        const d0 = hexBoard.getHillInnerHexDisplacement(0, ptIdx);
+        const d1 = hexBoard.getHillInnerHexDisplacement(1, ptIdx);
+        const d2 = hexBoard.getHillInnerHexDisplacement(2, ptIdx);
+
+        expect(d0.dx !== d1.dx || d0.dy !== d1.dy || d0.dz !== d1.dz).toBe(true);
+        expect(d1.dx !== d2.dx || d1.dy !== d2.dy || d1.dz !== d2.dz).toBe(true);
+      }
+
+      hexBoard.dispose();
+    });
+
+    it('should use mud/hill texture as base and overlay with grass hex texture via transparency mask on hill top', () => {
+      const hexMap = new HexMap(6, 6);
+      const hexBoard = new HexBoard3D(hexMap, {
+        getTerrain: (x, y) => (x === 2 && y === 2 ? TerrainType.HILL : TerrainType.PLAIN),
+      });
+
+      const tileMesh = (hexBoard as any).tileMeshes.get('2,2') as THREE.Mesh;
+      expect(tileMesh).toBeDefined();
+
+      const materials = tileMesh.material as THREE.Material[];
+      expect(Array.isArray(materials)).toBe(true);
+
+      const topMat = materials[1] as THREE.MeshStandardMaterial;
+      expect(topMat.userData.isHillBlendedMaterial).toBe(true);
+      expect(topMat.userData.terrainType).toBe(TerrainType.HILL);
+
+      // Verify mud base color and grass overlay color
+      expect(topMat.userData.mudColor).toBeDefined();
+      expect(topMat.userData.grassColor).toBeDefined();
+
+      // Verify transparency mask exists
+      const mask = topMat.userData.transparencyMask as THREE.Texture;
+      expect(mask).toBeDefined();
+      expect(mask).toBeInstanceOf(THREE.Texture);
+
+      // Verify shader compilation hook configuration
+      const shaderObj: any = {
+        uniforms: {},
+        vertexShader: '#include <common>\n#include <begin_vertex>',
+        fragmentShader: '#include <common>\n#include <map_fragment>',
+      };
+      topMat.onBeforeCompile(shaderObj, {} as any);
+
+      expect(shaderObj.uniforms.uMudColor).toBeDefined();
+      expect(shaderObj.uniforms.uGrassColor).toBeDefined();
+      expect(shaderObj.uniforms.uMaskMap).toBeDefined();
+      expect(shaderObj.uniforms.uTileCenter).toBeDefined();
+      expect(shaderObj.uniforms.uMesaRadius).toBeDefined();
+      expect(shaderObj.fragmentShader).toContain('diffuseColor = mix(mudColor, grassColor, maskAlpha);');
+
+      hexBoard.dispose();
+    });
+
+    it('should generate swamp hexes as inverted hill hexes with outer rim at y = 0 and sunken inset hex', () => {
+      const hexMap = new HexMap(6, 6);
+      const hexBoard = new HexBoard3D(hexMap, {
+        getTerrain: (x, y) => (x === 2 && y === 2 ? TerrainType.SWAMP : TerrainType.PLAIN),
+      });
+
+      expect(hexBoard.isSwamp(2, 2)).toBe(true);
+      expect(hexBoard.isSwamp(0, 0)).toBe(false);
+
+      const rInset = hexBoard.getSwampInsetRadius(2, 2);
+      expect(rInset).toBeLessThan(hexBoard.hexRadius);
+      expect(rInset).toBeCloseTo(hexBoard.hexRadius * 0.76, 2);
+
+      const depression = hexBoard.getSwampDepression(2, 2);
+      expect(depression).toBe(-0.08);
+
+      // Verify procedural swamp tile mesh
+      const tileMesh = (hexBoard as any).tileMeshes.get('2,2') as THREE.Mesh;
+      expect(tileMesh).toBeDefined();
+      expect(tileMesh.geometry).toBeInstanceOf(THREE.BufferGeometry);
+      expect(tileMesh.geometry.userData.isSwampGeometry).toBe(true);
+
+      // Swamp tile mesh position should be at y = 0 (same level as grass hexes)
+      expect(tileMesh.position.y).toBe(0);
+
+      // Verify vertices in geometry: outer boundary points at y = 0, inset points at depression
+      const positions = tileMesh.geometry.attributes.position.array;
+      let hasZeroY = false;
+      let hasDepressionY = false;
+      for (let i = 1; i < positions.length; i += 3) {
+        if (Math.abs(positions[i] - 0) < 1e-4) hasZeroY = true;
+        if (Math.abs(positions[i] - depression) < 1e-4) hasDepressionY = true;
+      }
+      expect(hasZeroY).toBe(true);
+      expect(hasDepressionY).toBe(true);
+
+      // Verify linear depth slope: top surface vertices are either at the border (y = 0) or the inner hex (y = depression)
+      // without curved or intermediate mid-tier steps
+      const topGroup = tileMesh.geometry.groups.find((g) => g.materialIndex === 1);
+      expect(topGroup).toBeDefined();
+      const indexArr = tileMesh.geometry.index!.array;
+      const topVertexIndices = new Set<number>();
+      for (let idx = topGroup!.start; idx < topGroup!.start + topGroup!.count; idx++) {
+        topVertexIndices.add(indexArr[idx]);
+      }
+      for (const vIdx of topVertexIndices) {
+        const yVal = positions[vIdx * 3 + 1];
+        const isBorderY = Math.abs(yVal - 0) < 1e-4;
+        const isInsetY = Math.abs(yVal - depression) < 1e-4;
+        expect(isBorderY || isInsetY).toBe(true);
+      }
+
+      // Verify smooth normals are calculated
+      expect(tileMesh.geometry.attributes.normal).toBeDefined();
+
+      // Top material applies the existing swamp texture/material across the entire hexagon
+      const materials = tileMesh.material as THREE.Material[];
+      expect(Array.isArray(materials)).toBe(true);
+      const topMat = materials[1] as THREE.MeshStandardMaterial;
+      expect(topMat.userData.terrainType).toBe(TerrainType.SWAMP);
+
+      // Hover and selection overlays scale to fit inside inset basin
+      hexBoard.setHoverHex({ x: 2, y: 2 });
+      const hoverMesh = (hexBoard as any).hoverMesh as THREE.Mesh;
+      expect(hoverMesh.position.y).toBeCloseTo(-0.08 + 0.03, 3);
+      expect(hoverMesh.scale.x).toBeLessThan(1.0);
+
+      hexBoard.dispose();
+    });
+
+    it('should extend depression floor across shared boundaries between adjacent swamp hexes', () => {
+      const hexMap = new HexMap(6, 6);
+      const hexBoard = new HexBoard3D(hexMap, {
+        getTerrain: (x, y) => {
+          // Connected swamp tiles at (1, 1) and (2, 1)
+          if ((x === 1 && y === 1) || (x === 2 && y === 1)) return TerrainType.SWAMP;
+          return TerrainType.PLAIN;
+        },
+      });
+
+      const swampGeo = hexBoard.createSwampTileGeometry(1, 1);
+      expect(swampGeo.userData.isSwampGeometry).toBe(true);
+
+      // Geometry should contain vertices at depression for floor and slope midpoints
+      const positions = swampGeo.attributes.position.array;
+      let depressionCount = 0;
+      for (let i = 1; i < positions.length; i += 3) {
+        if (Math.abs(positions[i] - (-0.08)) < 1e-4) depressionCount++;
+      }
+      expect(depressionCount).toBeGreaterThanOrEqual(13); // center + inset rim + extended boundary
+
+      swampGeo.dispose();
+      hexBoard.dispose();
+    });
+
     it('should initialize selectedHaloMesh with stylized golden disc texture and rotate 360 degrees in 30 seconds', () => {
       const hexMap = new HexMap(10, 8);
       const hexBoard = new HexBoard3D(hexMap);
@@ -196,12 +426,13 @@ describe('3D Graphics Engine & Rendering Systems', () => {
 
       const mat = hexBoard.selectedHaloMesh.material as THREE.MeshBasicMaterial;
       expect(mat.transparent).toBe(true);
+      expect(mat.opacity).toBe(0.5);
       expect(mat.map).toBeDefined();
 
-      // Select unit at (4, 4) - halo is raised above reach overlay hex highlights (elev + 0.05) with renderOrder 5
+      // Select unit at (4, 4) - halo is raised above hover and reach overlay hex highlights (elev + 0.08) with renderOrder 5
       hexBoard.setSelectedUnitHex({ x: 4, y: 4 }, HexDirection.EAST);
       expect(hexBoard.selectedHaloMesh.visible).toBe(true);
-      expect(hexBoard.selectedHaloMesh.position.y).toBeCloseTo(hexBoard.getHexElevation(4, 4) + 0.05, 3);
+      expect(hexBoard.selectedHaloMesh.position.y).toBeCloseTo(hexBoard.getHexElevation(4, 4) + 0.08, 3);
       expect(hexBoard.selectedHaloMesh.renderOrder).toBe(5);
 
       // Verify rotation over time:
@@ -227,7 +458,7 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       // Reachable hex highlights have cylinder height 0.04 (top surface at elev + pos.y + 0.02)
       const walkableTop = walkableOverlay.position.y + 0.02; // elev + 0.015 + 0.02 = elev + 0.035
       expect(hexBoard.selectedHaloMesh.position.y).toBeGreaterThan(walkableTop);
-      expect(hexBoard.selectedHaloMesh.position.y).toBeCloseTo(elev22 + 0.05, 3);
+      expect(hexBoard.selectedHaloMesh.position.y).toBeCloseTo(elev22 + 0.08, 3);
       expect(hexBoard.selectedHaloMesh.renderOrder).toBeGreaterThan(walkableOverlay.renderOrder);
 
       // Deselecting unit hides halo
@@ -617,6 +848,40 @@ describe('3D Graphics Engine & Rendering Systems', () => {
 
       projectileSys.update(500);
       expect(impactsTriggered).toBe(3);
+
+      projectileSys.dispose();
+    });
+
+    it('should scale arrow projectiles to 66% of their original dimensions and use small gray low-poly spherical pebbles for slingers', () => {
+      const projectileSys = new ProjectileSystem3D();
+      expect(ProjectileSystem3D.ARROW_SCALE).toBeCloseTo(0.66, 2);
+
+      // 1. Arrow projectile size (66% of original 0.6m shaft / ~0.725m total length)
+      const arrowGroup = projectileSys.createProjectileMesh('arrow');
+      expect(arrowGroup.userData.scaleFactor).toBeCloseTo(0.66, 2);
+      const arrowBox = new THREE.Box3().setFromObject(arrowGroup);
+      const arrowSize = new THREE.Vector3();
+      arrowBox.getSize(arrowSize);
+      // Total length along Z (since arrow is rotated 90 deg around X) was ~0.725m, at 66% is ~0.4785m
+      expect(arrowSize.z).toBeCloseTo(0.725 * 0.66, 2);
+      expect(arrowSize.x).toBeCloseTo(0.1 * 0.66, 2);
+
+      // 2. Slinger pebble projectile (small, gray, low-poly spherical shape)
+      const pebbleGroup = projectileSys.createProjectileMesh('stone');
+      expect(pebbleGroup.userData.isPebble).toBe(true);
+      const pebbleMesh = pebbleGroup.children[0] as THREE.Mesh;
+      expect(pebbleMesh).toBeInstanceOf(THREE.Mesh);
+      expect(pebbleMesh.geometry).toBeInstanceOf(THREE.SphereGeometry);
+      const sphereParams = (pebbleMesh.geometry as THREE.SphereGeometry).parameters;
+      expect(sphereParams.radius).toBeLessThanOrEqual(0.06);
+      expect(sphereParams.widthSegments).toBeLessThanOrEqual(8);
+      expect(sphereParams.heightSegments).toBeLessThanOrEqual(8);
+
+      const pebbleMat = pebbleMesh.material as THREE.MeshStandardMaterial;
+      expect(pebbleMat.flatShading).toBe(true);
+      // Gray color (R === G === B)
+      expect(pebbleMat.color.r).toBeCloseTo(pebbleMat.color.g, 2);
+      expect(pebbleMat.color.g).toBeCloseTo(pebbleMat.color.b, 2);
 
       projectileSys.dispose();
     });
@@ -2665,8 +2930,8 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(foliageMat.flatShading).toBe(false);
       expect(foliageMat.vertexColors).toBe(true);
 
-      // Verify Pine and Oak low-poly forest tree meshes contain valid UV coordinates and smooth normals
-      for (const variant of ['pine', 'oak'] as const) {
+      // Verify all 5 low-poly forest tree meshes (pine, oak, birch, willow, maple) contain valid UV coordinates and smooth normals
+      for (const variant of ['pine', 'oak', 'birch', 'willow', 'maple'] as const) {
         const tree = buildLowPolyForestTreeMesh(variant);
         let trunkMesh: THREE.Mesh | null = null;
         let foliageMesh: THREE.Mesh | null = null;
@@ -3242,6 +3507,693 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(instantiatedNodes.has('Head')).toBe(true);
       expect(instantiatedNodes.has('Arm_R')).toBe(true);
       expect(instantiatedNodes.has('Weapon')).toBe(true);
+    });
+  });
+
+  describe('20. Animation Speed Scaling in BattleHud2D & BattleView3D', () => {
+    it('should wire BattleMenuPanel animationSpeedSlider in BattleHud2D and scale TurnChangeDisplay updates', () => {
+      const settings = new BattleSettings();
+      const battle = new Battle(new HexMap(10, 8));
+      const dummyUiSheet = {
+        textures: new Proxy({}, { get: () => PixiTexture.EMPTY }),
+      };
+      const assets = {
+        uiSheet: dummyUiSheet as any,
+        unitsSheet: dummyUiSheet as any,
+        bannersSheet: dummyUiSheet as any,
+        softCursorTextures: {},
+      };
+
+      const hud = new BattleHud2D(assets, settings, battle);
+      let callbackSpeed: number | undefined;
+      hud.initialize({
+        onZoomIn: vi.fn(),
+        onZoomOut: vi.fn(),
+        onZoomSliderUpdate: vi.fn(),
+        onNextTurn: vi.fn(),
+        onNextUnit: vi.fn(),
+        onReset: vi.fn(),
+        onRest: vi.fn(),
+        onAnimationSpeedChange: (speed) => {
+          callbackSpeed = speed;
+        },
+      });
+
+      expect(hud.battleMenuPanel?.animationSpeedSlider?.value).toBe(8);
+      expect(hud.battleMenuPanel?.animationSpeedValueText?.text).toBe('8');
+
+      // Change speed to 1 via slider
+      hud.battleMenuPanel!.animationSpeedSlider!.value = 1;
+      expect(settings.animationSpeed).toBe(1);
+      expect(settings.getAnimationSpeedMultiplier()).toBeCloseTo(0.25, 5);
+      expect(callbackSpeed).toBe(1);
+
+      const turnUpdateSpy = vi.spyOn(hud.turnChangeDisplay, 'update');
+      hud.update(100, 60);
+      expect(turnUpdateSpy).toHaveBeenCalledWith(25); // 100 * 0.25
+
+      // Change speed back to 8
+      hud.battleMenuPanel!.animationSpeedSlider!.value = 8;
+      expect(settings.animationSpeed).toBe(8);
+      hud.update(100, 60);
+      expect(turnUpdateSpy).toHaveBeenLastCalledWith(100); // 100 * 1.0
+
+      hud.destroy();
+    });
+
+    it('should scale 3D animations and battle actions by animationSpeedMultiplier in BattleView3D.update while keeping camera and hover unscaled', () => {
+      const settings = new BattleSettings();
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+      battle.initializeToSize(10, 8);
+
+      const mockHexBoard = {
+        update: vi.fn(),
+        hexToWorldWithElevation: vi.fn().mockReturnValue(new THREE.Vector3()),
+      };
+      const mockSquad = {
+        update: vi.fn(),
+        isEliminated: false,
+        hasActiveEffects: false,
+        rootGroup: new THREE.Group(),
+        setFacing: vi.fn(),
+        updateStats: vi.fn(),
+      };
+      const mockProjectileSystem = {
+        update: vi.fn(),
+      };
+      const mockSceneDebugger = {
+        update: vi.fn(),
+      };
+      const mockSceneManager = {
+        camera: new THREE.PerspectiveCamera(),
+        render: vi.fn(),
+      };
+
+      const viewContext: any = {
+        settings,
+        hexMap,
+        battle,
+        hexBoard: mockHexBoard,
+        squadVisuals: new Map([['squad-1', mockSquad]]),
+        projectileSystem: mockProjectileSystem,
+        sceneDebugger: mockSceneDebugger,
+        sceneManager: mockSceneManager,
+        updateCameraKeyboardInput: vi.fn(),
+        updateDamagePreviewHover: vi.fn(),
+        updateActiveUnitSelection: vi.fn(),
+        updateHoverVisuals: vi.fn(),
+        getAnimationSpeedMultiplier: BattleView3D.prototype.getAnimationSpeedMultiplier,
+      };
+
+      const battleUpdateSpy = vi.spyOn(battle, 'update');
+
+      // Speed 8 (default, multiplier = 1.0)
+      settings.setAnimationSpeed(8);
+      BattleView3D.prototype.update.call(viewContext, 40);
+
+      expect(viewContext.updateCameraKeyboardInput).toHaveBeenLastCalledWith(40);
+      expect(mockHexBoard.update).toHaveBeenLastCalledWith(40);
+      expect(battleUpdateSpy).toHaveBeenLastCalledWith(40);
+      expect(mockSquad.update).toHaveBeenLastCalledWith(40, mockSceneManager.camera);
+      expect(mockProjectileSystem.update).toHaveBeenLastCalledWith(40);
+      expect(mockSceneDebugger.update).toHaveBeenLastCalledWith(40);
+      expect(viewContext.updateDamagePreviewHover).toHaveBeenLastCalledWith(40);
+
+      // Speed 1 (slowest, multiplier = 0.25 -> 4x slower)
+      settings.setAnimationSpeed(1);
+      BattleView3D.prototype.update.call(viewContext, 40);
+
+      expect(viewContext.updateCameraKeyboardInput).toHaveBeenLastCalledWith(40);
+      expect(mockHexBoard.update).toHaveBeenLastCalledWith(10);
+      expect(battleUpdateSpy).toHaveBeenLastCalledWith(10);
+      expect(mockSquad.update).toHaveBeenLastCalledWith(10, mockSceneManager.camera);
+      expect(mockProjectileSystem.update).toHaveBeenLastCalledWith(10);
+      expect(mockSceneDebugger.update).toHaveBeenLastCalledWith(40);
+      expect(viewContext.updateDamagePreviewHover).toHaveBeenLastCalledWith(40);
+    });
+
+    it('should provide an Auto-Battle toggle button and CPU Personality dropdown next to it in BattleHud2D, starting with manual control', () => {
+      const textureNames = [
+        'thin_button_normal.png',
+        'thin_button_hover.png',
+        'thin_button_2_normal.png',
+        'thin_button_2_hover.png',
+        'btn_simple.png',
+        'btn_simple_hover.png',
+        'btn_simple_click.png',
+        'glyph_plus.png',
+        'glyph_minus.png',
+        'glyph_next_turn.png',
+        'glyph_next_unit.png',
+        'glyph_reset.png',
+        'glyph_ability1.png',
+        'glyph_stamina',
+        'panel.png',
+      ];
+      textureNames.forEach((name) => {
+        try {
+          PixiAssets.cache.set(name, PixiTexture.EMPTY);
+        } catch {
+          // ignore
+        }
+      });
+
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+      battle.initializeToSize(10, 8);
+      const settings = new BattleSettings();
+
+      const dummyUiSheet = {
+        textures: new Proxy({}, {
+          get: () => PixiTexture.EMPTY,
+        }),
+      };
+
+      const hud = new BattleHud2D(
+        { uiSheet: dummyUiSheet as any, softCursorTextures: {} },
+        settings,
+        battle
+      );
+
+      let autoBattleState: boolean | undefined;
+      let chosenPersonality: string | undefined;
+
+      hud.initialize({
+        onZoomIn: () => {},
+        onZoomOut: () => {},
+        onZoomSliderUpdate: () => {},
+        onNextTurn: () => {},
+        onNextUnit: () => {},
+        onReset: () => {},
+        onRest: () => {},
+        onToggleAutoBattle: (enabled) => {
+          autoBattleState = enabled;
+        },
+        onAutoBattlePersonalityChange: (personality) => {
+          chosenPersonality = personality;
+        },
+      });
+
+      // Battle always starts with manual human player control
+      expect(hud.isAutoBattleEnabled).toBe(false);
+      expect(battle.army_control[0]).toBe(ArmyControlType.PLAYER);
+      expect(hud.getFormattedArmyName(0)).toContain('Human');
+
+      const autoBtn = hud.commonControls.autoBattleButton;
+      const dropdown = hud.commonControls.autoBattlePersonalityDropdown;
+      expect(autoBtn).toBeDefined();
+      expect(dropdown).toBeDefined();
+
+      // Dropdown is placed next to the auto-battle button
+      expect(dropdown!.x).toBeGreaterThan(autoBtn!.x);
+      expect(dropdown!.y).toBe(autoBtn!.y);
+      expect(dropdown!.selectedPersonality).toBe('defensive');
+
+      // UI hit testing covers the auto-battle button and dropdown
+      expect(hud.isPointerOverUI(autoBtn!.x + 10, autoBtn!.y + 10)).toBe(true);
+      expect(hud.isPointerOverUI(dropdown!.x + 10, dropdown!.y + 10)).toBe(true);
+
+      // Toggle auto-battle ON
+      autoBtn!.onPress.emit();
+      expect(hud.isAutoBattleEnabled).toBe(true);
+      expect(autoBattleState).toBe(true);
+      expect(battle.army_control[0]).toBe(ArmyControlType.AI);
+      expect(hud.getFormattedArmyName(0)).toContain('CPU Defensive');
+
+      // Open dropdown and select Aggressive
+      dropdown!.headerButton.onPress.emit();
+      expect(dropdown!.isOpen).toBe(true);
+      // Expanded dropdown area is also covered by isPointerOverUI
+      expect(hud.isPointerOverUI(dropdown!.x + 10, dropdown!.y + 60)).toBe(true);
+
+      dropdown!.optionButtonsByPersonality.get('aggressive' as any)!.onPress.emit();
+      expect(dropdown!.isOpen).toBe(false);
+      expect(chosenPersonality).toBe('aggressive');
+      expect(hud.getPlayerCpuPlayer()?.personalityName).toBe('aggressive');
+      expect(hud.getFormattedArmyName(0)).toContain('CPU Aggressive');
+
+      // Select Dumb personality
+      dropdown!.headerButton.onPress.emit();
+      dropdown!.optionButtonsByPersonality.get('dumb' as any)!.onPress.emit();
+      expect(chosenPersonality).toBe('dumb');
+      expect(hud.getPlayerCpuPlayer()?.personalityName).toBe('dumb');
+      expect(hud.getFormattedArmyName(0)).toContain('CPU Dumb');
+
+      // Toggle auto-battle OFF -> returns to manual control
+      autoBtn!.onPress.emit();
+      expect(hud.isAutoBattleEnabled).toBe(false);
+      expect(autoBattleState).toBe(false);
+      expect(battle.army_control[0]).toBe(ArmyControlType.PLAYER);
+      expect(hud.getFormattedArmyName(0)).toContain('Human');
+
+      hud.destroy();
+    });
+
+    it('should initialize and switch 3D skybox and outer decorations based on configurable majorTerrainType (forest and farm)', () => {
+      const container = document.createElement('div');
+      const hexMap = new HexMap(11, 7);
+      const battle = new Battle(hexMap);
+      battle.initializeToSize(11, 7);
+      const settings = new BattleSettings();
+
+      // Default should normalize to farm
+      expect(battle.getMajorTerrainType()).toBe(BattleLocationType.FARM);
+
+      const view = new BattleView3D(container, hexMap, battle, settings);
+
+      // Verify SceneManager skybox
+      const skyboxMesh = view.sceneManager.getSkyboxMesh();
+      expect(skyboxMesh).toBeDefined();
+      expect(skyboxMesh.name).toBe('Skybox');
+      expect(skyboxMesh.geometry).toBeInstanceOf(THREE.SphereGeometry);
+      expect((skyboxMesh.material as THREE.MeshBasicMaterial).side).toBe(THREE.BackSide);
+      expect((skyboxMesh.material as THREE.MeshBasicMaterial).depthWrite).toBe(false);
+      expect(skyboxMesh.renderOrder).toBe(-1000);
+      expect(view.sceneManager.getSkyboxTheme()).toBe(BattleLocationType.FARM);
+
+      // Verify HexBoard3D outer decorations group for FARM
+      expect(view.hexBoard.outerDecorationsGroup).toBeDefined();
+      expect(view.hexBoard.getMajorTerrainType()).toBe(BattleLocationType.FARM);
+      const bounds = view.hexBoard.getBoardWorldBounds();
+
+      const farmChildrenNames = view.hexBoard.outerDecorationsGroup.children.map((c) => c.name);
+      expect(farmChildrenNames).toContain('OuterGroundApron');
+      expect(farmChildrenNames.some((n) => n.startsWith('OuterHorizonHill_'))).toBe(true);
+      expect(farmChildrenNames).toContain('OuterFarmhouse');
+      expect(farmChildrenNames).toContain('OuterFarmBarn');
+      expect(farmChildrenNames).toContain('OuterFarmWindmill');
+      expect(farmChildrenNames).toContain('OuterCropField');
+      expect(farmChildrenNames).toContain('OuterFarmFence');
+      expect(farmChildrenNames).toContain('OuterHaystack');
+
+      // Verify that all outer decoration elements are strictly outside the playable hex grid bounding box
+      view.hexBoard.outerDecorationsGroup.children.forEach((child) => {
+        if (child.name === 'OuterGroundApron' || child.name.startsWith('OuterHorizonHill_')) return;
+        const childPos = child.position;
+        const isOutsideBounds =
+          childPos.x < bounds.minX ||
+          childPos.x > bounds.maxX ||
+          childPos.z < bounds.minZ ||
+          childPos.z > bounds.maxZ;
+        expect(isOutsideBounds).toBe(true);
+      });
+
+      // Switch to FOREST terrain type
+      view.setMajorTerrainType('forest');
+      expect(battle.getMajorTerrainType()).toBe(BattleLocationType.FOREST);
+      expect(view.getMajorTerrainType()).toBe(BattleLocationType.FOREST);
+      expect(view.sceneManager.getSkyboxTheme()).toBe(BattleLocationType.FOREST);
+      expect(view.hexBoard.getMajorTerrainType()).toBe(BattleLocationType.FOREST);
+
+      const forestChildrenNames = view.hexBoard.outerDecorationsGroup.children.map((c) => c.name);
+      expect(forestChildrenNames).toContain('OuterGroundApron');
+      expect(forestChildrenNames.some((n) => n.startsWith('OuterHorizonHill_'))).toBe(true);
+      expect(forestChildrenNames.some((n) => n.startsWith('OuterForestTree_'))).toBe(true);
+      expect(forestChildrenNames).toContain('OuterForestRock');
+      expect(forestChildrenNames).toContain('OuterForestLog');
+      // Farm specific objects should be cleared
+      expect(forestChildrenNames).not.toContain('OuterFarmhouse');
+      expect(forestChildrenNames).not.toContain('OuterFarmWindmill');
+
+      // Clean up
+      view.destroy();
+    });
+
+    it('should render lightweight low-overhead instanced grass with at least 3 distinct models and textures reacting to wind', () => {
+      // 1. Verify at least 3 distinct 128x128 textures
+      const tex0 = createGrassClumpTexture(0);
+      const tex1 = createGrassClumpTexture(1);
+      const tex2 = createGrassClumpTexture(2);
+
+      expect(tex0.image.width).toBe(128);
+      expect(tex1.image.width).toBe(128);
+      expect(tex2.image.width).toBe(128);
+
+      // Verify upright root orientation at bottom row y = 0
+      const texData0 = tex0.image.data as Uint8Array;
+      let bottomRowHasAlpha = false;
+      for (let x = 0; x < 128; x++) {
+        if (texData0[(0 * 128 + x) * 4 + 3] > 0) bottomRowHasAlpha = true;
+      }
+      expect(bottomRowHasAlpha).toBe(true);
+
+      // 2. Verify at least 3 distinct low-poly geometries:
+      // Model 0: Crossed Quads (4 triangles, 8 vertices)
+      // Model 1: Dense Star (6 triangles, 12 vertices)
+      // Model 2: V-Tuft (4 triangles, 8 vertices)
+      const geo0 = GrassFieldSystem.createCrossedQuadsGeometry(0.38, 0.32);
+      const geo1 = GrassFieldSystem.createDenseStarGeometry(0.36, 0.35);
+      const geo2 = GrassFieldSystem.createTuftVGeometry(0.42, 0.28);
+
+      expect(geo0.attributes.position.count).toBe(8);
+      expect(geo0.index!.count).toBe(12);
+
+      expect(geo1.attributes.position.count).toBe(12);
+      expect(geo1.index!.count).toBe(18);
+
+      expect(geo2.attributes.position.count).toBe(8);
+      expect(geo2.index!.count).toBe(12);
+
+      // 3. Verify GrassFieldSystem manages at least 3 distinct models
+      const grassSystem = new GrassFieldSystem();
+      expect(grassSystem.getModelCount()).toBeGreaterThanOrEqual(3);
+
+      const samplePositions = [
+        { x: 0, y: 0, z: 0, modelType: 0 },
+        { x: 2, y: 0, z: 1.5, modelType: 1 },
+        { x: -3, y: 0, z: -2, modelType: 2 },
+      ];
+      grassSystem.buildGrassField(samplePositions);
+      expect(grassSystem.getCount()).toBe(3);
+      expect(grassSystem.instancedMeshes.length).toBe(3);
+
+      // Verify wind parameter update
+      const windAngleRad = Math.PI * 0.75;
+      const windStrength = 1.6;
+      grassSystem.setWindState(windAngleRad, windStrength);
+      const windState = grassSystem.getWindState();
+      expect(windState.angleRad).toBeCloseTo(windAngleRad, 4);
+      expect(windState.strength).toBeCloseTo(windStrength, 4);
+
+      // Verify animation update increments internal wind time
+      grassSystem.update(100);
+
+      // Clean up
+      grassSystem.dispose();
+      tex0.dispose();
+      tex1.dispose();
+      tex2.dispose();
+      geo0.dispose();
+      geo1.dispose();
+      geo2.dispose();
+    });
+
+    it('should integrate GrassFieldSystem on HexBoard3D and rebuild grass field on board creation', () => {
+      const hexMap = new HexMap(10, 8);
+      const hexBoard = new HexBoard3D(hexMap, {
+        majorTerrainType: BattleLocationType.FARM,
+      });
+
+      expect(hexBoard.grassSystem).toBeDefined();
+      expect(hexBoard.grassSystem.instancedMeshes.length).toBeGreaterThan(0);
+      expect(hexBoard.grassSystem.getCount()).toBeGreaterThan(0);
+
+      // Updating hexBoard with wind should propagate to grass system
+      const angleRad = Math.PI * 0.33;
+      hexBoard.setWindState(angleRad, 1.4);
+      expect(hexBoard.grassSystem.getWindState().angleRad).toBeCloseTo(angleRad, 4);
+      expect(hexBoard.grassSystem.getWindState().strength).toBeCloseTo(1.4, 4);
+
+      hexBoard.update(60);
+
+      hexBoard.dispose();
+    });
+
+    it('should manage 4 configurable visual weather effects (None, Rain, Thunderstorm, Fog) in WeatherSystem3D', () => {
+      const scene = new THREE.Scene();
+      const dirLight = new THREE.DirectionalLight(0xfff5e6, 2.4);
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.22);
+      const hemiLight = new THREE.HemisphereLight(0xddeeff, 0x223322, 0.15);
+      scene.fog = new THREE.FogExp2(0x203525, 0.0035);
+
+      scene.add(dirLight);
+      scene.add(ambientLight);
+      scene.add(hemiLight);
+
+      const weatherSystem = new WeatherSystem3D();
+      weatherSystem.attachScene(scene, dirLight, ambientLight, hemiLight);
+      scene.add(weatherSystem.group);
+
+      // 1. None (default, Sunny)
+      expect(weatherSystem.getWeather()).toBe(WeatherType.NONE);
+      expect(weatherSystem.rainGroup.visible).toBe(false);
+      expect(weatherSystem.thunderGroup.visible).toBe(false);
+      expect(weatherSystem.groundFogGroup.visible).toBe(false);
+      expect(dirLight.intensity).toBeCloseTo(2.4, 2);
+      expect(ambientLight.intensity).toBeCloseTo(0.22, 2);
+
+      // 2. Rain (Cloudy, rain effect, monotonous rain streaks)
+      weatherSystem.setWeather(WeatherType.RAIN);
+      expect(weatherSystem.getWeather()).toBe(WeatherType.RAIN);
+      expect(weatherSystem.rainGroup.visible).toBe(true);
+      expect(weatherSystem.thunderGroup.visible).toBe(false);
+      expect(weatherSystem.groundFogGroup.visible).toBe(false);
+      expect(dirLight.intensity).toBeCloseTo(1.8, 2);
+      expect(ambientLight.intensity).toBeGreaterThan(0.25);
+      expect(scene.fog.density).toBeGreaterThan(0.005);
+
+      // Update rain animation with wind
+      weatherSystem.setWindState(Math.PI * 0.5, 1.5);
+      weatherSystem.update(50);
+
+      // 3. Thunderstorm (dark storm, rain, lightning, vicinity thunder strike)
+      weatherSystem.setWeather(WeatherType.THUNDERSTORM);
+      expect(weatherSystem.getWeather()).toBe(WeatherType.THUNDERSTORM);
+      expect(weatherSystem.rainGroup.visible).toBe(true);
+      expect(weatherSystem.thunderGroup.visible).toBe(true);
+      expect(weatherSystem.groundFogGroup.visible).toBe(false);
+      expect(dirLight.intensity).toBeCloseTo(1.4, 2);
+
+      // Trigger vicinity thunder strike
+      weatherSystem.triggerLightningStrike({ x: 15, z: 12 });
+      weatherSystem.update(60);
+
+      // 4. Fog (light gray fog at ground level, obscuring unit feet)
+      weatherSystem.setWeather(WeatherType.FOG);
+      expect(weatherSystem.getWeather()).toBe(WeatherType.FOG);
+      expect(weatherSystem.rainGroup.visible).toBe(false);
+      expect(weatherSystem.thunderGroup.visible).toBe(false);
+      expect(weatherSystem.groundFogGroup.visible).toBe(true);
+      expect(dirLight.intensity).toBeCloseTo(1.7, 2);
+      expect(scene.fog.density).toBeGreaterThanOrEqual(0.02);
+
+      // Verify low-altitude horizontal ground fog planes at unit foot height (y <= 0.35)
+      expect(weatherSystem.groundFogGroup.children.length).toBeGreaterThanOrEqual(3);
+      weatherSystem.groundFogGroup.children.forEach((child) => {
+        expect(child.position.y).toBeLessThanOrEqual(0.35);
+        expect(child.position.y).toBeGreaterThanOrEqual(0.05);
+      });
+
+      weatherSystem.update(100);
+
+      // 5. Return to None (Sunny) restores sunny lighting
+      weatherSystem.setWeather(WeatherType.NONE);
+      expect(weatherSystem.getWeather()).toBe(WeatherType.NONE);
+      expect(weatherSystem.rainGroup.visible).toBe(false);
+      expect(weatherSystem.thunderGroup.visible).toBe(false);
+      expect(weatherSystem.groundFogGroup.visible).toBe(false);
+      expect(dirLight.intensity).toBeCloseTo(2.4, 2);
+      expect(ambientLight.intensity).toBeCloseTo(0.22, 2);
+      expect(scene.fog.density).toBeCloseTo(0.0035, 4);
+
+      weatherSystem.dispose();
+    });
+
+    it('should integrate WeatherSystem3D on ThreeSceneManager and BattleView3D', () => {
+      const container = document.createElement('div');
+      container.style.width = '1000px';
+      container.style.height = '800px';
+      document.body.appendChild(container);
+
+      const hexMap = new HexMap(8, 6);
+      const battle = new Battle(hexMap);
+      const settings = new BattleSettings();
+
+      const view = new BattleView3D(container, hexMap, battle, settings);
+      expect(view.sceneManager.weatherSystem).toBeDefined();
+      expect(view.getWeather()).toBe(WeatherType.NONE);
+
+      // Switch weather via BattleView3D
+      view.setWeather(WeatherType.RAIN);
+      expect(view.getWeather()).toBe(WeatherType.RAIN);
+      expect(view.sceneManager.weatherSystem.getWeather()).toBe(WeatherType.RAIN);
+      expect(settings.weather).toBe(WeatherType.RAIN);
+
+      // Update loops step weather system smoothly
+      view.update(50);
+
+      view.setWeather(WeatherType.FOG);
+      expect(view.getWeather()).toBe(WeatherType.FOG);
+
+      view.destroy();
+      container.remove();
+    });
+
+    it('should build 3 new tree species (birch, willow, maple) with higher poly-count than oak, bounded by 2x ceiling', () => {
+      const getTriangleCount = (treeObj: THREE.Object3D): number => {
+        let count = 0;
+        treeObj.traverse((child) => {
+          if ((child as THREE.Mesh).isMesh) {
+            const mesh = child as THREE.Mesh;
+            const geom = mesh.geometry;
+            if (geom.index) {
+              count += geom.index.count / 3;
+            } else if (geom.attributes.position) {
+              count += geom.attributes.position.count / 3;
+            }
+          }
+        });
+        return count;
+      };
+
+      const pineTris = getTriangleCount(buildLowPolyForestTreeMesh('pine'));
+      const oakTris = getTriangleCount(buildLowPolyForestTreeMesh('oak'));
+      const birchTris = getTriangleCount(buildLowPolyForestTreeMesh('birch'));
+      const willowTris = getTriangleCount(buildLowPolyForestTreeMesh('willow'));
+      const mapleTris = getTriangleCount(buildLowPolyForestTreeMesh('maple'));
+
+      // Baseline trees
+      expect(pineTris).toBe(112);
+      expect(oakTris).toBe(760);
+
+      // 3 New tree models must have higher polygon count than oak (760), but at most double current poly count (<= 1520)
+      expect(birchTris).toBeGreaterThan(oakTris);
+      expect(birchTris).toBeLessThanOrEqual(oakTris * 2);
+
+      expect(willowTris).toBeGreaterThan(oakTris);
+      expect(willowTris).toBeLessThanOrEqual(oakTris * 2);
+
+      expect(mapleTris).toBeGreaterThan(oakTris);
+      expect(mapleTris).toBeLessThanOrEqual(oakTris * 2);
+
+      // Verify each species has distinct structure
+      const birch = buildLowPolyForestTreeMesh('birch');
+      expect(birch.name).toBe('ForestTree_Birch');
+      let foliageCount = 0;
+      birch.traverse((child) => {
+        if (child.name.startsWith('Foliage')) foliageCount++;
+      });
+      expect(foliageCount).toBeGreaterThanOrEqual(1);
+
+      const willow = buildLowPolyForestTreeMesh('willow');
+      expect(willow.name).toBe('ForestTree_Willow');
+
+      const maple = buildLowPolyForestTreeMesh('maple');
+      expect(maple.name).toBe('ForestTree_Maple');
+    });
+
+    it('should update shared tree wind uniforms for trunk swaying, branch motion, and leaf rustle flutter', () => {
+      const initialTime = sharedTreeWindUniforms.uWindTime.value;
+      const angle = Math.PI * 0.25;
+      const strength = 1.6;
+      const deltaSec = 0.05;
+
+      updateTreeWindState(angle, strength, deltaSec);
+
+      expect(sharedTreeWindUniforms.uWindDir.value.x).toBeCloseTo(Math.cos(angle), 3);
+      expect(sharedTreeWindUniforms.uWindDir.value.y).toBeCloseTo(Math.sin(angle), 3);
+      expect(sharedTreeWindUniforms.uWindStrength.value).toBeCloseTo(strength, 3);
+      expect(sharedTreeWindUniforms.uWindTime.value).toBeCloseTo(initialTime + deltaSec, 3);
+
+      const { trunkMat, foliageMat } = getSharedTreeMaterials();
+      expect(trunkMat.customProgramCacheKey()).toBe('TreeTrunkWindShader');
+      expect(foliageMat.customProgramCacheKey()).toBe('TreeFoliageWindShader');
+
+      // Test shader injection hooks
+      const dummyTrunkShader: any = {
+        uniforms: {},
+        vertexShader: '#include <common>\n#include <begin_vertex>',
+      };
+      trunkMat.onBeforeCompile(dummyTrunkShader, {} as any);
+      expect(dummyTrunkShader.uniforms.uWindTime).toBeDefined();
+      expect(dummyTrunkShader.uniforms.uWindDir).toBeDefined();
+      expect(dummyTrunkShader.uniforms.uWindStrength).toBeDefined();
+      expect(dummyTrunkShader.vertexShader).toContain('uWindDir');
+
+      const dummyFoliageShader: any = {
+        uniforms: {},
+        vertexShader: '#include <common>\n#include <begin_vertex>',
+      };
+      foliageMat.onBeforeCompile(dummyFoliageShader, {} as any);
+      expect(dummyFoliageShader.uniforms.uWindTime).toBeDefined();
+      expect(dummyFoliageShader.vertexShader).toContain('rustle');
+      // Verify reduced speed (50%) and reduced intensity (25%)
+      expect(dummyFoliageShader.vertexShader).toContain('4.25');
+      expect(dummyFoliageShader.vertexShader).toContain('0.0035');
+    });
+
+    it('should instantiate and animate blowing leaves tumbling and fluttering downwind in BlowingLeavesSystem', () => {
+      const leaves = new BlowingLeavesSystem(80);
+      expect(leaves.group).toBeDefined();
+      expect(leaves.instancedMesh.count).toBe(80);
+
+      // Leaf geometry must be very low polygon count (2 triangles / quad)
+      const geom = leaves.instancedMesh.geometry;
+      expect(geom.index ? geom.index.count / 3 : geom.attributes.position.count / 3).toBe(2);
+
+      // Register canopy positions
+      leaves.setTreeCanopyPositions([
+        new THREE.Vector3(2, 1.2, 3),
+        new THREE.Vector3(6, 1.5, 8),
+      ]);
+      leaves.setWindState(Math.PI * 0.5, 1.5);
+
+      // Step simulation
+      leaves.update(60);
+
+      const matrix = new THREE.Matrix4();
+      leaves.instancedMesh.getMatrixAt(0, matrix);
+      const pos = new THREE.Vector3();
+      pos.setFromMatrixPosition(matrix);
+      expect(Number.isFinite(pos.x)).toBe(true);
+      expect(Number.isFinite(pos.y)).toBe(true);
+      expect(Number.isFinite(pos.z)).toBe(true);
+
+      // Dispose cleanly
+      leaves.dispose();
+      expect(geom.dispose).toBeDefined();
+    });
+
+    it('should integrate 5 tree variants and blowing leaves system on HexBoard3D', () => {
+      const hexMap = new HexMap(6, 6);
+      const board = new HexBoard3D(hexMap, {
+        getTerrain: (x, y) =>
+          (x === 1 && y === 1) || (x === 2 && y === 2) || (x === 3 && y === 3) || (x === 4 && y === 4)
+            ? TerrainType.FOREST
+            : TerrainType.PLAIN,
+      });
+
+      expect(board.blowingLeavesSystem).toBeDefined();
+      expect(board.group.children.includes(board.blowingLeavesSystem.group)).toBe(true);
+
+      // Inspect forest trees on hexes
+      const trees11 = board.getForestTreesForHex(1, 1);
+      expect(trees11.length).toBeGreaterThanOrEqual(3);
+
+      const variantsFound = new Set<string>();
+      for (let x = 0; x < 6; x++) {
+        for (let y = 0; y < 6; y++) {
+          const trees = board.getForestTreesForHex(x, y);
+          trees.forEach((t) => {
+            if (t.userData?.treeVariant) variantsFound.add(t.userData.treeVariant);
+          });
+        }
+      }
+      expect(variantsFound.size).toBeGreaterThanOrEqual(3);
+
+      // Change wind state updates both trees and leaves
+      const windAngle = Math.PI * 0.75;
+      const windStrength = 1.9;
+      board.setWindState(windAngle, windStrength);
+
+      expect(board.getWindState().angleRad).toBeCloseTo(windAngle, 3);
+      expect(board.getWindState().strength).toBeCloseTo(windStrength, 3);
+      expect(sharedTreeWindUniforms.uWindDir.value.x).toBeCloseTo(Math.cos(windAngle), 3);
+      expect(sharedTreeWindUniforms.uWindStrength.value).toBeCloseTo(windStrength, 3);
+
+      // Verify retreat flags orient in the exact direction of blowing leaves (parallel, not perpendicular)
+      // When wind angle = theta, downwind vector is (cos(theta), 0, sin(theta))
+      // Rotating flag (+X) by -theta yields world direction (cos(-theta), 0, -sin(-theta)) = (cos(theta), 0, sin(theta))
+      for (const cloth of (board as any).animatedFlagCloths) {
+        expect(cloth.rotation.y).toBeCloseTo(-windAngle, 3);
+      }
+
+      // Board update animates blowing leaves
+      board.update(50);
+
+      // Clean disposal
+      board.dispose();
     });
   });
 });

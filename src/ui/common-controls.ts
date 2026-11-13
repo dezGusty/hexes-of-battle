@@ -1,12 +1,225 @@
 import { ButtonOptions, FancyButton, Slider } from "@pixi/ui";
 import { TextStyle, TextStyleOptions, Text, Container, Graphics } from "pixi.js";
 import { drawMedievalBestiaryMotif, drawMetallicRivet } from "./medieval-ui-decorations";
+import { CPUPersonalityType } from "../battle/cpu-player";
+import { bindButtonUISound, bindSliderUISound } from "../battle/ui-sounds";
+
+export interface CPUPersonalityOption {
+  value: CPUPersonalityType;
+  label: string;
+}
+
+export class CPUPersonalityDropdown extends Container {
+  public static readonly DEFAULT_OPTIONS: CPUPersonalityOption[] = [
+    { value: CPUPersonalityType.DEFENSIVE, label: "Defensive" },
+    { value: CPUPersonalityType.AGGRESSIVE, label: "Aggressive" },
+    { value: CPUPersonalityType.DUMB, label: "Dumb" },
+  ];
+
+  public readonly options: CPUPersonalityOption[];
+  public readonly headerButton: FancyButton;
+  public readonly menuContainer: Container;
+  public readonly optionButtons: FancyButton[] = [];
+  public readonly optionButtonsByPersonality: Map<CPUPersonalityType, FancyButton> = new Map();
+
+  public readonly dropdownWidth: number;
+  public readonly dropdownHeight: number;
+  public readonly itemHeight: number = 36;
+
+  private _selectedPersonality: CPUPersonalityType;
+  private _isOpen: boolean = false;
+  public onChange?: (personality: CPUPersonalityType) => void;
+  private changeListeners: Array<(personality: CPUPersonalityType) => void> = [];
+
+  public constructor(
+    buttonStyle: ButtonOptions,
+    initialPersonality: CPUPersonalityType = CPUPersonalityType.DEFENSIVE,
+    width: number = 140,
+    height: number = 40,
+    options: CPUPersonalityOption[] = CPUPersonalityDropdown.DEFAULT_OPTIONS
+  ) {
+    super();
+    this.options = options;
+    this._selectedPersonality = initialPersonality;
+    this.dropdownWidth = width;
+    this.dropdownHeight = height;
+
+    this.headerButton = new FancyButton({ ...buttonStyle });
+    this.headerButton.width = width;
+    this.headerButton.height = height;
+    this.headerButton.text = new Text({
+      style: {
+        fontFamily: "GustysSerpents",
+        fontSize: 13,
+        fill: "#f5e6c4",
+        align: "center",
+      },
+      text: this.formatHeaderText(),
+    });
+    this.decorateDropdownButton(this.headerButton, width, height);
+    bindButtonUISound(this.headerButton);
+    this.headerButton.onPress.connect(() => {
+      this.toggle();
+    });
+    this.addChild(this.headerButton);
+
+    this.menuContainer = new Container();
+    this.menuContainer.position.set(0, height + 2);
+    this.menuContainer.visible = false;
+
+    const totalMenuHeight = this.options.length * this.itemHeight;
+    const menuBg = new Graphics();
+    menuBg.roundRect(0, 0, width, totalMenuHeight, 4).fill({ color: 0x1a120b, alpha: 0.96 });
+    menuBg.roundRect(0, 0, width, totalMenuHeight, 4).stroke({ width: 1.8, color: 0xd4af37, alpha: 0.9 });
+    menuBg.eventMode = "none";
+    this.menuContainer.addChild(menuBg);
+
+    this.options.forEach((opt, idx) => {
+      const itemBtn = new FancyButton({ ...buttonStyle });
+      itemBtn.position.set(0, idx * this.itemHeight);
+      itemBtn.width = width;
+      itemBtn.height = this.itemHeight;
+      itemBtn.text = new Text({
+        style: {
+          fontFamily: "GustysSerpents",
+          fontSize: 13,
+          fill: opt.value === this._selectedPersonality ? "#ffe885" : "#f5e6c4",
+          align: "center",
+        },
+        text: opt.label,
+      });
+      this.decorateDropdownButton(itemBtn, width, this.itemHeight);
+      bindButtonUISound(itemBtn);
+      itemBtn.onPress.connect(() => {
+        this.selectPersonality(opt.value, true);
+        this.close();
+      });
+      this.menuContainer.addChild(itemBtn);
+      this.optionButtons.push(itemBtn);
+      this.optionButtonsByPersonality.set(opt.value, itemBtn);
+    });
+
+    this.addChild(this.menuContainer);
+  }
+
+  private decorateDropdownButton(btn: FancyButton, w: number, h: number): void {
+    const g = new Graphics();
+    g.eventMode = "none";
+    g.roundRect(0, 0, w, h, 4).stroke({ width: 1.5, color: 0x9b7624, alpha: 0.9 });
+    drawMetallicRivet(g, 5, 5, 1.5, 0xd4af37);
+    drawMetallicRivet(g, w - 5, 5, 1.5, 0xd4af37);
+    drawMetallicRivet(g, 5, h - 5, 1.5, 0xd4af37);
+    drawMetallicRivet(g, w - 5, h - 5, 1.5, 0xd4af37);
+    btn.addChild(g);
+  }
+
+  private formatHeaderText(): string {
+    const found = this.options.find((o) => o.value === this._selectedPersonality);
+    const label = found ? found.label : this._selectedPersonality;
+    const arrow = this._isOpen ? "▲" : "▼";
+    return `AI: ${label} ${arrow}`;
+  }
+
+  private refreshLabels(): void {
+    const headerText = this.formatHeaderText();
+    if (this.headerButton.textView) {
+      this.headerButton.textView.text = headerText;
+    } else {
+      this.headerButton.text = headerText;
+    }
+
+    this.options.forEach((opt, idx) => {
+      const btn = this.optionButtons[idx];
+      if (!btn) return;
+      const isSelected = opt.value === this._selectedPersonality;
+      const prefix = isSelected ? "● " : "";
+      const textStr = `${prefix}${opt.label}`;
+      if (btn.textView) {
+        btn.textView.text = textStr;
+        if (btn.textView.style) {
+          btn.textView.style.fill = isSelected ? "#ffe885" : "#f5e6c4";
+        }
+      } else {
+        btn.text = textStr;
+      }
+    });
+  }
+
+  public get selectedPersonality(): CPUPersonalityType {
+    return this._selectedPersonality;
+  }
+
+  public set selectedPersonality(val: CPUPersonalityType) {
+    this.selectPersonality(val, false);
+  }
+
+  public get value(): CPUPersonalityType {
+    return this._selectedPersonality;
+  }
+
+  public set value(val: CPUPersonalityType) {
+    this.selectPersonality(val, false);
+  }
+
+  public get isOpen(): boolean {
+    return this._isOpen;
+  }
+
+  public open(): void {
+    this._isOpen = true;
+    this.menuContainer.visible = true;
+    this.refreshLabels();
+  }
+
+  public close(): void {
+    this._isOpen = false;
+    this.menuContainer.visible = false;
+    this.refreshLabels();
+  }
+
+  public toggle(): void {
+    if (this._isOpen) {
+      this.close();
+    } else {
+      this.open();
+    }
+  }
+
+  public onValueChange(listener: (personality: CPUPersonalityType) => void): void {
+    this.changeListeners.push(listener);
+  }
+
+  public selectPersonality(personality: CPUPersonalityType, notify: boolean = true): void {
+    if (!this.options.some((o) => o.value === personality)) return;
+    this._selectedPersonality = personality;
+    this.refreshLabels();
+    if (notify) {
+      this.onChange?.(personality);
+      for (const listener of this.changeListeners) {
+        listener(personality);
+      }
+    }
+  }
+
+  public containsStagePoint(stageX: number, stageY: number): boolean {
+    if (!this.visible) return false;
+    const totalH = this._isOpen
+      ? this.dropdownHeight + 2 + this.options.length * this.itemHeight
+      : this.dropdownHeight;
+    return (
+      stageX >= this.x &&
+      stageX <= this.x + this.dropdownWidth &&
+      stageY >= this.y &&
+      stageY <= this.y + totalH
+    );
+  }
+}
 
 /**
  * Common tactical UI controls:
  * - Zoom in/out, Zoom slider
  * - Next unit, End turn, Rest action (docked in the Common Actions section of the Battle UI)
- * - Menu, Reset
+ * - Menu, Reset, Auto-Battle toggle & CPU Personality dropdown
  */
 export class CommonControls {
   public static readonly DEFAULT_PANEL_ORIGIN = { x: 40, y: 936 };
@@ -18,10 +231,17 @@ export class CommonControls {
   public static readonly REST_BUTTON_BOUNDS = { x: 1560, y: 966, width: 132, height: 46 };
   public static readonly NEXT_UNIT_BUTTON_BOUNDS = { x: 1560, y: 1018, width: 132, height: 46 };
   public static readonly END_TURN_BUTTON_BOUNDS = { x: 1702, y: 962, width: 160, height: 104 };
+  public static readonly AUTO_BATTLE_BUTTON_BOUNDS = { x: 4, y: 58, width: 130, height: 40 };
+  public static readonly AUTO_BATTLE_DROPDOWN_BOUNDS = { x: 140, y: 58, width: 140, height: 40 };
 
   private panelOrigin: { x: number; y: number } = { ...CommonControls.DEFAULT_PANEL_ORIGIN };
 
   public menuButton?: FancyButton;
+  public autoBattleButton?: FancyButton;
+  public autoBattlePersonalityDropdown?: CPUPersonalityDropdown;
+  public cpuPersonalityDropdown?: CPUPersonalityDropdown;
+  public isAutoBattleEnabled: boolean = false;
+  public autoBattlePersonality: CPUPersonalityType = CPUPersonalityType.DEFENSIVE;
 
   public zoomInButton?: FancyButton;
   public zoomOutButton?: FancyButton;
@@ -227,6 +447,79 @@ export class CommonControls {
       text: "Menu",
       style: { fontSize: 16, fill: "#f5e6c4" },
     });
+
+    // Auto-Battle Toggle Button & CPU Personality Dropdown next to it
+    const autoBounds = CommonControls.AUTO_BATTLE_BUTTON_BOUNDS;
+    this.autoBattleButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE });
+    this.autoBattleButton.position.set(autoBounds.x, autoBounds.y);
+    this.autoBattleButton.width = autoBounds.width;
+    this.autoBattleButton.height = autoBounds.height;
+    this.autoBattleButton.text = new Text({
+      style: {
+        fontFamily: "GustysSerpents",
+        fontSize: 14,
+        fill: "#f5e6c4",
+        align: "center",
+      },
+      text: "Auto: OFF",
+    });
+    this.decorateActionButton(this.autoBattleButton, autoBounds.width, autoBounds.height, false);
+    this.setAutoBattleEnabled(false);
+
+    const dropdownBounds = CommonControls.AUTO_BATTLE_DROPDOWN_BOUNDS;
+    this.autoBattlePersonalityDropdown = new CPUPersonalityDropdown(
+      this.DEFAULT_BUTTON_STYLE,
+      this.autoBattlePersonality,
+      dropdownBounds.width,
+      dropdownBounds.height
+    );
+    this.autoBattlePersonalityDropdown.position.set(dropdownBounds.x, dropdownBounds.y);
+    this.cpuPersonalityDropdown = this.autoBattlePersonalityDropdown;
+
+    bindButtonUISound(this.zoomOutButton);
+    bindButtonUISound(this.zoomInButton);
+    bindButtonUISound(this.altitudeUpButton);
+    bindButtonUISound(this.altitudeDownButton);
+    bindButtonUISound(this.resetButton);
+    bindButtonUISound(this.activeAbility1Button);
+    bindButtonUISound(this.restButton);
+    bindButtonUISound(this.nextUnitButton);
+    bindButtonUISound(this.nextTurnButton);
+    bindButtonUISound(this.menuButton);
+    bindButtonUISound(this.autoBattleButton);
+    bindSliderUISound(this.zoomSlider);
+  }
+
+  public setAutoBattleEnabled(enabled: boolean): void {
+    this.isAutoBattleEnabled = enabled;
+    if (!this.autoBattleButton) return;
+    const label = enabled ? "Auto: ON" : "Auto: OFF";
+    const fillColor = enabled ? "#ffe885" : "#f5e6c4";
+    if (this.autoBattleButton.textView) {
+      this.autoBattleButton.textView.text = label;
+      if (this.autoBattleButton.textView.style) {
+        this.autoBattleButton.textView.style.fill = fillColor;
+      }
+    } else {
+      this.autoBattleButton.text = new Text({
+        style: {
+          fontFamily: "GustysSerpents",
+          fontSize: 14,
+          fill: fillColor,
+          align: "center",
+        },
+        text: label,
+      });
+    }
+  }
+
+  public getAutoBattlePersonality(): CPUPersonalityType {
+    return this.autoBattlePersonalityDropdown?.selectedPersonality ?? this.autoBattlePersonality;
+  }
+
+  public setAutoBattlePersonality(personality: CPUPersonalityType, notify: boolean = false): void {
+    this.autoBattlePersonality = personality;
+    this.autoBattlePersonalityDropdown?.selectPersonality(personality, notify);
   }
 
   public getPanelOrigin(): { x: number; y: number } {
@@ -284,6 +577,8 @@ export class CommonControls {
     if (this.nextUnitButton) results.push(this.nextUnitButton);
     if (this.resetButton) results.push(this.resetButton);
     if (this.menuButton) results.push(this.menuButton);
+    if (this.autoBattleButton) results.push(this.autoBattleButton);
+    if (this.autoBattlePersonalityDropdown) results.push(this.autoBattlePersonalityDropdown);
     if (this.activeAbility1Button) results.push(this.activeAbility1Button);
 
     return results;

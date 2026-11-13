@@ -9,9 +9,11 @@ import { Ability } from '../battle/ability';
 import { CreatureTemplate } from '../battle/creature';
 import { JsonLoader } from '../shared/jsonloader';
 import { Coords } from '../shared';
-import { PixiSoundSystem } from './sound-system';
+import { PixiSoundSystem, SoundType } from './sound-system';
 import { parseTraitsConfig } from '../battle/trait-system';
 import { validateMoraleBreakpoints } from '../battle/combat-rules';
+import { configurePlayerColors } from '../render3d/units/unit-mesh-builder';
+import { configurePlayerBanners } from '../render3d/decorations/retreat-flag-3d';
 
 export const GAME_VERSION: string = pkg.version;
 
@@ -121,6 +123,27 @@ export class HexesEngine {
           this.templates.combatConfig.morale.breakpoints
         );
       }
+      if (
+        this.templates.combatConfig?.playerColors ||
+        this.templates.combatConfig?.player_colors ||
+        this.templates.combatConfig?.teamColors
+      ) {
+        configurePlayerColors(
+          this.templates.combatConfig.playerColors ??
+            this.templates.combatConfig.player_colors ??
+            this.templates.combatConfig.teamColors
+        );
+      }
+      if (
+        this.templates.combatConfig?.player1Banner ||
+        this.templates.combatConfig?.player2Banner ||
+        this.templates.combatConfig?.playerBanners
+      ) {
+        configurePlayerBanners(this.templates.combatConfig);
+      }
+      if ((this.templates.combatConfig as any)?.soundGroups) {
+        this.soundSystem.configureSoundGroups((this.templates.combatConfig as any).soundGroups);
+      }
     } catch {
       // Use defaults if not found
     }
@@ -201,8 +224,49 @@ export class HexesEngine {
           if (hotkeysCfg.skill5 !== undefined) this.settings.hotkeys.skill5 = hotkeysCfg.skill5;
         }
 
+        if (this.templates.hudConfig.sounds !== undefined || this.templates.hudConfig.uiSounds !== undefined) {
+          this.soundSystem.configureUISounds(
+            this.templates.hudConfig.sounds ?? this.templates.hudConfig.uiSounds
+          );
+        }
+        if (this.templates.hudConfig.soundGroups !== undefined) {
+          this.soundSystem.configureSoundGroups(this.templates.hudConfig.soundGroups);
+        }
+        const hudArrowVolley =
+          this.templates.hudConfig.arrowVolley ?? this.templates.hudConfig.arrow_volley;
+        if (hudArrowVolley !== undefined) {
+          this.soundSystem.configureArrowVolleySounds(hudArrowVolley);
+        }
+
         // Re-apply saved user preferences from localStorage so template defaults do not overwrite them
         this.settings.load();
+      }
+    } catch {
+      // Use defaults if not found
+    }
+    try {
+      this.templates.soundsConfig = await JsonLoader.loadJson<any>('./sounds.json');
+      if (this.templates.soundsConfig) {
+        const groups = this.templates.soundsConfig.soundGroups ?? this.templates.soundsConfig.groups;
+        if (groups !== undefined) {
+          this.soundSystem.configureSoundGroups(groups);
+        }
+        if (this.templates.soundsConfig.events) {
+          for (const [eventKey, targetName] of Object.entries(this.templates.soundsConfig.events)) {
+            if (typeof targetName === 'string') {
+              this.soundSystem.registerSound(eventKey as SoundType, targetName);
+            }
+          }
+        }
+        const uiCfg = this.templates.soundsConfig.ui ?? this.templates.soundsConfig.sounds;
+        if (uiCfg !== undefined) {
+          this.soundSystem.configureUISounds(uiCfg);
+        }
+        const arrowVolleyCfg =
+          this.templates.soundsConfig.arrowVolley ?? this.templates.soundsConfig.arrow_volley;
+        if (arrowVolleyCfg !== undefined) {
+          this.soundSystem.configureArrowVolleySounds(arrowVolleyCfg);
+        }
       }
     } catch {
       // Use defaults if not found
@@ -261,6 +325,8 @@ export class HexesEngine {
     await sound.add('move', 'audio/move.ogg');
     await sound.add('sword', 'audio/sword.ogg');
     await sound.add('track_dark_whispers', 'audio/dark_whispers.ogg');
+    await this.soundSystem.loadSoundGroups();
+    await this.soundSystem.loadUISounds();
   }
 
   public setScalingForSize(width: number, height: number): void {

@@ -1,8 +1,8 @@
-import { Battle, InputState, MapRenderUpdate, RangedAttackData } from '../battle';
+import { Battle, DamagePreviewResult, InputState, MapRenderUpdate, RangedAttackData } from '../battle';
 import { HexDirection, HexFlankStatus, HexMap, checkFlankingStatus } from '../shared/hex-map';
 import { Coords } from '../shared';
 import { PinchGestureHandler } from '../shared/pinch-gesture-handler';
-import { Creature } from '../battle/creature';
+import { Creature, CreatureType } from '../battle/creature';
 import { BattleActionType } from '../battle/battle-action';
 import { CPUPlayer } from '../battle/cpu-player';
 import { BattleSettings } from '../battle/settings';
@@ -15,6 +15,8 @@ import { BattleHexMapPath } from '../battle/battle-hex-map-path';
 import { ThreeSceneDebugger } from './debug/three-scene-debugger';
 import { ExhaustionState } from '../battle/combat-rules';
 import { ISoundSystem, SoundCategory, SoundType } from '../battle/sound-system';
+import { BattleLocationType } from './decorations/battle-environment-3d';
+import { WeatherType } from '../ui/weather-dropdown';
 
 export interface BattleView3DEvents {
   onNextTurn: () => void;
@@ -41,6 +43,8 @@ export class BattleView3D {
   // Interaction & Input State
   private hoveredHex: Coords | null = null;
   private hoveredDirection: HexDirection = HexDirection.NONE;
+  private targetHoverHex: Coords | null = null;
+  private targetHoverDuration: number = 0;
   private isPointerDown: boolean = false;
   private isCtrlPressed: boolean = false;
   private lastPointerPos: Coords = { x: 0, y: 0 };
@@ -96,6 +100,8 @@ export class BattleView3D {
     this.container = container;
 
     this.sceneManager = new ThreeSceneManager(container);
+    this.sceneManager.setSkyboxTheme(this.battle.getMajorTerrainType());
+    this.sceneManager.setWeather(this.settings.weather ?? WeatherType.NONE);
     this.hexBoard = new HexBoard3D(this.hexMap, {
       showGrid: settings.hex.showGrid,
       borderThickness: settings.hex.gridBorderThickness,
@@ -107,6 +113,11 @@ export class BattleView3D {
       coordsStrokeColor: settings.debug.coordsStrokeColor,
       coordsStrokeWidth: settings.debug.coordsStrokeWidth,
       getTerrain: (x, y) => this.battle.getTerrainAt({ x, y }),
+      getRetreatPoints: (armyIndex) => this.battle.getRetreatPoints(armyIndex),
+      getArmyBanner: (armyIndex) => this.battle.getBannerForArmy(armyIndex),
+      majorTerrainType: this.battle.getMajorTerrainType(),
+      getMajorTerrainType: () => this.battle.getMajorTerrainType(),
+      getWindState: () => this.battle.getWindState(),
     });
     this.sceneManager.scene.add(this.hexBoard.group);
     this.sceneManager.scene.add(this.projectileSystem.group);
@@ -137,6 +148,9 @@ export class BattleView3D {
     this.hud = hud;
     this.getStageInfo = getStageInfo;
     if (this.hud) {
+      if (this.hud.battleMenuPanel) {
+        this.hud.battleMenuPanel.setWeather(this.settings.weather);
+      }
       this.hud.onShowEnemyStats = (creature: Creature) => {
         this.updateEnemyRangePerimeter(creature);
       };
@@ -144,6 +158,19 @@ export class BattleView3D {
         this.clearEnemyRangePerimeter();
       };
     }
+  }
+
+  public setWeather(weather: WeatherType): void {
+    this.settings.weather = weather;
+    this.settings.save();
+    this.sceneManager.setWeather(weather);
+    if (this.hud?.battleMenuPanel) {
+      this.hud.battleMenuPanel.setWeather(weather);
+    }
+  }
+
+  public getWeather(): WeatherType {
+    return this.sceneManager.getWeather();
   }
 
   public setGridVisible(visible: boolean): void {
@@ -168,6 +195,15 @@ export class BattleView3D {
     this.squadVisuals.forEach((squad) => {
       squad.showDamageIndicators = show;
     });
+  }
+
+  public getAnimationSpeedMultiplier(): number {
+    return this.settings.getAnimationSpeedMultiplier();
+  }
+
+  public setAnimationSpeed(speed: number): void {
+    this.settings.setAnimationSpeed(speed);
+    this.settings.save();
   }
 
   public setSceneInspectorVisible(visible: boolean): void {
@@ -248,6 +284,17 @@ export class BattleView3D {
     this.updateActiveUnitSelection();
     this.sceneDebugger?.refreshEntityList();
     this.sceneDebugger?.updateStats();
+  }
+
+  public removeSquad(guid: string): void {
+    const squad = this.squadVisuals.get(guid);
+    if (squad) {
+      this.sceneManager.scene.remove(squad.rootGroup);
+      squad.dispose();
+      this.squadVisuals.delete(guid);
+      this.sceneDebugger?.refreshEntityList();
+      this.sceneDebugger?.updateStats();
+    }
   }
 
   public updateActiveUnitSelection(): void {
@@ -347,8 +394,26 @@ export class BattleView3D {
         attackerSquad.playAnimation('attack_ranged', 400);
       }
 
+      const isSlinger = data.attacker?.creatureType === CreatureType.SLINGER;
       if (this.soundSystem) {
-        this.soundSystem.play(SoundCategory.SOUND, SoundType.ARROW, true);
+        const rangedSoundType = isSlinger ? SoundType.STONE : SoundType.ARROW;
+        const shooterCount = Math.max(
+          1,
+          data.attacker?.aliveModelCount ?? data.projectiles?.length ?? 1
+        );
+        const maxSquadSize = Math.max(
+          shooterCount,
+          data.attacker?.maxModels ?? data.attacker?.stats?.model_count ?? shooterCount
+        );
+        if (isSlinger && this.soundSystem.playStoneVolley) {
+          this.soundSystem.playStoneVolley(shooterCount, maxSquadSize);
+        } else if (this.soundSystem.playRangedVolley) {
+          this.soundSystem.playRangedVolley(rangedSoundType, shooterCount, maxSquadSize);
+        } else if (this.soundSystem.playArrowVolley) {
+          this.soundSystem.playArrowVolley(shooterCount, maxSquadSize, undefined, rangedSoundType);
+        } else {
+          this.soundSystem.play(SoundCategory.SOUND, rangedSoundType, true);
+        }
       }
 
       // Build array of individual projectile trajectories with distinct destination hexes
@@ -377,23 +442,24 @@ export class BattleView3D {
       this.projectileSystem.spawnVolley({
         sourcePos,
         projectiles,
-        projectileType: 'arrow',
+        projectileType: isSlinger ? 'stone' : 'arrow',
         durationMs: 480,
         apexHeight: Math.max(1.8, dist * 0.38),
         onImpact,
       });
     };
 
+    const animMultiplier = this.getAnimationSpeedMultiplier();
     const attackerKey = data.attacker.GUID.toString();
     const now = performance.now();
     const lastTime = this.lastRangedAttackTimes.get(attackerKey) ?? -9999;
     const timeDelta = now - lastTime;
     this.lastRangedAttackTimes.set(attackerKey, now);
 
-    if (timeDelta < 350) {
+    if (timeDelta < 350 / animMultiplier) {
       setTimeout(() => {
         fireVolley();
-      }, 450);
+      }, 450 / animMultiplier);
     } else {
       fireVolley();
     }
@@ -423,14 +489,29 @@ export class BattleView3D {
         attackerSquad.playAnimation('attack_ranged', 400);
       }
 
+      const isSlinger = attacker?.creatureType === CreatureType.SLINGER;
       if (this.soundSystem) {
-        this.soundSystem.play(SoundCategory.SOUND, SoundType.ARROW, true);
+        const rangedSoundType = isSlinger ? SoundType.STONE : SoundType.ARROW;
+        const shooterCount = Math.max(1, attacker.aliveModelCount ?? 1);
+        const maxSquadSize = Math.max(
+          shooterCount,
+          attacker.maxModels ?? attacker.stats?.model_count ?? shooterCount
+        );
+        if (isSlinger && this.soundSystem.playStoneVolley) {
+          this.soundSystem.playStoneVolley(shooterCount, maxSquadSize);
+        } else if (this.soundSystem.playRangedVolley) {
+          this.soundSystem.playRangedVolley(rangedSoundType, shooterCount, maxSquadSize);
+        } else if (this.soundSystem.playArrowVolley) {
+          this.soundSystem.playArrowVolley(shooterCount, maxSquadSize, undefined, rangedSoundType);
+        } else {
+          this.soundSystem.play(SoundCategory.SOUND, rangedSoundType, true);
+        }
       }
 
       this.projectileSystem.spawnVolley({
         sourcePos,
         targetPos,
-        projectileType: 'arrow',
+        projectileType: isSlinger ? 'stone' : 'arrow',
         durationMs: 480,
         apexHeight: Math.max(1.8, sourcePos.distanceTo(targetPos) * 0.38),
         volleyCount: Math.min(8, Math.max(3, attacker.aliveModelCount)),
@@ -449,9 +530,10 @@ export class BattleView3D {
         this.soundSystem.play(SoundCategory.SOUND, SoundType.SWORD, true);
       }
 
+      const animMultiplier = this.getAnimationSpeedMultiplier();
       setTimeout(() => {
         this.applyDamageVisuals(defenderSquad, damage, flankStatus);
-      }, 180);
+      }, 180 / animMultiplier);
     }
   }
 
@@ -507,15 +589,42 @@ export class BattleView3D {
     }
   }
 
+  public showHealVisuals(healer: Creature, target: Creature, amount: number, moraleBoost?: number): void {
+    const healerSquad = this.squadVisuals.get(healer.GUID.toString());
+    if (healerSquad) {
+      healerSquad.setFacing(healer.facingDirection);
+      healerSquad.playAnimation('rest', 500);
+    }
+
+    const targetSquad = this.squadVisuals.get(target.GUID.toString());
+    if (targetSquad) {
+      targetSquad.playAnimation('rest', 600);
+      targetSquad.updateStats(false);
+      if (this.settings.hex.showDamageIndicators) {
+        if (amount > 0) {
+          targetSquad.addDamageIndicator('health', amount);
+        }
+        if (moraleBoost && moraleBoost > 0) {
+          targetSquad.addDamageIndicator('morale', moraleBoost);
+        }
+      } else if (amount > 0) {
+        targetSquad.addFloatingCombatText(`+${amount} HP`, '#44ee66', 1200);
+      }
+    }
+  }
+
   public update(deltaMS: number): void {
+    const animMultiplier = this.getAnimationSpeedMultiplier();
+    const scaledDeltaMS = deltaMS * animMultiplier;
+
     // 0. Update smooth continuous camera keyboard inputs (W, A, S, D, Q, E)
     this.updateCameraKeyboardInput(deltaMS);
 
     // 0.5. Update hex board animations (slowly rotating selected unit halo disc)
-    this.hexBoard.update(deltaMS);
+    this.hexBoard.update(scaledDeltaMS);
 
     // 1. Process battle engine actions and updates
-    const mapUpdate: MapRenderUpdate = this.battle.update(deltaMS);
+    const mapUpdate: MapRenderUpdate = this.battle.update(scaledDeltaMS);
 
     if (mapUpdate.somethingChanged || mapUpdate.unitRenderUpdate) {
       // Sync unit positions and alive counts
@@ -537,7 +646,7 @@ export class BattleView3D {
     // 2. Update 3D squads (overhead bars, animations, floating text) and cleanup eliminated squads
     const toRemoveGuids: string[] = [];
     this.squadVisuals.forEach((squad, guidStr) => {
-      squad.update(deltaMS, this.sceneManager.camera);
+      squad.update(scaledDeltaMS, this.sceneManager.camera);
       if (squad.isEliminated && !squad.hasActiveEffects) {
         toRemoveGuids.push(guidStr);
       }
@@ -553,13 +662,98 @@ export class BattleView3D {
     }
 
     // 3. Update 3D projectiles
-    this.projectileSystem.update(deltaMS);
+    this.projectileSystem.update(scaledDeltaMS);
+
+    // 3.2 Update weather system (rain particles, lightning, ground fog)
+    if (this.sceneManager?.weatherSystem) {
+      const windState = this.battle?.getWindState ? this.battle.getWindState() : { angleRad: 0, strength: 1 };
+      this.sceneManager.weatherSystem.setWindState(windState.angleRad, windState.strength);
+      this.sceneManager.weatherSystem.update(scaledDeltaMS);
+    }
 
     // 3.5 Update scene debugger
     this.sceneDebugger?.update(deltaMS);
 
+    // 3.8 Update hover duration and damage preview tooltip
+    this.updateDamagePreviewHover(deltaMS);
+
     // 4. Render 3D scene
     this.sceneManager.render();
+  }
+
+  private updateDamagePreviewHover(deltaMS: number): void {
+    const activeCreature = this.battle.getActiveCreature();
+    if (!activeCreature || !this.hoveredHex) {
+      if (this.targetHoverHex !== null || this.targetHoverDuration > 0) {
+        this.targetHoverHex = null;
+        this.targetHoverDuration = 0;
+        this.hud?.hideDamagePreview?.();
+      }
+      return;
+    }
+
+    if (this.battle.input_state === InputState.SELECT_ABILITY_TARGET) {
+      if (!this.battle.abilityToApply || !this.battle.isDamageAbility(this.battle.abilityToApply)) {
+        if (this.targetHoverHex !== null || this.targetHoverDuration > 0) {
+          this.targetHoverHex = null;
+          this.targetHoverDuration = 0;
+          this.hud?.hideDamagePreview?.();
+        }
+        return;
+      }
+    }
+
+    const targetCreatureInBattle = this.battle.getCreatureAtPosition(this.hoveredHex);
+    const targetCreature = targetCreatureInBattle?.creature;
+
+    // Must be a valid enemy target creature
+    if (!targetCreature || targetCreature.armyAlignment === activeCreature.armyAlignment || !targetCreature.isAlive) {
+      if (this.targetHoverHex !== null || this.targetHoverDuration > 0) {
+        this.targetHoverHex = null;
+        this.targetHoverDuration = 0;
+        this.hud?.hideDamagePreview?.();
+      }
+      return;
+    }
+
+    if (
+      this.targetHoverHex &&
+      this.targetHoverHex.x === this.hoveredHex.x &&
+      this.targetHoverHex.y === this.hoveredHex.y
+    ) {
+      this.targetHoverDuration += deltaMS;
+    } else {
+      this.targetHoverHex = { ...this.hoveredHex };
+      this.targetHoverDuration = deltaMS;
+      this.hud?.hideDamagePreview?.();
+    }
+
+    if (this.targetHoverDuration >= 1000) {
+      let preview: DamagePreviewResult | null = null;
+      if (this.battle.input_state === InputState.SELECT_ABILITY_TARGET && this.battle.abilityToApply) {
+        preview = this.battle.calculateDamagePreview(
+          this.hoveredHex,
+          activeCreature,
+          activeCreature.pos,
+          false,
+          this.battle.abilityToApply
+        );
+      } else {
+        const { originHex, isRanged } = this.computeAttackAndHoverPaths();
+        preview = this.battle.calculateDamagePreview(
+          this.hoveredHex,
+          activeCreature,
+          originHex ?? undefined,
+          !isRanged && this.hoveredDirection !== HexDirection.NONE
+        );
+      }
+
+      if (preview) {
+        const worldPos = this.hexBoard.hexToWorldWithElevation(this.hoveredHex.x, this.hoveredHex.y, true);
+        const screenPos = this.sceneManager.projectToScreen(worldPos);
+        this.hud?.showDamagePreview?.(preview, screenPos.x, screenPos.y);
+      }
+    }
   }
 
   public resize(width: number, height: number): void {
@@ -567,18 +761,37 @@ export class BattleView3D {
   }
 
   public resetGridAndTerrain(): void {
+    this.sceneManager.setSkyboxTheme(this.battle.getMajorTerrainType());
+    const wind = this.battle.getWindState();
+    this.hexBoard.setWindState(wind.angleRad, wind.strength);
     this.hexBoard.rebuildBoard();
     this.syncAllSquads();
     this.sceneManager.resetCamera();
   }
 
+  public setMajorTerrainType(locationType: BattleLocationType | string): void {
+    this.battle.setMajorTerrainType(locationType);
+    const normalized = this.battle.getMajorTerrainType();
+    this.sceneManager.setSkyboxTheme(normalized);
+    this.hexBoard.setMajorTerrainType(normalized);
+  }
+
+  public getMajorTerrainType(): BattleLocationType {
+    return this.battle.getMajorTerrainType();
+  }
+
   public showTurnBanner(_turnNum: number, _armyIdx: number): void {
+    const wind = this.battle.getWindState();
+    this.hexBoard.setWindState(wind.angleRad, wind.strength);
     this.updateActiveUnitSelection();
   }
 
   private clearHoverState(): void {
     this.hoveredHex = null;
     this.hoveredDirection = HexDirection.NONE;
+    this.targetHoverHex = null;
+    this.targetHoverDuration = 0;
+    this.hud?.hideDamagePreview?.();
     this.hexBoard.setHoverHex(null);
     this.hexBoard.clearAttackPreview();
     this.hexBoard.clearPathPreview();
@@ -681,7 +894,7 @@ export class BattleView3D {
     }
   }
 
-  private updateHoverVisuals(): void {
+  public updateHoverVisuals(): void {
     if (!this.hoveredHex) {
       this.clearHoverState();
       return;
@@ -826,6 +1039,9 @@ export class BattleView3D {
     };
 
     this.boundPointerDown = (e: PointerEvent) => {
+      this.targetHoverHex = null;
+      this.targetHoverDuration = 0;
+      this.hud?.hideDamagePreview?.();
       if (this.pinchHandler?.shouldSuppressClick() || this.pinchHandler?.isPinching()) {
         this.touchDragSourceHex = null;
         this.isTouchDraggingAction = false;

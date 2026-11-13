@@ -84,20 +84,33 @@ export function generatePeasantFacePixels(): Uint8Array {
       const n = fbm(x, y, 7, 301);
       const fine = hash2D(x, y, 303);
 
-      // Top band: Peasant cloth hood (y < 63)
+      // Top band: Peasant tousled hair (y < 63)
       if (y < 63) {
-        // Coarse woven cross-stitch pattern
-        const weaveX = Math.abs(Math.sin(x * 0.95)) * 14;
-        const weaveY = Math.abs(Math.sin(y * 0.95)) * 14;
-        let lum = 210 + (n - 0.5) * 28 + weaveX + weaveY;
-        // Seam stitch line at y = 52
-        if (y === 52 || y === 53) {
-          lum -= (x % 6 < 3) ? 42 : -18;
+        // Natural tousled peasant hair strands
+        const strandWave = Math.sin(x * 0.85 + n * 4.2) * 14;
+        const crossStrand = Math.sin((x * 0.4 + y * 0.9)) * 10;
+        const depthVar = (n - 0.5) * 22;
+        let lum = 54 + depthVar + strandWave + crossStrand;
+
+        // Hairline bangs / fringe transition at y = 56..63
+        if (y >= 56) {
+          const fringeNoise = hash2D(x, y, 305);
+          if (fringeNoise > 0.45) {
+            const t = (y - 56) / 7.0;
+            const skinR = 215;
+            const skinG = 170;
+            const skinB = 135;
+            data[idx] = clampByte(lum * (1 - t) + skinR * t);
+            data[idx + 1] = clampByte((lum * 0.72) * (1 - t) + skinG * t);
+            data[idx + 2] = clampByte((lum * 0.52) * (1 - t) + skinB * t);
+            data[idx + 3] = 255;
+            continue;
+          }
         }
-        const c = clampByte(lum);
-        data[idx] = c;
-        data[idx + 1] = clampByte(c - 4);
-        data[idx + 2] = clampByte(c - 10);
+
+        data[idx] = clampByte(lum * 1.15);
+        data[idx + 1] = clampByte(lum * 0.80);
+        data[idx + 2] = clampByte(lum * 0.58);
         data[idx + 3] = 255;
         continue;
       }
@@ -357,22 +370,58 @@ export function generateArcherFacePixels(): Uint8Array {
       if (y < 63) {
         // Archer cap & feather
         if (x < 100) {
-          // Feather vane pattern
-          const vane = Math.abs(Math.sin((x * 0.8 + y * 1.2))) * 24;
-          const c = clampByte(230 + vane + (n - 0.5) * 15);
-          data[idx] = c;
-          data[idx + 1] = c;
-          data[idx + 2] = clampByte(c - 6);
+          // Feather with gradient from golden (base at x ~ 0) to reddish-orange (tip at x ~ 99)
+          const s = Math.max(0, Math.min(1, x / 99.0));
+          let baseR: number, baseG: number, baseB: number;
+          if (s < 0.35) {
+            const k = s / 0.35;
+            baseR = 252 * (1 - k) + 248 * k;
+            baseG = 210 * (1 - k) + 152 * k;
+            baseB = 45 * (1 - k) + 30 * k;
+          } else if (s < 0.70) {
+            const k = (s - 0.35) / 0.35;
+            baseR = 248 * (1 - k) + 240 * k;
+            baseG = 152 * (1 - k) + 90 * k;
+            baseB = 30 * (1 - k) + 22 * k;
+          } else {
+            const k = (s - 0.70) / 0.30;
+            baseR = 240 * (1 - k) + 225 * k;
+            baseG = 90 * (1 - k) + 42 * k;
+            baseB = 22 * (1 - k) + 16 * k;
+          }
+
+          // Delicate angled feather vane barbules and central quill highlight
+          const vane = Math.abs(Math.sin((x * 0.9 + y * 1.5))) * 20;
+          const quillDist = Math.abs(y - 32);
+          const quillHighlight = quillDist <= 1.8 ? 32 : (quillDist <= 3.2 ? -18 : 0);
+
+          data[idx] = clampByte(baseR + vane * 0.5 + quillHighlight + (n - 0.5) * 12);
+          data[idx + 1] = clampByte(baseG + vane * 0.4 + quillHighlight * 0.8 + (n - 0.5) * 10);
+          data[idx + 2] = clampByte(baseB + vane * 0.2 + quillHighlight * 0.4 + (n - 0.5) * 8);
+          data[idx + 3] = 255;
+          continue;
         } else {
-          // Fine wool cap
-          const knit = Math.sin(x * 1.3) * 14 + Math.sin(y * 1.3) * 14;
-          const c = clampByte(215 + knit + (n - 0.5) * 20);
-          data[idx] = c;
-          data[idx + 1] = c;
-          data[idx + 2] = clampByte(c + 2);
+          // Dark forest green wool hunter hat
+          const knit = Math.sin(x * 1.25) * 8 + Math.sin(y * 1.25) * 8;
+          const grain = (n - 0.5) * 14 + (fine - 0.5) * 8;
+          let r = 36 + knit * 0.4 + grain * 0.35;
+          let g = 82 + knit * 0.8 + grain * 0.70;
+          let b = 42 + knit * 0.4 + grain * 0.35;
+
+          // Dark leather trim / brim fold band at y = 54..61
+          if (y >= 54 && y <= 61) {
+            const isStitch = (x % 6 < 2);
+            r = isStitch ? 64 : 26;
+            g = isStitch ? 56 : 38;
+            b = isStitch ? 32 : 24;
+          }
+
+          data[idx] = clampByte(r);
+          data[idx + 1] = clampByte(g);
+          data[idx + 2] = clampByte(b);
+          data[idx + 3] = 255;
+          continue;
         }
-        data[idx + 3] = 255;
-        continue;
       }
 
       // Archer face
@@ -2135,13 +2184,15 @@ export function applyHumanoidUVMapping(
       }
       case 'archer_cap': {
         const theta = Math.atan2(z, x);
-        u = 0.5 + theta / (2 * Math.PI);
+        const angleFrac = 0.5 + theta / (2 * Math.PI);
+        u = 0.42 + angleFrac * 0.56;
         v = 0.76 + ny * 0.22;
         break;
       }
       case 'archer_feather': {
-        u = 0.15 + ((x - minX) / spanX) * 0.25;
-        v = 0.76 + ny * 0.22;
+        const t = Math.max(0, Math.min(1, (maxX - x) / (spanX || 1)));
+        u = 0.05 + t * 0.30;
+        v = 0.78 + ny * 0.18;
         break;
       }
       case 'archer_torso': {

@@ -219,9 +219,197 @@ function makeMat(color: number, roughness = 0.75, metalness = 0.08): THREE.MeshS
   return mat;
 }
 
+export type ColorCode =
+  | string
+  | number
+  | [number, number, number]
+  | [number, number, number, number]
+  | { r: number; g: number; b: number; a?: number }
+  | { red: number; green: number; blue: number; alpha?: number };
+
+export interface PlayerColorsConfig {
+  player1?: ColorCode;
+  player2?: ColorCode;
+  hero?: ColorCode;
+  [key: string]: ColorCode | undefined;
+}
+
+const DEFAULT_PLAYER_COLORS = {
+  player1: 0x2f63c7,
+  player2: 0xc73636,
+  hero: 0xd4af37,
+};
+
+const currentPlayerColors = { ...DEFAULT_PLAYER_COLORS };
+
+export function parseColorToHex(input: any, defaultHex: number = 0x2f63c7): number {
+  if (input === undefined || input === null) return defaultHex;
+
+  if (typeof input === 'number') {
+    return Math.floor(input) & 0xffffff;
+  }
+
+  if (Array.isArray(input)) {
+    if (input.length >= 3) {
+      let [r, g, b] = input;
+      if (r <= 1 && g <= 1 && b <= 1 && (r % 1 !== 0 || g % 1 !== 0 || b % 1 !== 0)) {
+        r = Math.round(r * 255);
+        g = Math.round(g * 255);
+        b = Math.round(b * 255);
+      }
+      const nr = Math.min(255, Math.max(0, Math.round(r)));
+      const ng = Math.min(255, Math.max(0, Math.round(g)));
+      const nb = Math.min(255, Math.max(0, Math.round(b)));
+      return (nr << 16) | (ng << 8) | nb;
+    }
+  }
+
+  if (typeof input === 'object') {
+    const r = input.r ?? input.red;
+    const g = input.g ?? input.green;
+    const b = input.b ?? input.blue;
+    if (typeof r === 'number' && typeof g === 'number' && typeof b === 'number') {
+      let [nr, ng, nb] = [r, g, b];
+      if (nr <= 1 && ng <= 1 && nb <= 1 && (nr % 1 !== 0 || ng % 1 !== 0 || nb % 1 !== 0)) {
+        nr = Math.round(nr * 255);
+        ng = Math.round(ng * 255);
+        nb = Math.round(nb * 255);
+      }
+      const fr = Math.min(255, Math.max(0, Math.round(nr)));
+      const fg = Math.min(255, Math.max(0, Math.round(ng)));
+      const fb = Math.min(255, Math.max(0, Math.round(nb)));
+      return (fr << 16) | (fg << 8) | fb;
+    }
+  }
+
+  if (typeof input === 'string') {
+    const trimmed = input.trim().toLowerCase();
+
+    // RGB / RGBA: e.g. "rgb(47, 99, 199)" or "rgba(47, 99, 199, 1.0)"
+    const rgbMatch = trimmed.match(/^rgba?\s*\(\s*([0-9.]+)\s*[, ]\s*([0-9.]+)\s*[, ]\s*([0-9.]+)/);
+    if (rgbMatch) {
+      let r = parseFloat(rgbMatch[1]);
+      let g = parseFloat(rgbMatch[2]);
+      let b = parseFloat(rgbMatch[3]);
+      if (r <= 1 && g <= 1 && b <= 1 && (r % 1 !== 0 || g % 1 !== 0 || b % 1 !== 0)) {
+        r = Math.round(r * 255);
+        g = Math.round(g * 255);
+        b = Math.round(b * 255);
+      }
+      const nr = Math.min(255, Math.max(0, Math.round(r)));
+      const ng = Math.min(255, Math.max(0, Math.round(g)));
+      const nb = Math.min(255, Math.max(0, Math.round(b)));
+      return (nr << 16) | (ng << 8) | nb;
+    }
+
+    // Hex: e.g. "#2f63c7" or "0x2f63c7" or "2f63c7"
+    let hexStr = trimmed;
+    if (hexStr.startsWith('0x')) hexStr = hexStr.slice(2);
+    else if (hexStr.startsWith('#')) hexStr = hexStr.slice(1);
+
+    if (hexStr.length >= 6) {
+      const parsed = parseInt(hexStr.slice(0, 6), 16);
+      if (!isNaN(parsed)) return parsed;
+    } else if (hexStr.length === 3) {
+      const r = parseInt(hexStr[0] + hexStr[0], 16);
+      const g = parseInt(hexStr[1] + hexStr[1], 16);
+      const b = parseInt(hexStr[2] + hexStr[2], 16);
+      if (!isNaN(r) && !isNaN(g) && !isNaN(b)) {
+        return (r << 16) | (g << 8) | b;
+      }
+    }
+  }
+
+  return defaultHex;
+}
+
+export function parseColorToRgba(
+  input: any,
+  defaultHex: number = 0x2f63c7
+): { r: number; g: number; b: number; a: number } {
+  let alpha = 1.0;
+  if (Array.isArray(input) && input.length >= 4 && typeof input[3] === 'number') {
+    alpha = input[3];
+  } else if (typeof input === 'object' && input !== null) {
+    if (typeof (input.a ?? input.alpha) === 'number') {
+      alpha = input.a ?? input.alpha;
+    }
+  } else if (typeof input === 'string') {
+    const trimmed = input.trim().toLowerCase();
+    const rgbaMatch = trimmed.match(/^rgba\s*\(\s*[0-9.]+\s*[, ]\s*[0-9.]+\s*[, ]\s*[0-9.]+\s*[,/ ]\s*([0-9.]+)\s*\)/);
+    if (rgbaMatch) {
+      alpha = parseFloat(rgbaMatch[1]);
+    }
+  }
+  const hex = parseColorToHex(input, defaultHex);
+  const r = (hex >> 16) & 0xff;
+  const g = (hex >> 8) & 0xff;
+  const b = hex & 0xff;
+  return { r, g, b, a: alpha };
+}
+
+let proceduralUnitTemplateCache: Map<string, THREE.Mesh> = new Map();
+let glbUnitTemplateCache: WeakMap<THREE.Object3D, Map<string, THREE.Mesh>> = new WeakMap();
+
+export function configurePlayerColors(config?: PlayerColorsConfig | any): void {
+  if (!config) return;
+
+  const p1 = config.player1 ?? config['0'] ?? config.p1 ?? config.blue ?? config.player_1;
+  const p2 = config.player2 ?? config['1'] ?? config.p2 ?? config.red ?? config.player_2;
+  const hero = config.hero ?? config.gold;
+
+  if (p1 !== undefined) {
+    currentPlayerColors.player1 = parseColorToHex(p1, DEFAULT_PLAYER_COLORS.player1);
+  }
+  if (p2 !== undefined) {
+    currentPlayerColors.player2 = parseColorToHex(p2, DEFAULT_PLAYER_COLORS.player2);
+  }
+  if (hero !== undefined) {
+    currentPlayerColors.hero = parseColorToHex(hero, DEFAULT_PLAYER_COLORS.hero);
+  }
+
+  proceduralUnitTemplateCache.clear();
+  glbUnitTemplateCache = new WeakMap();
+}
+
+export function resetPlayerColorsToDefault(): void {
+  currentPlayerColors.player1 = DEFAULT_PLAYER_COLORS.player1;
+  currentPlayerColors.player2 = DEFAULT_PLAYER_COLORS.player2;
+  currentPlayerColors.hero = DEFAULT_PLAYER_COLORS.hero;
+  proceduralUnitTemplateCache.clear();
+  glbUnitTemplateCache = new WeakMap();
+}
+
+export function getPlayerColorsConfig(): { player1: number; player2: number; hero: number } {
+  return { ...currentPlayerColors };
+}
+
+function tryLoadInitialPlayerColorsFromDisk(): void {
+  try {
+    const proc = (globalThis as any).process;
+    if (proc?.versions?.node) {
+      const req = (globalThis as any).require;
+      if (typeof req === 'function') {
+        const fs = req('fs');
+        const path = req('path');
+        const p = path.resolve(proc.cwd(), 'public/combat_config.json');
+        if (fs.existsSync(p)) {
+          const raw = JSON.parse(fs.readFileSync(p, 'utf-8'));
+          if (raw.playerColors || raw.player_colors || raw.teamColors) {
+            configurePlayerColors(raw.playerColors ?? raw.player_colors ?? raw.teamColors);
+          }
+        }
+      }
+    }
+  } catch {
+    // Ignore in browser or when bundler treeshakes
+  }
+}
+tryLoadInitialPlayerColorsFromDisk();
+
 export function getTeamColorHex(armyAlignment: number, isHero: boolean = false): number {
-  if (isHero) return 0xd4af37;
-  return armyAlignment === 0 ? 0x2f63c7 : 0xc73636;
+  if (isHero) return currentPlayerColors.hero;
+  return armyAlignment === 0 ? currentPlayerColors.player1 : currentPlayerColors.player2;
 }
 
 /**
@@ -303,7 +491,7 @@ function prepareBarbarianHierarchyBeforeCompaction(rootMesh: THREE.Mesh): void {
     const rawName = (mesh.userData?.originalPartName ?? mesh.name).toLowerCase();
     const parentName = (mesh.parent?.name ?? '').toLowerCase();
 
-    if (mesh.name === 'Head') {
+    if (mesh.name === 'Head' || rawName.includes('ear')) {
       applyBarbarianUVMapping(mesh.geometry, 'head_face');
       // Use white vertex color on the face sphere so barbarian_face.png's true colors appear
       mesh.material = makeMat(0xffffff, 0.72, 0.0);
@@ -313,12 +501,14 @@ function prepareBarbarianHierarchyBeforeCompaction(rootMesh: THREE.Mesh): void {
       parentName.includes('helmet')
     ) {
       applyBarbarianUVMapping(mesh.geometry, 'helmet_horn');
-    } else if (mesh.name === 'Torso') {
+    } else if (mesh.name === 'Torso' || rawName.includes('neck')) {
       applyBarbarianUVMapping(mesh.geometry, 'torso_skin');
     } else if (
       mesh.name === 'Arm_L' ||
       mesh.name === 'Arm_R' ||
       rawName.includes('hand') ||
+      rawName.includes('bracer') ||
+      rawName.includes('pauldron') ||
       parentName.startsWith('arm_')
     ) {
       if (mesh.name !== 'Weapon' && !parentName.includes('weapon')) {
@@ -328,7 +518,7 @@ function prepareBarbarianHierarchyBeforeCompaction(rootMesh: THREE.Mesh): void {
       applyBarbarianUVMapping(mesh.geometry, 'fur_mantle');
     } else if (rawName.includes('belt')) {
       applyBarbarianUVMapping(mesh.geometry, 'belt');
-    } else if (mesh.name === 'Clothing' || rawName.includes('tabard')) {
+    } else if (mesh.name === 'Clothing' || rawName.includes('tabard') || rawName.includes('loincloth')) {
       applyBarbarianUVMapping(mesh.geometry, 'tabard');
     } else if (
       mesh.name === 'Leg_L' ||
@@ -337,7 +527,7 @@ function prepareBarbarianHierarchyBeforeCompaction(rootMesh: THREE.Mesh): void {
       parentName.startsWith('leg_')
     ) {
       applyBarbarianUVMapping(mesh.geometry, 'leg_clothing');
-    } else if (mesh.name === 'Weapon') {
+    } else if (mesh.name === 'Weapon' && !rawName.includes('blade')) {
       applyBarbarianUVMapping(mesh.geometry, 'axe_shaft');
     } else if (rawName.includes('blade') || parentName === 'weapon') {
       applyBarbarianUVMapping(mesh.geometry, 'axe_blade');
@@ -384,13 +574,19 @@ function prepareHumanoidHierarchyBeforeCompaction(
       if (mesh.name === 'Head') {
         applyHumanoidUVMapping(mesh.geometry, 'peasant_head_face');
         mesh.material = makeMat(0xffffff, 0.76, 0.05);
-      } else if (rawName.includes('hood') || rawName.includes('helmet')) {
+      } else if (rawName.includes('hood') || rawName.includes('helmet') || rawName.includes('hair')) {
         applyHumanoidUVMapping(mesh.geometry, 'peasant_hood');
-      } else if (mesh.name === 'Torso' || rawName.includes('tabard')) {
+      } else if (mesh.name === 'Torso' || rawName.includes('tabard') || rawName.includes('vest')) {
         applyHumanoidUVMapping(mesh.geometry, 'peasant_torso');
       } else if (rawName.includes('belt')) {
         applyHumanoidUVMapping(mesh.geometry, 'peasant_belt');
-      } else if (rawName.includes('hand') || (mesh.name.startsWith('Arm_') && rawName.includes('hand'))) {
+      } else if (
+        rawName.includes('hand') ||
+        rawName.includes('neck') ||
+        rawName.includes('ear') ||
+        rawName.includes('forearm') ||
+        (mesh.name.startsWith('Arm_') && rawName.includes('hand'))
+      ) {
         applyHumanoidUVMapping(mesh.geometry, 'humanoid_hand');
       } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R') {
         applyHumanoidUVMapping(mesh.geometry, 'peasant_arm');
@@ -405,23 +601,25 @@ function prepareHumanoidHierarchyBeforeCompaction(
       if (mesh.name === 'Head') {
         applyHumanoidUVMapping(mesh.geometry, 'archer_head_face');
         mesh.material = makeMat(0xffffff, 0.74, 0.05);
-      } else if (rawName.includes('cap') || rawName.includes('helmet')) {
+      } else if (rawName.includes('cap') || rawName.includes('helmet') || rawName.includes('hat')) {
         applyHumanoidUVMapping(mesh.geometry, 'archer_cap');
+        mesh.material = makeMat(0xffffff, 0.74, 0.05);
       } else if (rawName.includes('feather')) {
         applyHumanoidUVMapping(mesh.geometry, 'archer_feather');
-      } else if (mesh.name === 'Torso' || rawName.includes('tabard')) {
+        mesh.material = makeMat(0xffffff, 0.74, 0.05);
+      } else if (mesh.name === 'Torso' || rawName.includes('tabard') || rawName.includes('vest') || rawName.includes('collar')) {
         applyHumanoidUVMapping(mesh.geometry, 'archer_torso');
       } else if (rawName.includes('belt')) {
         applyHumanoidUVMapping(mesh.geometry, 'archer_belt');
       } else if (rawName.includes('quiver') || rawName.includes('arrow')) {
         applyHumanoidUVMapping(mesh.geometry, 'archer_quiver');
-      } else if (rawName.includes('hand')) {
+      } else if (rawName.includes('hand') || rawName.includes('ear') || rawName.includes('bracer') || rawName.includes('neck')) {
         applyHumanoidUVMapping(mesh.geometry, 'humanoid_hand');
-      } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R') {
+      } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R' || rawName.includes('forearm') || rawName.includes('pauldron')) {
         applyHumanoidUVMapping(mesh.geometry, 'archer_arm');
       } else if (mesh.name === 'Leg_L' || mesh.name === 'Leg_R' || rawName.includes('boot')) {
         applyHumanoidUVMapping(mesh.geometry, 'archer_leg');
-      } else if (mesh.name === 'Weapon' || rawName.includes('bow')) {
+      } else if (mesh.name === 'Weapon' || rawName.includes('bow') || rawName.includes('string')) {
         applyHumanoidUVMapping(mesh.geometry, 'archer_bow');
       }
     } else if (unitKey === 'spearman') {
@@ -430,30 +628,47 @@ function prepareHumanoidHierarchyBeforeCompaction(
         mesh.material = makeMat(0xffffff, 0.68, 0.15);
       } else if (rawName.includes('kettle') || rawName.includes('helmet')) {
         applyHumanoidUVMapping(mesh.geometry, 'spearman_helmet');
-      } else if (mesh.name === 'Torso' || rawName.includes('tabard')) {
+      } else if (mesh.name === 'Torso' || rawName.includes('tabard') || rawName.includes('vest') || rawName.includes('collar')) {
         applyHumanoidUVMapping(mesh.geometry, 'spearman_torso');
       } else if (rawName.includes('belt')) {
         applyHumanoidUVMapping(mesh.geometry, 'spearman_belt');
       } else if (rawName.includes('javelin')) {
         applyHumanoidUVMapping(mesh.geometry, 'spearman_javelin');
-      } else if (rawName.includes('hand')) {
+      } else if (rawName.includes('hand') || rawName.includes('ear') || rawName.includes('neck')) {
         applyHumanoidUVMapping(mesh.geometry, 'humanoid_hand');
+      } else if (rawName.includes('bracer') || rawName.includes('vambrace') || rawName.includes('pauldron')) {
+        applyHumanoidUVMapping(mesh.geometry, 'spearman_arm');
       } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R') {
         applyHumanoidUVMapping(mesh.geometry, 'spearman_arm');
-      } else if (mesh.name === 'Leg_L' || mesh.name === 'Leg_R' || rawName.includes('boot')) {
+      } else if (mesh.name === 'Leg_L' || mesh.name === 'Leg_R' || rawName.includes('boot') || rawName.includes('greave')) {
         applyHumanoidUVMapping(mesh.geometry, 'spearman_leg');
-      } else if (mesh.name === 'Weapon' || rawName.includes('spear') || rawName.includes('tip')) {
+      } else if (mesh.name === 'Weapon' || rawName.includes('spear') || rawName.includes('tip') || rawName.includes('sauroter')) {
         applyHumanoidUVMapping(mesh.geometry, 'spearman_spear');
-      } else if (mesh.name === 'Shield' || rawName.includes('shield') || rawName.includes('boss')) {
+      } else if (mesh.name === 'Shield' || rawName.includes('shield') || rawName.includes('boss') || rawName.includes('rim')) {
         applyHumanoidUVMapping(mesh.geometry, 'spearman_shield');
       }
     } else if (unitKey === 'swordsman') {
       if (mesh.name === 'Head') {
         applyHumanoidUVMapping(mesh.geometry, 'swordsman_head_helmet');
         mesh.material = makeMat(0xffffff, 0.38, 0.78);
-      } else if (rawName.includes('helmet') || rawName.includes('dome') || rawName.includes('visor') || rawName.includes('cross') || rawName.includes('aventail') || rawName.includes('slit')) {
+      } else if (
+        rawName.includes('helmet') ||
+        rawName.includes('dome') ||
+        rawName.includes('visor') ||
+        rawName.includes('cross') ||
+        rawName.includes('aventail') ||
+        rawName.includes('slit') ||
+        rawName.includes('plume') ||
+        rawName.includes('crest')
+      ) {
         applyHumanoidUVMapping(mesh.geometry, 'swordsman_helmet_part');
-      } else if (mesh.name === 'Torso' || rawName.includes('tabard') || rawName.includes('cuirass') || rawName.includes('fauld')) {
+      } else if (
+        mesh.name === 'Torso' ||
+        rawName.includes('tabard') ||
+        rawName.includes('surcoat') ||
+        rawName.includes('cuirass') ||
+        rawName.includes('fauld')
+      ) {
         applyHumanoidUVMapping(mesh.geometry, 'swordsman_torso');
       } else if (rawName.includes('belt')) {
         applyHumanoidUVMapping(mesh.geometry, 'swordsman_belt');
@@ -461,30 +676,37 @@ function prepareHumanoidHierarchyBeforeCompaction(
         applyHumanoidUVMapping(mesh.geometry, 'swordsman_pauldron');
       } else if (rawName.includes('hand') || rawName.includes('gauntlet')) {
         applyHumanoidUVMapping(mesh.geometry, 'swordsman_gauntlet');
-      } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R') {
+      } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R' || rawName.includes('vambrace') || rawName.includes('couter')) {
         applyHumanoidUVMapping(mesh.geometry, 'swordsman_arm');
-      } else if (mesh.name === 'Leg_L' || mesh.name === 'Leg_R' || rawName.includes('boot') || rawName.includes('poleyn') || rawName.includes('greave')) {
+      } else if (
+        mesh.name === 'Leg_L' ||
+        mesh.name === 'Leg_R' ||
+        rawName.includes('boot') ||
+        rawName.includes('sabaton') ||
+        rawName.includes('poleyn') ||
+        rawName.includes('greave')
+      ) {
         applyHumanoidUVMapping(mesh.geometry, 'swordsman_leg');
       } else if (mesh.name === 'Weapon' || rawName.includes('sword') || rawName.includes('blade') || rawName.includes('guard') || rawName.includes('pommel')) {
         applyHumanoidUVMapping(mesh.geometry, 'swordsman_sword');
-      } else if (mesh.name === 'Shield' || rawName.includes('shield') || rawName.includes('boss')) {
+      } else if (mesh.name === 'Shield' || rawName.includes('shield') || rawName.includes('boss') || rawName.includes('rim')) {
         applyHumanoidUVMapping(mesh.geometry, 'swordsman_shield');
       }
     } else if (unitKey === 'healer') {
       if (mesh.name === 'Head') {
         applyHumanoidUVMapping(mesh.geometry, 'peasant_head_face');
         mesh.material = makeMat(0xffffff, 0.76, 0.05);
-      } else if (rawName.includes('hood') || rawName.includes('coif') || rawName.includes('helmet')) {
+      } else if (rawName.includes('hood') || rawName.includes('coif') || rawName.includes('helmet') || rawName.includes('headband')) {
         applyHumanoidUVMapping(mesh.geometry, 'peasant_hood');
-      } else if (mesh.name === 'Torso' || rawName.includes('tabard')) {
+      } else if (mesh.name === 'Torso' || rawName.includes('tabard') || rawName.includes('vest') || rawName.includes('stole')) {
         applyHumanoidUVMapping(mesh.geometry, 'peasant_torso');
       } else if (rawName.includes('belt')) {
         applyHumanoidUVMapping(mesh.geometry, 'peasant_belt');
       } else if (rawName.includes('satchel') || rawName.includes('strap') || rawName.includes('pouch') || rawName.includes('flap') || rawName.includes('vial') || rawName.includes('buckle')) {
         applyHumanoidUVMapping(mesh.geometry, 'healer_satchel');
-      } else if (rawName.includes('hand')) {
+      } else if (rawName.includes('hand') || rawName.includes('ear') || rawName.includes('neck')) {
         applyHumanoidUVMapping(mesh.geometry, 'humanoid_hand');
-      } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R') {
+      } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R' || rawName.includes('pauldron') || rawName.includes('armband') || rawName.includes('bracer')) {
         applyHumanoidUVMapping(mesh.geometry, 'peasant_arm');
       } else if (mesh.name === 'Leg_L' || mesh.name === 'Leg_R' || rawName.includes('boot')) {
         applyHumanoidUVMapping(mesh.geometry, 'peasant_leg');
@@ -497,20 +719,70 @@ function prepareHumanoidHierarchyBeforeCompaction(
       if (mesh.name === 'Head') {
         applyHumanoidUVMapping(mesh.geometry, 'spearman_head_face');
         mesh.material = makeMat(0xffffff, 0.76, 0.05);
-      } else if (rawName.includes('coif') || rawName.includes('cap') || rawName.includes('hood') || rawName.includes('helmet')) {
+      } else if (rawName.includes('kettle') || rawName.includes('helmet') || rawName.includes('coif') || rawName.includes('cap') || rawName.includes('hood')) {
         applyHumanoidUVMapping(mesh.geometry, 'maceman_coif');
       } else if (rawName.includes('collar')) {
         applyHumanoidUVMapping(mesh.geometry, 'maceman_gambeson_collar');
-      } else if (mesh.name === 'Torso' || rawName.includes('tabard') || rawName.includes('gambeson')) {
+      } else if (mesh.name === 'Torso' || rawName.includes('tabard') || rawName.includes('gambeson') || rawName.includes('vest')) {
         applyHumanoidUVMapping(mesh.geometry, 'maceman_gambeson_torso');
-      } else if (rawName.includes('hand')) {
+      } else if (rawName.includes('belt')) {
+        applyHumanoidUVMapping(mesh.geometry, 'spearman_belt');
+      } else if (rawName.includes('hand') || rawName.includes('ear') || rawName.includes('neck')) {
         applyHumanoidUVMapping(mesh.geometry, 'humanoid_hand');
-      } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R') {
+      } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R' || rawName.includes('bracer') || rawName.includes('pauldron')) {
         applyHumanoidUVMapping(mesh.geometry, 'maceman_gambeson_arm');
-      } else if (mesh.name === 'Leg_L' || mesh.name === 'Leg_R' || rawName.includes('boot')) {
+      } else if (mesh.name === 'Leg_L' || mesh.name === 'Leg_R' || rawName.includes('boot') || rawName.includes('greave')) {
         applyHumanoidUVMapping(mesh.geometry, 'maceman_gambeson_leg');
       } else if (mesh.name === 'Weapon' || rawName.includes('mace') || rawName.includes('flange') || rawName.includes('spike') || rawName.includes('pommel') || rawName.includes('haft') || rawName.includes('shaft')) {
         applyHumanoidUVMapping(mesh.geometry, 'maceman_mace');
+      }
+    } else if (unitKey === 'slinger') {
+      if (mesh.name === 'Head') {
+        applyHumanoidUVMapping(mesh.geometry, 'spearman_head_face');
+        mesh.material = makeMat(0xffffff, 0.74, 0.05);
+      } else if (rawName.includes('headband')) {
+        applyHumanoidUVMapping(mesh.geometry, 'peasant_belt');
+      } else if (rawName.includes('hair')) {
+        applyHumanoidUVMapping(mesh.geometry, 'peasant_hood');
+      } else if (mesh.name === 'Torso' || rawName.includes('tabard') || rawName.includes('vest') || rawName.includes('collar')) {
+        applyHumanoidUVMapping(mesh.geometry, 'peasant_torso');
+      } else if (rawName.includes('belt')) {
+        applyHumanoidUVMapping(mesh.geometry, 'peasant_belt');
+      } else if (rawName.includes('pouch') || rawName.includes('strap')) {
+        applyHumanoidUVMapping(mesh.geometry, 'healer_satchel');
+      } else if (rawName.includes('hand') || rawName.includes('ear') || rawName.includes('neck')) {
+        applyHumanoidUVMapping(mesh.geometry, 'humanoid_hand');
+      } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R' || rawName.includes('bracer') || rawName.includes('pauldron')) {
+        applyHumanoidUVMapping(mesh.geometry, 'peasant_arm');
+      } else if (mesh.name === 'Leg_L' || mesh.name === 'Leg_R' || rawName.includes('boot') || rawName.includes('greave') || rawName.includes('sandal')) {
+        applyHumanoidUVMapping(mesh.geometry, 'peasant_leg');
+      } else if (mesh.name === 'Weapon' || rawName.includes('sling') || rawName.includes('stone') || rawName.includes('cord')) {
+        applyHumanoidUVMapping(mesh.geometry, 'peasant_pitchfork_shaft');
+      } else if (mesh.name === 'Shield' || rawName.includes('shield') || rawName.includes('buckler') || rawName.includes('boss') || rawName.includes('rim')) {
+        applyHumanoidUVMapping(mesh.geometry, 'spearman_shield');
+      }
+    } else if (unitKey === 'crossbowman') {
+      if (mesh.name === 'Head') {
+        applyHumanoidUVMapping(mesh.geometry, 'spearman_head_face');
+        mesh.material = makeMat(0xffffff, 0.72, 0.08);
+      } else if (rawName.includes('kettle') || rawName.includes('helmet') || rawName.includes('coif')) {
+        applyHumanoidUVMapping(mesh.geometry, 'spearman_helmet');
+      } else if (mesh.name === 'Torso' || rawName.includes('tabard') || rawName.includes('vest') || rawName.includes('collar')) {
+        applyHumanoidUVMapping(mesh.geometry, 'spearman_torso');
+      } else if (rawName.includes('belt')) {
+        applyHumanoidUVMapping(mesh.geometry, 'spearman_belt');
+      } else if (rawName.includes('pavise')) {
+        applyHumanoidUVMapping(mesh.geometry, 'spearman_shield');
+      } else if (rawName.includes('pouch') || rawName.includes('quarrel')) {
+        applyHumanoidUVMapping(mesh.geometry, 'healer_satchel');
+      } else if (rawName.includes('hand') || rawName.includes('ear') || rawName.includes('neck')) {
+        applyHumanoidUVMapping(mesh.geometry, 'humanoid_hand');
+      } else if (mesh.name === 'Arm_L' || mesh.name === 'Arm_R' || rawName.includes('bracer') || rawName.includes('pauldron')) {
+        applyHumanoidUVMapping(mesh.geometry, 'spearman_arm');
+      } else if (mesh.name === 'Leg_L' || mesh.name === 'Leg_R' || rawName.includes('boot') || rawName.includes('greave')) {
+        applyHumanoidUVMapping(mesh.geometry, 'spearman_leg');
+      } else if (mesh.name === 'Weapon' || rawName.includes('crossbow') || rawName.includes('prod') || rawName.includes('stirrup') || rawName.includes('bolt') || rawName.includes('stock') || rawName.includes('string')) {
+        applyHumanoidUVMapping(mesh.geometry, 'archer_bow');
       }
     } else if (unitKey === 'armored_knight') {
       if (mesh.name === 'Head' || rawName.includes('helm') || rawName.includes('visor')) {
@@ -525,6 +797,8 @@ function prepareHumanoidHierarchyBeforeCompaction(
         applyHumanoidUVMapping(mesh.geometry, 'knight_horse_leg');
       } else if (rawName.includes('barding')) {
         applyHumanoidUVMapping(mesh.geometry, 'knight_horse_barding');
+      } else if (mesh.name === 'Shield' || rawName.includes('shield')) {
+        applyHumanoidUVMapping(mesh.geometry, 'swordsman_shield');
       } else if (rawName.includes('saddle')) {
         applyHumanoidUVMapping(mesh.geometry, 'knight_saddle');
       } else if (rawName.includes('neck')) {
@@ -637,10 +911,42 @@ function getUnitLimbMaterial(
         default:
           return getHumanoidPartMaterial('maceman_armor', 0.82, 0.05);
       }
+    case 'slinger':
+      switch (limbName) {
+        case 'Head':
+          return getHumanoidPartMaterial('spearman_face', 0.74, 0.05);
+        case 'Weapon':
+          return getHumanoidPartMaterial('spearman_gear', 0.65, 0.20);
+        case 'Shield':
+          return getHumanoidPartMaterial('spearman_gear', 0.60, 0.35);
+        case 'Torso':
+        case 'Arm_L':
+        case 'Arm_R':
+        case 'Leg_L':
+        case 'Leg_R':
+        default:
+          return getHumanoidPartMaterial('peasant_cloth', 0.86, 0.02);
+      }
+    case 'crossbowman':
+      switch (limbName) {
+        case 'Head':
+          return getHumanoidPartMaterial('spearman_face', 0.72, 0.08);
+        case 'Weapon':
+          return getHumanoidPartMaterial('spearman_gear', 0.50, 0.55);
+        case 'Torso':
+        case 'Arm_L':
+        case 'Arm_R':
+        case 'Leg_L':
+        case 'Leg_R':
+        default:
+          return getHumanoidPartMaterial('spearman_armor', 0.70, 0.22);
+      }
     case 'armored_knight':
       switch (limbName) {
         case 'Weapon':
           return getHumanoidPartMaterial('armored_knight_gear', 0.40, 0.72);
+        case 'Shield':
+          return getHumanoidPartMaterial('swordsman_gear', 0.42, 0.72);
         case 'Root':
         case 'Horse_Body':
         case 'Horse_Head':
@@ -887,6 +1193,8 @@ export function compactArticulatedUnitHierarchy(
     effectiveUnitKey === 'swordsman' ||
     effectiveUnitKey === 'healer' ||
     effectiveUnitKey === 'maceman' ||
+    effectiveUnitKey === 'slinger' ||
+    effectiveUnitKey === 'crossbowman' ||
     effectiveUnitKey === 'armored_knight';
 
   if (isBarbarian) {
@@ -944,9 +1252,6 @@ export function compactArticulatedUnitHierarchy(
   return rootMesh;
 }
 
-const proceduralUnitTemplateCache: Map<string, THREE.Mesh> = new Map();
-const glbUnitTemplateCache: WeakMap<THREE.Object3D, Map<string, THREE.Mesh>> = new WeakMap();
-
 /**
  * Clones a compacted articulated unit template, sharing its cached BufferGeometries
  * and shared opaque MeshStandardMaterial across all soldiers of that unit/team.
@@ -995,14 +1300,25 @@ export function instantiateGlbUnitTemplate(
         if (!matClone.map) {
           matClone.map = whiteMap;
         }
+        const isShieldMetalPart =
+          mesh.name.toLowerCase().includes('boss') ||
+          mesh.name.toLowerCase().includes('rim') ||
+          mesh.name.toLowerCase().includes('grip');
+        const isArcherHat =
+          mesh.name.toLowerCase().includes('hunting_hat') ||
+          origMat.name?.toLowerCase().includes('hatgreen');
         if (
-          origMat.name?.toLowerCase().includes('team') ||
-          mesh.name.toLowerCase().includes('team') ||
-          mesh.name.toLowerCase().includes('shield') ||
-          mesh.name.toLowerCase().includes('hood') ||
-          mesh.name.toLowerCase().includes('cap') ||
-          mesh.name.toLowerCase().includes('pavise') ||
-          mesh.name.toLowerCase().includes('headband')
+          !isArcherHat &&
+          (origMat.name?.toLowerCase().includes('team') ||
+            mesh.name.toLowerCase().includes('team') ||
+            mesh.name.toLowerCase().includes('barding') ||
+            origMat.name?.toLowerCase().includes('barding') ||
+            (mesh.name.toLowerCase().includes('shield') && !isShieldMetalPart) ||
+            mesh.name.toLowerCase().includes('hood') ||
+            mesh.name.toLowerCase().includes('cap') ||
+            mesh.name.toLowerCase().includes('pavise') ||
+            mesh.name.toLowerCase().includes('headband') ||
+            mesh.name.toLowerCase().includes('armband'))
         ) {
           matClone.color.setHex(teamHex);
         }
@@ -1122,46 +1438,67 @@ function createProceduralArmoredKnightTemplate(teamColor: number, _isHero: boole
   rumpGeo.translate(-0.28, 0.46, 0);
   horseRoot.add(new THREE.Mesh(rumpGeo, matGear));
 
-  // Barding / Caparison draped over the horse flank
-  const bardingGeo = new THREE.BoxGeometry(0.68, 0.28, 0.38);
+  // Barding / Caparison draped over the horse flank (player team colored!)
+  const bardingGeo = new THREE.BoxGeometry(0.72, 0.32, 0.40);
   bardingGeo.translate(0, 0.36, 0);
   const bardingMesh = new THREE.Mesh(bardingGeo, matTeam);
   bardingMesh.name = 'Horse_Barding';
   horseRoot.add(bardingMesh);
 
-  // Steel Crinet / Neck Armor & Neck
-  const neckGeo = new THREE.CylinderGeometry(0.13, 0.09, 0.38, 12);
-  neckGeo.rotateZ(-0.73);
-  neckGeo.translate(0.32, 0.62, 0);
+  // Muscular Arched Neck & Steel Crinet
+  const neckGeo = new THREE.CylinderGeometry(0.10, 0.13, 0.36, 12);
+  neckGeo.rotateZ(-0.64);
+  neckGeo.translate(0.30, 0.58, 0);
   const neckMesh = new THREE.Mesh(neckGeo, matGear);
   neckMesh.name = 'Horse_Neck';
+
+  // Segmented Crinet neck armor plates along crest
+  const crinetGeo = new THREE.BoxGeometry(0.24, 0.08, 0.12);
+  crinetGeo.rotateZ(-0.64);
+  crinetGeo.translate(0.32, 0.64, 0);
+  neckMesh.add(new THREE.Mesh(crinetGeo, matSteel));
   horseRoot.add(neckMesh);
 
-  // Horse Head & Muzzle
-  const headGeo = new THREE.CylinderGeometry(0.095, 0.055, 0.28, 12);
-  headGeo.rotateZ(0.84);
-  headGeo.translate(0.48, 0.76, 0);
+  // Warhorse Head & Muzzle (Angled FORWARD and DOWN, not looking up at the sky!)
+  // Axis slopes from poll at (0.38, 0.76) down to muzzle at (0.58, 0.50)
+  const headGeo = new THREE.CylinderGeometry(0.040, 0.075, 0.28, 12);
+  headGeo.rotateZ(-2.25);
+  headGeo.translate(0.48, 0.63, 0);
   const horseHeadMesh = new THREE.Mesh(headGeo, matGear);
   horseHeadMesh.name = 'Horse_Head';
 
-  // Armored Chanfron plate over forehead & nose
-  const chanfronGeo = new THREE.BoxGeometry(0.11, 0.22, 0.14);
-  chanfronGeo.rotateZ(0.84);
-  chanfronGeo.translate(0.50, 0.79, 0);
+  // Distinctive large circular jaw cheeks (ganache) at lower-back head
+  for (const zSign of [-1, 1]) {
+    const jowlGeo = new THREE.SphereGeometry(0.062, 10, 8);
+    jowlGeo.scale(1.0, 0.9, 0.45);
+    jowlGeo.translate(0.38, 0.64, zSign * 0.062);
+    horseHeadMesh.add(new THREE.Mesh(jowlGeo, matGear));
+  }
+
+  // Squared equine muzzle with nostrils
+  const muzzleGeo = new THREE.BoxGeometry(0.08, 0.07, 0.07);
+  muzzleGeo.rotateZ(-0.60);
+  muzzleGeo.translate(0.58, 0.51, 0);
+  horseHeadMesh.add(new THREE.Mesh(muzzleGeo, matGear));
+
+  // Armored Chamfron plate fitted along forehead and nasal slope
+  const chanfronGeo = new THREE.BoxGeometry(0.24, 0.035, 0.12);
+  chanfronGeo.rotateZ(-0.62);
+  chanfronGeo.translate(0.48, 0.65, 0);
   horseHeadMesh.add(new THREE.Mesh(chanfronGeo, matSteel));
 
-  // Forehead Chanfron spike
-  const spikeGeo = new THREE.CylinderGeometry(0.002, 0.02, 0.12, 8);
-  spikeGeo.rotateZ(0.84);
-  spikeGeo.translate(0.57, 0.88, 0);
+  // Forehead Chanfron spike projecting forward
+  const spikeGeo = new THREE.ConeGeometry(0.016, 0.12, 8);
+  spikeGeo.rotateZ(-1.35);
+  spikeGeo.translate(0.51, 0.69, 0);
   horseHeadMesh.add(new THREE.Mesh(spikeGeo, matSteel));
 
-  // Horse Ears
+  // Alert equine ears atop poll
   for (const zSign of [-1, 1]) {
-    const earGeo = new THREE.CylinderGeometry(0.022, 0.004, 0.09, 6);
-    earGeo.rotateZ(-0.31);
-    earGeo.rotateX(zSign * 0.24);
-    earGeo.translate(0.38, 0.86, zSign * 0.065);
+    const earGeo = new THREE.ConeGeometry(0.020, 0.085, 6);
+    earGeo.rotateZ(-0.15);
+    earGeo.rotateX(zSign * 0.20);
+    earGeo.translate(0.36, 0.76, zSign * 0.048);
     horseHeadMesh.add(new THREE.Mesh(earGeo, matGear));
   }
   horseRoot.add(horseHeadMesh);
@@ -1273,6 +1610,26 @@ function createProceduralArmoredKnightTemplate(teamColor: number, _isHero: boole
   armLGeo.translate(0.10, 0.01, 0.17);
   const armLMesh = new THREE.Mesh(armLGeo, matSteel);
   armLMesh.name = 'Arm_L';
+
+  // Medieval Heater Shield (player team colored!)
+  const shieldGeo = new THREE.BoxGeometry(0.04, 0.36, 0.26);
+  shieldGeo.rotateY(0.42);
+  shieldGeo.translate(0.12, -0.05, 0.14);
+  const shieldMesh = new THREE.Mesh(shieldGeo, matTeam);
+  shieldMesh.name = 'Shield';
+
+  // Steel perimeter rim
+  const rimGeo = new THREE.BoxGeometry(0.045, 0.38, 0.024);
+  rimGeo.rotateY(0.42);
+  rimGeo.translate(0.12, -0.05, 0.27);
+  shieldMesh.add(new THREE.Mesh(rimGeo, matSteel));
+
+  // Central shield boss (dome)
+  const bossGeo = new THREE.SphereGeometry(0.045, 12, 8);
+  bossGeo.translate(0.14, 0.02, 0.14);
+  shieldMesh.add(new THREE.Mesh(bossGeo, matWeapon));
+
+  armLMesh.add(shieldMesh);
   torsoMesh.add(armLMesh);
 
   // Arm_R (holding heavy flanged mace)
@@ -1357,7 +1714,12 @@ export function buildArticulatedUnit3DMesh(
   const matStone = makeMat(0x858078, 0.85, 0.05);
 
   const isMuscular = unitKey === 'barbarian';
-  const hasPauldrons = unitKey === 'swordsman' || unitKey === 'crossbowman';
+  const hasPauldrons =
+    unitKey === 'swordsman' ||
+    unitKey === 'crossbowman' ||
+    unitKey === 'spearman' ||
+    unitKey === 'barbarian' ||
+    unitKey === 'peasant_archer';
 
   let torsoMat = matCloth;
   let legMat = matCloth;
@@ -1386,8 +1748,9 @@ export function buildArticulatedUnit3DMesh(
   }
 
   // 1. Root Torso Mesh (y = 0.38..0.82)
-  const chestRadius = isMuscular ? 0.19 : 0.165;
-  const waistRadius = 0.14;
+  const isSlender = unitKey === 'healer' || unitKey === 'peasant' || unitKey === 'maceman' || unitKey === 'slinger';
+  const chestRadius = isMuscular ? 0.19 : isSlender ? 0.138 : 0.165;
+  const waistRadius = isSlender ? 0.108 : 0.14;
   const torsoGeo = new THREE.CylinderGeometry(chestRadius, waistRadius, 0.42, 16);
   torsoGeo.translate(0, 0.59, 0);
   const torsoMesh = new THREE.Mesh(torsoGeo, torsoMat);
@@ -1396,18 +1759,25 @@ export function buildArticulatedUnit3DMesh(
   torsoMesh.receiveShadow = true;
 
   // Team-colored tabard / surcoat on torso
-  const tabardGeo = new THREE.BoxGeometry(0.22, 0.34, 0.18);
+  const tabardGeo = new THREE.BoxGeometry(0.22, 0.34, isSlender ? 0.14 : 0.18);
   tabardGeo.translate(0.02, 0.56, 0);
   const tabardMesh = new THREE.Mesh(tabardGeo, matTeam);
   tabardMesh.name = 'Tabard_Team';
   torsoMesh.add(tabardMesh);
 
   // Leather belt
-  const beltGeo = new THREE.CylinderGeometry(0.155, 0.155, 0.045, 16);
+  const beltGeo = new THREE.CylinderGeometry(isSlender ? 0.118 : 0.155, isSlender ? 0.118 : 0.155, 0.045, 16);
   beltGeo.translate(0, 0.44, 0);
   const beltMesh = new THREE.Mesh(beltGeo, matDarkLeather);
   beltMesh.name = 'Belt';
   torsoMesh.add(beltMesh);
+
+  // Connecting neck between torso and head
+  const neckGeo = new THREE.CylinderGeometry(0.048, 0.054, 0.12, 14);
+  neckGeo.translate(0, 0.84, 0);
+  const neckMesh = new THREE.Mesh(neckGeo, matSkin);
+  neckMesh.name = 'Neck';
+  torsoMesh.add(neckMesh);
 
   // 2. Head (pivot at y = 0.91)
   const headGeo = unitKey === 'swordsman'
@@ -1471,12 +1841,21 @@ export function buildArticulatedUnit3DMesh(
   // 5. Unit-specific headgear, shields, quivers, and weapons
   switch (unitKey) {
     case 'peasant': {
-      // Hood
-      const hoodGeo = new THREE.SphereGeometry(0.135, 20, 14);
-      hoodGeo.translate(-0.01, 0.03, 0);
-      const hoodMesh = new THREE.Mesh(hoodGeo, matTeam);
-      hoodMesh.name = 'Helmet_Hood';
-      headMesh.add(hoodMesh);
+      // Bare-headed tousled hair (no hood covering the face)
+      const hairGeo = new THREE.SphereGeometry(0.128, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.58);
+      hairGeo.translate(0, 0.03, 0);
+      const hairMesh = new THREE.Mesh(hairGeo, makeMat(0x382212, 0.88, 0.04));
+      hairMesh.name = 'Hair';
+      headMesh.add(hairMesh);
+
+      // Bare head ears
+      for (const ez of [-0.12, 0.12]) {
+        const earGeo = new THREE.BoxGeometry(0.02, 0.045, 0.02);
+        earGeo.translate(0, 0, ez);
+        const earMesh = new THREE.Mesh(earGeo, matSkin);
+        earMesh.name = ez < 0 ? 'Ear_L' : 'Ear_R';
+        headMesh.add(earMesh);
+      }
 
       // Pitchfork in Arm_R
       const shaftGeo = new THREE.CylinderGeometry(0.02, 0.022, 1.12, 12);
@@ -1501,16 +1880,39 @@ export function buildArticulatedUnit3DMesh(
     }
 
     case 'peasant_archer': {
-      // Archer cap & feather
+      // Hunter hat & feather
+      const matHunterGreen = makeMat(0x234d20, 0.82, 0.04);
       const capGeo = new THREE.ConeGeometry(0.135, 0.18, 16);
       capGeo.translate(-0.01, 0.10, 0);
-      const capMesh = new THREE.Mesh(capGeo, matTeam);
-      capMesh.name = 'Helmet_Cap';
+      const capMesh = new THREE.Mesh(capGeo, matHunterGreen);
+      capMesh.name = 'Hunting_Hat';
       headMesh.add(capMesh);
 
+      // Modeled ears on head
+      for (const ez of [-0.12, 0.12]) {
+        const earGeo = new THREE.BoxGeometry(0.02, 0.045, 0.02);
+        earGeo.translate(0, 0, ez);
+        const earMesh = new THREE.Mesh(earGeo, matSkin);
+        earMesh.name = ez < 0 ? 'Ear_L' : 'Ear_R';
+        headMesh.add(earMesh);
+      }
+
+      // Golden to reddish-orange feather
       const featherGeo = new THREE.BoxGeometry(0.12, 0.05, 0.015);
       featherGeo.translate(-0.05, 0.14, -0.09);
-      headMesh.add(new THREE.Mesh(featherGeo, matFeather));
+      const fPos = featherGeo.getAttribute('position');
+      const fCols = new Float32Array(fPos.count * 3);
+      for (let i = 0; i < fPos.count; i++) {
+        const fx = fPos.getX(i);
+        const t = Math.max(0, Math.min(1, (0.01 - fx) / 0.12));
+        fCols[i * 3] = 1.0 * (1 - t) + 0.88 * t;
+        fCols[i * 3 + 1] = 0.82 * (1 - t) + 0.18 * t;
+        fCols[i * 3 + 2] = 0.15 * (1 - t) + 0.06 * t;
+      }
+      featherGeo.setAttribute('color', new THREE.BufferAttribute(fCols, 3));
+      const featherMesh = new THREE.Mesh(featherGeo, makeMat(0xffffff, 0.70, 0.0));
+      featherMesh.name = 'Feather';
+      headMesh.add(featherMesh);
 
       // Quiver on back
       const quiverGeo = new THREE.CylinderGeometry(0.06, 0.05, 0.36, 14);
@@ -1579,6 +1981,14 @@ export function buildArticulatedUnit3DMesh(
       aventailMesh.name = 'Helmet_Aventail';
       headMesh.add(aventailMesh);
 
+      // 6b. Helmet crest / plume in player team color
+      const plumeGeo = new THREE.ConeGeometry(0.045, 0.18, 8);
+      plumeGeo.rotateZ(0.35);
+      plumeGeo.translate(-0.06, 0.22, 0);
+      const plumeMesh = new THREE.Mesh(plumeGeo, matTeam);
+      plumeMesh.name = 'Plume_Team';
+      headMesh.add(plumeMesh);
+
       // 7. Steel breastplate / cuirass overlay on torso
       const cuirassGeo = new THREE.CylinderGeometry(0.182, 0.155, 0.26, 16);
       cuirassGeo.translate(0.015, 0.62, 0);
@@ -1634,12 +2044,36 @@ export function buildArticulatedUnit3DMesh(
       helmMesh.add(new THREE.Mesh(brimGeo, matIron));
       headMesh.add(helmMesh);
 
-      // Round Bossed Shield on Arm_L
+      // Modeled ears on head
+      for (const ez of [-0.12, 0.12]) {
+        const earGeo = new THREE.BoxGeometry(0.02, 0.045, 0.02);
+        earGeo.translate(0, 0, ez);
+        const earMesh = new THREE.Mesh(earGeo, matSkin);
+        earMesh.name = ez < 0 ? 'Ear_L' : 'Ear_R';
+        headMesh.add(earMesh);
+      }
+
+      // Connecting neck
+      const neckGeo = new THREE.CylinderGeometry(0.046, 0.052, 0.10, 12);
+      neckGeo.translate(0, 0.84, 0);
+      const neckMesh = new THREE.Mesh(neckGeo, matSkin);
+      neckMesh.name = 'Neck';
+      torsoMesh.add(neckMesh);
+
+      // Round Bossed Shield on Arm_L, angled 45 degrees towards the left
       const shieldGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.04, 18);
       shieldGeo.rotateX(Math.PI * 0.5);
-      shieldGeo.translate(0.09, -0.18, -0.10);
+      shieldGeo.rotateY(-Math.PI * 0.25);
+      shieldGeo.translate(0.08, -0.18, -0.08);
       const shieldMesh = new THREE.Mesh(shieldGeo, matTeam);
       shieldMesh.name = 'Shield';
+
+      const bossGeo = new THREE.SphereGeometry(0.058, 16, 12);
+      bossGeo.translate(0.10, -0.18, -0.06);
+      const bossMesh = new THREE.Mesh(bossGeo, matIron);
+      bossMesh.name = 'Shield_Boss';
+      shieldMesh.add(bossMesh);
+
       armL.add(shieldMesh);
 
       // Long Ash Spear in Arm_R
@@ -1652,7 +2086,9 @@ export function buildArticulatedUnit3DMesh(
       const tipGeo = new THREE.ConeGeometry(0.035, 0.24, 8);
       tipGeo.rotateZ(-0.32);
       tipGeo.translate(0.42, 0.78, 0);
-      spearMesh.add(new THREE.Mesh(tipGeo, matSteel));
+      const tipMesh = new THREE.Mesh(tipGeo, matSteel);
+      tipMesh.name = 'Weapon_Tip';
+      spearMesh.add(tipMesh);
       armR.add(spearMesh);
 
       // Spare Javelin on back
@@ -1665,6 +2101,21 @@ export function buildArticulatedUnit3DMesh(
     }
 
     case 'crossbowman': {
+      // Shoulder Pads (Pauldron_L, Pauldron_R)
+      const pauldronLGeo = new THREE.SphereGeometry(0.07, 14, 10);
+      pauldronLGeo.scale(0.85, 0.65, 0.95);
+      pauldronLGeo.translate(0, 0.02, 0);
+      const pauldronL = new THREE.Mesh(pauldronLGeo, matLeather);
+      pauldronL.name = 'Pauldron_L';
+      armL.add(pauldronL);
+
+      const pauldronRGeo = new THREE.SphereGeometry(0.07, 14, 10);
+      pauldronRGeo.scale(0.85, 0.65, 0.95);
+      pauldronRGeo.translate(0, 0.02, 0);
+      const pauldronR = new THREE.Mesh(pauldronRGeo, matLeather);
+      pauldronR.name = 'Pauldron_R';
+      armR.add(pauldronR);
+
       // Kettle Helmet
       const helmGeo = new THREE.SphereGeometry(0.138, 20, 14);
       helmGeo.translate(0, 0.03, 0);
@@ -1693,12 +2144,33 @@ export function buildArticulatedUnit3DMesh(
     }
 
     case 'barbarian': {
-      // Fur Pelt Mantle
-      const furGeo = new THREE.CylinderGeometry(0.23, 0.19, 0.16, 16);
+      // Fur Pelt Mantle draped heavily over shoulders
+      const furGeo = new THREE.CylinderGeometry(0.24, 0.20, 0.17, 16);
       furGeo.translate(-0.01, 0.74, 0);
       const furMesh = new THREE.Mesh(furGeo, matFur);
       furMesh.name = 'Fur_Mantle';
       torsoMesh.add(furMesh);
+
+      // Connecting bull neck
+      const neckGeo = new THREE.CylinderGeometry(0.052, 0.056, 0.10, 12);
+      neckGeo.translate(0, 0.84, 0);
+      const neckMesh = new THREE.Mesh(neckGeo, matSkin);
+      neckMesh.name = 'Neck';
+      torsoMesh.add(neckMesh);
+
+      // Player-colored war tabard / loincloth
+      const tabardGeo = new THREE.BoxGeometry(0.22, 0.26, 0.18);
+      tabardGeo.translate(0.01, 0.40, 0);
+      const tabardMesh = new THREE.Mesh(tabardGeo, matTeam);
+      tabardMesh.name = 'Tabard_Team';
+      torsoMesh.add(tabardMesh);
+
+      // Studded leather belt
+      const beltGeo = new THREE.CylinderGeometry(0.185, 0.185, 0.045, 16);
+      beltGeo.translate(0, 0.495, 0);
+      const beltMesh = new THREE.Mesh(beltGeo, matLeather);
+      beltMesh.name = 'Belt';
+      torsoMesh.add(beltMesh);
 
       // Horned Iron Helmet
       const helmGeo = new THREE.SphereGeometry(0.138, 20, 14);
@@ -1711,7 +2183,25 @@ export function buildArticulatedUnit3DMesh(
         hornGeo.translate(0.02, 0.12, zSign * 0.14);
         helmMesh.add(new THREE.Mesh(hornGeo, matFeather));
       }
+
+      // Modeled ears on head
+      for (const ez of [-0.12, 0.12]) {
+        const earGeo = new THREE.BoxGeometry(0.02, 0.045, 0.02);
+        earGeo.translate(0, 0, ez);
+        const earMesh = new THREE.Mesh(earGeo, matSkin);
+        earMesh.name = ez < 0 ? 'Ear_L' : 'Ear_R';
+        headMesh.add(earMesh);
+      }
       headMesh.add(helmMesh);
+
+      // Studded bracers on arms
+      for (const arm of [armL, armR]) {
+        const bracerGeo = new THREE.CylinderGeometry(0.062, 0.052, 0.11, 12);
+        bracerGeo.translate(0.03, -0.21, 0);
+        const bracerMesh = new THREE.Mesh(bracerGeo, matLeather);
+        bracerMesh.name = `${arm.name}_Bracer`;
+        arm.add(bracerMesh);
+      }
 
       // Double-Bitted Battleaxe in Arm_R
       const shaftGeo = new THREE.CylinderGeometry(0.022, 0.024, 0.95, 12);
@@ -1723,12 +2213,29 @@ export function buildArticulatedUnit3DMesh(
       const bladeGeo = new THREE.BoxGeometry(0.28, 0.22, 0.035);
       bladeGeo.rotateZ(-0.36);
       bladeGeo.translate(0.30, 0.34, 0);
-      axeMesh.add(new THREE.Mesh(bladeGeo, matSteel));
+      const bladeMesh = new THREE.Mesh(bladeGeo, matSteel);
+      bladeMesh.name = 'Axe_Blade';
+      axeMesh.add(bladeMesh);
       armR.add(axeMesh);
       break;
     }
 
     case 'slinger': {
+      // Shoulder Pads (Pauldron_L, Pauldron_R)
+      const pauldronLGeo = new THREE.SphereGeometry(0.07, 14, 10);
+      pauldronLGeo.scale(0.85, 0.65, 0.95);
+      pauldronLGeo.translate(0, 0.02, 0);
+      const pauldronL = new THREE.Mesh(pauldronLGeo, matLeather);
+      pauldronL.name = 'Pauldron_L';
+      armL.add(pauldronL);
+
+      const pauldronRGeo = new THREE.SphereGeometry(0.07, 14, 10);
+      pauldronRGeo.scale(0.85, 0.65, 0.95);
+      pauldronRGeo.translate(0, 0.02, 0);
+      const pauldronR = new THREE.Mesh(pauldronRGeo, matLeather);
+      pauldronR.name = 'Pauldron_R';
+      armR.add(pauldronR);
+
       // Headband
       const bandGeo = new THREE.CylinderGeometry(0.132, 0.132, 0.04, 18);
       bandGeo.translate(0, 0.04, 0);
@@ -1738,7 +2245,7 @@ export function buildArticulatedUnit3DMesh(
 
       // Stone Pouch at hip
       const pouchGeo = new THREE.SphereGeometry(0.075, 16, 12);
-      pouchGeo.translate(0.04, 0.42, 0.15);
+      pouchGeo.translate(0.03, 0.42, 0.12);
       torsoMesh.add(new THREE.Mesh(pouchGeo, matLeather));
 
       // Small Buckler on Arm_L
@@ -1924,9 +2431,35 @@ export function buildArticulatedUnit3DMesh(
   return cloneCompactedUnitTemplate(torsoMesh);
 }
 
+export type ForestTreeVariant = 'pine' | 'oak' | 'birch' | 'willow' | 'maple';
+
+export interface TreeWindUniforms {
+  uWindTime: { value: number };
+  uWindDir: { value: THREE.Vector2 };
+  uWindStrength: { value: number };
+}
+
+export const sharedTreeWindUniforms: TreeWindUniforms = {
+  uWindTime: { value: 0 },
+  uWindDir: { value: new THREE.Vector2(Math.cos(Math.PI * 0.25), Math.sin(Math.PI * 0.25)) },
+  uWindStrength: { value: 1.0 },
+};
+
+export function updateTreeWindState(
+  windAngleRad: number,
+  windStrength: number,
+  deltaSeconds?: number
+): void {
+  if (deltaSeconds !== undefined) {
+    sharedTreeWindUniforms.uWindTime.value += deltaSeconds;
+  }
+  sharedTreeWindUniforms.uWindDir.value.set(Math.cos(windAngleRad), Math.sin(windAngleRad));
+  sharedTreeWindUniforms.uWindStrength.value = Math.max(0.1, windStrength);
+}
+
 let sharedTreeTrunkMaterial: THREE.MeshStandardMaterial | null = null;
 let sharedTreeFoliageMaterial: THREE.MeshStandardMaterial | null = null;
-const forestTreeTemplateCache: Map<'pine' | 'oak', THREE.Group> = new Map();
+const forestTreeTemplateCache: Map<ForestTreeVariant, THREE.Group> = new Map();
 
 export function getSharedTreeMaterials(): {
   trunkMat: THREE.MeshStandardMaterial;
@@ -1936,12 +2469,50 @@ export function getSharedTreeMaterials(): {
     sharedTreeTrunkMaterial = new THREE.MeshStandardMaterial({
       color: 0xffffff,
       map: getTreePartTexture('bark'),
+      vertexColors: true,
       roughness: 0.92,
       metalness: 0.0,
       flatShading: false,
       transparent: false,
     });
     sharedTreeTrunkMaterial.userData = { isSharedAsset: true, treePart: 'bark' };
+    sharedTreeTrunkMaterial.customProgramCacheKey = () => 'TreeTrunkWindShader';
+
+    sharedTreeTrunkMaterial.onBeforeCompile = (shader) => {
+      shader.uniforms.uWindTime = sharedTreeWindUniforms.uWindTime;
+      shader.uniforms.uWindDir = sharedTreeWindUniforms.uWindDir;
+      shader.uniforms.uWindStrength = sharedTreeWindUniforms.uWindStrength;
+
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <common>',
+        `#include <common>
+uniform float uWindTime;
+uniform vec2 uWindDir;
+uniform float uWindStrength;
+`
+      );
+
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+// Trunk and branch wind reaction: base (y=0) anchored to ground, higher limbs sway
+float heightFactor = clamp(position.y / 0.90, 0.0, 1.0);
+float bendFactor = heightFactor * heightFactor;
+
+vec4 worldPos = modelMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+float treePhase = worldPos.x * 1.4 + worldPos.z * 1.1;
+
+// Wind sway oscillation (speed reduced to 50%)
+float swayCycle = sin(uWindTime * (1.1 + uWindStrength * 0.5) + treePhase);
+float gustCycle = sin(uWindTime * 0.6 + worldPos.x * 0.4 + worldPos.z * 0.4);
+float swayAmt = (0.025 + 0.035 * uWindStrength) * bendFactor * (0.7 + 0.3 * swayCycle) + (0.015 * uWindStrength * gustCycle * bendFactor);
+
+transformed.x += uWindDir.x * swayAmt;
+transformed.z += uWindDir.y * swayAmt;
+transformed.y -= abs(swayAmt) * 0.15;
+`
+      );
+    };
   }
   if (!sharedTreeFoliageMaterial) {
     sharedTreeFoliageMaterial = new THREE.MeshStandardMaterial({
@@ -1954,24 +2525,71 @@ export function getSharedTreeMaterials(): {
       transparent: false,
     });
     sharedTreeFoliageMaterial.userData = { isSharedAsset: true, treePart: 'foliage' };
+    sharedTreeFoliageMaterial.customProgramCacheKey = () => 'TreeFoliageWindShader';
+
+    sharedTreeFoliageMaterial.onBeforeCompile = (shader) => {
+      shader.uniforms.uWindTime = sharedTreeWindUniforms.uWindTime;
+      shader.uniforms.uWindDir = sharedTreeWindUniforms.uWindDir;
+      shader.uniforms.uWindStrength = sharedTreeWindUniforms.uWindStrength;
+
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <common>',
+        `#include <common>
+uniform float uWindTime;
+uniform vec2 uWindDir;
+uniform float uWindStrength;
+`
+      );
+
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+float heightFactor = clamp(position.y / 0.90, 0.0, 1.0);
+float bendFactor = heightFactor * heightFactor;
+
+vec4 worldPos = modelMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+float treePhase = worldPos.x * 1.4 + worldPos.z * 1.1;
+
+// Branch & canopy sway (speed reduced to 50%)
+float swayCycle = sin(uWindTime * (1.1 + uWindStrength * 0.5) + treePhase);
+float gustCycle = sin(uWindTime * 0.6 + worldPos.x * 0.4 + worldPos.z * 0.4);
+float swayAmt = (0.04 + 0.05 * uWindStrength) * bendFactor * (0.65 + 0.35 * swayCycle) + (0.025 * uWindStrength * gustCycle * bendFactor);
+
+// High-frequency leaves rustling:
+// Speed reduced to 50% of previous value (4.25 + 2.25 * strength vs 8.5 + 4.5 * strength)
+float rustleFreq = uWindTime * (4.25 + uWindStrength * 2.25);
+float rustle = sin(rustleFreq + position.x * 14.0 + position.z * 12.0) * cos(rustleFreq * 0.75 + position.y * 13.0);
+// Intensity reduced to 25% of previous value (0.0035 + 0.0045 * strength vs 0.014 + 0.018 * strength)
+float rustleAmt = rustle * (0.0035 + 0.0045 * uWindStrength) * heightFactor;
+
+transformed.x += (uWindDir.x * swayAmt) + rustleAmt * (0.8 + uWindDir.x * 0.4);
+transformed.z += (uWindDir.y * swayAmt) + rustleAmt * (0.8 + uWindDir.y * 0.4);
+transformed.y += rustleAmt * 0.35 - abs(swayAmt) * 0.20;
+`
+      );
+    };
   }
   return { trunkMat: sharedTreeTrunkMaterial, foliageMat: sharedTreeFoliageMaterial };
 }
 
 /**
- * Builds a low-poly 3D forest tree (pine or oak) with total height ~0.90 world units
+ * Builds a low-poly 3D forest tree (pine, oak, birch, willow, or maple) with total height ~0.90 world units
  * (75% of the 1.20 average humanoid unit height).
  * Compacts all foliage tiers/clusters into a single vertex-colored `Foliage` mesh
  * and caches the template per variant so all forest trees share geometries and materials.
  */
 export function buildLowPolyForestTreeMesh(
-  variant: 'pine' | 'oak' = 'pine',
+  variant: ForestTreeVariant = 'pine',
   heightScale: number = 1.0
 ): THREE.Group {
   let templateGroup = forestTreeTemplateCache.get(variant);
   if (!templateGroup) {
     templateGroup = new THREE.Group();
-    templateGroup.name = variant === 'pine' ? 'ForestTree_Pine' : 'ForestTree_Oak';
+    templateGroup.name =
+      variant === 'pine' ? 'ForestTree_Pine' :
+      variant === 'oak' ? 'ForestTree_Oak' :
+      variant === 'birch' ? 'ForestTree_Birch' :
+      variant === 'willow' ? 'ForestTree_Willow' : 'ForestTree_Maple';
 
     const { trunkMat, foliageMat } = getSharedTreeMaterials();
     const identityMat = new THREE.Matrix4().identity();
@@ -2012,7 +2630,7 @@ export function buildLowPolyForestTreeMesh(
       foliageMesh.castShadow = true;
       foliageMesh.receiveShadow = true;
       templateGroup.add(foliageMesh);
-    } else {
+    } else if (variant === 'oak') {
       const trunkGeo = new THREE.CylinderGeometry(0.050, 0.075, 0.36, 10);
       applyTreeUVMapping(trunkGeo, 'trunk');
       trunkGeo.translate(0, 0.18, 0);
@@ -2050,6 +2668,223 @@ export function buildLowPolyForestTreeMesh(
       const foliageGeo = mergeMeshesWithVertexColors(foliageItems);
       const foliageMesh = new THREE.Mesh(foliageGeo, foliageMat);
       foliageMesh.name = 'Foliage_Oak';
+      foliageMesh.castShadow = true;
+      foliageMesh.receiveShadow = true;
+      templateGroup.add(foliageMesh);
+    } else if (variant === 'birch') {
+      // 1. Slender birch trunk (12 segments, 3 height segments, graceful curve)
+      const trunkGeo = new THREE.CylinderGeometry(0.024, 0.038, 0.44, 12, 3);
+      const pos = trunkGeo.getAttribute('position');
+      for (let i = 0; i < pos.count; i++) {
+        const y = pos.getY(i);
+        const ny = Math.max(0, y) / 0.44;
+        pos.setX(i, pos.getX(i) + Math.sin(ny * Math.PI) * 0.016);
+      }
+      trunkGeo.computeVertexNormals();
+      trunkGeo.translate(0, 0.22, 0);
+
+      const birchBark = makeMat(0xf0ede6, 0.90, 0.0);
+      const trunkItems: Array<{ mesh: THREE.Mesh; relMatrix: THREE.Matrix4 }> = [
+        { mesh: new THREE.Mesh(trunkGeo, birchBark), relMatrix: identityMat },
+      ];
+
+      // 3 ascending limbs
+      const limbDefs = [
+        { y: 0.28, len: 0.15, angleZ: -0.42, angleY: 0.5 },
+        { y: 0.35, len: 0.14, angleZ: 0.45, angleY: 2.5 },
+        { y: 0.40, len: 0.12, angleZ: -0.38, angleY: -1.8 },
+      ];
+      for (const limb of limbDefs) {
+        const limbGeo = new THREE.CylinderGeometry(0.009, 0.016, limb.len, 6);
+        limbGeo.translate(0, limb.len * 0.5, 0);
+        limbGeo.rotateZ(limb.angleZ);
+        limbGeo.rotateY(limb.angleY);
+        limbGeo.translate(0, limb.y, 0);
+        trunkItems.push({ mesh: new THREE.Mesh(limbGeo, birchBark), relMatrix: identityMat });
+      }
+
+      const mergedTrunkGeo = mergeMeshesWithVertexColors(trunkItems);
+      applyTreeUVMapping(mergedTrunkGeo, 'trunk');
+      mergedTrunkGeo.userData = { isSharedAsset: true };
+      const trunkMesh = new THREE.Mesh(mergedTrunkGeo, trunkMat);
+      trunkMesh.name = 'Trunk';
+      trunkMesh.castShadow = true;
+      trunkMesh.receiveShadow = true;
+      templateGroup.add(trunkMesh);
+
+      // 4 airy foliage clusters with early autumn palette: luminous gold, yellow-green, warm ochre, amber
+      const birchGold = makeMat(0xe8c734, 0.82, 0.0);   // Golden yellow crown
+      const birchGreen = makeMat(0x9fc838, 0.84, 0.0);  // Lingering late-summer yellow-green
+      const birchOchre = makeMat(0xdfa628, 0.83, 0.0);  // Warm autumn ochre
+      const birchAmber = makeMat(0xd88824, 0.82, 0.0);  // Amber with hint of orange
+
+      const topCrownGeo = new THREE.IcosahedronGeometry(0.18, 2);
+      topCrownGeo.scale(0.9, 1.15, 0.9);
+      topCrownGeo.translate(0.01, 0.68, 0.0);
+
+      const foliageItems: Array<{ mesh: THREE.Mesh; relMatrix: THREE.Matrix4 }> = [
+        { mesh: new THREE.Mesh(topCrownGeo, birchGold), relMatrix: identityMat },
+      ];
+
+      const birchClusters = [
+        { x: 0.10, y: 0.50, z: 0.05, r: 0.13, mat: birchGreen },
+        { x: -0.09, y: 0.54, z: 0.07, r: 0.12, mat: birchOchre },
+        { x: 0.02, y: 0.58, z: -0.09, r: 0.12, mat: birchAmber },
+      ];
+      for (const cl of birchClusters) {
+        const subGeo = new THREE.IcosahedronGeometry(cl.r, 2);
+        subGeo.translate(cl.x, cl.y, cl.z);
+        foliageItems.push({ mesh: new THREE.Mesh(subGeo, cl.mat), relMatrix: identityMat });
+      }
+
+      const foliageGeo = mergeMeshesWithVertexColors(foliageItems);
+      applyTreeUVMapping(foliageGeo, 'oak_foliage');
+      const foliageMesh = new THREE.Mesh(foliageGeo, foliageMat);
+      foliageMesh.name = 'Foliage_Birch';
+      foliageMesh.castShadow = true;
+      foliageMesh.receiveShadow = true;
+      templateGroup.add(foliageMesh);
+    } else if (variant === 'willow') {
+      // 1. Gnarled curved trunk (14 segments, 3 height segments)
+      const trunkGeo = new THREE.CylinderGeometry(0.052, 0.084, 0.36, 14, 3);
+      const pos = trunkGeo.getAttribute('position');
+      for (let i = 0; i < pos.count; i++) {
+        const y = pos.getY(i);
+        const ny = Math.max(0, y) / 0.36;
+        pos.setX(i, pos.getX(i) + Math.sin(ny * Math.PI * 0.8) * 0.022);
+        pos.setZ(i, pos.getZ(i) + Math.cos(ny * Math.PI * 0.8) * 0.016);
+      }
+      trunkGeo.computeVertexNormals();
+      trunkGeo.translate(0, 0.18, 0);
+
+      const willowBark = makeMat(0x564230, 0.92, 0.0);
+      const trunkItems: Array<{ mesh: THREE.Mesh; relMatrix: THREE.Matrix4 }> = [
+        { mesh: new THREE.Mesh(trunkGeo, willowBark), relMatrix: identityMat },
+      ];
+
+      // 4 arching limbs in 4 directions
+      const limbAngles = [0, Math.PI * 0.5, Math.PI, Math.PI * 1.5];
+      for (const ang of limbAngles) {
+        const limbGeo = new THREE.CylinderGeometry(0.018, 0.028, 0.18, 8);
+        limbGeo.translate(0, 0.09, 0);
+        limbGeo.rotateZ(0.65);
+        limbGeo.rotateY(ang);
+        limbGeo.translate(0, 0.28, 0);
+        trunkItems.push({ mesh: new THREE.Mesh(limbGeo, willowBark), relMatrix: identityMat });
+      }
+
+      const mergedTrunkGeo = mergeMeshesWithVertexColors(trunkItems);
+      applyTreeUVMapping(mergedTrunkGeo, 'trunk');
+      mergedTrunkGeo.userData = { isSharedAsset: true };
+      const trunkMesh = new THREE.Mesh(mergedTrunkGeo, trunkMat);
+      trunkMesh.name = 'Trunk';
+      trunkMesh.castShadow = true;
+      trunkMesh.receiveShadow = true;
+      templateGroup.add(trunkMesh);
+
+      // Cascading weeping willow fronds with early autumn palette: olive-lime, golden-yellow, chartreuse, amber-ochre, russet-bronze
+      const willowLime = makeMat(0x7e9e38, 0.84, 0.0);       // Olive-lime green
+      const willowGold = makeMat(0xd4be3a, 0.83, 0.0);       // Pale golden-yellow frond
+      const willowChartreuse = makeMat(0x9eb838, 0.84, 0.0); // Chartreuse yellow-green
+      const willowOchre = makeMat(0xc89832, 0.83, 0.0);      // Warm amber-ochre
+      const willowRusset = makeMat(0xa4782e, 0.85, 0.0);     // Russet-tinted bronze
+
+      const domeGeo = new THREE.IcosahedronGeometry(0.24, 2);
+      domeGeo.scale(1.15, 0.80, 1.15);
+      domeGeo.translate(0, 0.52, 0);
+
+      const foliageItems: Array<{ mesh: THREE.Mesh; relMatrix: THREE.Matrix4 }> = [
+        { mesh: new THREE.Mesh(domeGeo, willowLime), relMatrix: identityMat },
+      ];
+
+      // 4 hanging clusters draped downwards with early autumn gradient
+      const willowFronds = [
+        { x: 0.16, y: 0.38, z: 0.0, mat: willowGold },
+        { x: -0.16, y: 0.39, z: 0.0, mat: willowChartreuse },
+        { x: 0.0, y: 0.37, z: 0.16, mat: willowOchre },
+        { x: 0.0, y: 0.38, z: -0.16, mat: willowRusset },
+      ];
+      for (const cl of willowFronds) {
+        const frondGeo = new THREE.IcosahedronGeometry(0.14, 2);
+        frondGeo.scale(0.75, 1.45, 0.75);
+        frondGeo.translate(cl.x, cl.y, cl.z);
+        foliageItems.push({ mesh: new THREE.Mesh(frondGeo, cl.mat), relMatrix: identityMat });
+      }
+
+      const foliageGeo = mergeMeshesWithVertexColors(foliageItems);
+      applyTreeUVMapping(foliageGeo, 'oak_foliage');
+      const foliageMesh = new THREE.Mesh(foliageGeo, foliageMat);
+      foliageMesh.name = 'Foliage_Willow';
+      foliageMesh.castShadow = true;
+      foliageMesh.receiveShadow = true;
+      templateGroup.add(foliageMesh);
+    } else {
+      // 1. Sturdy flared hardwood maple trunk
+      const trunkGeo = new THREE.CylinderGeometry(0.046, 0.076, 0.32, 12, 2);
+      trunkGeo.translate(0, 0.16, 0);
+      smoothGeometryNormals(trunkGeo);
+
+      const mapleBark = makeMat(0x654732, 0.90, 0.0);
+      const trunkItems: Array<{ mesh: THREE.Mesh; relMatrix: THREE.Matrix4 }> = [
+        { mesh: new THREE.Mesh(trunkGeo, mapleBark), relMatrix: identityMat },
+      ];
+
+      // 4 branch forks
+      const forkDefs = [
+        { len: 0.16, angleZ: -0.50, angleY: 0.3 },
+        { len: 0.15, angleZ: 0.52, angleY: 1.8 },
+        { len: 0.14, angleZ: -0.45, angleY: -1.4 },
+        { len: 0.13, angleZ: 0.40, angleY: -2.8 },
+      ];
+      for (const fork of forkDefs) {
+        const forkGeo = new THREE.CylinderGeometry(0.014, 0.024, fork.len, 6);
+        forkGeo.translate(0, fork.len * 0.5, 0);
+        forkGeo.rotateZ(fork.angleZ);
+        forkGeo.rotateY(fork.angleY);
+        forkGeo.translate(0, 0.24, 0);
+        trunkItems.push({ mesh: new THREE.Mesh(forkGeo, mapleBark), relMatrix: identityMat });
+      }
+
+      const mergedTrunkGeo = mergeMeshesWithVertexColors(trunkItems);
+      applyTreeUVMapping(mergedTrunkGeo, 'trunk');
+      mergedTrunkGeo.userData = { isSharedAsset: true };
+      const trunkMesh = new THREE.Mesh(mergedTrunkGeo, trunkMat);
+      trunkMesh.name = 'Trunk';
+      trunkMesh.castShadow = true;
+      trunkMesh.receiveShadow = true;
+      templateGroup.add(trunkMesh);
+
+      // Autumn maple crown (5 overlapping clusters: golden-yellow -> lingering yellow-green -> bright orange -> deep brown-red/crimson -> warm russet)
+      const mapleAmber = makeMat(0xedb82b, 0.83, 0.0);    // Golden yellow-amber
+      const mapleGreen = makeMat(0x86b032, 0.84, 0.0);    // Lingering late-summer yellow-green
+      const mapleOrange = makeMat(0xdf6c22, 0.82, 0.0);   // Bright autumn orange
+      const mapleBrownRed = makeMat(0xa42d1e, 0.80, 0.0); // Deep brown-red / crimson
+      const mapleRust = makeMat(0xc85222, 0.81, 0.0);     // Warm russet red-orange
+
+      const mainCrownGeo = new THREE.IcosahedronGeometry(0.25, 2);
+      mainCrownGeo.scale(1.10, 0.95, 1.10);
+      mainCrownGeo.translate(0, 0.60, 0);
+
+      const foliageItems: Array<{ mesh: THREE.Mesh; relMatrix: THREE.Matrix4 }> = [
+        { mesh: new THREE.Mesh(mainCrownGeo, mapleAmber), relMatrix: identityMat },
+      ];
+
+      const clusters = [
+        { x: 0.15, y: 0.52, z: 0.10, r: 0.17, mat: mapleGreen },
+        { x: -0.14, y: 0.54, z: -0.08, r: 0.16, mat: mapleBrownRed },
+        { x: -0.06, y: 0.50, z: 0.15, r: 0.16, mat: mapleOrange },
+        { x: 0.08, y: 0.53, z: -0.14, r: 0.15, mat: mapleRust },
+      ];
+      for (const cl of clusters) {
+        const subGeo = new THREE.IcosahedronGeometry(cl.r, 2);
+        subGeo.translate(cl.x, cl.y, cl.z);
+        foliageItems.push({ mesh: new THREE.Mesh(subGeo, cl.mat), relMatrix: identityMat });
+      }
+
+      const foliageGeo = mergeMeshesWithVertexColors(foliageItems);
+      applyTreeUVMapping(foliageGeo, 'oak_foliage');
+      const foliageMesh = new THREE.Mesh(foliageGeo, foliageMat);
+      foliageMesh.name = 'Foliage_Maple';
       foliageMesh.castShadow = true;
       foliageMesh.receiveShadow = true;
       templateGroup.add(foliageMesh);

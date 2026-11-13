@@ -126,6 +126,10 @@
       "neighbourEnemyBonus": 1,
       "killerMeleeBonus": 2,
       "killerRangedBonus": 1
+    },
+    "healing": {
+      "multiplier": 0.5,
+      "minValue": 1
     }
   },
   "hero": {
@@ -165,5 +169,59 @@
       "damageBonusPerHex": 0.08,
       "retaliationDamageTakenPerHex": 0.08
     }
+  },
+  "majorTerrainType": "forest",
+  "wind": {
+    "min_strength": 0.5,
+    "max_strength": 1.8,
+    "min_angle_change_deg": -45,
+    "max_angle_change_deg": 45,
+    "initial_angle_deg": 45,
+    "initial_strength": 1.0
+  },
+  "player1Banner": "banner7.png",
+  "player2Banner": "banner12.png",
+  "playerColors": {
+    "player1backup": "rgb(47, 99, 199)",
+    "player1": "rgb(199, 199, 47)",
+    "player2backup": "rgb(199, 54, 54)",
+    "player2": "rgb(54, 199, 54)",
+    "hero": "rgb(212, 175, 55)"
+  },
+  "soundGroups": {
+    "infantry_death": [
+      "infantry_death_c.ogg",
+      "infantry_death_e.ogg",
+      "die.ogg"
+    ],
+    "infantry_retreat": [
+      "infantry_retreat_a.ogg",
+      "infantry_retreat_c.ogg"
+    ],
+    "heal": [
+      "infantry_upgrade_health_c.ogg"
+    ],
+    "arrow": [
+      "arrow.ogg",
+      "arrow_2.ogg",
+      "arrow_3.ogg"
+    ],
+    "stone": [
+      "47495__kwandalist__steinwurf_1.ogg",
+      "47495__kwandalist__steinwurf_2.ogg",
+      "47495__kwandalist__steinwurf_3.ogg"
+    ]
+  },
+  "arrowVolley": {
+    "max_volley_sounds": 10,
+    "vary_pitch": true,
+    "vary_speed": true,
+    "pitch_variation_range": 0.1,
+    "speed_variation_range": 0.1,
+    "scale_volume_by_squad_size": true,
+    "min_squad_volume_factor": 0.35,
+    "max_squad_volume_factor": 1.0,
+    "reference_squad_size": 12,
+    "stagger_delay_ms": 0
   }
 }

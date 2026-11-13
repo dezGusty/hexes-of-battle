@@ -2,6 +2,14 @@ import { ButtonOptions, FancyButton, Slider } from "@pixi/ui";
 import { Container, NineSliceSprite, Sprite, Spritesheet, Text, TextOptions, Texture } from "pixi.js";
 import { BattleSaveEntry, SaveManager } from "../battle/save-manager";
 import { Battle } from "../battle";
+import {
+    clampAnimationSpeed,
+    DEFAULT_ANIMATION_SPEED,
+    MAX_ANIMATION_SPEED,
+    MIN_ANIMATION_SPEED,
+} from "../battle/settings";
+import { bindButtonUISound, bindSliderUISound } from "../battle/ui-sounds";
+import { WeatherDropdown, WeatherType } from "./weather-dropdown";
 
 export class BattleMenuPanel {
     static DEFAULT_FONT_STYLE: TextOptions = { style: { fill: { color: '#ffffff', alpha: 1 }, fontSize: 16, align: 'left' } };
@@ -45,9 +53,16 @@ export class BattleMenuPanel {
     public loadButton?: FancyButton;
     public toggleHardwareCursorButton?: FancyButton;
     public toggleDamageIndicatorsButton?: FancyButton;
+    public animationSpeedButton?: FancyButton;
+    public animationSpeedSlider?: Slider;
+    public animationSpeedValueText?: Text;
+    public weatherButton?: FancyButton;
+    public weatherDropdown?: WeatherDropdown;
 
     private hardwareCursorText?: Text;
     private isHardwareCursorHidden: boolean = false;
+    private isUpdatingAnimationSpeed: boolean = false;
+    private isUpdatingSoundValues: boolean = false;
 
     private closeButton: FancyButton = new FancyButton({
         ...this.THIN_BUTTON_STYLE
@@ -75,6 +90,8 @@ export class BattleMenuPanel {
     public onToggleStats?: () => void;
     public onToggleFps?: (showFps: boolean) => void;
     public onToggleHardwareCursor?: (hide: boolean) => void;
+    public onAnimationSpeedChange?: (speed: number) => void;
+    public onWeatherChange?: (weather: WeatherType) => void;
 
     public constructor(private view: Container, private uiSheet: Spritesheet) {
         const windowBg = new NineSliceSprite({
@@ -86,7 +103,7 @@ export class BattleMenuPanel {
         });
 
         windowBg.width = 920;
-        windowBg.height = 640;
+        windowBg.height = 700;
         windowBg.alpha = 0.95;
 
         this.window.addChild(windowBg);
@@ -129,18 +146,53 @@ export class BattleMenuPanel {
     public setSoundValues(musicVolume: number, soundVolume: number): void {
         const mPercent = Math.max(0, Math.min(100, Math.round(musicVolume * 100)));
         const sPercent = Math.max(0, Math.min(100, Math.round(soundVolume * 100)));
-        if (this.musicVolumeSlider) {
-            this.musicVolumeSlider.value = mPercent;
+        this.isUpdatingSoundValues = true;
+        try {
+            if (this.musicVolumeSlider) {
+                this.musicVolumeSlider.value = mPercent;
+            }
+            if (this.musicVolumeValueText) {
+                this.musicVolumeValueText.text = `${mPercent}%`;
+            }
+            if (this.soundVolumeSlider) {
+                this.soundVolumeSlider.value = sPercent;
+            }
+            if (this.soundVolumeValueText) {
+                this.soundVolumeValueText.text = `${sPercent}%`;
+            }
+        } finally {
+            this.isUpdatingSoundValues = false;
         }
-        if (this.musicVolumeValueText) {
-            this.musicVolumeValueText.text = `${mPercent}%`;
+    }
+
+    public setAnimationSpeed(speed: number): void {
+        const clamped = clampAnimationSpeed(speed);
+        this.isUpdatingAnimationSpeed = true;
+        try {
+            if (this.animationSpeedSlider) {
+                this.animationSpeedSlider.value = clamped;
+            }
+            if (this.animationSpeedValueText) {
+                this.animationSpeedValueText.text = `${clamped}`;
+            }
+        } finally {
+            this.isUpdatingAnimationSpeed = false;
         }
-        if (this.soundVolumeSlider) {
-            this.soundVolumeSlider.value = sPercent;
+    }
+
+    public getAnimationSpeed(): number {
+        if (this.animationSpeedSlider) {
+            return clampAnimationSpeed(this.animationSpeedSlider.value);
         }
-        if (this.soundVolumeValueText) {
-            this.soundVolumeValueText.text = `${sPercent}%`;
-        }
+        return DEFAULT_ANIMATION_SPEED;
+    }
+
+    public setWeather(weather: WeatherType): void {
+        this.weatherDropdown?.selectWeather(weather, false);
+    }
+
+    public getWeather(): WeatherType {
+        return this.weatherDropdown?.selectedWeather ?? WeatherType.NONE;
     }
 
     private initializeMainContainer(panelWidth: number): void {
@@ -175,6 +227,7 @@ export class BattleMenuPanel {
         addMenuOption(col1TextX, 355, 'Toggle 3D Scene Inspector.\n(Same effect as pressing F2)');
         addMenuOption(col1TextX, 430, 'Show FPS\nToggle frames per second counter.');
         addMenuOption(col1TextX, 505, 'Show damage indicators.\nFloating indicators on morale/HP/stamina change.');
+        addMenuOption(col1TextX, 575, 'Weather Effects (Visual)\nSelect atmospheric weather.');
 
         // Column 2 Options
         addMenuOption(col2TextX, 55, 'Toggle music on/off.');
@@ -189,6 +242,8 @@ export class BattleMenuPanel {
         });
         this.hardwareCursorText.position = { x: col2TextX, y: 430 + 8 };
         this.mainContainer.addChild(this.hardwareCursorText);
+
+        addMenuOption(col2TextX, 505, 'Animation Speed (1-8).');
 
         // Column 1 Buttons
         this.fullscreenToggleButton = new FancyButton({
@@ -237,6 +292,32 @@ export class BattleMenuPanel {
         this.toggleDamageIndicatorsButton.position.set(col1BtnX, 505);
         this.toggleDamageIndicatorsButton.width = 64;
         this.toggleDamageIndicatorsButton.height = 60;
+
+        this.weatherButton = new FancyButton({
+            ...this.DEFAULT_BUTTON_STYLE,
+            icon: this.uiSheet.textures['glyph_toggle_perf_stats.png'] ? 'glyph_toggle_perf_stats.png' : 'btn_simple.png',
+        });
+        this.weatherButton.position.set(col1BtnX, 575);
+        this.weatherButton.width = 64;
+        this.weatherButton.height = 60;
+        this.weatherButton.onPress.connect(() => {
+            this.weatherDropdown?.toggle();
+        });
+
+        this.weatherDropdown = new WeatherDropdown(
+            this.THIN_BUTTON_STYLE,
+            WeatherType.NONE,
+            200,
+            34,
+            30,
+            true
+        );
+        this.weatherDropdown.position.set(col1TextX, 575 + 34);
+        this.weatherDropdown.onChange = (weather) => {
+            if (this.onWeatherChange) {
+                this.onWeatherChange(weather);
+            }
+        };
 
         // Column 2 Buttons & Sliders
         this.toggleMusicButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_toggle_music.png' });
@@ -359,7 +440,56 @@ export class BattleMenuPanel {
         this.toggleHardwareCursorButton.width = 64;
         this.toggleHardwareCursorButton.height = 60;
 
-        this.closeButton.position.set((panelWidth - 140) / 2, 580);
+        this.animationSpeedButton = new FancyButton({
+            ...this.DEFAULT_BUTTON_STYLE,
+            icon: this.uiSheet.textures['glyph_movement'] ? 'glyph_movement' : 'glyph_next_unit.png',
+        });
+        this.animationSpeedButton.position.set(col2BtnX, 505);
+        this.animationSpeedButton.width = 64;
+        this.animationSpeedButton.height = 60;
+
+        this.animationSpeedSlider = new Slider({
+            bg: sliderBg,
+            fill: sliderFill,
+            slider: new Sprite(sliderHandle),
+            nineSliceSprite: {
+                bg: [4, 4, 4, 4],
+                fill: [4, 4, 4, 4],
+            },
+            fillPaddings: {
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+            },
+            min: MIN_ANIMATION_SPEED,
+            max: MAX_ANIMATION_SPEED,
+            step: 1,
+            value: DEFAULT_ANIMATION_SPEED,
+            showValue: false,
+        });
+        this.animationSpeedSlider.position.set(col2TextX, 505 + 34);
+        this.animationSpeedSlider.width = 200;
+        this.animationSpeedSlider.height = 14;
+
+        this.animationSpeedValueText = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: `${DEFAULT_ANIMATION_SPEED}`,
+            style: { fontSize: 13, fill: '#AACCFF' },
+        });
+        this.animationSpeedValueText.position.set(col2TextX + 210, 505 + 31);
+
+        this.animationSpeedSlider.onUpdate.connect((val) => {
+            const speed = clampAnimationSpeed(val);
+            if (this.animationSpeedValueText) {
+                this.animationSpeedValueText.text = `${speed}`;
+            }
+            if (!this.isUpdatingAnimationSpeed && this.onAnimationSpeedChange) {
+                this.onAnimationSpeedChange(speed);
+            }
+        });
+
+        this.closeButton.position.set((panelWidth - 140) / 2, 648);
         this.closeButton.width = 140;
         this.closeButton.height = 36;
         this.closeButton.text = new Text({
@@ -375,6 +505,8 @@ export class BattleMenuPanel {
         this.mainContainer.addChild(this.toggleSceneInspectorButton);
         this.mainContainer.addChild(this.toggleFpsButton);
         this.mainContainer.addChild(this.toggleDamageIndicatorsButton);
+        if (this.weatherButton) this.mainContainer.addChild(this.weatherButton);
+        if (this.weatherDropdown) this.mainContainer.addChild(this.weatherDropdown);
         this.mainContainer.addChild(this.toggleMusicButton);
         this.mainContainer.addChild(this.musicVolumeSlider);
         this.mainContainer.addChild(this.musicVolumeValueText);
@@ -385,7 +517,31 @@ export class BattleMenuPanel {
         this.mainContainer.addChild(this.loadButton);
         this.mainContainer.addChild(this.toggleStatsButton);
         this.mainContainer.addChild(this.toggleHardwareCursorButton);
+        this.mainContainer.addChild(this.animationSpeedButton);
+        this.mainContainer.addChild(this.animationSpeedSlider);
+        this.mainContainer.addChild(this.animationSpeedValueText);
         this.mainContainer.addChild(this.closeButton);
+
+        bindButtonUISound(this.fullscreenToggleButton);
+        bindButtonUISound(this.toggleCoordsButton);
+        bindButtonUISound(this.toggleGridButton);
+        bindButtonUISound(this.showHealthbarsButton);
+        bindButtonUISound(this.toggleSceneInspectorButton);
+        bindButtonUISound(this.toggleFpsButton);
+        bindButtonUISound(this.toggleDamageIndicatorsButton);
+        if (this.weatherButton) bindButtonUISound(this.weatherButton);
+        bindButtonUISound(this.toggleMusicButton);
+        bindButtonUISound(this.toggleSoundButton);
+        bindButtonUISound(this.saveButton);
+        bindButtonUISound(this.loadButton);
+        bindButtonUISound(this.toggleStatsButton);
+        bindButtonUISound(this.toggleHardwareCursorButton);
+        bindButtonUISound(this.animationSpeedButton);
+        bindButtonUISound(this.closeButton);
+
+        bindSliderUISound(this.musicVolumeSlider, () => this.isUpdatingSoundValues);
+        bindSliderUISound(this.soundVolumeSlider, () => this.isUpdatingSoundValues);
+        bindSliderUISound(this.animationSpeedSlider, () => this.isUpdatingAnimationSpeed);
 
         this.connectMainEventHandlers();
     }
@@ -457,6 +613,7 @@ export class BattleMenuPanel {
             text: 'Save Game',
             style: { fontSize: 16, fill: '#CCFFCC' },
         });
+        bindButtonUISound(confirmSaveBtn);
         confirmSaveBtn.onPress.connect(() => this.executeSave());
         this.saveDialogContainer.addChild(confirmSaveBtn);
 
@@ -471,6 +628,7 @@ export class BattleMenuPanel {
             text: 'Cancel',
             style: { fontSize: 16, fill: '#FFDDDD' },
         });
+        bindButtonUISound(cancelSaveBtn);
         cancelSaveBtn.onPress.connect(() => this.showMainMenu());
         this.saveDialogContainer.addChild(cancelSaveBtn);
     }
@@ -505,6 +663,7 @@ export class BattleMenuPanel {
             text: '▲',
             style: { fontSize: 16, fill: '#FFFFCC' },
         });
+        bindButtonUISound(upBtn);
         upBtn.onPress.connect(() => {
             if (this.loadScrollIndex > 0) {
                 this.loadScrollIndex--;
@@ -525,6 +684,7 @@ export class BattleMenuPanel {
             text: '▼',
             style: { fontSize: 16, fill: '#FFFFCC' },
         });
+        bindButtonUISound(downBtn);
         downBtn.onPress.connect(() => {
             if (this.loadScrollIndex + this.LOAD_PAGE_SIZE < this.currentSavesList.length) {
                 this.loadScrollIndex++;
@@ -547,6 +707,7 @@ export class BattleMenuPanel {
             text: 'Back to Menu',
             style: { fontSize: 16, fill: '#DDFFFF' },
         });
+        bindButtonUISound(backBtn);
         backBtn.onPress.connect(() => this.showMainMenu());
         this.loadDialogContainer.addChild(backBtn);
     }
@@ -583,6 +744,13 @@ export class BattleMenuPanel {
             this.setHardwareCursorHidden(this.isHardwareCursorHidden);
             if (this.onToggleHardwareCursor) {
                 this.onToggleHardwareCursor(this.isHardwareCursorHidden);
+            }
+        });
+
+        this.animationSpeedButton?.onPress.connect(() => {
+            this.setAnimationSpeed(DEFAULT_ANIMATION_SPEED);
+            if (this.onAnimationSpeedChange) {
+                this.onAnimationSpeedChange(DEFAULT_ANIMATION_SPEED);
             }
         });
 
@@ -715,6 +883,7 @@ export class BattleMenuPanel {
                 text: 'Load',
                 style: { fontSize: 14, fill: '#DDFFFF' },
             });
+            bindButtonUISound(loadBtn);
             loadBtn.onPress.connect(() => {
                 this.executeLoad(entry);
             });
@@ -732,6 +901,7 @@ export class BattleMenuPanel {
                 text: 'Del',
                 style: { fontSize: 14, fill: '#FFAAAA' },
             });
+            bindButtonUISound(delBtn);
             delBtn.onPress.connect(() => {
                 SaveManager.deleteSave(entry.id);
                 this.refreshSavesList();

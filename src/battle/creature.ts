@@ -627,17 +627,19 @@ export class Creature {
   }
 
   public getRandomAttackDamageMelee(rng?: SeedableRNG): number {
+    const live = this.live_stats;
     const raw = rng
-      ? rng.range(this.stats.attack_melee_low, this.stats.attack_melee_high)
-      : getRandomValueBetween(this.stats.attack_melee_low, this.stats.attack_melee_high);
+      ? rng.range(live.attack_melee_low, live.attack_melee_high)
+      : getRandomValueBetween(live.attack_melee_low, live.attack_melee_high);
     const scaled = Math.max(1, Math.round(raw * this.getDamageOutputMultiplier()));
     return scaled;
   }
 
   public getRandomAttackDamageRanged(rng?: SeedableRNG): number {
+    const live = this.live_stats;
     const raw = rng
-      ? rng.range(this.stats.attack_ranged_low, this.stats.attack_ranged_high)
-      : getRandomValueBetween(this.stats.attack_ranged_low, this.stats.attack_ranged_high);
+      ? rng.range(live.attack_ranged_low, live.attack_ranged_high)
+      : getRandomValueBetween(live.attack_ranged_low, live.attack_ranged_high);
     const scaled = Math.max(1, Math.round(raw * this.getDamageOutputMultiplier()));
     return scaled;
   }

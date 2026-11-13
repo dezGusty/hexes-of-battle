@@ -1115,23 +1115,23 @@ describe("Tactical Systems Validation", () => {
     });
 
     it("should start recovering morale for routing squads after 2 consecutive undamaged turns", () => {
-      const hexMap = new HexMap(10, 8);
+      const hexMap = new HexMap(14, 8);
       const battle = new Battle(hexMap);
 
       const routingUnit = new Creature(CreatureType.PEASANT);
-      routingUnit.position = { x: 3, y: 3 };
+      routingUnit.position = { x: 12, y: 3 };
       routingUnit.armyAlignment = 0;
       routingUnit.stats.morale = 0; // Routing state
       routingUnit.stats.stamina = 20;
 
       const dummyEnemy = new Creature(CreatureType.SWORDSMAN);
-      dummyEnemy.position = { x: 8, y: 5 };
+      dummyEnemy.position = { x: 13, y: 5 };
       dummyEnemy.armyAlignment = 1;
 
       battle.initializeFromConfig({
-        mapWidth: 10,
+        mapWidth: 14,
         mapHeight: 8,
-        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        terrainTiles: Array.from({ length: 14 }, () => Array(8).fill(0)),
         creatures: [routingUnit, dummyEnemy],
       });
 
@@ -1177,23 +1177,23 @@ describe("Tactical Systems Validation", () => {
     });
 
     it("should reset consecutive undamaged turn count if a routing squad takes damage", () => {
-      const hexMap = new HexMap(10, 8);
+      const hexMap = new HexMap(18, 8);
       const battle = new Battle(hexMap);
 
       const routingUnit = new Creature(CreatureType.PEASANT);
-      routingUnit.position = { x: 3, y: 3 };
+      routingUnit.position = { x: 16, y: 3 };
       routingUnit.armyAlignment = 0;
       routingUnit.stats.morale = 0; // Routing state
       routingUnit.stats.stamina = 20;
 
       const enemyArcher = new Creature(CreatureType.PEASANT_ARCHER);
-      enemyArcher.position = { x: 6, y: 3 };
+      enemyArcher.position = { x: 17, y: 3 };
       enemyArcher.armyAlignment = 1;
 
       battle.initializeFromConfig({
-        mapWidth: 10,
+        mapWidth: 18,
         mapHeight: 8,
-        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        terrainTiles: Array.from({ length: 18 }, () => Array(8).fill(0)),
         creatures: [routingUnit, enemyArcher],
       });
 

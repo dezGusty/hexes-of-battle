@@ -11,7 +11,14 @@ import { Container, Texture, Spritesheet, Assets, Sprite } from "pixi.js";
 import { Battle, ArmyControlType, MapRenderUpdate } from "../battle";
 import { HexMap } from "../shared/hex-map";
 import { BattleView } from "./battle-view";
-import { BattleSettings } from "./settings";
+import {
+  BattleSettings,
+  clampAnimationSpeed,
+  DEFAULT_ANIMATION_SPEED,
+  getAnimationSpeedMultiplier,
+  MAX_ANIMATION_SPEED,
+  MIN_ANIMATION_SPEED,
+} from "./settings";
 import { AggressiveCPUPlayer } from "./aggressive-cpu-player";
 import { DefensiveCPUPlayer } from "./defensive-cpu-player";
 import { DumbCPUPlayer } from "./dumb-cpu-player";
@@ -19,6 +26,7 @@ import { UnitStatsPanel, DisplayedStat } from "../ui/unit-stats-panel";
 import { EnemyStatsPanel } from "../ui/enemy-stats-panel";
 import { Creature, CreatureType } from "./creature";
 import { BattleMenuPanel } from "../ui/battle-menu";
+import { WeatherType } from "../ui/weather-dropdown";
 import { MoraleState } from "./combat-rules";
 import { getMoraleTexture } from "../ui/morale-icon-utils";
 import { Ability, AbilityType } from "./ability";
@@ -530,6 +538,81 @@ describe("BattleMenuPanel 2-Column Layout & Scene Inspector Toggle", () => {
     const freshSettings2 = new BattleSettings();
     freshSettings2.load();
     expect(freshSettings2.hideHardwareCursor).toBe(false);
+  });
+
+  it("should provide WeatherDropdown in BattleMenuPanel and trigger onWeatherChange callback", () => {
+    const container = new Container();
+    const dummyUiSheet = {
+      textures: new Proxy({}, {
+        get: () => Texture.EMPTY,
+      }),
+    } as unknown as Spritesheet;
+
+    const menu = new BattleMenuPanel(container, dummyUiSheet);
+    expect(menu.weatherDropdown).toBeDefined();
+    expect(menu.weatherButton).toBeDefined();
+    expect(menu.weatherDropdown!.options).toHaveLength(4);
+    expect(menu.getWeather()).toBe(WeatherType.NONE);
+
+    let changedWeather: WeatherType | undefined;
+    menu.onWeatherChange = (w) => {
+      changedWeather = w;
+    };
+
+    // Toggle dropdown open
+    expect(menu.weatherDropdown!.isOpen).toBe(false);
+    menu.weatherButton!.onPress.emit();
+    expect(menu.weatherDropdown!.isOpen).toBe(true);
+
+    // Select Rain
+    const rainBtn = menu.weatherDropdown!.optionButtonsByWeather.get(WeatherType.RAIN);
+    expect(rainBtn).toBeDefined();
+    rainBtn!.onPress.emit();
+
+    expect(menu.weatherDropdown!.isOpen).toBe(false);
+    expect(menu.getWeather()).toBe(WeatherType.RAIN);
+    expect(changedWeather).toBe(WeatherType.RAIN);
+
+    // Set weather via setWeather without notifying
+    menu.setWeather(WeatherType.THUNDERSTORM);
+    expect(menu.getWeather()).toBe(WeatherType.THUNDERSTORM);
+
+    menu.setWeather(WeatherType.FOG);
+    expect(menu.getWeather()).toBe(WeatherType.FOG);
+
+    menu.destroy();
+  });
+
+  it("should persist and load weather setting in hob.weather in localStorage", () => {
+    const storage: Record<string, string> = {};
+    (globalThis as any).localStorage = {
+      getItem: (key: string) => storage[key] ?? null,
+      setItem: (key: string, value: string) => {
+        storage[key] = value;
+      },
+      removeItem: (key: string) => {
+        delete storage[key];
+      },
+      clear: () => {
+        Object.keys(storage).forEach((k) => delete storage[k]);
+      },
+    };
+
+    const settings = new BattleSettings();
+    expect(settings.weather).toBe(WeatherType.NONE);
+
+    settings.weather = WeatherType.RAIN;
+    settings.save();
+    expect(storage['hob.weather']).toBe('rain');
+
+    const fresh = new BattleSettings();
+    expect(fresh.weather).toBe(WeatherType.NONE);
+    fresh.load();
+    expect(fresh.weather).toBe(WeatherType.RAIN);
+
+    fresh.weather = WeatherType.THUNDERSTORM;
+    fresh.save();
+    expect(storage['hob.weather']).toBe('thunderstorm');
   });
 
   it("should display game version text in top-right corner when FPS is displayed and sync visibility with FPS", () => {
@@ -1153,5 +1236,352 @@ describe("Redesigned Medieval Battle UI (Combined Stats, Abilities, Scrollable P
     expect(controls.restButton!.y).toBe(936 + 30);
     expect(controls.nextTurnButton!.x).toBe(360 + 1662);
     expect(controls.nextTurnButton!.y).toBe(936 + 26);
+  });
+});
+
+describe("Animation Speed Slider, Scaling & Automatic Battle Computation Separation", () => {
+  it("should default animationSpeed to 8 (multiplier 1.0) and scale linearly down to 0.25 at speed 1 (4x slower)", () => {
+    expect(MIN_ANIMATION_SPEED).toBe(1);
+    expect(MAX_ANIMATION_SPEED).toBe(8);
+    expect(DEFAULT_ANIMATION_SPEED).toBe(8);
+
+    const settings = new BattleSettings();
+    expect(settings.animationSpeed).toBe(8);
+    expect(settings.getAnimationSpeedMultiplier()).toBeCloseTo(1.0, 5);
+
+    // Speed 1 = slowest (4 times slower than speed 8 -> multiplier 0.25)
+    settings.setAnimationSpeed(1);
+    expect(settings.animationSpeed).toBe(1);
+    expect(settings.getAnimationSpeedMultiplier()).toBeCloseTo(0.25, 5);
+
+    // Clamping and integer rounding
+    expect(clampAnimationSpeed(0)).toBe(1);
+    expect(clampAnimationSpeed(-5)).toBe(1);
+    expect(clampAnimationSpeed(9)).toBe(8);
+    expect(clampAnimationSpeed(4.6)).toBe(5);
+    expect(clampAnimationSpeed(NaN)).toBe(8);
+
+    // Monotonically increasing across 1..8
+    let prev = 0;
+    for (let s = 1; s <= 8; s++) {
+      const mult = getAnimationSpeedMultiplier(s);
+      expect(mult).toBeGreaterThan(prev);
+      prev = mult;
+    }
+    expect(getAnimationSpeedMultiplier(1)).toBeCloseTo(0.25, 5);
+    expect(getAnimationSpeedMultiplier(8)).toBeCloseTo(1.0, 5);
+  });
+
+  it("should persist and load animationSpeed in hob.animationSpeed in localStorage", () => {
+    const storage: Record<string, string> = {};
+    (globalThis as any).localStorage = {
+      getItem: (key: string) => storage[key] ?? null,
+      setItem: (key: string, value: string) => {
+        storage[key] = value;
+      },
+      removeItem: (key: string) => {
+        delete storage[key];
+      },
+      clear: () => {
+        Object.keys(storage).forEach((k) => delete storage[k]);
+      },
+    };
+
+    const settings = new BattleSettings();
+    expect(settings.animationSpeed).toBe(8);
+
+    settings.setAnimationSpeed(3);
+    settings.save();
+    expect(storage["hob.animationSpeed"]).toBe("3");
+
+    const loadedSettings = new BattleSettings();
+    loadedSettings.load();
+    expect(loadedSettings.animationSpeed).toBe(3);
+
+    // Out-of-bounds persisted values are clamped on load
+    storage["hob.animationSpeed"] = "99";
+    loadedSettings.load();
+    expect(loadedSettings.animationSpeed).toBe(8);
+
+    storage["hob.animationSpeed"] = "-2";
+    loadedSettings.load();
+    expect(loadedSettings.animationSpeed).toBe(1);
+  });
+
+  it("should configure animationSpeedSlider in BattleMenuPanel with range 1..8, step 1, and default 8", () => {
+    const container = new Container();
+    const dummyUiSheet = {
+      textures: new Proxy(
+        {},
+        {
+          get: () => Texture.EMPTY,
+        }
+      ),
+    } as unknown as Spritesheet;
+
+    const menu = new BattleMenuPanel(container, dummyUiSheet);
+
+    expect(menu.animationSpeedSlider).toBeDefined();
+    expect(menu.animationSpeedValueText).toBeDefined();
+    expect(menu.animationSpeedButton).toBeDefined();
+
+    expect(menu.animationSpeedSlider!.min).toBe(1);
+    expect(menu.animationSpeedSlider!.max).toBe(8);
+    expect(menu.animationSpeedSlider!.step).toBe(1);
+    expect(menu.animationSpeedSlider!.value).toBe(8);
+    expect(menu.getAnimationSpeed()).toBe(8);
+    expect(menu.animationSpeedValueText!.text).toBe("8");
+
+    const observedSpeeds: number[] = [];
+    menu.onAnimationSpeedChange = (speed) => {
+      observedSpeeds.push(speed);
+    };
+
+    // Simulate user adjusting slider to 1
+    menu.animationSpeedSlider!.value = 1;
+    expect(menu.getAnimationSpeed()).toBe(1);
+    expect(menu.animationSpeedValueText!.text).toBe("1");
+    expect(observedSpeeds).toContain(1);
+
+    // Simulate user adjusting slider to 5
+    menu.animationSpeedSlider!.value = 5;
+    expect(menu.getAnimationSpeed()).toBe(5);
+    expect(menu.animationSpeedValueText!.text).toBe("5");
+    expect(observedSpeeds).toContain(5);
+
+    // Pressing the animation speed button resets speed to default (8)
+    menu.animationSpeedButton!.onPress.emit();
+    expect(menu.getAnimationSpeed()).toBe(8);
+    expect(menu.animationSpeedValueText!.text).toBe("8");
+    expect(observedSpeeds[observedSpeeds.length - 1]).toBe(8);
+
+    menu.destroy();
+  });
+
+  it("should scale battle action animation stepping 4x slower at speed 1 compared to speed 8 in BattleView", () => {
+    const runMoveAtSpeed = (speed: number): number => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+      battle.initializeToSize(10, 8);
+      for (let x = 0; x < 10; x++) {
+        for (let y = 0; y < 8; y++) {
+          battle.terrain_tiles[x][y] = 0;
+        }
+      }
+
+      const unit = new Creature(CreatureType.SWORDSMAN);
+      unit.position = { x: 2, y: 2 };
+      unit.armyAlignment = 0;
+      battle.creatures.push(unit);
+      battle.start();
+      battle.selectNextUnitAndGetIndex();
+
+      const settings = new BattleSettings();
+      settings.setAnimationSpeed(speed);
+
+      const dummyAssets: any = { softCursorTextures: {} };
+      const view = new BattleView(dummyAssets, settings, hexMap, battle, 1.4);
+
+      // Queue a 1-hex move action (stepDuration = 50ms, remainingTime = 50ms)
+      battle.moveOrAttackWithActiveCreatureAtLocation({ x: 3, y: 2 }, 0);
+      expect(battle.hasRunningActions()).toBe(true);
+
+      let frames = 0;
+      while (battle.hasRunningActions() && frames < 500) {
+        frames++;
+        view.update(10, 60); // 10ms per frame
+      }
+      return frames;
+    };
+
+    const framesAtSpeed8 = runMoveAtSpeed(8);
+    const framesAtSpeed1 = runMoveAtSpeed(1);
+
+    // Speed 1 has multiplier 0.25 (2.5ms per 10ms frame) vs Speed 8 multiplier 1.0 (10ms per 10ms frame)
+    expect(framesAtSpeed1).toBe(framesAtSpeed8 * 4);
+  });
+
+  it("should compute battles automatically via Battle.computeAutomatically without being affected by animation speed", () => {
+    const createIdenticalBattle = (seed: number): Battle => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+      battle.setSeed(seed);
+      battle.maxTurns = 30;
+      battle.initializeToSize(10, 8);
+
+      const u0 = new Creature(CreatureType.SWORDSMAN);
+      u0.position = { x: 2, y: 3 };
+      u0.armyAlignment = 0;
+      u0.facingDirection = 1;
+
+      const u1 = new Creature(CreatureType.SWORDSMAN);
+      u1.position = { x: 5, y: 3 };
+      u1.armyAlignment = 1;
+      u1.facingDirection = 4;
+
+      battle.creatures.push(u0, u1);
+      battle.start();
+      return battle;
+    };
+
+    // Battle 1 computed with animationSpeed = 1 in settings
+    const settingsSlow = new BattleSettings();
+    settingsSlow.setAnimationSpeed(1);
+    const battle1 = createIdenticalBattle(4242);
+    const cpu1A = new AggressiveCPUPlayer(battle1);
+    const cpu1B = new AggressiveCPUPlayer(battle1);
+    const resultSlow = battle1.computeAutomatically([cpu1A, cpu1B]);
+
+    // Battle 2 computed with animationSpeed = 8 in settings
+    const settingsFast = new BattleSettings();
+    settingsFast.setAnimationSpeed(8);
+    const battle2 = createIdenticalBattle(4242);
+    const cpu2A = new AggressiveCPUPlayer(battle2);
+    const cpu2B = new AggressiveCPUPlayer(battle2);
+    const resultFast = battle2.computeAutomatically([cpu2A, cpu2B]);
+
+    expect(battle1.isFinished()).toBe(true);
+    expect(battle2.isFinished()).toBe(true);
+    expect(resultSlow.victorArmyIndex).toBe(resultFast.victorArmyIndex);
+    expect(resultSlow.turnsTaken).toBe(resultFast.turnsTaken);
+    expect(resultSlow.totalDamageDealt).toEqual(resultFast.totalDamageDealt);
+    expect(resultSlow.totalStaminaSpent).toEqual(resultFast.totalStaminaSpent);
+  });
+
+  it("should start with manual player control and allow toggling auto-battle and choosing CPU personality in BattleView", () => {
+    const prevDoc = (globalThis as any).document;
+    const prevContext = (globalThis as any).CanvasRenderingContext2D;
+
+    if (typeof (globalThis as any).CanvasRenderingContext2D === "undefined") {
+      (globalThis as any).CanvasRenderingContext2D = class {};
+    }
+    if (typeof document === "undefined") {
+      const mockCanvas = {
+        getContext: () => ({
+          measureText: () => ({ width: 40, actualBoundingBoxAscent: 10, actualBoundingBoxDescent: 2 }),
+          fillText: () => {},
+          strokeText: () => {},
+          clearRect: () => {},
+        }),
+      };
+      (globalThis as any).document = {
+        createElement: (tag: string) => {
+          if (tag === "canvas") return mockCanvas;
+          return {
+            style: {},
+            classList: { add: () => {}, remove: () => {}, contains: () => false },
+            appendChild: (c: any) => c,
+            removeChild: (c: any) => c,
+          };
+        },
+        getElementById: () => null,
+      };
+    }
+
+    const textureNames = [
+      "thin_button_normal.png",
+      "thin_button_hover.png",
+      "thin_button_2_normal.png",
+      "thin_button_2_hover.png",
+      "btn_simple.png",
+      "btn_simple_hover.png",
+      "btn_simple_click.png",
+      "glyph_plus.png",
+      "glyph_minus.png",
+      "glyph_next_turn.png",
+      "glyph_next_unit.png",
+      "glyph_reset.png",
+      "glyph_ability1.png",
+      "glyph_stamina",
+      "panel.png",
+    ];
+    textureNames.forEach((name) => {
+      try {
+        Assets.cache.set(name, Texture.EMPTY);
+      } catch {
+        // ignore
+      }
+    });
+
+    try {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+      battle.initializeToSize(10, 8);
+      const unit = new Creature(CreatureType.SWORDSMAN);
+      unit.position = { x: 2, y: 2 };
+      unit.armyAlignment = 0;
+      battle.creatures.push(unit);
+      battle.start();
+
+      const settings = new BattleSettings();
+      const dummyAssets: any = { softCursorTextures: { default: Texture.EMPTY } };
+      const view = new BattleView(dummyAssets, settings, hexMap, battle, 1.4);
+
+      let toggledState: boolean | undefined;
+      let selectedPersonality: string | undefined;
+
+      view.initialize({
+        onZoomIn: () => {},
+        onZoomOut: () => {},
+        onZoomSliderUpdate: () => {},
+        onNextTurn: () => {},
+        onNextUnit: () => {},
+        onReset: () => {},
+        onActiveAbility1: () => {},
+        onToggleAutoBattle: (enabled) => {
+          toggledState = enabled;
+        },
+        onAutoBattlePersonalityChange: (personality) => {
+          selectedPersonality = personality;
+        },
+      });
+
+      // Always starts with manual human player control
+      expect(view.isAutoBattleEnabled).toBe(false);
+      expect(battle.army_control[0]).toBe(ArmyControlType.PLAYER);
+      expect(view.commonControls.autoBattleButton).toBeDefined();
+      expect(view.commonControls.autoBattlePersonalityDropdown).toBeDefined();
+
+      // Dropdown should be positioned right next to the auto-battle button
+      expect(view.commonControls.autoBattlePersonalityDropdown!.x).toBeGreaterThan(
+        view.commonControls.autoBattleButton!.x
+      );
+      expect(view.commonControls.autoBattlePersonalityDropdown!.y).toBe(
+        view.commonControls.autoBattleButton!.y
+      );
+
+      // Default personality in dropdown is Defensive
+      expect(view.commonControls.autoBattlePersonalityDropdown!.selectedPersonality).toBe("defensive");
+
+      // Click auto-battle button to toggle ON
+      view.commonControls.autoBattleButton!.onPress.emit();
+      expect(view.isAutoBattleEnabled).toBe(true);
+      expect(toggledState).toBe(true);
+      expect(battle.army_control[0]).toBe(ArmyControlType.AI);
+      expect(view.getPlayerCpuPlayer()?.personalityName).toBe("defensive");
+
+      // Open dropdown and select Aggressive personality
+      const dropdown = view.commonControls.autoBattlePersonalityDropdown!;
+      dropdown.headerButton.onPress.emit();
+      expect(dropdown.isOpen).toBe(true);
+
+      const aggressiveBtn = dropdown.optionButtonsByPersonality.get("aggressive" as any);
+      expect(aggressiveBtn).toBeDefined();
+      aggressiveBtn!.onPress.emit();
+
+      expect(dropdown.isOpen).toBe(false);
+      expect(dropdown.selectedPersonality).toBe("aggressive");
+      expect(selectedPersonality).toBe("aggressive");
+      expect(view.getPlayerCpuPlayer()?.personalityName).toBe("aggressive");
+
+      // Click auto-battle button to toggle OFF (back to manual control)
+      view.commonControls.autoBattleButton!.onPress.emit();
+      expect(view.isAutoBattleEnabled).toBe(false);
+      expect(toggledState).toBe(false);
+      expect(battle.army_control[0]).toBe(ArmyControlType.PLAYER);
+    } finally {
+      (globalThis as any).document = prevDoc;
+      (globalThis as any).CanvasRenderingContext2D = prevContext;
+    }
   });
 });

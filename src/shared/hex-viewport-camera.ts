@@ -97,6 +97,17 @@ export class HexViewportCamera {
   }
 
   /**
+   * Convert camera world space coordinates to stage coordinates
+   * (accounting for camera pan offset and zoom scale).
+   */
+  public worldToStageCoords(worldCoords: Coords): Coords {
+    return {
+      x: worldCoords.x * this.zoomLevel + this.panOffset.x,
+      y: worldCoords.y * this.zoomLevel + this.panOffset.y,
+    };
+  }
+
+  /**
    * Convert screen coordinates directly to camera world space.
    */
   public screenToWorldCoords(screenCoords: Coords, stageOffset: Coords, stageScale: Coords): Coords {

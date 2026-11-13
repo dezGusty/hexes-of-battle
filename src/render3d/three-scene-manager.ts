@@ -1,11 +1,22 @@
 import * as THREE from 'three';
 import { Camera3DConfig } from './types';
 import { Coords } from '../shared';
+import {
+  BattleLocationType,
+  createSkyboxMesh,
+  getSkyboxThemeColors,
+  normalizeBattleLocationType,
+  updateSkyboxMeshTheme,
+} from './decorations/battle-environment-3d';
+import { WeatherSystem3D, WeatherType } from './decorations/weather-system-3d';
 
 export class ThreeSceneManager {
   public readonly scene: THREE.Scene = new THREE.Scene();
   public readonly camera: THREE.PerspectiveCamera;
   public readonly renderer: THREE.WebGLRenderer;
+  public skyboxMesh!: THREE.Mesh;
+  public readonly weatherSystem: WeatherSystem3D = new WeatherSystem3D();
+  private skyboxTheme: BattleLocationType = BattleLocationType.FARM;
 
   public readonly canvas: HTMLCanvasElement;
   private containerElement: HTMLElement;
@@ -19,12 +30,12 @@ export class ThreeSceneManager {
   private cameraConfig: Camera3DConfig = {
     fov: 40,
     near: 0.1,
-    far: 200,
+    far: 300,
     initialDistance: 18.0,
-    minDistance: 8.0,
+    minDistance: 4.5,
     maxDistance: 32.0,
     initialPitch: Math.PI * 0.32,
-    minPitch: Math.PI * 0.15,
+    minPitch: Math.PI * 0.08,
     maxPitch: Math.PI * 0.45,
   };
 
@@ -70,11 +81,11 @@ export class ThreeSceneManager {
       // In headless environments or environments lacking WebGL2/WebGL context
       this.renderer = {
         domElement: this.canvas,
-        setPixelRatio: () => {},
-        setSize: () => {},
-        setClearColor: () => {},
-        render: () => {},
-        dispose: () => {},
+        setPixelRatio: () => { },
+        setSize: () => { },
+        setClearColor: () => { },
+        render: () => { },
+        dispose: () => { },
         shadowMap: { enabled: true, type: THREE.PCFShadowMap },
       } as any;
     }
@@ -88,6 +99,7 @@ export class ThreeSceneManager {
 
     this.setupLighting();
     this.setupSkyBackground();
+    this.setupWeatherSystem();
     this.updateCameraPosition();
   }
 
@@ -103,7 +115,7 @@ export class ThreeSceneManager {
     this.scene.add(this.hemiLight);
 
     // Directional Sunlight angled from northwest to cast prominent shadows towards the camera
-    this.dirLight = new THREE.DirectionalLight(0xfff5e6, 2.0);
+    this.dirLight = new THREE.DirectionalLight(0xfff5e6, 2.4);
     this.dirLight.name = 'DirectionalLight';
     this.dirLight.position.set(-16, 20, -12);
     this.dirLight.castShadow = true;
@@ -134,12 +146,12 @@ export class ThreeSceneManager {
       if (!depthTex) return;
       Object.defineProperty(depthTex, 'minFilter', {
         get: () => THREE.NearestFilter,
-        set: () => {},
+        set: () => { },
         configurable: true,
       });
       Object.defineProperty(depthTex, 'magFilter', {
         get: () => THREE.NearestFilter,
-        set: () => {},
+        set: () => { },
         configurable: true,
       });
     };
@@ -171,8 +183,53 @@ export class ThreeSceneManager {
   }
 
   private setupSkyBackground(): void {
-    // Soft atmospheric background fog
-    this.scene.fog = new THREE.FogExp2(0x0f1c26, 0.018);
+    const theme = getSkyboxThemeColors(this.skyboxTheme);
+    this.scene.fog = new THREE.FogExp2(theme.fogHex, theme.fogDensity);
+    this.renderer.setClearColor(theme.horizonHex, 1.0);
+    this.skyboxMesh = createSkyboxMesh(this.skyboxTheme, 120);
+    this.scene.add(this.skyboxMesh);
+  }
+
+  private setupWeatherSystem(): void {
+    this.scene.add(this.weatherSystem.group);
+    this.weatherSystem.attachScene(
+      this.scene,
+      this.dirLight,
+      this.ambientLight,
+      this.hemiLight,
+      this.renderer
+    );
+  }
+
+  public setSkyboxTheme(locationType: BattleLocationType | string): void {
+    const normalized = normalizeBattleLocationType(locationType, this.skyboxTheme);
+    this.skyboxTheme = normalized;
+    const theme = getSkyboxThemeColors(normalized);
+    this.scene.fog = new THREE.FogExp2(theme.fogHex, theme.fogDensity);
+    this.renderer.setClearColor(theme.horizonHex, 1.0);
+    if (this.skyboxMesh) {
+      updateSkyboxMeshTheme(this.skyboxMesh, normalized);
+    } else {
+      this.skyboxMesh = createSkyboxMesh(normalized, 120);
+      this.scene.add(this.skyboxMesh);
+    }
+    this.weatherSystem.setBaseEnvironment(theme.fogHex, theme.fogDensity, theme.horizonHex);
+  }
+
+  public setWeather(weather: WeatherType): void {
+    this.weatherSystem.setWeather(weather);
+  }
+
+  public getWeather(): WeatherType {
+    return this.weatherSystem.getWeather();
+  }
+
+  public getSkyboxTheme(): BattleLocationType {
+    return this.skyboxTheme;
+  }
+
+  public getSkyboxMesh(): THREE.Mesh {
+    return this.skyboxMesh;
   }
 
   public getCameraConfig(): Camera3DConfig {
@@ -236,6 +293,9 @@ export class ThreeSceneManager {
 
     this.camera.position.set(x, y, z);
     this.camera.lookAt(this.cameraTarget);
+    if (this.skyboxMesh) {
+      this.skyboxMesh.position.set(this.cameraTarget.x, 0, this.cameraTarget.z);
+    }
   }
 
   public rotateCamera(deltaYaw: number, deltaPitch: number = 0): void {
@@ -333,6 +393,12 @@ export class ThreeSceneManager {
   }
 
   public dispose(): void {
+    this.weatherSystem.dispose();
+    if (this.skyboxMesh) {
+      this.scene.remove(this.skyboxMesh);
+      this.skyboxMesh.geometry?.dispose();
+      (this.skyboxMesh.material as THREE.Material)?.dispose();
+    }
     this.renderer.dispose();
     if (this.canvas.parentElement) {
       this.canvas.parentElement.removeChild(this.canvas);

@@ -23,6 +23,9 @@ interface ImpactBurst {
 }
 
 export class ProjectileSystem3D {
+  public static readonly ARROW_SCALE = 0.66;
+  public static readonly PEBBLE_RADIUS = 0.045;
+
   public readonly group: THREE.Group = new THREE.Group();
 
   private activeProjectiles: ActiveProjectile[] = [];
@@ -30,23 +33,69 @@ export class ProjectileSystem3D {
 
   constructor() {}
 
-  private createArrowMesh(type: string): THREE.Group {
+  public createPebbleMesh(): THREE.Group {
+    const pebbleGeo = new THREE.SphereGeometry(ProjectileSystem3D.PEBBLE_RADIUS, 6, 5);
+    const pebbleMat = new THREE.MeshStandardMaterial({
+      color: 0x888888,
+      roughness: 0.85,
+      metalness: 0.05,
+      flatShading: true,
+    });
+    const pebble = new THREE.Mesh(pebbleGeo, pebbleMat);
+    pebble.name = 'Pebble';
+
+    const wrapper = new THREE.Group();
+    wrapper.name = 'PebbleProjectile';
+    wrapper.userData = {
+      projectileType: 'stone',
+      isPebble: true,
+      radius: ProjectileSystem3D.PEBBLE_RADIUS,
+    };
+    wrapper.add(pebble);
+    return wrapper;
+  }
+
+  public createProjectileMesh(type: string): THREE.Group {
+    if (type === 'stone' || type === 'pebble') {
+      return this.createPebbleMesh();
+    }
+    return this.createArrowMesh(type);
+  }
+
+  public createArrowMesh(type: string): THREE.Group {
+    if (type === 'stone' || type === 'pebble') {
+      return this.createPebbleMesh();
+    }
+
+    const s = ProjectileSystem3D.ARROW_SCALE;
     const arrow = new THREE.Group();
 
-    // Shaft
+    // Shaft (scaled to 66% of original 0.02 radius, 0.6 length)
     const shaftMat = new THREE.MeshStandardMaterial({ color: 0xbb9955 });
-    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.6, 6), shaftMat);
+    const shaft = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.02 * s, 0.02 * s, 0.6 * s, 6),
+      shaftMat
+    );
+    shaft.name = 'Shaft';
 
-    // Tip
+    // Tip (scaled to 66% of original 0.05 radius, 0.15 length)
     const tipColor = type === 'magic' ? 0x66ccff : 0x777788;
     const tipMat = new THREE.MeshStandardMaterial({ color: tipColor, metalness: 0.8, roughness: 0.2 });
-    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.15, 6), tipMat);
-    tip.position.y = 0.35;
+    const tip = new THREE.Mesh(
+      new THREE.ConeGeometry(0.05 * s, 0.15 * s, 6),
+      tipMat
+    );
+    tip.name = 'Tip';
+    tip.position.y = 0.35 * s;
 
-    // Feathers
+    // Feathers (scaled to 66% of original 0.1 x 0.14 plane)
     const fletchMat = new THREE.MeshBasicMaterial({ color: 0xcc2222, side: THREE.DoubleSide });
-    const fletch = new THREE.Mesh(new THREE.PlaneGeometry(0.1, 0.14), fletchMat);
-    fletch.position.y = -0.22;
+    const fletch = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.1 * s, 0.14 * s),
+      fletchMat
+    );
+    fletch.name = 'Fletching';
+    fletch.position.y = -0.22 * s;
 
     arrow.add(shaft);
     arrow.add(tip);
@@ -56,6 +105,11 @@ export class ProjectileSystem3D {
     arrow.rotation.x = Math.PI * 0.5;
 
     const wrapper = new THREE.Group();
+    wrapper.name = 'ArrowProjectile';
+    wrapper.userData = {
+      projectileType: type,
+      scaleFactor: s,
+    };
     wrapper.add(arrow);
     return wrapper;
   }
@@ -85,7 +139,7 @@ export class ProjectileSystem3D {
         const apex = proj.apexHeight ?? (params.apexHeight > 0 ? params.apexHeight : Math.max(1.5, dist * 0.35));
         const duration = proj.durationMs ?? (params.durationMs > 0 ? params.durationMs : Math.max(400, dist * 120));
 
-        const mesh = this.createArrowMesh(params.projectileType);
+        const mesh = this.createProjectileMesh(params.projectileType);
         mesh.position.copy(start);
         mesh.visible = isPrimary;
         this.group.add(mesh);
@@ -102,10 +156,11 @@ export class ProjectileSystem3D {
         trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3));
         trailGeo.setDrawRange(0, 1);
 
+        const isPebbleType = params.projectileType === 'stone' || params.projectileType === 'pebble';
         const trailMat = new THREE.LineBasicMaterial({
-          color: params.projectileType === 'magic' ? 0x88ddff : 0xffffff,
+          color: params.projectileType === 'magic' ? 0x88ddff : isPebbleType ? 0xbbbbbb : 0xffffff,
           transparent: true,
-          opacity: 0.5,
+          opacity: isPebbleType ? 0.35 : 0.5,
         });
         const trailLine = new THREE.Line(trailGeo, trailMat);
         this.group.add(trailLine);
@@ -153,7 +208,7 @@ export class ProjectileSystem3D {
         end.add(params.scatterOffset);
       }
 
-      const mesh = this.createArrowMesh(params.projectileType);
+      const mesh = this.createProjectileMesh(params.projectileType);
       mesh.position.copy(start);
       mesh.visible = isPrimary;
       this.group.add(mesh);
@@ -170,10 +225,11 @@ export class ProjectileSystem3D {
       trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3));
       trailGeo.setDrawRange(0, 1);
 
+      const isPebbleType = params.projectileType === 'stone' || params.projectileType === 'pebble';
       const trailMat = new THREE.LineBasicMaterial({
-        color: params.projectileType === 'magic' ? 0x88ddff : 0xffffff,
+        color: params.projectileType === 'magic' ? 0x88ddff : isPebbleType ? 0xbbbbbb : 0xffffff,
         transparent: true,
-        opacity: 0.5,
+        opacity: isPebbleType ? 0.35 : 0.5,
       });
       const trailLine = new THREE.Line(trailGeo, trailMat);
       this.group.add(trailLine);

@@ -8,6 +8,8 @@ import {
   parseTraitsConfig,
 } from "./trait-system";
 import { UnitVisualFactory } from "../render3d/units/unit-visual-factory";
+import { buildArticulatedUnit3DMesh } from "../render3d/units/unit-mesh-builder";
+import * as THREE from "three";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -357,6 +359,67 @@ describe("Slinger Unit and Imprecise Volley Perk", () => {
         expect(mat).toBeDefined();
         expect(mat.map).toBeDefined();
       });
+    });
+  });
+
+  describe("5. Slinger 3D Model & Slender Torso Geometry", () => {
+    it("should build procedural slinger with slender torso matching maceman and peasant", () => {
+      const torso = buildArticulatedUnit3DMesh(CreatureType.SLINGER, 0, false);
+      expect(torso).toBeDefined();
+      expect(torso.name).toBe("Torso");
+
+      // Verify slender torso geometry bounding box
+      torso.geometry.computeBoundingBox();
+      const box = torso.geometry.boundingBox!;
+      expect(box).toBeDefined();
+      const depthX = box.max.x - box.min.x;
+      const widthZ = box.max.z - box.min.z;
+      // Torso width should be slender (~0.28 to ~0.35m with belt/pouch, significantly narrower than bulky units)
+      expect(widthZ).toBeLessThan(0.38);
+      expect(depthX).toBeLessThan(0.40);
+
+      // Verify preserved limb roots are attached
+      const childNames = new Set(torso.children.map((c) => c.name));
+      expect(childNames.has("Head")).toBe(true);
+      expect(childNames.has("Arm_L")).toBe(true);
+      expect(childNames.has("Arm_R")).toBe(true);
+      expect(childNames.has("Leg_L")).toBe(true);
+      expect(childNames.has("Leg_R")).toBe(true);
+
+      const armL = torso.children.find((c) => c.name === "Arm_L") as THREE.Mesh;
+      expect(armL).toBeDefined();
+
+      const armR = torso.children.find((c) => c.name === "Arm_R") as THREE.Mesh;
+      expect(armR).toBeDefined();
+    });
+
+    it("should have exported blender slinger.glb and slinger.blend assets", () => {
+      const glbPath = path.resolve(__dirname, "../../public/models/units/slinger.glb");
+      const blendPath = path.resolve(__dirname, "../../assets/blender/slinger.blend");
+
+      expect(fs.existsSync(glbPath)).toBe(true);
+      expect(fs.existsSync(blendPath)).toBe(true);
+      expect(fs.statSync(glbPath).size).toBeGreaterThan(10000);
+      expect(fs.statSync(blendPath).size).toBeGreaterThan(50000);
+    });
+
+    it("should have stone throwing sound files in public/audio and configured in sounds.json", () => {
+      const audioDir = path.resolve(__dirname, "../../public/audio");
+      const expectedFiles = [
+        "47495__kwandalist__steinwurf_1.ogg",
+        "47495__kwandalist__steinwurf_2.ogg",
+        "47495__kwandalist__steinwurf_3.ogg",
+      ];
+      for (const file of expectedFiles) {
+        const filePath = path.join(audioDir, file);
+        expect(fs.existsSync(filePath)).toBe(true);
+        expect(fs.statSync(filePath).size).toBeGreaterThan(1000);
+      }
+
+      const soundsCfg = JSON.parse(
+        fs.readFileSync(path.resolve(__dirname, "../../public/sounds.json"), "utf-8")
+      );
+      expect(soundsCfg.soundGroups.stone).toEqual(expectedFiles);
     });
   });
 });

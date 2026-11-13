@@ -3,9 +3,10 @@ import { sound } from "@pixi/sound";
 import { AdvancedBloomFilter } from "pixi-filters";
 import { GameAssets } from "../core/scene";
 import { BattleSettings } from "../battle/settings";
-import { Battle, ArmyControlType, InputState } from "../battle";
+import { Battle, ArmyControlType, InputState, DamagePreviewResult } from "../battle";
 import pkg from "../../package.json";
-import { CPUPlayer } from "../battle/cpu-player";
+import { CPUPersonalityType, CPUPlayer } from "../battle/cpu-player";
+import { CPUPlayerFactory } from "../battle/cpu-player-factory";
 import { Creature, CreatureType } from "../battle/creature";
 import { Ability } from "../battle/ability";
 import { Coords } from "../shared";
@@ -14,9 +15,13 @@ import { TopSidePanel } from "../ui/top-side-panel";
 import { BattleMenuPanel } from "../ui/battle-menu";
 import { UnitStatsPanel } from "../ui/unit-stats-panel";
 import { EnemyStatsPanel } from "../ui/enemy-stats-panel";
+import { DamagePreviewTooltip } from "../ui/damage-preview-tooltip";
 import { TurnChangeCollection } from "../ui/turn-change-display";
+import { PostBattlePanel } from "../ui/post-battle-panel";
 
 import { BattleSaveEntry, SaveManager } from "../battle/save-manager";
+import { setActiveUISoundSystem } from "../battle/ui-sounds";
+import { WeatherType } from "../ui/weather-dropdown";
 
 export interface BattleHud2DEvents {
   onZoomIn: () => void;
@@ -37,6 +42,10 @@ export interface BattleHud2DEvents {
   onToggleSceneInspector?: (showInspector: boolean) => void;
   onToggleHardwareCursor?: (hide: boolean) => void;
   onToggleDamageIndicators?: (showDamageIndicators: boolean) => void;
+  onAnimationSpeedChange?: (speed: number) => void;
+  onToggleAutoBattle?: (enabled: boolean) => void;
+  onAutoBattlePersonalityChange?: (personality: CPUPersonalityType) => void;
+  onWeatherChange?: (weather: WeatherType) => void;
   onSaveBattle?: (name: string) => boolean;
   onLoadSave?: (entry: BattleSaveEntry) => void;
 }
@@ -56,8 +65,10 @@ export class BattleHud2D {
   public commonControls!: CommonControls;
   public topSidePanel?: TopSidePanel;
   public battleMenuPanel?: BattleMenuPanel;
+  public postBattlePanel?: PostBattlePanel;
   public unitStats?: UnitStatsPanel;
   public enemyStats?: EnemyStatsPanel;
+  public damagePreviewTooltip?: DamagePreviewTooltip;
   public onShowEnemyStats?: (creature: Creature) => void;
   public onHideEnemyStats?: () => void;
   public fpsText?: BitmapText;
@@ -73,6 +84,9 @@ export class BattleHud2D {
   public readonly settings: BattleSettings;
   private battle: Battle;
   private cpuPlayer?: CPUPlayer;
+  private playerCpuPlayer?: CPUPlayer;
+  public isAutoBattleEnabled: boolean = false;
+  public autoBattlePersonality: CPUPersonalityType = CPUPersonalityType.DEFENSIVE;
   private screenWidth: number = UnitStatsPanel.NATIVE_WIDTH;
   private screenHeight: number = UnitStatsPanel.NATIVE_HEIGHT;
   private armyNames: [string, string] = [
@@ -90,8 +104,10 @@ export class BattleHud2D {
   ) {
     this.assets = assets;
     this.settings = settings;
+    setActiveUISoundSystem(undefined, this.settings);
     this.battle = battle;
     this.cpuPlayer = cpuPlayer;
+    this.playerCpuPlayer = CPUPlayerFactory.create(this.autoBattlePersonality, this.battle);
     if (armyNames) {
       this.armyNames = armyNames;
     }
@@ -138,6 +154,8 @@ export class BattleHud2D {
       }
       this.enemyStats = new EnemyStatsPanel(this.uiPlusRenderGroup, this.assets.uiSheet, this.battle.traitsConfig);
       this.enemyStats.hide();
+      this.damagePreviewTooltip = new DamagePreviewTooltip(this.uiPlusRenderGroup, this.assets.uiSheet);
+      this.damagePreviewTooltip.hide();
     }
 
     this.initializeCommonControls(events);
@@ -189,6 +207,51 @@ export class BattleHud2D {
     this.updateArmyNames();
   }
 
+  public getPlayerCpuPlayer(): CPUPlayer | undefined {
+    return this.playerCpuPlayer;
+  }
+
+  public setAutoBattleEnabled(enabled: boolean): void {
+    this.isAutoBattleEnabled = enabled;
+    this.commonControls?.setAutoBattleEnabled(enabled);
+    this.battle.army_control[0] = enabled ? ArmyControlType.AI : ArmyControlType.PLAYER;
+
+    if (enabled) {
+      this.battle.cancelTargetForAbilityIfApplicable();
+      this.hideEnemyStats();
+      this.hideDamagePreview();
+      if (!this.playerCpuPlayer || this.playerCpuPlayer.personalityName !== this.autoBattlePersonality) {
+        this.playerCpuPlayer = CPUPlayerFactory.create(this.autoBattlePersonality, this.battle);
+      } else {
+        this.playerCpuPlayer.reset();
+      }
+    } else {
+      this.playerCpuPlayer?.reset();
+      if (this.battle.currentArmyIndex === 0 && !this.battle.isFinished()) {
+        if (this.battle.activeCreatureIndex < 0 || !this.battle.getActiveCreature()) {
+          this.battle.selectNextUnitAndGetIndex();
+        } else {
+          this.battle.reselectCurrentUnit();
+        }
+      }
+    }
+
+    this.updateArmyNames();
+    this.updateTargetAcquirementHint();
+  }
+
+  public toggleAutoBattle(): boolean {
+    this.setAutoBattleEnabled(!this.isAutoBattleEnabled);
+    return this.isAutoBattleEnabled;
+  }
+
+  public setAutoBattlePersonality(personality: CPUPersonalityType): void {
+    this.autoBattlePersonality = personality;
+    this.commonControls?.setAutoBattlePersonality(personality, false);
+    this.playerCpuPlayer = CPUPlayerFactory.create(personality, this.battle);
+    this.updateArmyNames();
+  }
+
   public getFormattedArmyName(armyIndex: number): string {
     const baseName = this.armyNames[armyIndex] ?? (armyIndex === 0 ? "The Count of Ekkina's 1st Army" : "Knights of The Grand Duke");
     const isPlayer = this.battle.army_control[armyIndex] === ArmyControlType.PLAYER;
@@ -197,7 +260,10 @@ export class BattleHud2D {
     if (isPlayer) {
       tag = 'Human';
     } else {
-      const personality = this.cpuPlayer?.personalityName;
+      const personality =
+        armyIndex === 0 && this.isAutoBattleEnabled
+          ? (this.playerCpuPlayer?.personalityName ?? this.autoBattlePersonality)
+          : this.cpuPlayer?.personalityName;
       if (personality) {
         const capitalized = personality.charAt(0).toUpperCase() + personality.slice(1);
         tag = `CPU ${capitalized}`;
@@ -222,7 +288,7 @@ export class BattleHud2D {
   private initializeCommonControls(events: BattleHud2DEvents): void {
     this.commonControls = new CommonControls({
       zoomMin: 75,
-      zoomMax: 200,
+      zoomMax: 400,
       zoomStep: 5,
       zoomValue: 100,
     });
@@ -245,6 +311,22 @@ export class BattleHud2D {
       this.battleMenuPanel = new BattleMenuPanel(this.uiPlusRenderGroup, this.assets.uiSheet);
       this.battleMenuPanel.battle = this.battle;
       this.battleMenuPanel.setSoundValues(this.settings.sound.musicVolume, this.settings.sound.soundVolume);
+      this.battleMenuPanel.setAnimationSpeed(this.settings.animationSpeed);
+      this.battleMenuPanel.onAnimationSpeedChange = (speed) => {
+        this.settings.setAnimationSpeed(speed);
+        this.settings.save();
+        if (events.onAnimationSpeedChange) {
+          events.onAnimationSpeedChange(this.settings.animationSpeed);
+        }
+      };
+      this.battleMenuPanel.setWeather(this.settings.weather);
+      this.battleMenuPanel.onWeatherChange = (weather) => {
+        this.settings.weather = weather;
+        this.settings.save();
+        if (events.onWeatherChange) {
+          events.onWeatherChange(weather);
+        }
+      };
       this.battleMenuPanel.onSaveBattle = (name) => {
         if (events.onSaveBattle) {
           return events.onSaveBattle(name);
@@ -263,9 +345,26 @@ export class BattleHud2D {
       this.battleMenuPanel.hide();
     }
 
+    this.postBattlePanel = new PostBattlePanel(this.uiPlusRenderGroup);
+
     this.commonControls.menuButton?.onPress.connect(() => {
       this.battleMenuPanel?.toggleVisibility();
     });
+
+    this.commonControls.setAutoBattleEnabled(this.isAutoBattleEnabled);
+    this.commonControls.setAutoBattlePersonality(this.autoBattlePersonality, false);
+
+    this.commonControls.autoBattleButton?.onPress.connect(() => {
+      const enabled = this.toggleAutoBattle();
+      events.onToggleAutoBattle?.(enabled);
+    });
+
+    if (this.commonControls.autoBattlePersonalityDropdown) {
+      this.commonControls.autoBattlePersonalityDropdown.onChange = (personality) => {
+        this.setAutoBattlePersonality(personality);
+        events.onAutoBattlePersonalityChange?.(personality);
+      };
+    }
 
     this.battleMenuPanel?.toggleGridButton?.onPress.connect(() => {
       this.settings.hex.showGrid = !this.settings.hex.showGrid;
@@ -438,7 +537,7 @@ export class BattleHud2D {
 
   public getBannerTextureForArmyIndex(armyIndex: number): Texture | undefined {
     if (!this.assets.bannersSheet) return undefined;
-    const name = `banner${(armyIndex % 16) + 1}.png`;
+    const name = this.battle.getBannerForArmy(armyIndex);
     return this.assets.bannersSheet.textures[name] || this.assets.bannersSheet.textures['banner1.png'];
   }
 
@@ -466,6 +565,18 @@ export class BattleHud2D {
     if (this.topSidePanel) {
       this.topSidePanel.setActiveArmyIndex(victorArmyIndex);
     }
+
+    this.showPostBattleScreen(victorArmyIndex);
+  }
+
+  public showPostBattleScreen(victorArmyIndex?: number): void {
+    if (this.postBattlePanel && this.battle) {
+      this.postBattlePanel.show(this.battle, victorArmyIndex);
+    }
+  }
+
+  public hidePostBattleScreen(): void {
+    this.postBattlePanel?.hide();
   }
 
   public showEndTurnRecommendation(): void {
@@ -669,6 +780,14 @@ export class BattleHud2D {
     this.onHideEnemyStats?.();
   }
 
+  public showDamagePreview(preview: DamagePreviewResult, anchorX: number, anchorY: number): void {
+    this.damagePreviewTooltip?.show(preview, anchorX, anchorY, this.screenWidth, this.screenHeight);
+  }
+
+  public hideDamagePreview(): void {
+    this.damagePreviewTooltip?.hide();
+  }
+
   public getSelectedEnemyCreature(): Creature | undefined {
     if (this.enemyStats?.isVisible()) {
       return this.enemyStats.getCreature();
@@ -690,6 +809,14 @@ export class BattleHud2D {
 
   public setHardwareCursorHidden(hidden: boolean): void {
     this.battleMenuPanel?.setHardwareCursorHidden(hidden);
+  }
+
+  public setWeather(weather: WeatherType): void {
+    this.battleMenuPanel?.setWeather(weather);
+  }
+
+  public getWeather(): WeatherType {
+    return this.battleMenuPanel?.getWeather() ?? this.settings.weather;
   }
 
   public setCursor(cursorHint?: string): void {
@@ -738,6 +865,22 @@ export class BattleHud2D {
       return true;
     }
 
+    // Auto-battle button and CPU personality dropdown at top-left
+    if (this.commonControls?.autoBattleButton?.visible) {
+      const abBounds = CommonControls.AUTO_BATTLE_BUTTON_BOUNDS;
+      if (
+        stageX >= abBounds.x &&
+        stageX <= abBounds.x + abBounds.width &&
+        stageY >= abBounds.y &&
+        stageY <= abBounds.y + abBounds.height
+      ) {
+        return true;
+      }
+    }
+    if (this.commonControls?.autoBattlePersonalityDropdown?.containsStagePoint(stageX, stageY)) {
+      return true;
+    }
+
     // Left sidebar controls (Menu at top)
     if (stageX >= 0 && stageX <= 165) {
       if ((stageY >= 0 && stageY <= 65) || (stageY >= 295 && stageY <= 890)) {
@@ -773,7 +916,8 @@ export class BattleHud2D {
   }
 
   public update(deltaMS: number, fps?: number): void {
-    this.turnChangeDisplay.update(deltaMS);
+    const animMultiplier = this.settings.getAnimationSpeedMultiplier();
+    this.turnChangeDisplay.update(deltaMS * animMultiplier);
     this.updateTargetAcquirementHint();
     if (this.fpsText && fps !== undefined) {
       this.fpsText.text = `FPS: ${Math.round(fps)}`;
@@ -876,6 +1020,7 @@ export class BattleHud2D {
   }
 
   public destroy(): void {
+    this.postBattlePanel?.destroy();
     this.battleMenuPanel?.destroy();
     this.targetAcquirementBanner?.destroy({ children: true });
     this.versionText?.destroy();

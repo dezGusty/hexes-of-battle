@@ -32,12 +32,15 @@ export interface SerializedBattleState {
   finished: boolean;
   armyControl: ArmyControlType[];
   combatConfig?: CombatConfig;
+  majorTerrainType?: string;
+  windState?: { angleDeg: number; strength: number };
   totalDamageDealt: [number, number];
   totalStaminaSpent: [number, number];
   moraleBreaks: [number, number];
   friendlyFireEvents: number;
   creatures: SerializedCreature[];
   casualties: SerializedCreature[];
+  routedCreatures?: SerializedCreature[];
 }
 
 export interface BattleSaveEntry {
@@ -185,12 +188,15 @@ export class SaveManager {
       finished: battle.isFinished(),
       armyControl: [...battle.army_control],
       combatConfig: battle.combatConfig ? { ...battle.combatConfig } : undefined,
+      majorTerrainType: battle.getMajorTerrainType(),
+      windState: { angleDeg: battle.getWindState().angleDeg, strength: battle.getWindState().strength },
       totalDamageDealt: [...battle.totalDamageDealt],
       totalStaminaSpent: [...battle.totalStaminaSpent],
       moraleBreaks: [...battle.moraleBreaks],
       friendlyFireEvents: battle.friendlyFireEvents,
       creatures: battle.creatures.map((c) => SaveManager.serializeCreature(c)),
       casualties: battle.casualties.map((c) => SaveManager.serializeCreature(c)),
+      routedCreatures: (battle.routedCreatures || []).map((c) => SaveManager.serializeCreature(c)),
     };
 
     const army0Units = battle.creatures.filter((c) => c.armyAlignment === 0 && c.isAlive).length;
@@ -263,6 +269,12 @@ export class SaveManager {
     if (state.combatConfig) {
       battle.combatConfig = { ...state.combatConfig };
     }
+    if (state.majorTerrainType) {
+      battle.setMajorTerrainType(state.majorTerrainType);
+    }
+    if (state.windState) {
+      battle.windSystem.setWind(state.windState.angleDeg, state.windState.strength);
+    }
 
     battle.totalDamageDealt = [...state.totalDamageDealt];
     battle.totalStaminaSpent = [...state.totalStaminaSpent];
@@ -272,6 +284,7 @@ export class SaveManager {
     // Restore squads
     battle.creatures = (state.creatures || []).map((sc) => SaveManager.deserializeCreature(sc, allAbilities));
     battle.casualties = (state.casualties || []).map((sc) => SaveManager.deserializeCreature(sc, allAbilities));
+    battle.routedCreatures = (state.routedCreatures || []).map((sc) => SaveManager.deserializeCreature(sc, allAbilities));
 
     // Rebuild tile caches and buffs
     battle.cacheCreaturesToHexMap();

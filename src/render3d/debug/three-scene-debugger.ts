@@ -58,7 +58,7 @@ export class ThreeSceneDebugger {
   private cameraState = {
     distance: 18,
     yaw: 0,
-    pitch: Math.PI * 0.32,
+    pitch: Math.PI / 6,
   };
 
   private lightingState = {

@@ -1,4 +1,4 @@
-import { Container, Sprite, Text, TextStyle, BitmapText, AnimatedSprite, NineSliceSprite, Texture, Assets } from 'pixi.js';
+import { Container, Sprite, Text, TextStyle, BitmapText, AnimatedSprite, NineSliceSprite, Texture, Assets, Graphics } from 'pixi.js';
 import pkg from '../../package.json';
 import { ProgressBar } from '@pixi/ui';
 import { OutlineFilter, AdvancedBloomFilter } from 'pixi-filters';
@@ -12,17 +12,21 @@ import { Creature, CreatureType } from './creature';
 import { Ability } from './ability';
 import { AnimationType, ArmyControlType, Battle, InputState, MapRenderUpdate } from '../battle';
 import { BattleActionType } from './battle-action';
-import { CPUPlayer } from './cpu-player';
+import { CPUPersonalityType, CPUPlayer } from './cpu-player';
+import { CPUPlayerFactory } from './cpu-player-factory';
 import { CommonControls } from '../ui/common-controls';
 import { BattleMenuPanel } from '../ui/battle-menu';
 import { UnitStatsPanel } from '../ui/unit-stats-panel';
 import { TopSidePanel } from '../ui/top-side-panel';
 import { DamageValueCollection } from '../ui/damage-value-display';
 import { TurnChangeCollection } from '../ui/turn-change-display';
+import { PostBattlePanel } from '../ui/post-battle-panel';
+import { DamagePreviewTooltip } from '../ui/damage-preview-tooltip';
 
 import { ExhaustionState } from './combat-rules';
 
 import { BattleSaveEntry, SaveManager } from './save-manager';
+import { getActiveUISoundSystem, setActiveUISoundSystem, SoundCategory, SoundType } from './ui-sounds';
 
 export interface BattleViewEvents {
   onZoomIn: () => void;
@@ -35,6 +39,8 @@ export interface BattleViewEvents {
   onReset: () => void;
   onActiveAbility1: () => void;
   onRest?: () => void;
+  onToggleAutoBattle?: (enabled: boolean) => void;
+  onAutoBattlePersonalityChange?: (personality: CPUPersonalityType) => void;
   onSaveBattle?: (name: string) => boolean;
   onLoadSave?: (entry: BattleSaveEntry) => void;
 }
@@ -44,8 +50,13 @@ export class BattleView {
 
   public commonControls!: CommonControls;
   public battleMenuPanel?: BattleMenuPanel;
+  public postBattlePanel?: PostBattlePanel;
   public unitStats?: UnitStatsPanel;
   public topSidePanel?: TopSidePanel;
+  public damagePreviewTooltip?: DamagePreviewTooltip;
+
+  private targetHoverHex: Coords | null = null;
+  private targetHoverDuration: number = 0;
 
   private terrainSprites: Sprite[] = [];
   private uiAnimationSprites: Sprite[] = [];
@@ -87,9 +98,13 @@ export class BattleView {
   private hexTerrainContainer: Container = new Container({ isRenderGroup: true });
   private hexCellsGridContainer: Container = new Container({ isRenderGroup: true });
   private hexCellsContainer: Container = new Container({ isRenderGroup: true });
+  private retreatFlagsContainer: Container = new Container({ isRenderGroup: true });
   private hexUiRenderGroup: Container = new Container({ isRenderGroup: true });
 
   public camera!: HexViewportCamera;
+  private playerCpuPlayer?: CPUPlayer;
+  public isAutoBattleEnabled: boolean = false;
+  public autoBattlePersonality: CPUPersonalityType = CPUPersonalityType.DEFENSIVE;
   private screenWidth: number =
     typeof window !== 'undefined' && window.innerWidth > 0 ? window.innerWidth : 1920;
   private screenHeight: number =
@@ -111,10 +126,56 @@ export class BattleView {
     if (gameVersion) {
       this.gameVersion = gameVersion;
     }
+    setActiveUISoundSystem(undefined, this.settings);
+    this.playerCpuPlayer = CPUPlayerFactory.create(this.autoBattlePersonality, this.battle);
   }
 
   public setCpuPlayer(cpuPlayer: CPUPlayer | undefined): void {
     this.cpuPlayer = cpuPlayer;
+    this.updateArmyNames();
+  }
+
+  public getPlayerCpuPlayer(): CPUPlayer | undefined {
+    return this.playerCpuPlayer;
+  }
+
+  public setAutoBattleEnabled(enabled: boolean): void {
+    this.isAutoBattleEnabled = enabled;
+    this.commonControls?.setAutoBattleEnabled(enabled);
+    this.battle.army_control[0] = enabled ? ArmyControlType.AI : ArmyControlType.PLAYER;
+
+    if (enabled) {
+      this.battle.cancelTargetForAbilityIfApplicable();
+      this.damagePreviewTooltip?.hide();
+      if (!this.playerCpuPlayer || this.playerCpuPlayer.personalityName !== this.autoBattlePersonality) {
+        this.playerCpuPlayer = CPUPlayerFactory.create(this.autoBattlePersonality, this.battle);
+      } else {
+        this.playerCpuPlayer.reset();
+      }
+    } else {
+      this.playerCpuPlayer?.reset();
+      if (this.battle.currentArmyIndex === 0 && !this.battle.isFinished()) {
+        if (this.battle.activeCreatureIndex < 0 || !this.battle.getActiveCreature()) {
+          this.battle.selectNextUnitAndGetIndex();
+        } else {
+          this.battle.reselectCurrentUnit();
+        }
+      }
+    }
+
+    this.updateArmyNames();
+    this.updateTargetAcquirementHint();
+  }
+
+  public toggleAutoBattle(): boolean {
+    this.setAutoBattleEnabled(!this.isAutoBattleEnabled);
+    return this.isAutoBattleEnabled;
+  }
+
+  public setAutoBattlePersonality(personality: CPUPersonalityType): void {
+    this.autoBattlePersonality = personality;
+    this.commonControls?.setAutoBattlePersonality(personality, false);
+    this.playerCpuPlayer = CPUPlayerFactory.create(personality, this.battle);
     this.updateArmyNames();
   }
 
@@ -131,7 +192,10 @@ export class BattleView {
     if (isPlayer) {
       tag = 'Human';
     } else {
-      const personality = this.cpuPlayer?.personalityName;
+      const personality =
+        armyIndex === 0 && this.isAutoBattleEnabled
+          ? (this.playerCpuPlayer?.personalityName ?? this.autoBattlePersonality)
+          : this.cpuPlayer?.personalityName;
       if (personality) {
         const capitalized = personality.charAt(0).toUpperCase() + personality.slice(1);
         tag = `CPU ${capitalized}`;
@@ -175,8 +239,11 @@ export class BattleView {
     this.hexZoneContainer.addChild(this.hexTerrainContainer);
     this.hexZoneContainer.addChild(this.hexCellsGridContainer);
     this.hexZoneContainer.addChild(this.hexCellsContainer);
+    this.hexZoneContainer.addChild(this.retreatFlagsContainer);
     this.hexZoneContainer.addChild(this.unitRenderGroup);
     this.hexZoneContainer.addChild(this.hexUiRenderGroup);
+
+    this.rebuildRetreatFlags();
 
     if (this.assets.uiSheet) {
       this.turnChangeDisplay.setUISheet(this.assets.uiSheet);
@@ -254,6 +321,9 @@ export class BattleView {
       this.hexCellsContainer.removeChild(this.hexHoverSprite);
       this.hexHoverSprite = undefined;
     }
+    this.targetHoverHex = null;
+    this.targetHoverDuration = 0;
+    this.damagePreviewTooltip?.hide();
   }
 
   public update(deltaMS: number, fps: number): void {
@@ -265,15 +335,76 @@ export class BattleView {
       this.versionText.visible = this.settings.debug.showFps;
     }
 
-    const mapUpdate: MapRenderUpdate = this.battle.update(deltaMS);
+    const animMultiplier = this.settings.getAnimationSpeedMultiplier();
+    const scaledDeltaMS = deltaMS * animMultiplier;
+
+    const mapUpdate: MapRenderUpdate = this.battle.update(scaledDeltaMS);
 
     if (mapUpdate.somethingChanged) {
       this.updateMapRendering(mapUpdate);
     }
 
-    this.damageValueDisplay.update(deltaMS);
-    this.turnChangeDisplay.update(deltaMS);
+    this.damageValueDisplay.update(scaledDeltaMS);
+    this.turnChangeDisplay.update(scaledDeltaMS);
     this.updateTargetAcquirementHint();
+    this.updateDamagePreviewHover(deltaMS);
+  }
+
+  private updateDamagePreviewHover(deltaMS: number): void {
+    const activeCreature = this.battle.getActiveCreature();
+    const hoverCell = this.battle.nextRenderUpdate.hoverOverCell;
+    if (!activeCreature || !hoverCell) {
+      if (this.targetHoverHex !== null || this.targetHoverDuration > 0) {
+        this.targetHoverHex = null;
+        this.targetHoverDuration = 0;
+        this.damagePreviewTooltip?.hide();
+      }
+      return;
+    }
+
+    if (this.battle.input_state === InputState.SELECT_ABILITY_TARGET) {
+      if (!this.battle.abilityToApply || !this.battle.isDamageAbility(this.battle.abilityToApply)) {
+        if (this.targetHoverHex !== null || this.targetHoverDuration > 0) {
+          this.targetHoverHex = null;
+          this.targetHoverDuration = 0;
+          this.damagePreviewTooltip?.hide();
+        }
+        return;
+      }
+    }
+
+    const targetCreatureInBattle = this.battle.getCreatureAtPosition(hoverCell);
+    const targetCreature = targetCreatureInBattle?.creature;
+
+    if (!targetCreature || targetCreature.armyAlignment === activeCreature.armyAlignment || !targetCreature.isAlive) {
+      if (this.targetHoverHex !== null || this.targetHoverDuration > 0) {
+        this.targetHoverHex = null;
+        this.targetHoverDuration = 0;
+        this.damagePreviewTooltip?.hide();
+      }
+      return;
+    }
+
+    if (
+      this.targetHoverHex &&
+      this.targetHoverHex.x === hoverCell.x &&
+      this.targetHoverHex.y === hoverCell.y
+    ) {
+      this.targetHoverDuration += deltaMS;
+    } else {
+      this.targetHoverHex = { ...hoverCell };
+      this.targetHoverDuration = deltaMS;
+      this.damagePreviewTooltip?.hide();
+    }
+
+    if (this.targetHoverDuration >= 1000) {
+      const preview = this.battle.calculateDamagePreview(hoverCell, activeCreature);
+      if (preview) {
+        const hexPixel = this.hexMap.hexToPixel(hoverCell.x, hoverCell.y);
+        const screenPos = this.camera.worldToStageCoords(hexPixel);
+        this.damagePreviewTooltip?.show(preview, screenPos.x, screenPos.y, this.screenWidth, this.screenHeight);
+      }
+    }
   }
 
   public showAttackVisuals(
@@ -298,7 +429,28 @@ export class BattleView {
       sound.play('sword', { speed: 0.9 + Math.random() * 0.2, volume: this.settings.sound.soundVolume });
     }
     if (attackType === BattleActionType.ATTACK_RANGED) {
-      sound.play('arrow', { speed: 0.9 + Math.random() * 0.2, volume: this.settings.sound.soundVolume });
+      const isSlinger = _attacker?.creatureType === CreatureType.SLINGER;
+      const rangedSoundType = isSlinger ? SoundType.STONE : SoundType.ARROW;
+      const activeSoundSystem = getActiveUISoundSystem();
+      const shooterCount = Math.max(1, _attacker?.aliveModelCount ?? 1);
+      const maxSquadSize = Math.max(
+        shooterCount,
+        _attacker?.maxModels ?? _attacker?.stats?.model_count ?? shooterCount
+      );
+      if (isSlinger && activeSoundSystem?.playStoneVolley) {
+        activeSoundSystem.playStoneVolley(shooterCount, maxSquadSize);
+      } else if (activeSoundSystem?.playRangedVolley) {
+        activeSoundSystem.playRangedVolley(rangedSoundType, shooterCount, maxSquadSize);
+      } else if (activeSoundSystem?.playArrowVolley) {
+        activeSoundSystem.playArrowVolley(shooterCount, maxSquadSize, undefined, rangedSoundType);
+      } else if (activeSoundSystem) {
+        activeSoundSystem.play(SoundCategory.SOUND, rangedSoundType, true);
+      } else {
+        sound.play(isSlinger ? '47495__kwandalist__steinwurf_1.ogg' : 'arrow', {
+          speed: 0.9 + Math.random() * 0.2,
+          volume: this.settings.sound.soundVolume,
+        });
+      }
     }
   }
 
@@ -325,6 +477,18 @@ export class BattleView {
     if (this.topSidePanel) {
       this.topSidePanel.setActiveArmyIndex(victorArmyIndex);
     }
+
+    this.showPostBattleScreen(victorArmyIndex);
+  }
+
+  public showPostBattleScreen(victorArmyIndex?: number): void {
+    if (this.postBattlePanel) {
+      this.postBattlePanel.show(this.battle, victorArmyIndex);
+    }
+  }
+
+  public hidePostBattleScreen(): void {
+    this.postBattlePanel?.hide();
   }
 
   public showEndTurnRecommendation(): void {
@@ -390,6 +554,16 @@ export class BattleView {
       this.battleMenuPanel = new BattleMenuPanel(this.uiPlusRenderGroup, this.assets.uiSheet);
       this.battleMenuPanel.battle = this.battle;
       this.battleMenuPanel.setSoundValues(this.settings.sound.musicVolume, this.settings.sound.soundVolume);
+      this.battleMenuPanel.setAnimationSpeed(this.settings.animationSpeed);
+      this.battleMenuPanel.onAnimationSpeedChange = (speed) => {
+        this.settings.setAnimationSpeed(speed);
+        this.settings.save();
+      };
+      this.battleMenuPanel.setWeather(this.settings.weather);
+      this.battleMenuPanel.onWeatherChange = (weather) => {
+        this.settings.weather = weather;
+        this.settings.save();
+      };
       this.battleMenuPanel.onSaveBattle = (name) => {
         if (events.onSaveBattle) {
           return events.onSaveBattle(name);
@@ -407,6 +581,7 @@ export class BattleView {
       this.battleMenuPanel.setHardwareCursorHidden(this.settings.hideHardwareCursor);
       this.battleMenuPanel.hide();
     }
+    this.postBattlePanel = new PostBattlePanel(this.uiPlusRenderGroup);
     this.applyHardwareCursorVisibility(this.settings.hideHardwareCursor);
 
     const dockedButtons = new Set<any>([
@@ -423,6 +598,21 @@ export class BattleView {
     this.commonControls.menuButton?.onPress.connect(() => {
       this.battleMenuPanel?.toggleVisibility();
     });
+
+    this.commonControls.setAutoBattleEnabled(this.isAutoBattleEnabled);
+    this.commonControls.setAutoBattlePersonality(this.autoBattlePersonality, false);
+
+    this.commonControls.autoBattleButton?.onPress.connect(() => {
+      const enabled = this.toggleAutoBattle();
+      events.onToggleAutoBattle?.(enabled);
+    });
+
+    if (this.commonControls.autoBattlePersonalityDropdown) {
+      this.commonControls.autoBattlePersonalityDropdown.onChange = (personality) => {
+        this.setAutoBattlePersonality(personality);
+        events.onAutoBattlePersonalityChange?.(personality);
+      };
+    }
 
     this.commonControls.zoomInButton?.onPress.connect(() => events.onZoomIn());
     this.commonControls.zoomOutButton?.onPress.connect(() => events.onZoomOut());
@@ -550,6 +740,8 @@ export class BattleView {
       } else {
         this.unitStats.hide();
       }
+      this.damagePreviewTooltip = new DamagePreviewTooltip(this.uiPlusRenderGroup, this.assets.uiSheet);
+      this.damagePreviewTooltip.hide();
     }
 
     dockedButtons.forEach((control) => {
@@ -1231,7 +1423,7 @@ export class BattleView {
         if (textures) {
           const animSprite = new AnimatedSprite(textures);
           const cell = mapUpdate.animationAtCoords.coords;
-          animSprite.animationSpeed = 0.4;
+          animSprite.animationSpeed = 0.4 * this.settings.getAnimationSpeedMultiplier();
           animSprite.x = this.hexMap.hexToPixel(cell.x, cell.y).x - this.hexMap.cellSize().x / 2;
           animSprite.y = this.hexMap.hexToPixel(cell.x, cell.y).y - this.hexMap.cellSize().y / 2;
           animSprite.play();
@@ -1362,7 +1554,44 @@ export class BattleView {
   }
 
   private getBannerTextureNameForArmyIndex(armyIndex: number): string {
-    return armyIndex === 0 ? 'banner1.png' : 'banner2.png';
+    return this.battle.getBannerForArmy(armyIndex);
+  }
+
+  public rebuildRetreatFlags(): void {
+    this.retreatFlagsContainer.removeChildren();
+
+    for (const armyIndex of [0, 1]) {
+      const points = this.battle.getRetreatPoints(armyIndex);
+      const bannerName = this.getBannerTextureNameForArmyIndex(armyIndex);
+      const texture = this.assets.bannersSheet?.textures[bannerName];
+
+      for (const pt of points) {
+        if (pt.x < 0 || pt.x >= this.hexMap.width || pt.y < 0 || pt.y >= this.hexMap.height) {
+          continue;
+        }
+        const pixelPos = this.hexMap.hexToPixel(pt.x, pt.y);
+        const offsetX = armyIndex === 0 ? -18 : 18;
+        const offsetY = -14;
+
+        if (texture) {
+          const sprite = new Sprite(texture);
+          sprite.width = 24;
+          sprite.height = 24;
+          sprite.anchor = { x: 0.5, y: 0.5 };
+          sprite.position.set(pixelPos.x + offsetX, pixelPos.y + offsetY);
+          this.retreatFlagsContainer.addChild(sprite);
+        } else {
+          const g = new Graphics();
+          // Flagpole
+          g.rect(pixelPos.x + offsetX - 1, pixelPos.y + offsetY - 16, 2, 28);
+          g.fill({ color: 0x362516 });
+          // Banner flag
+          g.rect(pixelPos.x + offsetX + (armyIndex === 0 ? -14 : 1), pixelPos.y + offsetY - 16, 14, 10);
+          g.fill({ color: armyIndex === 0 ? 0x2f63c7 : 0xc72f2f });
+          this.retreatFlagsContainer.addChild(g);
+        }
+      }
+    }
   }
 
   public toggleUnitStats(): void {

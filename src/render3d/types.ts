@@ -48,7 +48,7 @@ export interface ProjectileTrajectoryParams {
   projectiles?: SingleProjectileTrajectory[];
   durationMs: number;
   apexHeight: number;
-  projectileType: 'arrow' | 'bolt' | 'spear' | 'magic' | 'stone';
+  projectileType: 'arrow' | 'bolt' | 'spear' | 'magic' | 'stone' | 'pebble';
   volleyCount?: number;
   scatterOffset?: THREE.Vector3;
   onImpact?: () => void;

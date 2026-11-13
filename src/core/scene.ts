@@ -5,7 +5,7 @@ import { Ability } from '../battle/ability';
 import { CreatureTemplate } from '../battle/creature';
 import { CombatConfig } from '../battle/combat-rules';
 import { TraitsConfig } from '../battle/trait-system';
-import { ISoundSystem } from './sound-system';
+import { ArrowVolleySoundConfig, ISoundSystem, SoundGroupsConfig, SoundsConfig, UISoundsConfig } from './sound-system';
 
 export interface GameAssets {
   terrainTexture?: Texture;
@@ -78,6 +78,11 @@ export interface HudConfig {
   tooltips?: {
     enabled?: boolean;
   };
+  sounds?: UISoundsConfig;
+  uiSounds?: UISoundsConfig;
+  soundGroups?: SoundGroupsConfig;
+  arrowVolley?: ArrowVolleySoundConfig;
+  arrow_volley?: ArrowVolleySoundConfig;
 }
 
 export interface GameTemplates {
@@ -86,6 +91,7 @@ export interface GameTemplates {
   combatConfig?: CombatConfig;
   scenarios?: any[];
   hudConfig?: HudConfig;
+  soundsConfig?: SoundsConfig;
   traitsConfig?: TraitsConfig;
 }
 

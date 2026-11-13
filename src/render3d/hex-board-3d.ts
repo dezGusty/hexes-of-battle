@@ -10,8 +10,28 @@ import {
   getTreePartTexture,
   applyTreeUVMapping,
   smoothGeometryNormals,
+  ForestTreeVariant,
+  updateTreeWindState,
 } from './units/unit-mesh-builder';
 import { createSelectedHaloTexture } from './units/selected-halo-texture';
+import {
+  createRetreatFlagMesh,
+  updateRetreatFlagWind,
+  setRetreatFlagWindState,
+  getPlayerBanner,
+  createBannerSubTexture,
+  setSharedBannersTexture,
+  getSharedBannersTexture,
+} from './decorations/retreat-flag-3d';
+import {
+  BattleLocationType,
+  BoardWorldBounds,
+  normalizeBattleLocationType,
+  populateOuterEnvironmentDecorations,
+} from './decorations/battle-environment-3d';
+import { WindState } from './decorations/wind-system';
+import { GrassFieldSystem, GrassModelType, GrassClumpInstanceData } from './decorations/grass-system-3d';
+import { BlowingLeavesSystem } from './decorations/blowing-leaves-3d';
 
 export interface HexBoard3DOptions {
   showGrid?: boolean;
@@ -24,6 +44,11 @@ export interface HexBoard3DOptions {
   coordsStrokeColor?: string;
   coordsStrokeWidth?: number;
   getTerrain?: (x: number, y: number) => TerrainType;
+  getRetreatPoints?: (armyIndex: number) => Coords[];
+  getArmyBanner?: (armyIndex: number) => string;
+  majorTerrainType?: BattleLocationType | string;
+  getMajorTerrainType?: () => BattleLocationType | string;
+  getWindState?: () => WindState;
   blendTransitionWidth?: number;
   blendNoiseStrength?: number;
 }
@@ -43,7 +68,22 @@ export class HexBoard3D {
   private coordsGroup: THREE.Group = new THREE.Group();
   public readonly forestTreesGroup: THREE.Group = new THREE.Group();
   private forestTreesByHex: Map<string, THREE.Object3D[]> = new Map();
-  private forestTreeTemplates: { pine?: THREE.Object3D; oak?: THREE.Object3D } = {};
+  private forestTreeTemplates: Partial<Record<ForestTreeVariant, THREE.Object3D>> = {};
+  public readonly retreatFlagsGroup: THREE.Group = new THREE.Group();
+  public readonly outerDecorationsGroup: THREE.Group = new THREE.Group();
+  public readonly grassSystem: GrassFieldSystem = new GrassFieldSystem();
+  public readonly blowingLeavesSystem: BlowingLeavesSystem = new BlowingLeavesSystem();
+  private animatedFlagCloths: THREE.Mesh[] = [];
+  private animatedWindmillSails: THREE.Object3D[] = [];
+  private windTime: number = 0;
+  private getRetreatPoints?: (armyIndex: number) => Coords[];
+  private getArmyBanner?: (armyIndex: number) => string;
+  private majorTerrainType: BattleLocationType = BattleLocationType.FARM;
+  private getMajorTerrainTypeFn?: () => BattleLocationType | string;
+  private getWindStateFn?: () => WindState;
+  private currentWindAngleRad: number = Math.PI * 0.25;
+  private currentWindStrength: number = 1.0;
+  private bannersTexture?: THREE.Texture;
   private hoverMesh: THREE.Mesh;
   private selectedRingMesh: THREE.Mesh;
   public readonly selectedHaloMesh: THREE.Mesh;
@@ -74,6 +114,7 @@ export class HexBoard3D {
   private hillClusters: Map<string, number> = new Map();
   private clusterElevations: Map<number, number> = new Map();
   private hillMesaRadii: Map<string, number> = new Map();
+  private hillMaskTexture: THREE.Texture | null = null;
 
   private materials: Record<string, THREE.Material> = {};
   private sideMaterial: THREE.Material = new THREE.MeshStandardMaterial({
@@ -99,6 +140,22 @@ export class HexBoard3D {
     if (options?.coordsStrokeColor !== undefined) this.coordsStrokeColor = options.coordsStrokeColor;
     if (options?.coordsStrokeWidth !== undefined) this.coordsStrokeWidth = options.coordsStrokeWidth;
     if (options?.getTerrain !== undefined) this.getTerrain = options.getTerrain;
+    if (options?.getRetreatPoints !== undefined) this.getRetreatPoints = options.getRetreatPoints;
+    if (options?.getArmyBanner !== undefined) this.getArmyBanner = options.getArmyBanner;
+    if (options?.majorTerrainType !== undefined) {
+      this.majorTerrainType = normalizeBattleLocationType(options.majorTerrainType);
+    }
+    if (options?.getMajorTerrainType !== undefined) {
+      this.getMajorTerrainTypeFn = options.getMajorTerrainType;
+    }
+    if (options?.getWindState !== undefined) {
+      this.getWindStateFn = options.getWindState;
+      const initialWind = options.getWindState();
+      if (initialWind) {
+        this.currentWindAngleRad = initialWind.angleRad;
+        this.currentWindStrength = initialWind.strength;
+      }
+    }
     if (options?.blendTransitionWidth !== undefined) this.blendTransitionWidth = options.blendTransitionWidth;
     if (options?.blendNoiseStrength !== undefined) this.blendNoiseStrength = options.blendNoiseStrength;
 
@@ -111,6 +168,8 @@ export class HexBoard3D {
     this.gridBordersGroup.name = 'GridBorders';
     this.coordsGroup.name = 'CoordsLabels';
     this.forestTreesGroup.name = 'ForestTrees';
+    this.retreatFlagsGroup.name = 'RetreatFlags';
+    this.outerDecorationsGroup.name = 'OuterDecorations';
 
     this.hoverMesh = this.createHighlightHexMesh(0xffffff, 0.4);
     this.hoverMesh.name = 'TileHoverMesh';
@@ -129,7 +188,7 @@ export class HexBoard3D {
     const haloMat = new THREE.MeshBasicMaterial({
       map: haloTexture,
       transparent: true,
-      opacity: 0.95,
+      opacity: 0.5,
       side: THREE.DoubleSide,
       depthWrite: false,
     });
@@ -149,6 +208,10 @@ export class HexBoard3D {
     this.group.add(this.gridBordersGroup);
     this.group.add(this.coordsGroup);
     this.group.add(this.forestTreesGroup);
+    this.group.add(this.retreatFlagsGroup);
+    this.group.add(this.outerDecorationsGroup);
+    this.group.add(this.grassSystem.group);
+    this.group.add(this.blowingLeavesSystem.group);
 
     this.buildBoard();
   }
@@ -235,13 +298,13 @@ export class HexBoard3D {
             applyTreeGlbMaterials(scene, 'pine');
             this.forestTreeTemplates.pine = scene;
           })
-          .catch(() => {}),
+          .catch(() => { }),
         loadTreeGlb('models/terrain/forest_oak.glb')
           .then((scene) => {
             applyTreeGlbMaterials(scene, 'oak');
             this.forestTreeTemplates.oak = scene;
           })
-          .catch(() => {}),
+          .catch(() => { }),
       ]);
     } catch {
       // Fallback procedural low-poly tree builder remains active
@@ -283,6 +346,18 @@ export class HexBoard3D {
         transparent: true,
         opacity: 0.88,
       });
+
+      await loadTex('banners.png')
+        .catch(() => loadTex(`${basePath}banners.png`))
+        .then((bannersTex) => {
+          bannersTex.minFilter = THREE.LinearFilter;
+          bannersTex.magFilter = THREE.LinearFilter;
+          bannersTex.generateMipmaps = false;
+          bannersTex.needsUpdate = true;
+          this.bannersTexture = bannersTex;
+          setSharedBannersTexture(bannersTex);
+        })
+        .catch(() => { });
 
       this.rebuildBoard();
     } catch (e) {
@@ -362,7 +437,7 @@ export class HexBoard3D {
     if (terrain === TerrainType.WATER) {
       topMat = this.materials['water'];
     } else if (terrain === TerrainType.HILL) {
-      topMat = this.materials['dirt'];
+      topMat = this.getBlendedHillMaterial(x, y);
     } else if (terrain === TerrainType.FOREST || terrain === TerrainType.SWAMP) {
       topMat = this.getBlendedTileMaterial(terrain, x, y);
     }
@@ -572,6 +647,266 @@ float terrainEdgeNoise(vec2 p) {
     return this.hillMesaRadii.get(`${x},${y}`) ?? this.hexRadius * 0.77;
   }
 
+  public isSwamp(x: number, y: number): boolean {
+    return this.getTerrainAt(x, y) === TerrainType.SWAMP;
+  }
+
+  public getSwampInsetRadius(_x?: number, _y?: number): number {
+    return this.hexRadius * 0.76;
+  }
+
+  public getSwampDepression(_x?: number, _y?: number): number {
+    return -0.08;
+  }
+
+  /**
+   * Deterministically returns one of 3 distinct hill model variations (0, 1, or 2)
+   * based on the hex tile coordinates.
+   */
+  public getHillVariation(x: number, y: number): number {
+    return Math.abs((x * 7 + y * 13 + 1)) % 3;
+  }
+
+  /**
+   * Calculates a 3D displacement vector for an inner hexagon point in a given variation.
+   * Displacements are bounded within 3% of hex size (2 * hexRadius) in any direction,
+   * combining components in X, Y, and Z axes.
+   */
+  public getHillInnerHexDisplacement(
+    variation: number,
+    pointIndex: number
+  ): { dx: number; dy: number; dz: number } {
+    const hexSize = this.hexRadius * 2;
+    const maxDisp = 0.03 * hexSize; // 3% of hex size (0.06 with radius 1.0)
+    const varIdx = Math.abs(variation) % 3;
+
+    // Distinct deterministic seeds per variation and point
+    const seed = ((varIdx + 1) * 137 + (pointIndex + 1) * 59) % 1000;
+    const phi = (seed / 1000) * Math.PI * 2;
+    const theta = (((seed * 3) % 1000) / 1000 - 0.5) * Math.PI * 0.7; // pitch angle in Y
+    const mag = maxDisp * (0.65 + 0.3 * (((seed * 7) % 1000) / 1000));
+
+    // Combined 3D displacement vector with non-zero X, Y, and Z components
+    const dx = Math.cos(phi) * Math.cos(theta) * mag;
+    const dy = Math.sin(theta) * mag * 0.45;
+    const dz = Math.sin(phi) * Math.cos(theta) * mag;
+
+    return { dx, dy, dz };
+  }
+
+  /**
+   * Returns or generates the shared procedural transparency mask texture for hill tops.
+   * Center has high grass opacity (white), smoothly falling off towards the outer edges (black/dirt).
+   */
+  public getHillMaskTexture(): THREE.Texture {
+    if (!this.hillMaskTexture) {
+      this.hillMaskTexture = this.createHillTransparencyMaskTexture();
+    }
+    return this.hillMaskTexture;
+  }
+
+  private createHillTransparencyMaskTexture(size = 256): THREE.Texture {
+    let texture: THREE.Texture;
+    const center = size / 2;
+    const maxRadius = size * 0.44;
+
+    const pixels = new Uint8Array(size * size * 4);
+    for (let py = 0; py < size; py++) {
+      for (let px = 0; px < size; px++) {
+        const dx = px - center;
+        const dy = py - center;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const normDist = dist / maxRadius;
+
+        // Subtle organic noise for natural edge irregularity
+        const nx = (px / size) * 8.0;
+        const ny = (py / size) * 8.0;
+        const hash = Math.sin(nx * 12.9898 + ny * 78.233) * 43758.5453;
+        const noise = (hash - Math.floor(hash) - 0.5) * 0.16;
+
+        // Mask value: 1.0 at center (grassy), smoothly fading to 0.0 at outer sides (dirt)
+        // Center (0.0 to 0.34) is grassy; 0.34 to 0.84 transitions; > 0.84 is dirt
+        const t = Math.max(0, Math.min(1, (normDist + noise - 0.34) / (0.84 - 0.34)));
+        const smoothT = t * t * (3 - 2 * t);
+        const grassAlpha = 1.0 - smoothT;
+
+        const val = Math.round(grassAlpha * 255);
+        const idx = (py * size + px) * 4;
+        pixels[idx] = val;     // R
+        pixels[idx + 1] = val; // G
+        pixels[idx + 2] = val; // B
+        pixels[idx + 3] = 255; // A
+      }
+    }
+
+    if (typeof document !== 'undefined' && document.createElement) {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          const imgData = ctx.createImageData(size, size);
+          imgData.data.set(pixels);
+          ctx.putImageData(imgData, 0, 0);
+          texture = new THREE.CanvasTexture(canvas);
+          texture.wrapS = THREE.ClampToEdgeWrapping;
+          texture.wrapT = THREE.ClampToEdgeWrapping;
+          return texture;
+        }
+      } catch {
+        // Fallback to DataTexture
+      }
+    }
+
+    texture = new THREE.DataTexture(pixels, size, size, THREE.RGBAFormat);
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.needsUpdate = true;
+    return texture;
+  }
+
+  /**
+   * Creates a blended material for hill hexes using mud/hill texture as base
+   * overlaid with grass hex texture via a transparency mask (center grassy, outer sides dirt).
+   */
+  public getBlendedHillMaterial(x?: number, y?: number): THREE.Material {
+    const mudMat = (this.materials['dirt'] as THREE.MeshStandardMaterial) || null;
+    const grassMat = (this.materials['grass'] as THREE.MeshStandardMaterial) || null;
+
+    const baseMudColor = mudMat?.color ? mudMat.color.clone() : new THREE.Color(0x6e5138);
+    const baseMudMap = mudMat?.map || null;
+
+    const overlayGrassColor = grassMat?.color ? grassMat.color.clone() : new THREE.Color(0x3d7a42);
+    const overlayGrassMap = grassMat?.map || null;
+
+    const maskTex = this.getHillMaskTexture();
+
+    const blendedMat = new THREE.MeshStandardMaterial({
+      color: baseMudColor,
+      map: baseMudMap,
+      roughness: mudMat ? mudMat.roughness : 0.9,
+      metalness: mudMat ? mudMat.metalness : 0.05,
+      side: THREE.DoubleSide,
+    });
+
+    const pos = x !== undefined && y !== undefined ? this.hexToWorld(x, y) : new THREE.Vector3(0, 0, 0);
+    const rTop = x !== undefined && y !== undefined ? this.getHillMesaRadius(x, y) : this.hexRadius * 0.77;
+
+    blendedMat.userData = {
+      isHillBlendedMaterial: true,
+      terrainType: TerrainType.HILL,
+      baseTexture: baseMudMap,
+      overlayTexture: overlayGrassMap,
+      transparencyMask: maskTex,
+      mudColor: baseMudColor,
+      grassColor: overlayGrassColor,
+      mesaRadius: rTop,
+      tileCoords: x !== undefined && y !== undefined ? { x, y } : undefined,
+    };
+
+    blendedMat.customProgramCacheKey = () => 'HexTerrainBlend_Hill';
+
+    blendedMat.onBeforeCompile = (shader) => {
+      shader.uniforms.uMudColor = { value: baseMudColor };
+      shader.uniforms.uMudMap = { value: baseMudMap };
+      shader.uniforms.uHasMudMap = { value: baseMudMap ? 1.0 : 0.0 };
+
+      shader.uniforms.uGrassColor = { value: overlayGrassColor };
+      shader.uniforms.uGrassMap = { value: overlayGrassMap };
+      shader.uniforms.uHasGrassMap = { value: overlayGrassMap ? 1.0 : 0.0 };
+
+      shader.uniforms.uMaskMap = { value: maskTex };
+      shader.uniforms.uHasMaskMap = { value: maskTex ? 1.0 : 0.0 };
+
+      shader.uniforms.uTileCenter = { value: new THREE.Vector2(pos.x, pos.z) };
+      shader.uniforms.uMesaRadius = { value: rTop };
+      shader.uniforms.uHexRadius = { value: this.hexRadius };
+
+      blendedMat.userData.shader = shader;
+
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <common>',
+        `#include <common>
+varying vec2 vTerrainWorldXZ;`
+      );
+
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+vTerrainWorldXZ = (modelMatrix * vec4(position, 1.0)).xz;`
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <common>',
+        `#include <common>
+varying vec2 vTerrainWorldXZ;
+uniform vec3 uMudColor;
+uniform sampler2D uMudMap;
+uniform float uHasMudMap;
+uniform vec3 uGrassColor;
+uniform sampler2D uGrassMap;
+uniform float uHasGrassMap;
+uniform sampler2D uMaskMap;
+uniform float uHasMaskMap;
+uniform vec2 uTileCenter;
+uniform float uMesaRadius;
+uniform float uHexRadius;
+
+float hillTerrainNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  float a = fract(sin(dot(i, vec2(127.1, 311.7))) * 43758.5453123);
+  float b = fract(sin(dot(i + vec2(1.0, 0.0), vec2(127.1, 311.7))) * 43758.5453123);
+  float c = fract(sin(dot(i + vec2(0.0, 1.0), vec2(127.1, 311.7))) * 43758.5453123);
+  float d = fract(sin(dot(i + vec2(1.0, 1.0), vec2(127.1, 311.7))) * 43758.5453123);
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}`
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+{
+  float maskAlpha = 0.0;
+  #ifdef USE_MAP
+    if (uHasMaskMap > 0.5) {
+      maskAlpha = texture2D(uMaskMap, vMapUv).r;
+    }
+  #endif
+  if (uHasMaskMap <= 0.5) {
+    vec2 localPos = vTerrainWorldXZ - uTileCenter;
+    float dist = length(localPos);
+    float normDist = dist / max(0.001, uMesaRadius);
+    float n = (hillTerrainNoise(vTerrainWorldXZ * 4.0) - 0.5) * 0.22;
+    maskAlpha = 1.0 - smoothstep(0.32, 0.82, normDist + n);
+  }
+
+  // Base mud / dirt color
+  vec4 mudColor = vec4(uMudColor, 1.0);
+  #ifdef USE_MAP
+    if (uHasMudMap > 0.5) {
+      mudColor *= texture2D(uMudMap, vMapUv);
+    }
+  #endif
+
+  // Overlay grass color
+  vec4 grassColor = vec4(uGrassColor, 1.0);
+  if (uHasGrassMap > 0.5) {
+    grassColor *= texture2D(uGrassMap, vMapUv);
+  }
+
+  // Final blend: mud base with grass overlay masked by transparency
+  diffuseColor = mix(mudColor, grassColor, maskAlpha);
+}`
+      );
+    };
+
+    this.blendedTileMaterials.push(blendedMat);
+    return blendedMat;
+  }
+
   /**
    * Clusters connected adjacent hills together via BFS and assigns
    * uniform elevation across each connected hill cluster to ensure
@@ -617,9 +952,9 @@ float terrainEdgeNoise(vec2 p) {
             }
           }
 
-          // Deterministic uniform elevation for all hills in this connected cluster (0.28 to 0.35)
+          // Deterministic uniform elevation for all hills in this connected cluster (reduced to 66%: ~0.19 to 0.23)
           const clusterHash = ((clusterId * 2654435761) >>> 0) % 1000;
-          const elevation = 0.29 + (clusterHash / 1000) * 0.06;
+          const elevation = 0.19 + (clusterHash / 1000) * 0.04;
           this.clusterElevations.set(clusterId, elevation);
         }
       }
@@ -646,7 +981,19 @@ float terrainEdgeNoise(vec2 p) {
    * 5. Subterranean foundation skirts below y = 0 to match neighboring tile skirts.
    * 6. Computed smooth vertex normals for natural hill lighting.
    */
-  private createHillTileGeometry(x: number, y: number): THREE.BufferGeometry {
+  /**
+   * Generates a procedural mesa hill geometry with:
+   * 1. 3 distinct model variations with organic 3D displacements on inner hexagon points (bounded by 3% of hex size).
+   * 2. Additional subdivision points, concentric ring, and edge midpoints for natural smoothing and roundness.
+   * 3. Flat top mesa plateau with subtle crowning of radius rTop at cluster elevation for unit placement.
+   * 4. Full plateau extension along shared boundaries with adjacent hills (seamless ridge).
+   * 5. Multi-tier organic slopes descending to y = 0 on non-hill edges with cosine S-curve curvature.
+   * 6. Vertical bluff/cliff sealing quads at transition corners.
+   * 7. Subterranean foundation skirts below y = 0 to match neighboring tile skirts.
+   * 8. Computed smooth vertex normals for natural hill lighting.
+   */
+  public createHillTileGeometry(x: number, y: number, variation?: number): THREE.BufferGeometry {
+    const varIndex = variation !== undefined ? (Math.abs(variation) % 3) : this.getHillVariation(x, y);
     const elevation = this.getHexElevation(x, y);
     const rTop = this.getHillMesaRadius(x, y);
     const R = this.hexRadius;
@@ -712,18 +1059,63 @@ float terrainEdgeNoise(vec2 p) {
       skirtIndices.push(i1, i2, i3);
     };
 
-    // 1. Center of the mesa top plateau
-    const vCenter = addVertex(0, elevation, 0);
+    // 1. Center of the mesa top plateau with subtle organic crowning for roundness
+    const crownHeight = 0.02 * elevation;
+    const vCenter = addVertex(0, elevation + crownHeight, 0);
 
-    // 2. Inner mesa hexagon vertices (at rTop, height = elevation)
-    const topK: number[] = [];
+    // 2. Inner mesa hexagon points (12 points around rim at rTop: 6 corners and 6 midpoints)
+    // Corners k = 0..5 at indices 2*k; midpoints of edge e at indices (2*e + 11) % 12
+    const rimNominal: { x: number; y: number; z: number }[] = [];
     for (let k = 0; k < 6; k++) {
-      topK.push(addVertex(cosK[k] * rTop, elevation, sinK[k] * rTop));
+      // Corner k
+      rimNominal.push({
+        x: cosK[k] * rTop,
+        y: elevation,
+        z: sinK[k] * rTop,
+      });
+      // Midpoint between corner k and next corner (k+1)%6
+      const nextK = (k + 1) % 6;
+      rimNominal.push({
+        x: (cosK[k] + cosK[nextK]) * 0.5 * rTop,
+        y: elevation,
+        z: (sinK[k] + sinK[nextK]) * 0.5 * rTop,
+      });
     }
 
-    // Mesa top center fan (6 triangles, upward facing normals)
-    for (let k = 0; k < 6; k++) {
-      addTopTriangle(vCenter, topK[(k + 1) % 6], topK[k]);
+    // Add 3D displacements to inner hexagon points bounded within 3% of hex size
+    const topK: number[] = [];
+    for (let i = 0; i < 12; i++) {
+      const pt = rimNominal[i];
+      const disp = this.getHillInnerHexDisplacement(varIndex, i);
+      topK.push(addVertex(pt.x + disp.dx, pt.y + disp.dy, pt.z + disp.dz));
+    }
+
+    // Intermediate concentric ring at 0.5 * rTop for smoothing and gradual dome slope
+    const ringK: number[] = [];
+    const ringY = elevation + crownHeight * 0.6;
+    for (let i = 0; i < 12; i++) {
+      const pt = rimNominal[i];
+      const disp = this.getHillInnerHexDisplacement(varIndex, i);
+      ringK.push(
+        addVertex(
+          pt.x * 0.5 + disp.dx * 0.4,
+          ringY + disp.dy * 0.4,
+          pt.z * 0.5 + disp.dz * 0.4
+        )
+      );
+    }
+
+    // Mesa top center fan to intermediate ring (12 triangles)
+    for (let i = 0; i < 12; i++) {
+      const nextI = (i + 1) % 12;
+      addTopTriangle(vCenter, ringK[nextI], ringK[i]);
+    }
+
+    // Intermediate ring to inner hexagon rim (24 triangles: 12 quads)
+    for (let i = 0; i < 12; i++) {
+      const nextI = (i + 1) % 12;
+      addTopTriangle(ringK[i], ringK[nextI], topK[nextI]);
+      addTopTriangle(ringK[i], topK[nextI], topK[i]);
     }
 
     // 3. For each edge e = 0..5:
@@ -733,53 +1125,118 @@ float terrainEdgeNoise(vec2 p) {
       const c2 = e;
       const isHill = isHillNeighbor[e];
 
+      const startRimIdx = (2 * e + 10) % 12;
+      const midRimIdx = (2 * e + 11) % 12;
+      const endRimIdx = (2 * e) % 12;
+
+      const r1Idx = topK[startRimIdx];
+      const rMidIdx = topK[midRimIdx];
+      const r2Idx = topK[endRimIdx];
+
+      const b1x = cosK[c1] * R;
+      const b1z = sinK[c1] * R;
+      const b2x = cosK[c2] * R;
+      const b2z = sinK[c2] * R;
+      const bMidx = (b1x + b2x) * 0.5;
+      const bMidz = (b1z + b2z) * 0.5;
+
       if (isHill) {
-        // Connected to an adjacent hill: flat plateau extends to hex boundary at elevation
-        const b1High = addVertex(cosK[c1] * R, elevation, sinK[c1] * R);
-        const b2High = addVertex(cosK[c2] * R, elevation, sinK[c2] * R);
+        // Connected to adjacent hill: flat plateau extends to hex boundary at elevation
+        const b1High = addVertex(b1x, elevation, b1z);
+        const bMidHigh = addVertex(bMidx, elevation, bMidz);
+        const b2High = addVertex(b2x, elevation, b2z);
 
-        // Quad between [topK[c1], topK[c2]] and [b1High, b2High]
-        addTopTriangle(topK[c1], topK[c2], b2High);
-        addTopTriangle(topK[c1], b2High, b1High);
+        // Quad between [r1Idx, rMidIdx] and [b1High, bMidHigh]
+        addTopTriangle(r1Idx, rMidIdx, bMidHigh);
+        addTopTriangle(r1Idx, bMidHigh, b1High);
+
+        // Quad between [rMidIdx, r2Idx] and [bMidHigh, b2High]
+        addTopTriangle(rMidIdx, r2Idx, b2High);
+        addTopTriangle(rMidIdx, b2High, bMidHigh);
       } else {
-        // Bordering non-hill: natural slope descending to y = 0 at hex boundary
-        const rMid = (rTop + R) * 0.5;
-        const yMid = elevation * 0.44;
+        // Bordering non-hill: natural smooth slope descending to y = 0 at hex boundary
+        // Tier 1 (t = 0.35) and Tier 2 (t = 0.70) with cosine S-curve easing
+        const t1 = 0.35;
+        const t2 = 0.70;
+        const y1 = elevation * (0.5 + 0.5 * Math.cos(Math.PI * t1));
+        const y2 = elevation * (0.5 + 0.5 * Math.cos(Math.PI * t2));
 
-        // Subtle deterministic organic variation on mid-tier slope points
-        const seed1 = (((x * 127 + y * 311 + e * 73) * 16807) >>> 0) % 1000;
-        const seed2 = (((x * 241 + y * 563 + e * 97) * 16807) >>> 0) % 1000;
-        const var1 = (seed1 / 1000 - 0.5) * 0.03;
-        const var2 = (seed2 / 1000 - 0.5) * 0.03;
+        // Subtle deterministic variation on slope intermediate points
+        const seed1 = (((x * 127 + y * 311 + e * 73 + varIndex * 19) * 16807) >>> 0) % 1000;
+        const seed2 = (((x * 241 + y * 563 + e * 97 + varIndex * 23) * 16807) >>> 0) % 1000;
+        const var1 = (seed1 / 1000 - 0.5) * 0.02 * R;
+        const var2 = (seed2 / 1000 - 0.5) * 0.02 * R;
 
-        const m1 = addVertex(
-          cosK[c1] * rMid * (1 + var1),
-          yMid + var1 * 0.2 * elevation,
-          sinK[c1] * rMid * (1 + var1)
+        const pRim1 = rimNominal[startRimIdx];
+        const pRimMid = rimNominal[midRimIdx];
+        const pRim2 = rimNominal[endRimIdx];
+
+        // Tier 1 points
+        const m1_1 = addVertex(
+          pRim1.x * (1 - t1) + b1x * t1 + var1,
+          y1,
+          pRim1.z * (1 - t1) + b1z * t1 + var1
         );
-        const m2 = addVertex(
-          cosK[c2] * rMid * (1 + var2),
-          yMid + var2 * 0.2 * elevation,
-          sinK[c2] * rMid * (1 + var2)
+        const mMid_1 = addVertex(
+          pRimMid.x * (1 - t1) + bMidx * t1,
+          y1,
+          pRimMid.z * (1 - t1) + bMidz * t1
+        );
+        const m2_1 = addVertex(
+          pRim2.x * (1 - t1) + b2x * t1 + var2,
+          y1,
+          pRim2.z * (1 - t1) + b2z * t1 + var2
         );
 
-        const b1Low = addVertex(cosK[c1] * R, 0, sinK[c1] * R);
-        const b2Low = addVertex(cosK[c2] * R, 0, sinK[c2] * R);
+        // Tier 2 points
+        const m1_2 = addVertex(
+          pRim1.x * (1 - t2) + b1x * t2 + var1 * 0.5,
+          y2,
+          pRim1.z * (1 - t2) + b1z * t2 + var1 * 0.5
+        );
+        const mMid_2 = addVertex(
+          pRimMid.x * (1 - t2) + bMidx * t2,
+          y2,
+          pRimMid.z * (1 - t2) + bMidz * t2
+        );
+        const m2_2 = addVertex(
+          pRim2.x * (1 - t2) + b2x * t2 + var2 * 0.5,
+          y2,
+          pRim2.z * (1 - t2) + b2z * t2 + var2 * 0.5
+        );
 
-        // Upper slope tier (from topK to m)
-        addTopTriangle(topK[c1], topK[c2], m2);
-        addTopTriangle(topK[c1], m2, m1);
+        // Boundary base at y = 0
+        const b1Low = addVertex(b1x, 0, b1z);
+        const bMidLow = addVertex(bMidx, 0, bMidz);
+        const b2Low = addVertex(b2x, 0, b2z);
 
-        // Lower slope tier (from m to bLow)
-        addTopTriangle(m1, m2, b2Low);
-        addTopTriangle(m1, b2Low, b1Low);
+        // Slopes Tier 0 -> Tier 1
+        addTopTriangle(r1Idx, rMidIdx, mMid_1);
+        addTopTriangle(r1Idx, mMid_1, m1_1);
+        addTopTriangle(rMidIdx, r2Idx, m2_1);
+        addTopTriangle(rMidIdx, m2_1, mMid_1);
 
-        // Subterranean foundation skirt below y = 0 down to skirtBottom
-        const s1 = addVertex(cosK[c1] * R * 0.97, skirtBottom, sinK[c1] * R * 0.97);
-        const s2 = addVertex(cosK[c2] * R * 0.97, skirtBottom, sinK[c2] * R * 0.97);
+        // Slopes Tier 1 -> Tier 2
+        addTopTriangle(m1_1, mMid_1, mMid_2);
+        addTopTriangle(m1_1, mMid_2, m1_2);
+        addTopTriangle(mMid_1, m2_1, m2_2);
+        addTopTriangle(mMid_1, m2_2, mMid_2);
 
-        addSkirtTriangle(b1Low, b2Low, s2);
-        addSkirtTriangle(b1Low, s2, s1);
+        // Slopes Tier 2 -> Ground Boundary (y = 0)
+        addTopTriangle(m1_2, mMid_2, bMidLow);
+        addTopTriangle(m1_2, bMidLow, b1Low);
+        addTopTriangle(mMid_2, m2_2, b2Low);
+        addTopTriangle(mMid_2, b2Low, bMidLow);
+
+        // Foundation skirts below y = 0 down to skirtBottom
+        const s1 = addVertex(b1x * 0.97, skirtBottom, b1z * 0.97);
+        const sMid = addVertex(bMidx * 0.97, skirtBottom, bMidz * 0.97);
+        const s2 = addVertex(b2x * 0.97, skirtBottom, b2z * 0.97);
+
+        addSkirtTriangle(b1Low, bMidLow, sMid);
+        addSkirtTriangle(b1Low, sMid, s1);
+        addSkirtTriangle(bMidLow, b2Low, s2);
+        addSkirtTriangle(bMidLow, s2, sMid);
       }
     }
 
@@ -790,18 +1247,14 @@ float terrainEdgeNoise(vec2 p) {
       const prevIsHill = isHillNeighbor[ePrev];
       const nextIsHill = isHillNeighbor[eNext];
 
+      const cornerRimIdx = topK[(2 * k) % 12];
+      const bHigh = addVertex(cosK[k] * R, elevation, sinK[k] * R);
+      const bLow = addVertex(cosK[k] * R, 0, sinK[k] * R);
+
       if (prevIsHill && !nextIsHill) {
-        // Corner k: ePrev is high plateau, eNext is sloping down
-        const bHigh = addVertex(cosK[k] * R, elevation, sinK[k] * R);
-        const bLow = addVertex(cosK[k] * R, 0, sinK[k] * R);
-        // Cliff face sealing the transition
-        addTopTriangle(topK[k], bLow, bHigh);
+        addTopTriangle(cornerRimIdx, bLow, bHigh);
       } else if (!prevIsHill && nextIsHill) {
-        // Corner k: ePrev is sloping down, eNext is high plateau
-        const bLow = addVertex(cosK[k] * R, 0, sinK[k] * R);
-        const bHigh = addVertex(cosK[k] * R, elevation, sinK[k] * R);
-        // Cliff face sealing the transition
-        addTopTriangle(topK[k], bHigh, bLow);
+        addTopTriangle(cornerRimIdx, bHigh, bLow);
       }
     }
 
@@ -812,14 +1265,242 @@ float terrainEdgeNoise(vec2 p) {
     const combinedIndices = [...topIndices, ...skirtIndices];
     geometry.setIndex(combinedIndices);
 
-    // Group 1: Plateau top, slopes, and cliffs using materialIndex = 1 (dirt terrain material)
+    // Group 1: Plateau top, slopes, and cliffs using materialIndex = 1 (blended hill terrain material)
     geometry.addGroup(0, topIndices.length, 1);
     // Group 0: Foundation skirt below y=0 using materialIndex = 0 (side material)
     if (skirtIndices.length > 0) {
       geometry.addGroup(topIndices.length, skirtIndices.length, 0);
     }
 
-    // Compute smooth normals across terrain slopes
+    geometry.userData = {
+      isHillGeometry: true,
+      variation: varIndex,
+      elevation,
+      mesaRadius: rTop,
+    };
+
+    // Compute smooth normals across rounded terrain slopes
+    geometry.computeVertexNormals();
+
+    return geometry;
+  }
+
+  /**
+   * Generates a procedural swamp tile geometry as an inverted hill hex:
+   * 1. Outer hex boundary at radius R is at y = 0 (exact same level as grass/plain hexes).
+   * 2. Inset smaller hexagon of radius rInset at lower elevation (depression basin).
+   * 3. Organic slopes descending from y = 0 on non-swamp edges down to the inset basin floor.
+   * 4. Full basin extension along shared boundaries with adjacent swamps (seamless wetland pool).
+   * 5. Transition cliff/slope sealing quads at transition corners.
+   * 6. Subterranean foundation skirts below y = 0.
+   * 7. Computed smooth vertex normals for natural marsh lighting.
+   */
+  public createSwampTileGeometry(x: number, y: number): THREE.BufferGeometry {
+    const R = this.hexRadius;
+    const rInset = this.getSwampInsetRadius(x, y);
+    const depression = this.getSwampDepression(x, y);
+    const skirtBottom = -this.hexHeight;
+
+    // Check which of the 6 edges border another swamp
+    const isSwampNeighbor: boolean[] = [];
+    const edgeDirections: HexDirection[] = [
+      HexDirection.EAST,       // Edge 0: Corner 5 (330°) to Corner 0 (30°)
+      HexDirection.SOUTHEAST,  // Edge 1: Corner 0 (30°) to Corner 1 (90°)
+      HexDirection.SOUTHWEST,  // Edge 2: Corner 1 (90°) to Corner 2 (150°)
+      HexDirection.WEST,       // Edge 3: Corner 2 (150°) to Corner 3 (210°)
+      HexDirection.NORTHWEST,  // Edge 4: Corner 3 (210°) to Corner 4 (270°)
+      HexDirection.NORTHEAST,  // Edge 5: Corner 4 (270°) to Corner 5 (330°)
+    ];
+
+    for (let e = 0; e < 6; e++) {
+      const dir = edgeDirections[e];
+      const neighborCoord = HexMapHelpers.directionCoordsMap[dir]?.({ x, y });
+      let neighborIsSwamp = false;
+      if (
+        neighborCoord &&
+        neighborCoord.x >= 0 &&
+        neighborCoord.x < this.hexMap.width &&
+        neighborCoord.y >= 0 &&
+        neighborCoord.y < this.hexMap.height
+      ) {
+        neighborIsSwamp = this.isSwamp(neighborCoord.x, neighborCoord.y);
+      }
+      isSwampNeighbor.push(neighborIsSwamp);
+    }
+
+    // Corner angles for pointy-topped hex: 30°, 90°, 150°, 210°, 270°, 330°
+    const cosK: number[] = [];
+    const sinK: number[] = [];
+    for (let k = 0; k < 6; k++) {
+      const angle = ((k * 60 + 30) * Math.PI) / 180;
+      cosK.push(Math.cos(angle));
+      sinK.push(Math.sin(angle));
+    }
+
+    const topIndices: number[] = [];
+    const skirtIndices: number[] = [];
+    const positions: number[] = [];
+    const uvs: number[] = [];
+
+    const addVertex = (px: number, py: number, pz: number, u?: number, v?: number): number => {
+      const idx = positions.length / 3;
+      positions.push(px, py, pz);
+      if (u !== undefined && v !== undefined) {
+        uvs.push(u, v);
+      } else {
+        uvs.push(px / (2 * R) + 0.5, pz / (2 * R) + 0.5);
+      }
+      return idx;
+    };
+
+    const addTopTriangle = (i1: number, i2: number, i3: number) => {
+      topIndices.push(i1, i2, i3);
+    };
+
+    const addSkirtTriangle = (i1: number, i2: number, i3: number) => {
+      skirtIndices.push(i1, i2, i3);
+    };
+
+    // 1. Center of the sunken swamp basin
+    const vCenter = addVertex(0, depression, 0);
+
+    // 2. Inset hexagon rim (12 points around inset at rInset, height = depression: 6 corners + 6 midpoints)
+    const insetPoints: { x: number; y: number; z: number }[] = [];
+    for (let k = 0; k < 6; k++) {
+      // Corner k
+      insetPoints.push({
+        x: cosK[k] * rInset,
+        y: depression,
+        z: sinK[k] * rInset,
+      });
+      // Midpoint between corner k and next corner (k+1)%6
+      const nextK = (k + 1) % 6;
+      insetPoints.push({
+        x: (cosK[k] + cosK[nextK]) * 0.5 * rInset,
+        y: depression,
+        z: (sinK[k] + sinK[nextK]) * 0.5 * rInset,
+      });
+    }
+
+    const insetK: number[] = [];
+    for (let i = 0; i < 12; i++) {
+      const pt = insetPoints[i];
+      insetK.push(addVertex(pt.x, pt.y, pt.z));
+    }
+
+    // Inset basin floor fan (12 triangles connecting center to inset rim)
+    for (let i = 0; i < 12; i++) {
+      const nextI = (i + 1) % 12;
+      addTopTriangle(vCenter, insetK[nextI], insetK[i]);
+    }
+
+    // 3. For each edge e = 0..5:
+    // Start corner c1 = (e + 5) % 6, end corner c2 = e
+    for (let e = 0; e < 6; e++) {
+      const c1 = (e + 5) % 6;
+      const c2 = e;
+      const isNeighborSwamp = isSwampNeighbor[e];
+
+      const startRimIdx = (2 * e + 10) % 12;
+      const midRimIdx = (2 * e + 11) % 12;
+      const endRimIdx = (2 * e) % 12;
+
+      const in1Idx = insetK[startRimIdx];
+      const inMidIdx = insetK[midRimIdx];
+      const in2Idx = insetK[endRimIdx];
+
+      const b1x = cosK[c1] * R;
+      const b1z = sinK[c1] * R;
+      const b2x = cosK[c2] * R;
+      const b2z = sinK[c2] * R;
+      const bMidx = (b1x + b2x) * 0.5;
+      const bMidz = (b1z + b2z) * 0.5;
+
+      if (isNeighborSwamp) {
+        // Connected to adjacent swamp: depression floor extends to hex boundary at depression
+        const b1Low = addVertex(b1x, depression, b1z);
+        const bMidLow = addVertex(bMidx, depression, bMidz);
+        const b2Low = addVertex(b2x, depression, b2z);
+
+        // Quad between [in1Idx, inMidIdx] and [b1Low, bMidLow]
+        addTopTriangle(in1Idx, inMidIdx, bMidLow);
+        addTopTriangle(in1Idx, bMidLow, b1Low);
+
+        // Quad between [inMidIdx, in2Idx] and [bMidLow, b2Low]
+        addTopTriangle(inMidIdx, in2Idx, b2Low);
+        addTopTriangle(inMidIdx, b2Low, bMidLow);
+
+        // Foundation skirt below depression down to skirtBottom
+        const s1 = addVertex(b1x * 0.97, skirtBottom, b1z * 0.97);
+        const sMid = addVertex(bMidx * 0.97, skirtBottom, bMidz * 0.97);
+        const s2 = addVertex(b2x * 0.97, skirtBottom, b2z * 0.97);
+
+        addSkirtTriangle(b1Low, bMidLow, sMid);
+        addSkirtTriangle(b1Low, sMid, s1);
+        addSkirtTriangle(bMidLow, b2Low, s2);
+        addSkirtTriangle(bMidLow, s2, sMid);
+      } else {
+        // Bordering non-swamp: linear depth slope down from y = 0 at hex boundary to depression at inset hex
+        const b1High = addVertex(b1x, 0, b1z);
+        const bMidHigh = addVertex(bMidx, 0, bMidz);
+        const b2High = addVertex(b2x, 0, b2z);
+
+        // Linear depth slope quads from hex boundary (y = 0) directly to inner inset hexagon (y = depression)
+        addTopTriangle(b1High, in1Idx, inMidIdx);
+        addTopTriangle(b1High, inMidIdx, bMidHigh);
+        addTopTriangle(bMidHigh, inMidIdx, in2Idx);
+        addTopTriangle(bMidHigh, in2Idx, b2High);
+
+        // Foundation skirt below y = 0 down to skirtBottom
+        const s1 = addVertex(b1x * 0.97, skirtBottom, b1z * 0.97);
+        const sMid = addVertex(bMidx * 0.97, skirtBottom, bMidz * 0.97);
+        const s2 = addVertex(b2x * 0.97, skirtBottom, b2z * 0.97);
+
+        addSkirtTriangle(b1High, bMidHigh, sMid);
+        addSkirtTriangle(b1High, sMid, s1);
+        addSkirtTriangle(bMidHigh, b2High, s2);
+        addSkirtTriangle(bMidHigh, s2, sMid);
+      }
+    }
+
+    // 4. Transitions at corners where swamp-neighbor edge meets non-swamp-neighbor edge
+    for (let k = 0; k < 6; k++) {
+      const ePrev = k;
+      const eNext = (k + 1) % 6;
+      const prevIsSwamp = isSwampNeighbor[ePrev];
+      const nextIsSwamp = isSwampNeighbor[eNext];
+
+      const cornerInsetIdx = insetK[(2 * k) % 12];
+      const bHigh = addVertex(cosK[k] * R, 0, sinK[k] * R);
+      const bLow = addVertex(cosK[k] * R, depression, sinK[k] * R);
+
+      if (prevIsSwamp && !nextIsSwamp) {
+        addTopTriangle(cornerInsetIdx, bLow, bHigh);
+      } else if (!prevIsSwamp && nextIsSwamp) {
+        addTopTriangle(cornerInsetIdx, bHigh, bLow);
+      }
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+
+    const combinedIndices = [...topIndices, ...skirtIndices];
+    geometry.setIndex(combinedIndices);
+
+    // Group 1: Basin floor and slopes using materialIndex = 1 (swamp terrain material)
+    geometry.addGroup(0, topIndices.length, 1);
+    // Group 0: Foundation skirt below y=0 using materialIndex = 0 (side material)
+    if (skirtIndices.length > 0) {
+      geometry.addGroup(topIndices.length, skirtIndices.length, 0);
+    }
+
+    geometry.userData = {
+      isSwampGeometry: true,
+      depression,
+      insetRadius: rInset,
+    };
+
     geometry.computeVertexNormals();
 
     return geometry;
@@ -861,10 +1542,36 @@ float terrainEdgeNoise(vec2 p) {
           mesh = new THREE.Mesh(hillGeometry, tileMaterials);
           mesh.position.set(pos.x, pos.y, pos.z);
           mesh.receiveShadow = true;
-          mesh.userData = { hexX: x, hexY: y, isHexTile: true, terrainType: terrain, edgeTransitions };
+          mesh.userData = {
+            hexX: x,
+            hexY: y,
+            isHexTile: true,
+            terrainType: terrain,
+            edgeTransitions,
+            hillVariation: this.getHillVariation(x, y),
+          };
 
           // Crease wireframe outlining the mesa plateau rim
           const edges = new THREE.EdgesGeometry(hillGeometry, 25);
+          const line = new THREE.LineSegments(edges, sharedEdgeLineMat);
+          line.updateMatrix();
+          line.matrixAutoUpdate = false;
+          mesh.add(line);
+        } else if (terrain === TerrainType.SWAMP) {
+          const swampGeometry = this.createSwampTileGeometry(x, y);
+          mesh = new THREE.Mesh(swampGeometry, tileMaterials);
+          mesh.position.set(pos.x, pos.y, pos.z);
+          mesh.receiveShadow = true;
+          mesh.userData = {
+            hexX: x,
+            hexY: y,
+            isHexTile: true,
+            terrainType: terrain,
+            edgeTransitions,
+            isSwamp: true,
+          };
+
+          const edges = new THREE.EdgesGeometry(swampGeometry, 25);
           const line = new THREE.LineSegments(edges, sharedEdgeLineMat);
           line.updateMatrix();
           line.matrixAutoUpdate = false;
@@ -873,8 +1580,6 @@ float terrainEdgeNoise(vec2 p) {
           let elevation = 0;
           if (terrain === TerrainType.WATER) {
             elevation = -0.08;
-          } else if (terrain === TerrainType.SWAMP) {
-            elevation = -0.04;
           }
 
           mesh = new THREE.Mesh(hexGeometry, tileMaterials);
@@ -905,6 +1610,10 @@ float terrainEdgeNoise(vec2 p) {
 
     this.rebuildGridBorders();
     this.rebuildCoords();
+    this.rebuildRetreatFlags();
+    this.rebuildOuterDecorations();
+    this.rebuildGrassField();
+    this.updateTreeCanopiesForBlowingLeaves();
   }
 
   /**
@@ -928,14 +1637,16 @@ float terrainEdgeNoise(vec2 p) {
     // Symmetric scale variations around 1.0 so the average height is exactly 0.75 * AVERAGE_UNIT_3D_HEIGHT
     const scaleOffsets = [0.0, -0.06, 0.06, -0.04, 0.04];
 
+    const treeVariants: ForestTreeVariant[] = ['pine', 'oak', 'birch', 'willow', 'maple'];
+
     for (let i = 0; i < treeCount; i++) {
       const subSeed = (((tileSeed + i * 2654435761) >>> 0) % 1000) / 1000;
-      const variant: 'pine' | 'oak' = (tileSeed + i) % 2 === 0 ? 'pine' : 'oak';
+      const variant: ForestTreeVariant = treeVariants[(tileSeed + i) % treeVariants.length];
       const heightScale = 1.0 + scaleOffsets[i % scaleOffsets.length];
       const treeHeight = FOREST_TREE_TARGET_HEIGHT * heightScale;
 
       let treeObj: THREE.Object3D;
-      const glbTpl = variant === 'pine' ? this.forestTreeTemplates.pine : this.forestTreeTemplates.oak;
+      const glbTpl = this.forestTreeTemplates[variant];
       if (glbTpl) {
         treeObj = glbTpl.clone(true);
         treeObj.scale.set(heightScale, heightScale, heightScale);
@@ -1149,7 +1860,8 @@ float terrainEdgeNoise(vec2 p) {
           this.gridBordersGroup.add(hillBorderMesh);
         } else {
           const borderMesh = new THREE.Mesh(ringGeo, borderMat);
-          borderMesh.position.set(pos.x, pos.y + elevation + 0.003, pos.z);
+          const borderElev = this.isSwamp(x, y) ? 0 : elevation;
+          borderMesh.position.set(pos.x, pos.y + borderElev + 0.003, pos.z);
           borderMesh.updateMatrix();
           borderMesh.matrixAutoUpdate = false;
           this.gridBordersGroup.add(borderMesh);
@@ -1190,7 +1902,10 @@ float terrainEdgeNoise(vec2 p) {
     const worldPos = this.hexToWorld(coords.x, coords.y);
     const elev = this.getHexElevation(coords.x, coords.y);
     const isHill = this.isHill(coords.x, coords.y);
-    const scale = isHill ? this.getHillMesaRadius(coords.x, coords.y) / (this.hexRadius * 0.98) : 1.0;
+    const isSwamp = this.isSwamp(coords.x, coords.y);
+    const scale = isHill
+      ? this.getHillMesaRadius(coords.x, coords.y) / (this.hexRadius * 0.98)
+      : (isSwamp ? this.getSwampInsetRadius(coords.x, coords.y) / (this.hexRadius * 0.98) : 1.0);
     this.hoverMesh.scale.set(scale, 1, scale);
     this.hoverMesh.position.set(worldPos.x, elev + 0.03, worldPos.z);
     this.hoverMesh.visible = true;
@@ -1207,19 +1922,25 @@ float terrainEdgeNoise(vec2 p) {
     const worldPos = this.hexToWorld(coords.x, coords.y);
     const elev = this.getHexElevation(coords.x, coords.y);
     const isHill = this.isHill(coords.x, coords.y);
-    const scale = isHill ? this.getHillMesaRadius(coords.x, coords.y) / (this.hexRadius * 0.95) : 1.0;
+    const isSwamp = this.isSwamp(coords.x, coords.y);
+    const scale = isHill
+      ? this.getHillMesaRadius(coords.x, coords.y) / (this.hexRadius * 0.95)
+      : (isSwamp ? this.getSwampInsetRadius(coords.x, coords.y) / (this.hexRadius * 0.95) : 1.0);
 
     this.selectedRingMesh.scale.set(scale, 1, scale);
     this.selectedRingMesh.position.set(worldPos.x, elev + 0.02, worldPos.z);
     this.selectedRingMesh.visible = false;
 
     this.selectedHaloMesh.scale.set(scale, 1, scale);
-    this.selectedHaloMesh.position.set(worldPos.x, elev + 0.05, worldPos.z);
+    this.selectedHaloMesh.position.set(worldPos.x, elev + 0.08, worldPos.z);
     this.selectedHaloMesh.visible = true;
 
     if (facing !== undefined && facing !== HexDirection.NONE) {
       const topWorldPos = new THREE.Vector3(worldPos.x, elev, worldPos.z);
-      this.updateFacingIndicator(topWorldPos, facing, isHill ? this.getHillMesaRadius(coords.x, coords.y) : undefined);
+      const indicatorRadius = isHill
+        ? this.getHillMesaRadius(coords.x, coords.y)
+        : (isSwamp ? this.getSwampInsetRadius(coords.x, coords.y) : undefined);
+      this.updateFacingIndicator(topWorldPos, facing, indicatorRadius);
     } else {
       this.facingIndicatorGroup.visible = false;
     }
@@ -1234,6 +1955,351 @@ float terrainEdgeNoise(vec2 p) {
       const deltaAngle = (2 * Math.PI * deltaMS) / 30000;
       this.selectedHaloMesh.rotation.y = (this.selectedHaloMesh.rotation.y + deltaAngle) % (2 * Math.PI);
     }
+
+    if (this.animatedFlagCloths.length > 0) {
+      this.windTime += deltaMS * 0.001;
+      if (this.getWindStateFn) {
+        const currentWind = this.getWindStateFn();
+        if (currentWind) {
+          this.currentWindAngleRad = currentWind.angleRad;
+          this.currentWindStrength = currentWind.strength;
+        }
+      }
+      for (let i = 0; i < this.animatedFlagCloths.length; i++) {
+        updateRetreatFlagWind(
+          this.animatedFlagCloths[i],
+          this.windTime,
+          this.currentWindStrength,
+          this.currentWindAngleRad
+        );
+      }
+    }
+
+    if (this.animatedWindmillSails.length > 0) {
+      const sailDeltaAngle = (2 * Math.PI * deltaMS) / 14000;
+      for (let i = 0; i < this.animatedWindmillSails.length; i++) {
+        this.animatedWindmillSails[i].rotation.z =
+          (this.animatedWindmillSails[i].rotation.z - sailDeltaAngle) % (2 * Math.PI);
+      }
+    }
+
+    // Update wind-animated instanced grass field sway
+    this.grassSystem.update(deltaMS);
+
+    // Update tree wind swaying (trunk & branches & leaf flutter) and blowing leaves system
+    const deltaSec = Math.max(0.001, deltaMS * 0.001);
+    updateTreeWindState(this.currentWindAngleRad, this.currentWindStrength, deltaSec);
+    this.blowingLeavesSystem.update(deltaMS);
+  }
+
+  public setWindState(windAngleRad: number, windStrength: number = 1.0): void {
+    this.currentWindAngleRad = windAngleRad;
+    this.currentWindStrength = windStrength;
+    for (let i = 0; i < this.animatedFlagCloths.length; i++) {
+      setRetreatFlagWindState(this.animatedFlagCloths[i], windAngleRad, windStrength);
+    }
+    this.grassSystem.setWindState(windAngleRad, windStrength);
+    this.blowingLeavesSystem.setWindState(windAngleRad, windStrength);
+    updateTreeWindState(windAngleRad, windStrength);
+  }
+
+  public getWindState(): { angleRad: number; strength: number } {
+    return {
+      angleRad: this.currentWindAngleRad,
+      strength: this.currentWindStrength,
+    };
+  }
+
+  public setMajorTerrainType(locationType: BattleLocationType | string): void {
+    this.majorTerrainType = normalizeBattleLocationType(locationType, this.majorTerrainType);
+    this.rebuildOuterDecorations();
+  }
+
+  public getMajorTerrainType(): BattleLocationType {
+    if (this.getMajorTerrainTypeFn) {
+      return normalizeBattleLocationType(this.getMajorTerrainTypeFn(), this.majorTerrainType);
+    }
+    return this.majorTerrainType;
+  }
+
+  public getBoardWorldBounds(): BoardWorldBounds {
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+
+    for (let x = 0; x < this.hexMap.width; x++) {
+      for (let y = 0; y < this.hexMap.height; y++) {
+        const pos = this.hexToWorld(x, y);
+        if (pos.x - this.hexRadius < minX) minX = pos.x - this.hexRadius;
+        if (pos.x + this.hexRadius > maxX) maxX = pos.x + this.hexRadius;
+        if (pos.z - this.hexRadius < minZ) minZ = pos.z - this.hexRadius;
+        if (pos.z + this.hexRadius > maxZ) maxZ = pos.z + this.hexRadius;
+      }
+    }
+
+    if (!Number.isFinite(minX)) {
+      minX = -10;
+      maxX = 10;
+      minZ = -8;
+      maxZ = 8;
+    }
+
+    return {
+      minX,
+      maxX,
+      minZ,
+      maxZ,
+      centerX: (minX + maxX) * 0.5,
+      centerZ: (minZ + maxZ) * 0.5,
+    };
+  }
+
+  public rebuildOuterDecorations(): void {
+    this.clearOuterDecorations();
+    const locationType = this.getMajorTerrainType();
+    const bounds = this.getBoardWorldBounds();
+    const { animatedWindmillSails } = populateOuterEnvironmentDecorations(
+      this.outerDecorationsGroup,
+      locationType,
+      bounds,
+      this.hexHeight,
+      this.forestTreeTemplates
+    );
+    this.animatedWindmillSails = animatedWindmillSails;
+    this.rebuildGrassField();
+    this.updateTreeCanopiesForBlowingLeaves();
+  }
+
+  /**
+   * Scans all forest trees on the board and outer scenery trees to register their canopy
+   * positions with the blowing leaves particle system.
+   */
+  public updateTreeCanopiesForBlowingLeaves(): void {
+    const canopies: THREE.Vector3[] = [];
+    this.forestTreesGroup.traverse((obj) => {
+      if (obj.userData?.isForestTree) {
+        const h = (obj.userData.treeHeight ?? 0.9) * 0.75;
+        canopies.push(new THREE.Vector3(obj.position.x, obj.position.y + h, obj.position.z));
+      }
+    });
+    this.outerDecorationsGroup.traverse((obj) => {
+      if (
+        obj.userData?.decorationType === 'forest_tree' ||
+        obj.userData?.decorationType === 'plains_tree'
+      ) {
+        canopies.push(new THREE.Vector3(obj.position.x, obj.position.y + 0.75, obj.position.z));
+      }
+    });
+    this.blowingLeavesSystem.setTreeCanopyPositions(canopies);
+  }
+
+  /**
+   * Rebuilds the lightweight instanced grass field across playable plain/forest hexes
+   * and perimeter meadows, orienting and swaying in the direction of the wind.
+   */
+  public rebuildGrassField(): void {
+    this.grassSystem.clear();
+    const positions: GrassClumpInstanceData[] = [];
+
+    // Deterministic pseudo-random seed helper
+    const seededRand = (seed: number) => {
+      const s = Math.sin(seed * 91.345 + 0.123) * 43758.5453;
+      return s - Math.floor(s);
+    };
+
+    // 1. Scatter grass clumps on playable PLAIN and FOREST tiles (excluding WATER)
+    for (let x = 0; x < this.hexMap.width; x++) {
+      for (let y = 0; y < this.hexMap.height; y++) {
+        const terrain = this.getTerrainAt(x, y);
+        if (terrain === TerrainType.WATER) continue;
+
+        const worldPos = this.hexToWorld(x, y);
+        const elev = this.getHexElevation(x, y);
+        const tileSeed = ((x * 73856093) ^ (y * 19349663)) >>> 0;
+
+        // 2 to 4 grass clumps per eligible hex tile placed near edges/corners so center remains readable (doubled frequency)
+        const clumpCount = 2 + (tileSeed % 3);
+        for (let i = 0; i < clumpCount; i++) {
+          const subSeed = (tileSeed + i * 179) >>> 0;
+          const angle = (seededRand(subSeed) * Math.PI * 2);
+          const dist = this.hexRadius * (0.38 + seededRand(subSeed + 1) * 0.40);
+          const gx = worldPos.x + Math.cos(angle) * dist;
+          const gz = worldPos.z + Math.sin(angle) * dist;
+          const gy = worldPos.y + elev;
+          const scale = 0.85 + seededRand(subSeed + 2) * 0.35;
+          const rotY = seededRand(subSeed + 3) * Math.PI * 2;
+          const modelType: GrassModelType = ((subSeed + i) % 3) as GrassModelType;
+
+          positions.push({ x: gx, y: gy, z: gz, scale, rotationY: rotY, modelType });
+        }
+      }
+    }
+
+    // 2. Scatter perimeter grass clumps on outer ground apron (doubled count: 72 clumps)
+    const bounds = this.getBoardWorldBounds();
+    const margin = 2.4;
+    const groundY = -this.hexHeight + 0.005;
+    const outerCount = 72;
+    for (let i = 0; i < outerCount; i++) {
+      const angle = (i * Math.PI * 2) / outerCount + seededRand(i * 13) * 0.15;
+      const baseSpan = Math.max(bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ) * 0.5 + margin;
+      const dist = baseSpan + seededRand(i * 29) * 8.5;
+      const gx = bounds.centerX + Math.cos(angle) * dist;
+      const gz = bounds.centerZ + Math.sin(angle) * dist;
+      const scale = 0.95 + seededRand(i * 47) * 0.45;
+      const rotY = seededRand(i * 53) * Math.PI * 2;
+      const modelType: GrassModelType = (i % 3) as GrassModelType;
+
+      positions.push({ x: gx, y: groundY, z: gz, scale, rotationY: rotY, modelType });
+    }
+
+    this.grassSystem.setWindState(this.currentWindAngleRad, this.currentWindStrength);
+    this.grassSystem.buildGrassField(positions);
+  }
+
+  private clearOuterDecorations(): void {
+    while (this.outerDecorationsGroup.children.length > 0) {
+      const child = this.outerDecorationsGroup.children[0];
+      this.outerDecorationsGroup.remove(child);
+      child.traverse((obj) => {
+        if ((obj as THREE.Mesh).isMesh) {
+          const mesh = obj as THREE.Mesh;
+          if (mesh.geometry && !mesh.geometry.userData?.isSharedAsset) {
+            mesh.geometry.dispose();
+          }
+          if (Array.isArray(mesh.material)) {
+            mesh.material.forEach((m) => {
+              if (!m.userData?.isSharedAsset) m.dispose();
+            });
+          } else if (mesh.material && !mesh.material.userData?.isSharedAsset) {
+            mesh.material.dispose();
+          }
+        }
+      });
+    }
+    this.animatedWindmillSails = [];
+  }
+
+  public setRetreatPointsProvider(provider: (armyIndex: number) => Coords[]): void {
+    this.getRetreatPoints = provider;
+    this.rebuildRetreatFlags();
+  }
+
+  public setArmyBannerProvider(provider: (armyIndex: number) => string): void {
+    this.getArmyBanner = provider;
+    this.rebuildRetreatFlags();
+  }
+
+  public getBannerForArmy(armyIndex: number): string {
+    if (this.getArmyBanner) {
+      return this.getArmyBanner(armyIndex);
+    }
+    return getPlayerBanner(armyIndex);
+  }
+
+  /**
+   * Rebuilds all retreat flags on their configured hexagon coordinates.
+   * Flags are purely decorative pass-through objects and do not block squad placement.
+   */
+  public rebuildRetreatFlags(): void {
+    const sharedSource = this.bannersTexture?.source ?? getSharedBannersTexture()?.source;
+    const disposeMaterialMapIfStandalone = (m: any) => {
+      const map = m?.map;
+      if (map && !map.userData?.isSharedBannerAtlas && (!sharedSource || map.source !== sharedSource)) {
+        map.dispose?.();
+      }
+    };
+
+    while (this.retreatFlagsGroup.children.length > 0) {
+      const child = this.retreatFlagsGroup.children[0];
+      this.retreatFlagsGroup.remove(child);
+      child.traverse((obj) => {
+        if ((obj as THREE.Mesh).isMesh) {
+          const mesh = obj as THREE.Mesh;
+          mesh.geometry?.dispose();
+          if (Array.isArray(mesh.material)) {
+            mesh.material.forEach((m) => {
+              disposeMaterialMapIfStandalone(m);
+              m.dispose();
+            });
+          } else if (mesh.material) {
+            disposeMaterialMapIfStandalone(mesh.material);
+            mesh.material.dispose();
+          }
+        }
+      });
+    }
+    this.animatedFlagCloths = [];
+
+    const atlasTex = this.bannersTexture ?? getSharedBannersTexture();
+
+    // Place square war standard flags for army 0 and army 1
+    for (const armyIndex of [0, 1]) {
+      const points = this.getRetreatPointsForArmy(armyIndex);
+      const bannerName = this.getBannerForArmy(armyIndex);
+      const bannerTexture = atlasTex
+        ? createBannerSubTexture(atlasTex, bannerName)
+        : undefined;
+      for (const pt of points) {
+        if (pt.x < 0 || pt.x >= this.hexMap.width || pt.y < 0 || pt.y >= this.hexMap.height) {
+          continue;
+        }
+        const flag = createRetreatFlagMesh(armyIndex, pt.x, pt.y, bannerName, bannerTexture);
+        const worldPos = this.hexToWorld(pt.x, pt.y);
+        const elevation = this.getHexElevation(pt.x, pt.y);
+
+        // Position flagpole closer to the hex edge:
+        // - Aligned centrally on the North-South axis (z = 0)
+        // - To the side of the nearest map edge on the East-West axis (west for left player, east for right player)
+        const offset = this.getRetreatFlagOffset(armyIndex, pt.x, pt.y);
+        flag.position.set(worldPos.x + offset.x, worldPos.y + elevation, worldPos.z + offset.z);
+
+        this.retreatFlagsGroup.add(flag);
+
+        const cloth = flag.getObjectByName('Cloth') as THREE.Mesh;
+        if (cloth) {
+          setRetreatFlagWindState(cloth, this.currentWindAngleRad, this.currentWindStrength);
+          this.animatedFlagCloths.push(cloth);
+        }
+      }
+    }
+  }
+
+  /**
+   * Calculates the local position offset for a retreat flag within its hex tile.
+   * Aligned centrally on the North-South axis (z = 0) and positioned towards the nearest
+   * map edge on the East-West axis (west for left-side player, east for right-side player).
+   */
+  public getRetreatFlagOffset(armyIndex: number, hexX: number, _hexY?: number): { x: number; z: number } {
+    const distToWestEdge = hexX;
+    const distToEastEdge = (this.hexMap.width - 1) - hexX;
+    let isWest: boolean;
+    if (distToWestEdge < distToEastEdge) {
+      isWest = true;
+    } else if (distToEastEdge < distToWestEdge) {
+      isWest = false;
+    } else {
+      isWest = (armyIndex === 0);
+    }
+
+    const edgeDistance = this.hexRadius * 0.68;
+    return {
+      x: isWest ? -edgeDistance : edgeDistance,
+      z: 0,
+    };
+  }
+
+  private getRetreatPointsForArmy(armyIndex: number): Coords[] {
+    if (this.getRetreatPoints) {
+      return this.getRetreatPoints(armyIndex);
+    }
+    const pts: Coords[] = [];
+    const edgeX = armyIndex === 0 ? 0 : Math.max(0, this.hexMap.width - 1);
+    for (let y = 0; y < this.hexMap.height; y++) {
+      pts.push({ x: edgeX, y });
+    }
+    return pts;
   }
 
   private updateFacingIndicator(worldPos: THREE.Vector3, facing: HexDirection, mesaRadius?: number): void {
@@ -1289,8 +2355,12 @@ float terrainEdgeNoise(vec2 p) {
       const pos = this.hexToWorld(c.x, c.y);
       const elev = this.getHexElevation(c.x, c.y);
       const isHill = this.isHill(c.x, c.y);
+      const isSwamp = this.isSwamp(c.x, c.y);
       if (isHill) {
         const scale = this.getHillMesaRadius(c.x, c.y) / (this.hexRadius * 0.98);
+        mesh.scale.set(scale, 1, scale);
+      } else if (isSwamp) {
+        const scale = this.getSwampInsetRadius(c.x, c.y) / (this.hexRadius * 0.98);
         mesh.scale.set(scale, 1, scale);
       }
       mesh.position.set(pos.x, elev + 0.015, pos.z);
@@ -1306,8 +2376,12 @@ float terrainEdgeNoise(vec2 p) {
       const pos = this.hexToWorld(c.x, c.y);
       const elev = this.getHexElevation(c.x, c.y);
       const isHill = this.isHill(c.x, c.y);
+      const isSwamp = this.isSwamp(c.x, c.y);
       if (isHill) {
         const scale = this.getHillMesaRadius(c.x, c.y) / (this.hexRadius * 0.98);
+        mesh.scale.set(scale, 1, scale);
+      } else if (isSwamp) {
+        const scale = this.getSwampInsetRadius(c.x, c.y) / (this.hexRadius * 0.98);
         mesh.scale.set(scale, 1, scale);
       }
       mesh.position.set(pos.x, elev + 0.02, pos.z);
@@ -1397,7 +2471,8 @@ float terrainEdgeNoise(vec2 p) {
         const center = this.hexToWorld(x, y);
         const elev = this.getHexElevation(x, y);
         const isHill = this.isHill(x, y);
-        const R = (isHill ? this.getHillMesaRadius(x, y) : this.hexRadius) * 0.98;
+        const isSwamp = this.isSwamp(x, y);
+        const R = (isHill ? this.getHillMesaRadius(x, y) : (isSwamp ? this.getSwampInsetRadius(x, y) : this.hexRadius)) * 0.98;
         const yBase = elev + 0.02;
         const yTop = yBase + wallHeight;
 
@@ -1466,7 +2541,7 @@ float terrainEdgeNoise(vec2 p) {
 
       const wallMesh = new THREE.Mesh(wallGeo, wallMat);
       wallMesh.name = wallName;
-      wallMesh.raycast = () => {};
+      wallMesh.raycast = () => { };
       targetGroup.add(wallMesh);
 
       const lineGeo = new THREE.BufferGeometry();
@@ -1481,7 +2556,7 @@ float terrainEdgeNoise(vec2 p) {
 
       const lineSegments = new THREE.LineSegments(lineGeo, lineMat);
       lineSegments.name = linesName;
-      lineSegments.raycast = () => {};
+      lineSegments.raycast = () => { };
       targetGroup.add(lineSegments);
     }
   }
@@ -1537,11 +2612,11 @@ float terrainEdgeNoise(vec2 p) {
     if (terrain === TerrainType.HILL) {
       const clusterId = this.hillClusters.get(`${x},${y}`);
       if (clusterId !== undefined) {
-        return this.clusterElevations.get(clusterId) ?? 0.32;
+        return this.clusterElevations.get(clusterId) ?? 0.21;
       }
-      return 0.32;
+      return 0.21;
     }
-    if (terrain === TerrainType.SWAMP) return -0.04;
+    if (terrain === TerrainType.SWAMP) return this.getSwampDepression(x, y);
     return 0;
   }
 
@@ -1751,6 +2826,11 @@ float terrainEdgeNoise(vec2 p) {
   }
 
   public dispose(): void {
+    if (this.hillMaskTexture) {
+      this.hillMaskTexture.dispose();
+      this.hillMaskTexture = null;
+    }
+
     this.blendedTileMaterials.forEach((m) => m.dispose());
     this.blendedTileMaterials = [];
 
@@ -1782,6 +2862,9 @@ float terrainEdgeNoise(vec2 p) {
       }
     }
     this.clearForestTrees();
+    this.clearOuterDecorations();
+    this.grassSystem.dispose();
+    this.blowingLeavesSystem.dispose();
     this.clearReachOverlays();
     this.clearRangePerimeter();
     this.clearEnemyRangePerimeter();

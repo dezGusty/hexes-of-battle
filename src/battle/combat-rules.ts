@@ -1,4 +1,5 @@
 import { TraitsConfig, DEFAULT_TRAITS_CONFIG } from "./trait-system";
+import { WindConfig, DEFAULT_WIND_CONFIG } from "../render3d/decorations/wind-system";
 
 export enum ExhaustionState {
   FRESH = "fresh",
@@ -102,6 +103,25 @@ export interface SquadDeathMoraleConfig {
   killerRangedBonus: number;
 }
 
+export interface HealingMoraleConfig {
+  multiplier?: number;
+  minValue?: number;
+  min_value?: number;
+  fullMorale?: boolean;
+  full_morale?: boolean;
+}
+
+export const DEFAULT_HEALING_MORALE_CONFIG: Required<Omit<HealingMoraleConfig, 'min_value' | 'full_morale'>> & {
+  min_value: number;
+  full_morale: boolean;
+} = {
+  multiplier: 0.5,
+  minValue: 1,
+  min_value: 1,
+  fullMorale: false,
+  full_morale: false,
+};
+
 export interface MoraleConfig {
   maxMorale: number;
   casualtyThresholdRatio: number;
@@ -118,11 +138,28 @@ export interface MoraleConfig {
   neighbourEnemyBonus?: number;
   killerMeleeBonus?: number;
   killerRangedBonus?: number;
+  healing?: HealingMoraleConfig;
+  healingMorale?: HealingMoraleConfig;
 }
 
 export interface HeroConfig {
   bodyguardRetinueAbsorption: number;
   presenceMoraleBonus: number;
+}
+
+export type ColorCode =
+  | string
+  | number
+  | [number, number, number]
+  | [number, number, number, number]
+  | { r: number; g: number; b: number; a?: number }
+  | { red: number; green: number; blue: number; alpha?: number };
+
+export interface PlayerColorsConfig {
+  player1?: ColorCode;
+  player2?: ColorCode;
+  hero?: ColorCode;
+  [key: string]: ColorCode | undefined;
 }
 
 export interface CombatConfig {
@@ -134,6 +171,17 @@ export interface CombatConfig {
   morale: MoraleConfig;
   hero: HeroConfig;
   traits?: TraitsConfig;
+  playerColors?: PlayerColorsConfig;
+  player_colors?: PlayerColorsConfig;
+  teamColors?: PlayerColorsConfig;
+  healing?: HealingMoraleConfig;
+  healingMorale?: HealingMoraleConfig;
+  player1Banner?: string;
+  player2Banner?: string;
+  playerBanners?: Record<string | number, string>;
+  majorTerrainType?: string;
+  battleLocationType?: string;
+  wind?: WindConfig;
 }
 
 export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
@@ -236,12 +284,25 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
       killerMeleeBonus: 2,
       killerRangedBonus: 1,
     },
+    healing: {
+      multiplier: 0.5,
+      minValue: 1,
+    },
   },
   hero: {
     bodyguardRetinueAbsorption: 1.0,
     presenceMoraleBonus: 5,
   },
   traits: DEFAULT_TRAITS_CONFIG,
+  playerColors: {
+    player1: "rgb(47, 99, 199)",
+    player2: "rgb(199, 54, 54)",
+    hero: "rgb(212, 175, 55)",
+  },
+  player1Banner: "banner1.png",
+  player2Banner: "banner2.png",
+  majorTerrainType: "farm",
+  wind: { ...DEFAULT_WIND_CONFIG },
 };
 
 export const MIN_MORALE = 0;
@@ -428,4 +489,48 @@ export function getStaminaTooltip(
   }
 
   return lines.join('\n');
+}
+
+/**
+ * Resolves healing morale configuration with fallback hierarchy:
+ * 1. Ability-specific override / perk (healingMorale, healing, healing_morale_multiplier)
+ * 2. CombatConfig / BattleConfig (morale.healing, morale.healingMorale, healingMorale, healing)
+ * 3. Default: multiplier = 0.5, minValue = 1, fullMorale = false
+ */
+export function getHealingMoraleConfig(
+  combatConfig?: CombatConfig,
+  ability?: any
+): { multiplier: number; minValue: number; fullMorale: boolean } {
+  const abilityCfg = ability?.healingMorale ?? ability?.healing;
+  const cfg =
+    abilityCfg ??
+    combatConfig?.morale?.healing ??
+    combatConfig?.morale?.healingMorale ??
+    combatConfig?.healingMorale ??
+    combatConfig?.healing ??
+    {};
+
+  const multiplier =
+    abilityCfg?.multiplier ??
+    ability?.healing_morale_multiplier ??
+    cfg.multiplier ??
+    DEFAULT_HEALING_MORALE_CONFIG.multiplier;
+
+  const minValue =
+    abilityCfg?.minValue ??
+    abilityCfg?.min_value ??
+    ability?.healing_morale_min ??
+    cfg.minValue ??
+    cfg.min_value ??
+    DEFAULT_HEALING_MORALE_CONFIG.minValue;
+
+  const fullMorale =
+    abilityCfg?.fullMorale ??
+    abilityCfg?.full_morale ??
+    ability?.healing_morale_full ??
+    cfg.fullMorale ??
+    cfg.full_morale ??
+    false;
+
+  return { multiplier, minValue, fullMorale };
 }

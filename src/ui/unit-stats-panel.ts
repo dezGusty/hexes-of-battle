@@ -17,6 +17,7 @@ import { Battle, InputState } from "../battle";
 import { getMoraleState, getMoraleTooltip, getStaminaTooltip } from "../battle/combat-rules";
 import { getMoraleTexture } from "./morale-icon-utils";
 import { CommonControls } from "./common-controls";
+import { playUISound } from "../battle/ui-sounds";
 import {
   createMedievalBestiaryOrnament,
   createMedievalMasterFrame,
@@ -281,6 +282,7 @@ export class UnitStatsPanel {
   private currentCreature?: Creature = undefined;
   private lastTriggeredSkillTime: number = 0;
   private lastTriggeredSkillIndex: number = -1;
+  private lastHoveredSkillIndex: number = -1;
   private lastPointerTapTime: number = 0;
 
   private stats?: CreatureStats = undefined;
@@ -936,6 +938,12 @@ export class UnitStatsPanel {
       height,
     };
 
+    container.on("pointerover", () => {
+      if (btnObj.enabled) {
+        playUISound("hover");
+      }
+    });
+
     container.on("pointertap", () => {
       this.lastPointerTapTime = Date.now();
       if (direction === "left") {
@@ -1094,6 +1102,26 @@ export class UnitStatsPanel {
     }
     container.addChild(label);
 
+    const slotObj: CommonActionSlot = {
+      container,
+      bg,
+      border,
+      iconSprite,
+      label,
+      action,
+      enabled: true,
+      x,
+      y,
+      width,
+      height,
+    };
+
+    container.on("pointerover", () => {
+      if (!this.boundCommonControls && slotObj.enabled) {
+        playUISound("hover");
+      }
+    });
+
     container.on("pointertap", () => {
       this.lastPointerTapTime = Date.now();
       if (action === "rest") {
@@ -1107,19 +1135,7 @@ export class UnitStatsPanel {
 
     this.commonActionsGroup.addChild(container);
 
-    return {
-      container,
-      bg,
-      border,
-      iconSprite,
-      label,
-      action,
-      enabled: true,
-      x,
-      y,
-      width,
-      height,
-    };
+    return slotObj;
   }
 
   public isRestApplicable(creature?: Creature): boolean {
@@ -1164,6 +1180,7 @@ export class UnitStatsPanel {
     if (!this.commonActions.rest.enabled) return false;
 
     if (this.onRestClick) {
+      playUISound("click");
       this.onRestClick();
       this.update();
       return true;
@@ -1173,6 +1190,7 @@ export class UnitStatsPanel {
       this.update();
       return true;
     }
+    playUISound("click");
     if (this.battle) {
       const ok = this.battle.restActiveCreature();
       this.update();
@@ -1183,6 +1201,7 @@ export class UnitStatsPanel {
 
   public triggerNextUnit(): boolean {
     if (this.onNextUnitClick) {
+      playUISound("click");
       this.onNextUnitClick();
       return true;
     }
@@ -1190,6 +1209,7 @@ export class UnitStatsPanel {
       this.boundCommonControls.nextUnitButton.onPress.emit();
       return true;
     }
+    playUISound("click");
     if (this.battle) {
       this.battle.selectNextUnitAndGetIndex();
       return true;
@@ -1199,6 +1219,7 @@ export class UnitStatsPanel {
 
   public triggerEndTurn(): boolean {
     if (this.onEndTurnClick) {
+      playUISound("click");
       this.onEndTurnClick();
       return true;
     }
@@ -1206,6 +1227,7 @@ export class UnitStatsPanel {
       this.boundCommonControls.nextTurnButton.onPress.emit();
       return true;
     }
+    playUISound("click");
     if (this.battle) {
       this.battle.nextTurn();
       return true;
@@ -1224,6 +1246,7 @@ export class UnitStatsPanel {
 
   public scrollPerksLeft(): boolean {
     if (!this.canScrollPerksLeft()) return false;
+    playUISound("click");
     this.perkScrollOffset = Math.max(0, this.perkScrollOffset - 1);
     this.renderTraits();
     return true;
@@ -1231,6 +1254,7 @@ export class UnitStatsPanel {
 
   public scrollPerksRight(): boolean {
     if (!this.canScrollPerksRight()) return false;
+    playUISound("click");
     const total = this.getTotalTraitCount();
     const maxOffset = Math.max(0, total - UnitStatsPanel.MAX_VISIBLE_PERKS);
     this.perkScrollOffset = Math.min(maxOffset, this.perkScrollOffset + 1);
@@ -1601,6 +1625,17 @@ export class UnitStatsPanel {
         slotContainer.addChild(keyLabel);
       }
 
+      slotContainer.on("pointerover", () => {
+        if (isUsable && this.lastHoveredSkillIndex !== index) {
+          this.lastHoveredSkillIndex = index;
+          playUISound("hover");
+        }
+      });
+      slotContainer.on("pointerout", () => {
+        if (this.lastHoveredSkillIndex === index) {
+          this.lastHoveredSkillIndex = -1;
+        }
+      });
       slotContainer.on("pointerdown", () => {
         if (isUsable) {
           slotBorder.tint = 0xd4b038;
@@ -1651,6 +1686,7 @@ export class UnitStatsPanel {
     }
     this.lastTriggeredSkillIndex = index;
     this.lastTriggeredSkillTime = now;
+    playUISound("click");
 
     if (this.onSkillClick) {
       this.onSkillClick(index, slot.ability, this.currentCreature);
@@ -1947,6 +1983,9 @@ export class UnitStatsPanel {
         slot.border.tint = isActive ? 0x66ff66 : 0xffffff;
       }
     }
+    if (!hoveredSkill) {
+      this.lastHoveredSkillIndex = -1;
+    }
 
     let hoveredTrait: TraitSlot | null = null;
     for (const slot of this.traitSlots) {
@@ -1965,6 +2004,10 @@ export class UnitStatsPanel {
     }
 
     if (hoveredSkill) {
+      if (hoveredSkill.isUsable && this.lastHoveredSkillIndex !== hoveredSkill.index) {
+        this.lastHoveredSkillIndex = hoveredSkill.index;
+        playUISound("hover");
+      }
       const skillHeader = `[SKILL] ${(hoveredSkill.name || hoveredSkill.skillId).toUpperCase()}`;
       const skillDesc = hoveredSkill.description;
 
