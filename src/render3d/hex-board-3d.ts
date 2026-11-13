@@ -32,6 +32,7 @@ import {
 import { WindState } from './decorations/wind-system';
 import { GrassFieldSystem, GrassModelType, GrassClumpInstanceData } from './decorations/grass-system-3d';
 import { BlowingLeavesSystem } from './decorations/blowing-leaves-3d';
+import { TerrainSplattingContext } from './terrain-splatting';
 
 export interface HexBoard3DOptions {
   showGrid?: boolean;
@@ -117,10 +118,11 @@ export class HexBoard3D {
   private hillMaskTexture: THREE.Texture | null = null;
 
   private materials: Record<string, THREE.Material> = {};
+  private terrainSplatting!: TerrainSplattingContext;
   private sideMaterial: THREE.Material = new THREE.MeshStandardMaterial({
     color: 0x33281e,
-    roughness: 0.9,
-    metalness: 0.1,
+    roughness: 0.88,
+    metalness: 0.05,
     side: THREE.DoubleSide,
   });
 
@@ -158,6 +160,14 @@ export class HexBoard3D {
     }
     if (options?.blendTransitionWidth !== undefined) this.blendTransitionWidth = options.blendTransitionWidth;
     if (options?.blendNoiseStrength !== undefined) this.blendNoiseStrength = options.blendNoiseStrength;
+
+    this.terrainSplatting = new TerrainSplattingContext(
+      this.hexMap,
+      this.hexRadius,
+      (x, y) => this.getTerrainAt(x, y),
+      (x, y) => this.hexToWorld(x, y)
+    );
+    this.terrainSplatting.setGridGlowVisible(this.showGrid);
 
     this.initMaterials();
 
@@ -216,23 +226,33 @@ export class HexBoard3D {
     this.buildBoard();
   }
 
+  private attachTerrainSplatting(mat: THREE.MeshStandardMaterial, key: string): THREE.MeshStandardMaterial {
+    mat.customProgramCacheKey = () => `EadorTerrainSplat_${key}`;
+    mat.onBeforeCompile = (shader) => {
+      this.terrainSplatting.applyToShader(shader);
+    };
+    return mat;
+  }
+
   private initMaterials(): void {
-    this.materials['grass'] = new THREE.MeshStandardMaterial({
+    this.attachTerrainSplatting(this.sideMaterial as THREE.MeshStandardMaterial, 'side');
+
+    this.materials['grass'] = this.attachTerrainSplatting(new THREE.MeshStandardMaterial({
       color: 0x3d7a42,
-      roughness: 0.8,
-      metalness: 0.1,
-    });
-    this.materials['forest'] = new THREE.MeshStandardMaterial({
+      roughness: 0.82,
+      metalness: 0.06,
+    }), 'grass');
+    this.materials['forest'] = this.attachTerrainSplatting(new THREE.MeshStandardMaterial({
       color: 0x2e5c33,
-      roughness: 0.8,
-      metalness: 0.1,
-    });
-    this.materials['dirt'] = new THREE.MeshStandardMaterial({
+      roughness: 0.85,
+      metalness: 0.06,
+    }), 'forest');
+    this.materials['dirt'] = this.attachTerrainSplatting(new THREE.MeshStandardMaterial({
       color: 0x8a6d45,
-      roughness: 0.9,
+      roughness: 0.88,
       metalness: 0.05,
       side: THREE.DoubleSide,
-    });
+    }), 'dirt');
     this.materials['water'] = new THREE.MeshStandardMaterial({
       color: 0x2266aa,
       roughness: 0.2,
@@ -240,11 +260,11 @@ export class HexBoard3D {
       transparent: true,
       opacity: 0.85,
     });
-    this.materials['swamp'] = new THREE.MeshStandardMaterial({
+    this.materials['swamp'] = this.attachTerrainSplatting(new THREE.MeshStandardMaterial({
       color: 0x4a5438,
       roughness: 0.85,
-      metalness: 0.1,
-    });
+      metalness: 0.06,
+    }), 'swamp');
   }
 
   public async loadTerrainAssets(
@@ -334,11 +354,30 @@ export class HexBoard3D {
         loadTex(`${basePath}swamp.jpg`),
         loadTex(`${basePath}water.jpg`),
       ]);
+      const mountainTex = await loadTex(`${basePath}mountain.jpg`).catch(() => undefined);
 
-      this.materials['grass'] = new THREE.MeshStandardMaterial({ map: grassTex, roughness: 0.8 });
-      this.materials['forest'] = new THREE.MeshStandardMaterial({ map: forestTex, roughness: 0.85 });
-      this.materials['dirt'] = new THREE.MeshStandardMaterial({ map: dirtTex, roughness: 0.9, side: THREE.DoubleSide });
-      this.materials['swamp'] = new THREE.MeshStandardMaterial({ map: swampTex, roughness: 0.85, metalness: 0.05 });
+      this.terrainSplatting.setLoadedDiffuseTextures({
+        grass: grassTex,
+        dirt: dirtTex,
+        rock: mountainTex,
+      });
+
+      this.materials['grass'] = this.attachTerrainSplatting(
+        new THREE.MeshStandardMaterial({ map: grassTex, roughness: 0.82, metalness: 0.05 }),
+        'grass_tex'
+      );
+      this.materials['forest'] = this.attachTerrainSplatting(
+        new THREE.MeshStandardMaterial({ map: forestTex, roughness: 0.85, metalness: 0.05 }),
+        'forest_tex'
+      );
+      this.materials['dirt'] = this.attachTerrainSplatting(
+        new THREE.MeshStandardMaterial({ map: dirtTex, roughness: 0.88, metalness: 0.04, side: THREE.DoubleSide }),
+        'dirt_tex'
+      );
+      this.materials['swamp'] = this.attachTerrainSplatting(
+        new THREE.MeshStandardMaterial({ map: swampTex, roughness: 0.85, metalness: 0.05 }),
+        'swamp_tex'
+      );
       this.materials['water'] = new THREE.MeshStandardMaterial({
         map: waterTex,
         roughness: 0.15,
@@ -369,7 +408,17 @@ export class HexBoard3D {
     return this.tileMeshList;
   }
 
+  public getTerrainSplatting(): TerrainSplattingContext {
+    return this.terrainSplatting;
+  }
+
   public rebuildBoard(): void {
+    this.terrainSplatting.rebuildSplatMap(
+      this.hexMap,
+      this.hexRadius,
+      (x, y) => this.getTerrainAt(x, y),
+      (x, y) => this.hexToWorld(x, y)
+    );
     // Clean up dynamic blended materials
     this.blendedTileMaterials.forEach((m) => m.dispose());
     this.blendedTileMaterials = [];
@@ -527,9 +576,11 @@ export class HexBoard3D {
       hexCoords: { x, y },
     };
 
-    blendedMat.customProgramCacheKey = () => `HexTerrainBlend_${terrainKey}`;
+    blendedMat.customProgramCacheKey = () => `HexTerrainBlend_${terrainKey}_Eador`;
 
     blendedMat.onBeforeCompile = (shader) => {
+      this.terrainSplatting.applyToShader(shader);
+
       shader.uniforms.uBaseColor = { value: baseGrassColor };
       shader.uniforms.uBaseMap = { value: baseGrassMap };
       shader.uniforms.uHasBaseMap = { value: baseGrassMap ? 1.0 : 0.0 };
@@ -805,9 +856,11 @@ float terrainEdgeNoise(vec2 p) {
       tileCoords: x !== undefined && y !== undefined ? { x, y } : undefined,
     };
 
-    blendedMat.customProgramCacheKey = () => 'HexTerrainBlend_Hill';
+    blendedMat.customProgramCacheKey = () => 'HexTerrainBlend_Hill_Eador';
 
     blendedMat.onBeforeCompile = (shader) => {
+      this.terrainSplatting.applyToShader(shader);
+
       shader.uniforms.uMudColor = { value: baseMudColor };
       shader.uniforms.uMudMap = { value: baseMudMap };
       shader.uniforms.uHasMudMap = { value: baseMudMap ? 1.0 : 0.0 };
@@ -1720,6 +1773,7 @@ float hillTerrainNoise(vec2 p) {
   public setGridVisible(visible: boolean): void {
     this.showGrid = visible;
     this.gridBordersGroup.visible = visible;
+    this.terrainSplatting.setGridGlowVisible(visible);
   }
 
   public isGridVisible(): boolean {
@@ -1951,6 +2005,8 @@ float hillTerrainNoise(vec2 p) {
    * (30 seconds for a full 360 degree rotation).
    */
   public update(deltaMS: number): void {
+    this.terrainSplatting.updateTime(deltaMS);
+
     if (this.selectedHaloMesh && this.selectedHaloMesh.visible) {
       const deltaAngle = (2 * Math.PI * deltaMS) / 30000;
       this.selectedHaloMesh.rotation.y = (this.selectedHaloMesh.rotation.y + deltaAngle) % (2 * Math.PI);
@@ -2833,6 +2889,7 @@ float hillTerrainNoise(vec2 p) {
 
     this.blendedTileMaterials.forEach((m) => m.dispose());
     this.blendedTileMaterials = [];
+    this.terrainSplatting.dispose();
 
     this.tileMeshes.forEach((m) => {
       this.group.remove(m);

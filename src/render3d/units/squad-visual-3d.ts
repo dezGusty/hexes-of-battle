@@ -61,6 +61,7 @@ export class SquadVisual3D {
   private staminaBarMesh!: THREE.Mesh;
   private barBgMesh!: THREE.Mesh;
   private countSprite?: THREE.Sprite;
+  public showOverheadStatus: boolean = true;
 
   // Floating text queue
   private floatingTexts: FloatingText3D[] = [];
@@ -364,6 +365,16 @@ export class SquadVisual3D {
     return this.floatingTexts.length > 0;
   }
 
+  public setOverheadStatusVisible(visible: boolean): void {
+    this.showOverheadStatus = visible;
+    const isDead = !this.creature.isAlive || this.aliveCount <= 0;
+    this.overheadGroup.visible = visible && !isDead;
+  }
+
+  public isOverheadStatusVisible(): boolean {
+    return this.overheadGroup.visible;
+  }
+
   public updateStats(showIndicators: boolean = this.showDamageIndicators): void {
     const prevAlive = this.aliveCount;
     this.aliveCount = this.creature.isAlive ? this.creature.aliveModelCount : 0;
@@ -403,7 +414,7 @@ export class SquadVisual3D {
       return;
     }
 
-    this.overheadGroup.visible = true;
+    this.overheadGroup.visible = this.showOverheadStatus;
 
     // Health ratio
     const maxHp = Math.max(1, this.creature.stats.health);

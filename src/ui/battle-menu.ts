@@ -58,8 +58,14 @@ export class BattleMenuPanel {
     public animationSpeedValueText?: Text;
     public weatherButton?: FancyButton;
     public weatherDropdown?: WeatherDropdown;
+    public toggleRimLightingButton?: FancyButton;
+    public toggleTiltShiftButton?: FancyButton;
 
     private hardwareCursorText?: Text;
+    private rimLightingText?: Text;
+    private tiltShiftText?: Text;
+    private isRimLightingEnabled: boolean = true;
+    private isTiltShiftEnabled: boolean = true;
     private isHardwareCursorHidden: boolean = false;
     private isUpdatingAnimationSpeed: boolean = false;
     private isUpdatingSoundValues: boolean = false;
@@ -92,6 +98,8 @@ export class BattleMenuPanel {
     public onToggleHardwareCursor?: (hide: boolean) => void;
     public onAnimationSpeedChange?: (speed: number) => void;
     public onWeatherChange?: (weather: WeatherType) => void;
+    public onToggleRimLighting?: (enabled: boolean) => void;
+    public onToggleTiltShift?: (enabled: boolean) => void;
 
     public constructor(private view: Container, private uiSheet: Spritesheet) {
         const windowBg = new NineSliceSprite({
@@ -103,11 +111,14 @@ export class BattleMenuPanel {
         });
 
         windowBg.width = 920;
-        windowBg.height = 700;
+        windowBg.height = 840;
         windowBg.alpha = 0.95;
 
         this.window.addChild(windowBg);
-        this.window.position = { x: (1920 - windowBg.width) / 2, y: (1080 - windowBg.height) / 2 };
+        this.window.position = {
+            x: (1920 - windowBg.width) / 2,
+            y: Math.max(40, (1080 - windowBg.height) / 2 - 40),
+        };
 
         this.window.addChild(this.mainContainer);
         this.window.addChild(this.saveDialogContainer);
@@ -132,6 +143,28 @@ export class BattleMenuPanel {
         this.isHardwareCursorHidden = hidden;
         if (this.hardwareCursorText) {
             this.hardwareCursorText.text = this.getHardwareCursorLabel();
+        }
+    }
+
+    private getRimLightingLabel(): string {
+        return `Unit Rim Light\n[${this.isRimLightingEnabled ? 'ON' : 'OFF'}]`;
+    }
+
+    public setRimLightingEnabled(enabled: boolean): void {
+        this.isRimLightingEnabled = enabled;
+        if (this.rimLightingText) {
+            this.rimLightingText.text = this.getRimLightingLabel();
+        }
+    }
+
+    private getTiltShiftLabel(): string {
+        return `Tilt-Shift Blur\n[${this.isTiltShiftEnabled ? 'ON' : 'OFF'}]`;
+    }
+
+    public setTiltShiftEnabled(enabled: boolean): void {
+        this.isTiltShiftEnabled = enabled;
+        if (this.tiltShiftText) {
+            this.tiltShiftText.text = this.getTiltShiftLabel();
         }
     }
 
@@ -489,7 +522,41 @@ export class BattleMenuPanel {
             }
         });
 
-        this.closeButton.position.set((panelWidth - 140) / 2, 648);
+        this.rimLightingText = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: this.getRimLightingLabel(),
+            style: { fontSize: 13, fill: '#E0F0FF', align: 'center' },
+        });
+        this.toggleRimLightingButton = new FancyButton({
+            ...this.THIN_BUTTON_STYLE,
+            text: this.rimLightingText,
+        });
+        this.toggleRimLightingButton.position.set(col2BtnX, 575);
+        this.toggleRimLightingButton.width = 190;
+        this.toggleRimLightingButton.height = 50;
+        this.toggleRimLightingButton.onPress.connect(() => {
+            this.setRimLightingEnabled(!this.isRimLightingEnabled);
+            this.onToggleRimLighting?.(this.isRimLightingEnabled);
+        });
+
+        this.tiltShiftText = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: this.getTiltShiftLabel(),
+            style: { fontSize: 13, fill: '#E0F0FF', align: 'center' },
+        });
+        this.toggleTiltShiftButton = new FancyButton({
+            ...this.THIN_BUTTON_STYLE,
+            text: this.tiltShiftText,
+        });
+        this.toggleTiltShiftButton.position.set(col2BtnX + 205, 575);
+        this.toggleTiltShiftButton.width = 190;
+        this.toggleTiltShiftButton.height = 50;
+        this.toggleTiltShiftButton.onPress.connect(() => {
+            this.setTiltShiftEnabled(!this.isTiltShiftEnabled);
+            this.onToggleTiltShift?.(this.isTiltShiftEnabled);
+        });
+
+        this.closeButton.position.set((panelWidth - 140) / 2, 788);
         this.closeButton.width = 140;
         this.closeButton.height = 36;
         this.closeButton.text = new Text({
@@ -520,6 +587,8 @@ export class BattleMenuPanel {
         this.mainContainer.addChild(this.animationSpeedButton);
         this.mainContainer.addChild(this.animationSpeedSlider);
         this.mainContainer.addChild(this.animationSpeedValueText);
+        this.mainContainer.addChild(this.toggleRimLightingButton);
+        this.mainContainer.addChild(this.toggleTiltShiftButton);
         this.mainContainer.addChild(this.closeButton);
 
         bindButtonUISound(this.fullscreenToggleButton);
@@ -537,6 +606,8 @@ export class BattleMenuPanel {
         bindButtonUISound(this.toggleStatsButton);
         bindButtonUISound(this.toggleHardwareCursorButton);
         bindButtonUISound(this.animationSpeedButton);
+        bindButtonUISound(this.toggleRimLightingButton);
+        bindButtonUISound(this.toggleTiltShiftButton);
         bindButtonUISound(this.closeButton);
 
         bindSliderUISound(this.musicVolumeSlider, () => this.isUpdatingSoundValues);

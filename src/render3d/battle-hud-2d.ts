@@ -38,6 +38,7 @@ export interface BattleHud2DEvents {
   onToggleFps?: (showFps: boolean) => void;
   onToggleGrid?: (showGrid: boolean) => void;
   onToggleCoords?: (showCoords: boolean) => void;
+  onToggleHealthbars?: (showHealthbars: boolean) => void;
   onToggleMusic?: (musicOn: boolean) => void;
   onToggleSceneInspector?: (showInspector: boolean) => void;
   onToggleHardwareCursor?: (hide: boolean) => void;
@@ -46,6 +47,8 @@ export interface BattleHud2DEvents {
   onToggleAutoBattle?: (enabled: boolean) => void;
   onAutoBattlePersonalityChange?: (personality: CPUPersonalityType) => void;
   onWeatherChange?: (weather: WeatherType) => void;
+  onToggleRimLighting?: (enabled: boolean) => void;
+  onToggleTiltShift?: (enabled: boolean) => void;
   onSaveBattle?: (name: string) => boolean;
   onLoadSave?: (entry: BattleSaveEntry) => void;
 }
@@ -327,6 +330,18 @@ export class BattleHud2D {
           events.onWeatherChange(weather);
         }
       };
+      this.battleMenuPanel.setRimLightingEnabled(this.settings.unitRimLighting);
+      this.battleMenuPanel.onToggleRimLighting = (enabled) => {
+        this.settings.unitRimLighting = enabled;
+        this.settings.save();
+        events.onToggleRimLighting?.(enabled);
+      };
+      this.battleMenuPanel.setTiltShiftEnabled(this.settings.tiltShift);
+      this.battleMenuPanel.onToggleTiltShift = (enabled) => {
+        this.settings.tiltShift = enabled;
+        this.settings.save();
+        events.onToggleTiltShift?.(enabled);
+      };
       this.battleMenuPanel.onSaveBattle = (name) => {
         if (events.onSaveBattle) {
           return events.onSaveBattle(name);
@@ -385,6 +400,7 @@ export class BattleHud2D {
     this.battleMenuPanel?.showHealthbarsButton?.onPress.connect(() => {
       this.settings.hex.showHealthbars = !this.settings.hex.showHealthbars;
       this.settings.save();
+      events.onToggleHealthbars?.(this.settings.hex.showHealthbars);
     });
 
     this.battleMenuPanel?.toggleDamageIndicatorsButton?.onPress.connect(() => {

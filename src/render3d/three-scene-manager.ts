@@ -9,6 +9,10 @@ import {
   updateSkyboxMeshTheme,
 } from './decorations/battle-environment-3d';
 import { WeatherSystem3D, WeatherType } from './decorations/weather-system-3d';
+import {
+  createEadorPostProcessing,
+  EadorPostProcessingPipeline,
+} from './post-processing';
 
 export class ThreeSceneManager {
   public readonly scene: THREE.Scene = new THREE.Scene();
@@ -44,6 +48,11 @@ export class ThreeSceneManager {
   private ambientLight!: THREE.AmbientLight;
   private hemiLight!: THREE.HemisphereLight;
 
+  // Post-processing
+  private postProcessing: EadorPostProcessingPipeline | null = null;
+  private hasRealWebGL: boolean = false;
+  private tiltShiftEnabled: boolean = true;
+
   // Raycasting
   private raycaster: THREE.Raycaster = new THREE.Raycaster();
   private mouseVec: THREE.Vector2 = new THREE.Vector2();
@@ -75,8 +84,11 @@ export class ThreeSceneManager {
       this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
       this.renderer.shadowMap.enabled = true;
       this.renderer.shadowMap.type = THREE.PCFShadowMap;
+      this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      this.renderer.toneMappingExposure = 1.05;
       this.renderer.setClearColor(0x0a141d, 1.0);
       this.renderer.setSize(width, height, false);
+      this.hasRealWebGL = true;
     } catch {
       // In headless environments or environments lacking WebGL2/WebGL context
       this.renderer = {
@@ -86,6 +98,8 @@ export class ThreeSceneManager {
         setClearColor: () => { },
         render: () => { },
         dispose: () => { },
+        toneMapping: THREE.ACESFilmicToneMapping,
+        toneMappingExposure: 1.05,
         shadowMap: { enabled: true, type: THREE.PCFShadowMap },
       } as any;
     }
@@ -100,6 +114,19 @@ export class ThreeSceneManager {
     this.setupLighting();
     this.setupSkyBackground();
     this.setupWeatherSystem();
+    if (this.hasRealWebGL) {
+      try {
+        this.postProcessing = createEadorPostProcessing(
+          this.renderer,
+          this.scene,
+          this.camera,
+          width,
+          height
+        );
+      } catch {
+        this.postProcessing = null;
+      }
+    }
     this.updateCameraPosition();
   }
 
@@ -109,15 +136,15 @@ export class ThreeSceneManager {
     this.ambientLight.name = 'AmbientLight';
     this.scene.add(this.ambientLight);
 
-    // Hemisphere light (sky vs ground bounce) - subtle ground bounce preserving shadow depth
-    this.hemiLight = new THREE.HemisphereLight(0xddeeff, 0x223322, 0.15);
+    // Cool Hemisphere light (sky #8faadc vs ground #3b3228) to keep shadows from turning pure black
+    this.hemiLight = new THREE.HemisphereLight(0x8faadc, 0x3b3228, 0.20);
     this.hemiLight.name = 'HemisphereLight';
     this.scene.add(this.hemiLight);
 
-    // Directional Sunlight angled from northwest to cast prominent shadows towards the camera
-    this.dirLight = new THREE.DirectionalLight(0xfff5e6, 2.4);
+    // Warm Directional Sunlight (#ffe8c2) at a 45-degree isometric angle
+    this.dirLight = new THREE.DirectionalLight(0xffe8c2, 2.35);
     this.dirLight.name = 'DirectionalLight';
-    this.dirLight.position.set(-16, 20, -12);
+    this.dirLight.position.set(-14, 20, -14);
     this.dirLight.castShadow = true;
     this.dirLight.shadow.mapSize.width = 2048;
     this.dirLight.shadow.mapSize.height = 2048;
@@ -285,6 +312,19 @@ export class ThreeSceneManager {
     return this.hemiLight;
   }
 
+  public getPostProcessing(): EadorPostProcessingPipeline | null {
+    return this.postProcessing;
+  }
+
+  public setTiltShiftEnabled(enabled: boolean): void {
+    this.tiltShiftEnabled = enabled;
+    this.postProcessing?.setTiltShiftEnabled(enabled);
+  }
+
+  public isTiltShiftEnabled(): boolean {
+    return this.tiltShiftEnabled;
+  }
+
   public updateCameraPosition(): void {
     // Calculate spherical coordinates relative to target
     const x = this.cameraTarget.x + this.cameraDistance * Math.sin(this.cameraPitch) * Math.sin(this.cameraYaw);
@@ -386,13 +426,20 @@ export class ThreeSceneManager {
     this.camera.aspect = width / Math.max(1, height);
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height, false);
+    this.postProcessing?.resize(width, height);
   }
 
   public render(): void {
-    this.renderer.render(this.scene, this.camera);
+    if (this.postProcessing) {
+      this.postProcessing.render();
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 
   public dispose(): void {
+    this.postProcessing?.dispose();
+    this.postProcessing = null;
     this.weatherSystem.dispose();
     if (this.skyboxMesh) {
       this.scene.remove(this.skyboxMesh);

@@ -7,10 +7,13 @@ import { buildLowPolyForestTreeMesh, ForestTreeVariant } from '../units/unit-mes
 export enum BattleLocationType {
   FOREST = 'forest',
   FARM = 'farm',
+  HIGHLANDS = 'highlands',
+  SWAMP = 'swamp',
+  ASTRAL = 'astral',
 }
 
 /**
- * Normalizes a string or enum input into a supported BattleLocationType ('forest' | 'farm').
+ * Normalizes a string or enum input into a supported BattleLocationType.
  */
 export function normalizeBattleLocationType(
   raw?: string | BattleLocationType | null,
@@ -40,6 +43,31 @@ export function normalizeBattleLocationType(
   ) {
     return BattleLocationType.FARM;
   }
+  if (
+    normalized === 'highlands' ||
+    normalized === 'mountain' ||
+    normalized === 'mountains' ||
+    normalized === 'hills' ||
+    normalized === 'crag'
+  ) {
+    return BattleLocationType.HIGHLANDS;
+  }
+  if (
+    normalized === 'swamp' ||
+    normalized === 'marsh' ||
+    normalized === 'bog' ||
+    normalized === 'mire'
+  ) {
+    return BattleLocationType.SWAMP;
+  }
+  if (
+    normalized === 'astral' ||
+    normalized === 'shard' ||
+    normalized === 'void' ||
+    normalized === 'broken_world'
+  ) {
+    return BattleLocationType.ASTRAL;
+  }
   return fallback;
 }
 
@@ -50,28 +78,69 @@ export interface SkyboxThemeColors {
   groundHex: number;
   fogHex: number;
   fogDensity: number;
+  cloudHex: number;
+  silhouetteHex: number;
 }
 
 export function getSkyboxThemeColors(locationType: BattleLocationType): SkyboxThemeColors {
-  if (locationType === BattleLocationType.FOREST) {
-    return {
-      zenithHex: 0x2c5e8a,
-      midSkyHex: 0x6798b8,
-      horizonHex: 0xa8c6b0,
-      groundHex: 0x2a4d2e,
-      fogHex: 0x88ab92,
-      fogDensity: 0.0055,
-    };
+  switch (locationType) {
+    case BattleLocationType.FOREST:
+      return {
+        zenithHex: 0x2a5478,
+        midSkyHex: 0x628ea6,
+        horizonHex: 0xa4c0ac,
+        groundHex: 0x26442b,
+        fogHex: 0x7e9e8a,
+        fogDensity: 0.0062,
+        cloudHex: 0xe6f0ea,
+        silhouetteHex: 0x2b4830,
+      };
+    case BattleLocationType.HIGHLANDS:
+      return {
+        zenithHex: 0x355c8a,
+        midSkyHex: 0x7a9ec2,
+        horizonHex: 0xd0d8e0,
+        groundHex: 0x4a453c,
+        fogHex: 0xa8b4c4,
+        fogDensity: 0.0058,
+        cloudHex: 0xf7f5ef,
+        silhouetteHex: 0x4d5664,
+      };
+    case BattleLocationType.SWAMP:
+      return {
+        zenithHex: 0x2b3e42,
+        midSkyHex: 0x4c6662,
+        horizonHex: 0x7b8f82,
+        groundHex: 0x242e24,
+        fogHex: 0x5c6e64,
+        fogDensity: 0.0075,
+        cloudHex: 0xb8c4bc,
+        silhouetteHex: 0x26352c,
+      };
+    case BattleLocationType.ASTRAL:
+      return {
+        zenithHex: 0x162233,
+        midSkyHex: 0x2a3f59,
+        horizonHex: 0x4b6584,
+        groundHex: 0x181c28,
+        fogHex: 0x2c3e50,
+        fogDensity: 0.007,
+        cloudHex: 0x9ab4cc,
+        silhouetteHex: 0x1f2d3d,
+      };
+    case BattleLocationType.FARM:
+    default:
+      return {
+        zenithHex: 0x3a6fa8,
+        midSkyHex: 0x7da7cc,
+        horizonHex: 0xdfd2b0,
+        groundHex: 0x4b6e36,
+        fogHex: 0xc9b38c,
+        fogDensity: 0.0055,
+        cloudHex: 0xfff8ea,
+        silhouetteHex: 0x5b7644,
+      };
   }
-  // Default: FARM (a farm in the plains)
-  return {
-    zenithHex: 0x3874b8,
-    midSkyHex: 0x78aed8,
-    horizonHex: 0xdce4c8,
-    groundHex: 0x4b7438,
-    fogHex: 0xc2d2b4,
-    fogDensity: 0.0045,
-  };
 }
 
 function hash2D(ix: number, iy: number): number {
@@ -127,11 +196,12 @@ export function createSkyboxTexture(locationType: BattleLocationType): THREE.Dat
   const horizonCol = new THREE.Color(theme.horizonHex);
   const groundCol = new THREE.Color(theme.groundHex);
   const sunCol = new THREE.Color(0xfff6d6);
-  const cloudCol = new THREE.Color(locationType === BattleLocationType.FOREST ? 0xeaf4f0 : 0xfffdf6);
+  const cloudCol = new THREE.Color(theme.cloudHex);
+  const silColor = new THREE.Color(theme.silhouetteHex);
   const tempCol = new THREE.Color();
 
-  // Sun direction matching ThreeSceneManager dirLight (-16, 20, -12)
-  const sunDir = new THREE.Vector3(-16, 20, -12).normalize();
+  // Sun direction matching ThreeSceneManager dirLight (-14, 20, -14)
+  const sunDir = new THREE.Vector3(-14, 20, -14).normalize();
 
   for (let y = 0; y < height; y++) {
     // v = 0 at bottom (-Y), v = 1 at top (+Y)
@@ -169,14 +239,12 @@ export function createSkyboxTexture(locationType: BattleLocationType): THREE.Dat
         // Distant horizon treeline / rolling hills silhouette near dirY in [0, 0.08]
         const silhouetteNoise = fbm2D(u * 14.0, 2.5);
         const silhouetteHeight =
-          locationType === BattleLocationType.FOREST
+          locationType === BattleLocationType.FOREST || locationType === BattleLocationType.HIGHLANDS
             ? 0.035 + silhouetteNoise * 0.055
-            : 0.015 + silhouetteNoise * 0.025;
+            : locationType === BattleLocationType.ASTRAL
+              ? 0.01 + silhouetteNoise * 0.02
+              : 0.015 + silhouetteNoise * 0.025;
         if (dirY < silhouetteHeight) {
-          const silColor =
-            locationType === BattleLocationType.FOREST
-              ? new THREE.Color(0x2e4e34)
-              : new THREE.Color(0x5c7c46);
           tempCol.lerp(silColor, 0.65);
         }
 
@@ -701,7 +769,13 @@ export function populateOuterEnvironmentDecorations(
   const groundY = -hexHeight + 0.005;
 
   // 1. Outer Ground Apron surrounding the hex board out to the skybox horizon
-  const apronColor = normalizedType === BattleLocationType.FOREST ? 0x2c5230 : 0x48783c;
+  const themeColors = getSkyboxThemeColors(normalizedType);
+  const apronColor =
+    normalizedType === BattleLocationType.FOREST
+      ? 0x2c5230
+      : normalizedType === BattleLocationType.FARM
+        ? 0x48783c
+        : themeColors.groundHex;
   const apronGeo = new THREE.CircleGeometry(115, 48);
   apronGeo.rotateX(-Math.PI * 0.5);
   const apronMat = new THREE.MeshStandardMaterial({
@@ -722,7 +796,12 @@ export function populateOuterEnvironmentDecorations(
   // 2. Distant low-poly rolling horizon hills ring
   const hillRingCount = 12;
   const hillMat = new THREE.MeshStandardMaterial({
-    color: normalizedType === BattleLocationType.FOREST ? 0x26482b : 0x567f42,
+    color:
+      normalizedType === BattleLocationType.FOREST
+        ? 0x26482b
+        : normalizedType === BattleLocationType.FARM
+          ? 0x567f42
+          : themeColors.silhouetteHex,
     roughness: 0.95,
     flatShading: true,
   });

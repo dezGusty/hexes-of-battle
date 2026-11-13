@@ -24,6 +24,12 @@ import { UnitStatsPanel } from '../ui/unit-stats-panel';
 import { EnemyStatsPanel } from '../ui/enemy-stats-panel';
 import { BattleView3D } from './battle-view-3d';
 import { ThreeSceneManager } from './three-scene-manager';
+import { EADOR_BLOOM_CONFIG, EadorColorGradingShader, EadorTiltShiftShader } from './post-processing';
+import {
+  applyUnitRimLighting,
+  setUnitRimLightingEnabled,
+  isUnitRimLightingEnabled,
+} from './units/unit-rim-lighting';
 import { ThreeSceneDebugger } from './debug/three-scene-debugger';
 import { BattleHexMapPath } from '../battle/battle-hex-map-path';
 import { NumMatrix } from '../shared/num-matrix';
@@ -32,7 +38,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { TerrainType } from '../battle/terrain-types';
 import { UnitVisualFormat } from './types';
-import { BattleLocationType } from './decorations/battle-environment-3d';
+import { BattleLocationType, getSkyboxThemeColors, normalizeBattleLocationType } from './decorations/battle-environment-3d';
 import { GrassFieldSystem, createGrassClumpTexture } from './decorations/grass-system-3d';
 import { WeatherSystem3D, WeatherType } from './decorations/weather-system-3d';
 import {
@@ -4194,6 +4200,225 @@ describe('3D Graphics Engine & Rendering Systems', () => {
 
       // Clean disposal
       board.dispose();
+    });
+  });
+
+  describe('21. Eador Visual Aesthetic: Lighting, Post-Processing & Terrain Splatting', () => {
+    it('should configure warm directional light (#ffe8c2), cool hemisphere light (#8faadc / #3b3228), and ACESFilmicToneMapping', () => {
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const sceneManager = new ThreeSceneManager(container);
+
+      const dirLight = sceneManager.getDirLight();
+      expect(dirLight.color.getHex()).toBe(0xffe8c2);
+      expect(dirLight.intensity).toBeGreaterThanOrEqual(2.0);
+      expect(dirLight.intensity).toBeLessThanOrEqual(2.5);
+      // 45-degree isometric angle in XZ plane
+      expect(Math.abs(dirLight.position.x)).toBeCloseTo(Math.abs(dirLight.position.z), 3);
+
+      const hemiLight = sceneManager.getHemiLight();
+      expect(hemiLight.color.getHex()).toBe(0x8faadc);
+      expect(hemiLight.groundColor.getHex()).toBe(0x3b3228);
+
+      expect(sceneManager.renderer.toneMapping).toBe(THREE.ACESFilmicToneMapping);
+
+      sceneManager.dispose();
+      document.body.removeChild(container);
+    });
+
+    it('should define Eador bloom config (threshold 0.85, strength 0.35, radius 0.7) and color grading shader', () => {
+      expect(EADOR_BLOOM_CONFIG.threshold).toBe(0.85);
+      expect(EADOR_BLOOM_CONFIG.strength).toBe(0.35);
+      expect(EADOR_BLOOM_CONFIG.radius).toBe(0.7);
+
+      expect(EadorColorGradingShader.uniforms.uVignetteStrength.value).toBeGreaterThan(0);
+      expect(EadorColorGradingShader.uniforms.uShadowDesaturation.value).toBeGreaterThan(0);
+      expect(EadorColorGradingShader.uniforms.uWarmAmberTint.value).toBeInstanceOf(THREE.Vector3);
+      expect(EadorColorGradingShader.uniforms.uEarthyGreenTint.value).toBeInstanceOf(THREE.Vector3);
+      expect(EadorColorGradingShader.fragmentShader).toContain('shadowWeight');
+      expect(EadorColorGradingShader.fragmentShader).toContain('midtoneWeight');
+      expect(EadorColorGradingShader.fragmentShader).toContain('vignette');
+    });
+
+    it('should configure 4-layer RGBA terrain splatting, normal maps, triplanar rock cliffs, and pulsing hex grid glow', () => {
+      const hexMap = new HexMap(6, 6);
+      const board = new HexBoard3D(hexMap, {
+        getTerrain: (x, y) => {
+          if (x === 2 && y === 2) return TerrainType.HILL;
+          if (x === 3 && y === 2) return TerrainType.FOREST;
+          return TerrainType.PLAIN;
+        },
+      });
+
+      const splatting = board.getTerrainSplatting();
+      expect(splatting.textures.grassDiffuse).toBeDefined();
+      expect(splatting.textures.dirtDiffuse).toBeDefined();
+      expect(splatting.textures.snowDiffuse).toBeDefined();
+      expect(splatting.textures.rockDiffuse).toBeDefined();
+      expect(splatting.textures.grassNormal).toBeDefined();
+      expect(splatting.textures.dirtNormal).toBeDefined();
+      expect(splatting.textures.snowNormal).toBeDefined();
+      expect(splatting.textures.rockNormal).toBeDefined();
+      expect(splatting.textures.splatMap.format).toBe(THREE.RGBAFormat);
+
+      // Terrain materials should maintain matte painted clay roughness (0.75-0.9)
+      const plainTile = (board as any).tileMeshes.get('0,0') as THREE.Mesh;
+      const plainTopMat = (plainTile.material as THREE.Material[])[1] as THREE.MeshStandardMaterial;
+      expect(plainTopMat.roughness).toBeGreaterThanOrEqual(0.75);
+      expect(plainTopMat.roughness).toBeLessThanOrEqual(0.9);
+
+      // Mock shader compilation for terrain splatting + triplanar cliffs + glowing hex borders
+      const mockShader: any = {
+        vertexShader: '#include <common>\nvoid main() {\n#include <begin_vertex>\n}',
+        fragmentShader: '#include <common>\nvoid main() {\n#include <map_fragment>\n#include <normal_fragment_maps>\n#include <emissivemap_fragment>\n}',
+        uniforms: {},
+      };
+      plainTopMat.onBeforeCompile(mockShader, {} as any);
+
+      expect(mockShader.uniforms.uSplatMap).toBeDefined();
+      expect(mockShader.uniforms.uGrassNormalMap).toBeDefined();
+      expect(mockShader.uniforms.uRockNormalMap).toBeDefined();
+      expect(mockShader.fragmentShader).toContain('triplanarRock');
+      expect(mockShader.fragmentShader).toContain('cliffBlend');
+      expect(mockShader.fragmentShader).toContain('totalEmissiveRadiance +=');
+      expect(mockShader.fragmentShader).toContain('uHexGridGlowColor');
+
+      // Time & grid visibility updates
+      const t0 = splatting.uniforms.uTime.value;
+      board.update(100);
+      expect(splatting.uniforms.uTime.value).toBeGreaterThan(t0);
+
+      board.setGridVisible(false);
+      expect(splatting.uniforms.uShowHexGridGlow.value).toBe(0.0);
+      board.setGridVisible(true);
+      expect(splatting.uniforms.uShowHexGridGlow.value).toBe(1.0);
+
+      board.dispose();
+    });
+
+    it('should provide screen-space EadorTiltShiftShader without a second depth render pass', () => {
+      expect(EadorTiltShiftShader.uniforms.uFocusY.value).toBe(0.5);
+      expect(EadorTiltShiftShader.uniforms.uMaxBlur.value).toBeGreaterThan(0);
+      expect(EadorTiltShiftShader.uniforms.uMaxBlur.value).toBeLessThanOrEqual(0.002);
+      expect(EadorTiltShiftShader.fragmentShader).toContain('smoothstep(uFocusBand, uEdgeBand, dist)');
+    });
+
+    it('should apply subtle Fresnel rim lighting to unit and metallic armor materials and allow toggling', () => {
+      const clothMat = new THREE.MeshStandardMaterial({ roughness: 0.8, metalness: 0.05 });
+      const armorMat = new THREE.MeshStandardMaterial({ roughness: 0.35, metalness: 0.7 });
+
+      applyUnitRimLighting(clothMat);
+      applyUnitRimLighting(armorMat);
+
+      expect(clothMat.userData.hasUnitRimLighting).toBe(true);
+      expect(armorMat.userData.hasUnitRimLighting).toBe(true);
+      expect(armorMat.userData.rimIntensity).toBeGreaterThan(clothMat.userData.rimIntensity);
+
+      const mockShader: any = {
+        vertexShader: '#include <common>\nvoid main() {}',
+        fragmentShader: '#include <common>\nvoid main() {\n#include <emissivemap_fragment>\n}',
+        uniforms: {},
+      };
+      armorMat.onBeforeCompile(mockShader, {} as any);
+      expect(mockShader.uniforms.uUnitRimColor).toBeDefined();
+      expect(mockShader.uniforms.uGlobalRimEnabled).toBeDefined();
+      expect(mockShader.fragmentShader).toContain('totalEmissiveRadiance += uUnitRimColor');
+
+      // Enabled by default, toggleable globally
+      expect(isUnitRimLightingEnabled()).toBe(true);
+      setUnitRimLightingEnabled(false);
+      expect(isUnitRimLightingEnabled()).toBe(false);
+      expect(mockShader.uniforms.uGlobalRimEnabled.value).toBe(0.0);
+      setUnitRimLightingEnabled(true);
+      expect(isUnitRimLightingEnabled()).toBe(true);
+
+      clothMat.dispose();
+      armorMat.dispose();
+    });
+
+    it('should default unitRimLighting and tiltShift to true in BattleSettings and wire menu toggles', () => {
+      const settings = new BattleSettings();
+      expect(settings.unitRimLighting).toBe(true);
+      expect(settings.tiltShift).toBe(true);
+
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const sceneManager = new ThreeSceneManager(container);
+      expect(sceneManager.isTiltShiftEnabled()).toBe(true);
+      sceneManager.setTiltShiftEnabled(false);
+      expect(sceneManager.isTiltShiftEnabled()).toBe(false);
+      sceneManager.dispose();
+      document.body.removeChild(container);
+    });
+
+    it('should show larger, slower drifting shadow-casting clouds only in Sunny weather', () => {
+      const weather = new WeatherSystem3D();
+      expect(weather.getWeather()).toBe(WeatherType.NONE);
+      expect(weather.driftingCloudsGroup.visible).toBe(true);
+      expect(weather.driftingCloudsGroup.children.length).toBeGreaterThan(0);
+
+      const firstCloud = weather.driftingCloudsGroup.children[0] as THREE.Mesh;
+      expect(firstCloud.castShadow).toBe(true);
+      // 80% larger: original 8.5 * 1.8 = 15.3
+      const planeParams = (firstCloud.geometry as THREE.PlaneGeometry).parameters;
+      expect(planeParams.width).toBeCloseTo(8.5 * 1.8, 2);
+
+      const startX = firstCloud.position.x;
+      const startZ = firstCloud.position.z;
+
+      weather.setWindState(0.0, 1.0);
+      weather.update(1000);
+      // 33% of 0.65 * 0.75 speedFactor ≈ 0.160875 units/sec
+      expect(firstCloud.position.x - startX).toBeCloseTo(0.65 * 0.33 * 0.75, 4);
+      expect(firstCloud.position.z).toBeCloseTo(startZ, 4);
+
+      // Hidden in Rain, Thunderstorm, Fog; restored in Sunny (None)
+      weather.setWeather(WeatherType.RAIN);
+      expect(weather.driftingCloudsGroup.visible).toBe(false);
+      weather.setWeather(WeatherType.THUNDERSTORM);
+      expect(weather.driftingCloudsGroup.visible).toBe(false);
+      weather.setWeather(WeatherType.FOG);
+      expect(weather.driftingCloudsGroup.visible).toBe(false);
+      weather.setWeather(WeatherType.NONE);
+      expect(weather.driftingCloudsGroup.visible).toBe(true);
+
+      weather.dispose();
+    });
+
+    it('should support biome-specific skybox and fog palettes (farm, forest, highlands, swamp, astral)', () => {
+      expect(normalizeBattleLocationType('mountain')).toBe(BattleLocationType.HIGHLANDS);
+      expect(normalizeBattleLocationType('marsh')).toBe(BattleLocationType.SWAMP);
+      expect(normalizeBattleLocationType('shard')).toBe(BattleLocationType.ASTRAL);
+
+      const biomes = [
+        BattleLocationType.FARM,
+        BattleLocationType.FOREST,
+        BattleLocationType.HIGHLANDS,
+        BattleLocationType.SWAMP,
+        BattleLocationType.ASTRAL,
+      ];
+      const fogColors = new Set(biomes.map((b) => getSkyboxThemeColors(b).fogHex));
+      expect(fogColors.size).toBe(5);
+      expect(getSkyboxThemeColors(BattleLocationType.ASTRAL).fogHex).toBe(0x2c3e50);
+    });
+
+    it('should toggle SquadVisual3D overheadGroup (healthbar, stamina bar, morale, unit count) when toggling healthbars', () => {
+      const factory = new UnitVisualFactory();
+      const swordsman = new Creature(CreatureType.SWORDSMAN);
+      const squad = factory.createSquadVisual(swordsman);
+
+      expect(squad.isOverheadStatusVisible()).toBe(true);
+      squad.setOverheadStatusVisible(false);
+      expect(squad.isOverheadStatusVisible()).toBe(false);
+
+      // Should remain hidden after updateStats()
+      squad.updateStats(false);
+      expect(squad.isOverheadStatusVisible()).toBe(false);
+
+      squad.setOverheadStatusVisible(true);
+      expect(squad.isOverheadStatusVisible()).toBe(true);
+
+      squad.dispose();
     });
   });
 });

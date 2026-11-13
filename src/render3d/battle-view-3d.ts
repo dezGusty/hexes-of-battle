@@ -7,6 +7,7 @@ import { BattleActionType } from '../battle/battle-action';
 import { CPUPlayer } from '../battle/cpu-player';
 import { BattleSettings } from '../battle/settings';
 import { ThreeSceneManager } from './three-scene-manager';
+import { setUnitRimLightingEnabled, isUnitRimLightingEnabled } from './units/unit-rim-lighting';
 import { HexBoard3D } from './hex-board-3d';
 import { SquadVisual3D } from './units/squad-visual-3d';
 import { UnitVisualFactory } from './units/unit-visual-factory';
@@ -102,6 +103,8 @@ export class BattleView3D {
     this.sceneManager = new ThreeSceneManager(container);
     this.sceneManager.setSkyboxTheme(this.battle.getMajorTerrainType());
     this.sceneManager.setWeather(this.settings.weather ?? WeatherType.NONE);
+    this.sceneManager.setTiltShiftEnabled(this.settings.tiltShift ?? true);
+    setUnitRimLightingEnabled(this.settings.unitRimLighting ?? true);
     this.hexBoard = new HexBoard3D(this.hexMap, {
       showGrid: settings.hex.showGrid,
       borderThickness: settings.hex.gridBorderThickness,
@@ -173,10 +176,44 @@ export class BattleView3D {
     return this.sceneManager.getWeather();
   }
 
+  public setRimLightingEnabled(enabled: boolean): void {
+    this.settings.unitRimLighting = enabled;
+    this.settings.save();
+    setUnitRimLightingEnabled(enabled);
+    if (this.hud?.battleMenuPanel) {
+      this.hud.battleMenuPanel.setRimLightingEnabled(enabled);
+    }
+  }
+
+  public isRimLightingEnabled(): boolean {
+    return isUnitRimLightingEnabled();
+  }
+
+  public setTiltShiftEnabled(enabled: boolean): void {
+    this.settings.tiltShift = enabled;
+    this.settings.save();
+    this.sceneManager.setTiltShiftEnabled(enabled);
+    if (this.hud?.battleMenuPanel) {
+      this.hud.battleMenuPanel.setTiltShiftEnabled(enabled);
+    }
+  }
+
+  public isTiltShiftEnabled(): boolean {
+    return this.sceneManager.isTiltShiftEnabled();
+  }
+
   public setGridVisible(visible: boolean): void {
     this.hexBoard.setGridVisible(visible);
     this.settings.hex.showGrid = visible;
     this.settings.save();
+  }
+
+  public setHealthbarsVisible(visible: boolean): void {
+    this.settings.hex.showHealthbars = visible;
+    this.settings.save();
+    this.squadVisuals.forEach((squad) => {
+      squad.setOverheadStatusVisible(visible);
+    });
   }
 
   public setGridBorderThickness(thickness: number): void {
@@ -273,6 +310,7 @@ export class BattleView3D {
 
       const squad = this.visualFactory.createSquadVisual(creature);
       squad.showDamageIndicators = this.settings.hex.showDamageIndicators;
+      squad.setOverheadStatusVisible(this.settings.hex.showHealthbars);
       const worldPos = this.hexBoard.hexToWorldWithElevation(creature.position.x, creature.position.y, true);
       squad.rootGroup.position.copy(worldPos);
       squad.setFacing(creature.facingDirection);

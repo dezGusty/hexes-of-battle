@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { applyUnitRimLighting } from './unit-rim-lighting';
 import { getBarbarianPartTexture, getBarbarianPartMaterial } from './barbarian-textures';
 
 export const HUMANOID_TEXTURE_SIZE = 256;
@@ -2031,6 +2032,7 @@ export function getHumanoidPartMaterial(
       isSharedAsset: true,
       humanoidTexturePart: partKey,
     };
+    applyUnitRimLighting(mat);
     humanoidMaterialCache.set(partKey, mat);
   }
   return mat;

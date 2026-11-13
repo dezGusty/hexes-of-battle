@@ -128,15 +128,22 @@ export class WeatherSystem3D {
   private fogPlanes: THREE.Mesh[] = [];
   private fogTexture?: THREE.DataTexture;
 
+  // Sunny drifting clouds (cast shadows onto the battle map)
+  public readonly driftingCloudsGroup: THREE.Group = new THREE.Group();
+  private cloudMeshes: THREE.Mesh[] = [];
+  private cloudTexture?: THREE.DataTexture;
+
   constructor() {
     this.group.name = 'WeatherSystem3D';
     this.rainGroup.name = 'RainSystem';
     this.thunderGroup.name = 'ThunderSystem';
     this.groundFogGroup.name = 'GroundFogSystem';
+    this.driftingCloudsGroup.name = 'DriftingCloudsSystem';
 
     this.group.add(this.rainGroup);
     this.group.add(this.thunderGroup);
     this.group.add(this.groundFogGroup);
+    this.group.add(this.driftingCloudsGroup);
 
     // Dedicated lightning directional flash light
     this.lightningLight = new THREE.DirectionalLight(0xe8f4ff, 0.0);
@@ -153,11 +160,13 @@ export class WeatherSystem3D {
     this.initRainSystem();
     this.initGroundFogSystem();
     this.initThunderStrikeMeshes();
+    this.initDriftingCloudsSystem();
 
-    // Start with default sunny weather (all weather overlays hidden)
+    // Start with default sunny weather (all weather overlays hidden, drifting clouds active)
     this.rainGroup.visible = false;
     this.thunderGroup.visible = false;
     this.groundFogGroup.visible = false;
+    this.driftingCloudsGroup.visible = true;
   }
 
   public attachScene(
@@ -232,6 +241,7 @@ export class WeatherSystem3D {
         this.rainGroup.visible = false;
         this.thunderGroup.visible = false;
         this.groundFogGroup.visible = false;
+        this.driftingCloudsGroup.visible = true;
         this.applySunnyLighting();
         break;
 
@@ -239,6 +249,7 @@ export class WeatherSystem3D {
         this.rainGroup.visible = true;
         this.thunderGroup.visible = false;
         this.groundFogGroup.visible = false;
+        this.driftingCloudsGroup.visible = false;
         this.applyRainLighting();
         break;
 
@@ -246,6 +257,7 @@ export class WeatherSystem3D {
         this.rainGroup.visible = true;
         this.thunderGroup.visible = true;
         this.groundFogGroup.visible = false;
+        this.driftingCloudsGroup.visible = false;
         this.lightningTimer = 2.0 + Math.random() * 3.0;
         this.thunderStrikeTimer = 4.0 + Math.random() * 4.0;
         this.applyThunderstormLighting();
@@ -255,6 +267,7 @@ export class WeatherSystem3D {
         this.rainGroup.visible = false;
         this.thunderGroup.visible = false;
         this.groundFogGroup.visible = true;
+        this.driftingCloudsGroup.visible = false;
         this.applyFogLighting();
         break;
     }
@@ -691,13 +704,114 @@ export class WeatherSystem3D {
   }
 
   // ---------------------------------------------------------------------------
+  // Drifting Clouds (Sunny weather only — casts soft shadows onto the arena)
+  // ---------------------------------------------------------------------------
+
+  private initDriftingCloudsSystem(): void {
+    const size = 64;
+    const data = new Uint8Array(size * size * 4);
+    const puffs = [
+      { cx: 32, cy: 32, r: 22, w: 1.0 },
+      { cx: 20, cy: 30, r: 16, w: 0.85 },
+      { cx: 44, cy: 34, r: 16, w: 0.85 },
+      { cx: 30, cy: 22, r: 14, w: 0.75 },
+      { cx: 35, cy: 42, r: 14, w: 0.75 },
+    ];
+
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        let density = 0;
+        for (let p = 0; p < puffs.length; p++) {
+          const puff = puffs[p];
+          const dx = x - puff.cx;
+          const dy = y - puff.cy;
+          const dSq = dx * dx + dy * dy;
+          const rSq = puff.r * puff.r;
+          if (dSq < rSq) {
+            const f = 1 - dSq / rSq;
+            density += f * f * puff.w;
+          }
+        }
+        const alpha = Math.min(1.0, Math.max(0.0, density * 0.65));
+        const idx = (y * size + x) * 4;
+        data[idx] = 255;
+        data[idx + 1] = 250;
+        data[idx + 2] = 242;
+        data[idx + 3] = Math.round(alpha * 255);
+      }
+    }
+
+    const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+    tex.magFilter = THREE.LinearFilter;
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.generateMipmaps = true;
+    tex.needsUpdate = true;
+    tex.name = 'DriftingCloudTexture_64';
+    this.cloudTexture = tex;
+
+    const cloudScale = 1.8; // +80% larger clouds
+    const cloudConfigs = [
+      { x: -12, y: 12.0, z: -12, sx: 8.5 * cloudScale, sz: 5.5 * cloudScale, speed: 0.75 },
+      { x: -3, y: 12.6, z: -8, sx: 7.0 * cloudScale, sz: 4.8 * cloudScale, speed: 0.9 },
+      { x: 5, y: 11.8, z: -14, sx: 9.0 * cloudScale, sz: 6.0 * cloudScale, speed: 0.65 },
+      { x: -15, y: 13.0, z: 1, sx: 7.8 * cloudScale, sz: 5.2 * cloudScale, speed: 0.85 },
+      { x: 2, y: 12.4, z: 3, sx: 6.8 * cloudScale, sz: 4.5 * cloudScale, speed: 0.8 },
+    ];
+
+    for (let i = 0; i < cloudConfigs.length; i++) {
+      const cfg = cloudConfigs[i];
+      const geo = new THREE.PlaneGeometry(cfg.sx, cfg.sz);
+      geo.rotateX(-Math.PI * 0.5);
+      const mat = new THREE.MeshBasicMaterial({
+        map: tex,
+        color: 0xfffaf0,
+        transparent: true,
+        opacity: 0.24,
+        alphaTest: 0.32,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(cfg.x, cfg.y, cfg.z);
+      mesh.castShadow = true;
+      mesh.receiveShadow = false;
+      mesh.raycast = () => {};
+      mesh.name = `DriftingCloud_${i}`;
+      mesh.userData = { speedFactor: cfg.speed };
+      this.driftingCloudsGroup.add(mesh);
+      this.cloudMeshes.push(mesh);
+    }
+  }
+
+  private updateDriftingClouds(deltaSeconds: number): void {
+    const baseSpeed = 0.65 * 0.33 * this.windStrength * deltaSeconds;
+    const dirX = Math.cos(this.windAngleRad);
+    const dirZ = Math.sin(this.windAngleRad);
+
+    for (let i = 0; i < this.cloudMeshes.length; i++) {
+      const cloud = this.cloudMeshes[i];
+      const factor = cloud.userData?.speedFactor ?? 0.8;
+      cloud.position.x += dirX * baseSpeed * factor;
+      cloud.position.z += dirZ * baseSpeed * factor;
+
+      // Wrap seamlessly across the sun-to-board shadow corridor [-20, 14]
+      if (cloud.position.x > 14) cloud.position.x = -20;
+      if (cloud.position.x < -20) cloud.position.x = 14;
+      if (cloud.position.z > 14) cloud.position.z = -20;
+      if (cloud.position.z < -20) cloud.position.z = 14;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Main Update Loop
   // ---------------------------------------------------------------------------
 
   public update(deltaMS: number): void {
     const deltaSeconds = Math.max(0.001, deltaMS / 1000);
 
-    if (this.currentWeather === WeatherType.RAIN) {
+    if (this.currentWeather === WeatherType.NONE) {
+      this.updateDriftingClouds(deltaSeconds);
+    } else if (this.currentWeather === WeatherType.RAIN) {
       this.updateRain(deltaSeconds);
     } else if (this.currentWeather === WeatherType.THUNDERSTORM) {
       this.updateRain(deltaSeconds * 1.25);
@@ -724,6 +838,11 @@ export class WeatherSystem3D {
       plane.geometry.dispose();
       (plane.material as THREE.Material).dispose();
     }
+    for (const cloud of this.cloudMeshes) {
+      cloud.geometry.dispose();
+      (cloud.material as THREE.Material).dispose();
+    }
+    this.cloudTexture?.dispose();
     this.fogTexture?.dispose();
     this.group.clear();
   }

@@ -195,6 +195,9 @@ export class BattleScene3D implements Scene {
       onToggleCoords: (showCoords) => {
         this.view.setCoordsVisible(showCoords);
       },
+      onToggleHealthbars: (showHealthbars) => {
+        this.view.setHealthbarsVisible(showHealthbars);
+      },
       onToggleSceneInspector: (showInspector) => {
         this.view.setSceneInspectorVisible(showInspector);
       },
@@ -218,6 +221,12 @@ export class BattleScene3D implements Scene {
       },
       onWeatherChange: (weather) => {
         this.view.setWeather(weather);
+      },
+      onToggleRimLighting: (enabled) => {
+        this.view.setRimLightingEnabled(enabled);
+      },
+      onToggleTiltShift: (enabled) => {
+        this.view.setTiltShiftEnabled(enabled);
       },
       onSaveBattle: (name) => {
         SaveManager.saveBattle(this.battle, name);

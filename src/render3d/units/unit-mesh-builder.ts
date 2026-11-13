@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { applyUnitRimLighting } from './unit-rim-lighting';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { CreatureType } from '../../battle/creature';
 import {
@@ -195,6 +196,7 @@ export function getSharedUnitOpaqueMaterial(): THREE.MeshStandardMaterial {
       map: getSharedWhiteTexture(),
     });
     sharedUnitOpaqueMaterial.userData = { isSharedAsset: true };
+    applyUnitRimLighting(sharedUnitOpaqueMaterial);
   }
   return sharedUnitOpaqueMaterial;
 }
@@ -214,6 +216,7 @@ function makeMat(color: number, roughness = 0.75, metalness = 0.08): THREE.MeshS
       map: getSharedWhiteTexture(),
     });
     mat.userData = { isSharedAsset: true };
+    applyUnitRimLighting(mat);
     sharedColorMaterialCache.set(key, mat);
   }
   return mat;
@@ -1297,6 +1300,7 @@ export function instantiateGlbUnitTemplate(
         const matClone = origMat.clone() as THREE.MeshStandardMaterial;
         matClone.transparent = false;
         matClone.opacity = 1.0;
+        applyUnitRimLighting(matClone);
         if (!matClone.map) {
           matClone.map = whiteMap;
         }

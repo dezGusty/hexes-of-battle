@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { applyUnitRimLighting } from './unit-rim-lighting';
 
 export const BARBARIAN_TEXTURE_SIZE = 256;
 
@@ -615,6 +616,7 @@ export function getBarbarianPartMaterial(part: BarbarianTexturePart): THREE.Mesh
       isSharedAsset: true,
       barbarianTexturePart: part,
     };
+    applyUnitRimLighting(mat);
     barbarianMaterialCache[part] = mat;
   }
   return mat;
