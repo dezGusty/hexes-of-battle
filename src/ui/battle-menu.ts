@@ -11,8 +11,11 @@ import {
 import { bindButtonUISound, bindSliderUISound } from "../battle/ui-sounds";
 import { WeatherDropdown, WeatherType } from "./weather-dropdown";
 
+export type BattleMenuTab = 'general' | 'graphics' | 'audio' | 'debug';
+
 export class BattleMenuPanel {
-    static DEFAULT_FONT_STYLE: TextOptions = { style: { fill: { color: '#ffffff', alpha: 1 }, fontSize: 16, align: 'left' } };
+    static DEFAULT_FONT_STYLE: TextOptions = { style: { fill: { color: '#ffffff', alpha: 1 }, fontSize: 22, align: 'left' } };
+    static SUB_FONT_STYLE: TextOptions = { style: { fill: { color: '#B8CDE0', alpha: 1 }, fontSize: 17, align: 'left' } };
 
     private DEFAULT_BUTTON_STYLE: ButtonOptions = {
         defaultView: 'btn_simple.png',
@@ -36,15 +39,27 @@ export class BattleMenuPanel {
     private saveDialogContainer = new Container();
     private loadDialogContainer = new Container();
 
+    public activeTab: BattleMenuTab = 'general';
+    public tabButtons: Partial<Record<BattleMenuTab, FancyButton>> = {};
+    public tabContainers: Record<BattleMenuTab, Container> = {
+        general: new Container(),
+        graphics: new Container(),
+        audio: new Container(),
+        debug: new Container(),
+    };
+    private tabTexts: Partial<Record<BattleMenuTab, Text>> = {};
+
     public fullscreenToggleButton?: FancyButton;
     public toggleCoordsButton?: FancyButton;
     public toggleGridButton?: FancyButton;
     public showHealthbarsButton?: FancyButton;
     public toggleFpsButton?: FancyButton;
-    public toggleMusicButton?: FancyButton;
+    public musicIcon?: Sprite;
+    public musicLabel?: Text;
     public musicVolumeSlider?: Slider;
     public musicVolumeValueText?: Text;
-    public toggleSoundButton?: FancyButton;
+    public soundIcon?: Sprite;
+    public soundLabel?: Text;
     public soundVolumeSlider?: Slider;
     public soundVolumeValueText?: Text;
     public toggleSceneInspectorButton?: FancyButton;
@@ -114,14 +129,14 @@ export class BattleMenuPanel {
             bottomHeight: 15,
         });
 
-        windowBg.width = 920;
-        windowBg.height = 840;
+        windowBg.width = 1080;
+        windowBg.height = 900;
         windowBg.alpha = 0.95;
 
         this.window.addChild(windowBg);
         this.window.position = {
             x: (1920 - windowBg.width) / 2,
-            y: Math.max(40, (1080 - windowBg.height) / 2 - 40),
+            y: Math.max(20, (1080 - windowBg.height) / 2),
         };
 
         this.window.addChild(this.mainContainer);
@@ -243,290 +258,189 @@ export class BattleMenuPanel {
         return this.weatherDropdown?.selectedWeather ?? WeatherType.NONE;
     }
 
+    public selectTab(tab: BattleMenuTab): void {
+        this.activeTab = tab;
+        const tabs: BattleMenuTab[] = ['general', 'graphics', 'audio', 'debug'];
+        for (const t of tabs) {
+            const container = this.tabContainers[t];
+            if (container) {
+                container.visible = t === tab;
+            }
+            const btn = this.tabButtons[t];
+            if (btn) {
+                btn.alpha = t === tab ? 1.0 : 0.72;
+            }
+            const label = this.tabTexts[t];
+            if (label) {
+                label.style.fill = t === tab ? '#FFEE88' : '#C8DCE8';
+            }
+        }
+    }
+
     private initializeMainContainer(panelWidth: number): void {
         const title = new Text({
             text: `Battle Menu`,
-            style: { fill: 0xffffff, fontSize: 24 },
+            style: { fill: 0xffffff, fontSize: 32, fontWeight: 'bold' },
         });
         title.anchor.set(0.5);
         title.x = panelWidth / 2;
-        title.y = 25;
+        title.y = 36;
         this.mainContainer.addChild(title);
 
-        const addMenuOption = (x: number, y: number, text: string): void => {
-            const textObj = new Text({
-                ...BattleMenuPanel.DEFAULT_FONT_STYLE,
-                text,
+        // Vertical tab sidebar
+        const sidebarX = 28;
+        const tabWidth = 210;
+        const tabHeight = 76;
+        const tabGap = 18;
+        const tabsStartY = 88;
+        const tabDefs: Array<{ id: BattleMenuTab; label: string }> = [
+            { id: 'general', label: 'General' },
+            { id: 'graphics', label: 'Graphics' },
+            { id: 'audio', label: 'Audio' },
+            { id: 'debug', label: 'Debug' },
+        ];
+
+        tabDefs.forEach((def, idx) => {
+            const tabText = new Text({
+                text: def.label,
+                style: { fill: '#C8DCE8', fontSize: 22, fontWeight: 'bold', align: 'center' },
             });
-            textObj.position = { x, y: y + 8 };
-            this.mainContainer.addChild(textObj);
-        };
+            const tabBtn = new FancyButton({
+                ...this.THIN_BUTTON_STYLE,
+                text: tabText,
+            });
+            tabBtn.position.set(sidebarX, tabsStartY + idx * (tabHeight + tabGap));
+            tabBtn.width = tabWidth;
+            tabBtn.height = tabHeight;
+            tabBtn.onPress.connect(() => {
+                this.selectTab(def.id);
+            });
+            bindButtonUISound(tabBtn);
 
-        const col1BtnX = 35;
-        const col1TextX = 115;
-        const col2BtnX = 490;
-        const col2TextX = 570;
-
-        // Column 1 Options
-        addMenuOption(col1TextX, 55, 'Toggle Full screen mode.\nUses the browser API.');
-        addMenuOption(col1TextX, 130, 'Toggle coordinates display.');
-        addMenuOption(col1TextX, 205, 'Toggle grid display.\nThe grid will be fairly visible anyway.');
-        addMenuOption(col1TextX, 280, 'Toggle healthbars display.');
-        addMenuOption(col1TextX, 355, 'Toggle 3D Scene Inspector.\n(Same effect as pressing F2)');
-        addMenuOption(col1TextX, 430, 'Show FPS\nToggle frames per second counter.');
-        addMenuOption(col1TextX, 505, 'Show damage indicators.\nFloating indicators on morale/HP/stamina change.');
-        addMenuOption(col1TextX, 575, 'Weather Effects (Visual)\nSelect atmospheric weather.');
-
-        // Column 2 Options
-        addMenuOption(col2TextX, 55, 'Toggle music on/off.');
-        addMenuOption(col2TextX, 130, 'Toggle sound on/off.');
-        addMenuOption(col2TextX, 205, 'Save Battle State\nSave snapshot to local storage.');
-        addMenuOption(col2TextX, 280, 'Load Saved Battle\nSelect and restore a saved state.');
-        addMenuOption(col2TextX, 355, 'Toggle Unit Stats display.\n(Same effect as pressing F4)');
-
-        this.hardwareCursorText = new Text({
-            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
-            text: this.getHardwareCursorLabel(),
-        });
-        this.hardwareCursorText.position = { x: col2TextX, y: 430 + 8 };
-        this.mainContainer.addChild(this.hardwareCursorText);
-
-        addMenuOption(col2TextX, 505, 'Animation Speed (1-8).');
-
-        // Column 1 Buttons
-        this.fullscreenToggleButton = new FancyButton({
-            ...this.DEFAULT_BUTTON_STYLE,
-            icon: 'glyph_fullscreen.png',
-        });
-        this.fullscreenToggleButton.position.set(col1BtnX, 55);
-        this.fullscreenToggleButton.width = 64;
-        this.fullscreenToggleButton.height = 60;
-
-        this.toggleCoordsButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_xy.png' });
-        this.toggleCoordsButton.position.set(col1BtnX, 130);
-        this.toggleCoordsButton.width = 64;
-        this.toggleCoordsButton.height = 60;
-
-        this.toggleGridButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_grid.png' });
-        this.toggleGridButton.position.set(col1BtnX, 205);
-        this.toggleGridButton.width = 64;
-        this.toggleGridButton.height = 60;
-
-        this.showHealthbarsButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_toggle_healthbars.png' });
-        this.showHealthbarsButton.position.set(col1BtnX, 280);
-        this.showHealthbarsButton.width = 64;
-        this.showHealthbarsButton.height = 60;
-
-        this.toggleSceneInspectorButton = new FancyButton({
-            ...this.DEFAULT_BUTTON_STYLE,
-            icon: 'glyph_toggle_perf_stats.png',
-        });
-        this.toggleSceneInspectorButton.position.set(col1BtnX, 355);
-        this.toggleSceneInspectorButton.width = 64;
-        this.toggleSceneInspectorButton.height = 60;
-
-        this.toggleFpsButton = new FancyButton({
-            ...this.DEFAULT_BUTTON_STYLE,
-            icon: 'glyph_toggle_perf_stats.png',
-        });
-        this.toggleFpsButton.position.set(col1BtnX, 430);
-        this.toggleFpsButton.width = 64;
-        this.toggleFpsButton.height = 60;
-
-        this.toggleDamageIndicatorsButton = new FancyButton({
-            ...this.DEFAULT_BUTTON_STYLE,
-            icon: this.uiSheet.textures['glyph_hp'] ? 'glyph_hp' : 'glyph_plus.png',
-        });
-        this.toggleDamageIndicatorsButton.position.set(col1BtnX, 505);
-        this.toggleDamageIndicatorsButton.width = 64;
-        this.toggleDamageIndicatorsButton.height = 60;
-
-        this.weatherButton = new FancyButton({
-            ...this.DEFAULT_BUTTON_STYLE,
-            icon: this.uiSheet.textures['glyph_toggle_perf_stats.png'] ? 'glyph_toggle_perf_stats.png' : 'btn_simple.png',
-        });
-        this.weatherButton.position.set(col1BtnX, 575);
-        this.weatherButton.width = 64;
-        this.weatherButton.height = 60;
-        this.weatherButton.onPress.connect(() => {
-            this.weatherDropdown?.toggle();
+            this.tabButtons[def.id] = tabBtn;
+            this.tabTexts[def.id] = tabText;
+            this.mainContainer.addChild(tabBtn);
+            this.mainContainer.addChild(this.tabContainers[def.id]);
         });
 
-        this.weatherDropdown = new WeatherDropdown(
-            this.THIN_BUTTON_STYLE,
-            WeatherType.NONE,
-            200,
-            34,
-            30,
-            true
-        );
-        this.weatherDropdown.position.set(col1TextX, 575 + 34);
-        this.weatherDropdown.onChange = (weather) => {
-            if (this.onWeatherChange) {
-                this.onWeatherChange(weather);
+        // Subtle vertical separator between tabs and content
+        const divider = new NineSliceSprite({
+            texture: this.uiSheet.textures['panel.png'] || Texture.EMPTY,
+            leftWidth: 2,
+            topHeight: 2,
+            rightWidth: 2,
+            bottomHeight: 2,
+        });
+        divider.position.set(256, 84);
+        divider.width = 4;
+        divider.height = 716;
+        divider.alpha = 0.4;
+        this.mainContainer.addChild(divider);
+
+        const contentBtnX = 286;
+        const contentTextX = 382;
+        const btnWidth = 76;
+        const btnHeight = 72;
+        const rowStep = 94;
+        const startY = 88;
+
+        const addOptionLabel = (target: Container, x: number, y: number, titleText: string, subText?: string): void => {
+            const label = new Text({
+                ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+                text: titleText,
+            });
+            label.position = { x, y: subText ? y + 6 : y + 20 };
+            target.addChild(label);
+
+            if (subText) {
+                const sub = new Text({
+                    ...BattleMenuPanel.SUB_FONT_STYLE,
+                    text: subText,
+                });
+                sub.position = { x, y: y + 36 };
+                target.addChild(sub);
             }
         };
 
-        // Column 2 Buttons & Sliders
-        this.toggleMusicButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_toggle_music.png' });
-        this.toggleMusicButton.position.set(col2BtnX, 55);
-        this.toggleMusicButton.width = 64;
-        this.toggleMusicButton.height = 60;
+        const createIconButton = (iconName: string, x: number, y: number): FancyButton => {
+            const btn = new FancyButton({
+                ...this.DEFAULT_BUTTON_STYLE,
+                icon: iconName,
+            });
+            btn.position.set(x, y);
+            btn.width = btnWidth;
+            btn.height = btnHeight;
+            return btn;
+        };
 
         const sliderBg = this.uiSheet.textures['thin_button_2_normal.png'] || this.uiSheet.textures['panel.png'] || Texture.EMPTY;
         const sliderFill = this.uiSheet.textures['thin_button_2_normal.png'] || this.uiSheet.textures['panel.png'] || Texture.EMPTY;
         const sliderHandle = this.uiSheet.textures['thin_button_2_hover.png'] || this.uiSheet.textures['btn_simple.png'] || Texture.EMPTY;
 
-        this.musicVolumeSlider = new Slider({
-            bg: sliderBg,
-            fill: sliderFill,
-            slider: new Sprite(sliderHandle),
-            nineSliceSprite: {
-                bg: [4, 4, 4, 4],
-                fill: [4, 4, 4, 4],
-            },
-            fillPaddings: {
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-            },
-            min: 0,
-            max: 100,
-            step: 1,
-            value: 15,
-            showValue: false,
-        });
-        this.musicVolumeSlider.position.set(col2TextX, 55 + 34);
-        this.musicVolumeSlider.width = 200;
-        this.musicVolumeSlider.height = 14;
+        const createMobileSlider = (min: number, max: number, step: number, value: number, width: number, height: number): Slider => {
+            const handleSprite = new Sprite(sliderHandle);
+            handleSprite.width = 28;
+            handleSprite.height = 36;
+            const s = new Slider({
+                bg: sliderBg,
+                fill: sliderFill,
+                slider: handleSprite,
+                nineSliceSprite: {
+                    bg: [4, 4, 4, 4],
+                    fill: [4, 4, 4, 4],
+                },
+                fillPaddings: { top: 0, left: 0, right: 0, bottom: 0 },
+                min,
+                max,
+                step,
+                value,
+                showValue: false,
+            });
+            s.width = width;
+            s.height = height;
+            return s;
+        };
 
-        this.musicVolumeValueText = new Text({
-            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
-            text: '15%',
-            style: { fontSize: 13, fill: '#AACCFF' },
-        });
-        this.musicVolumeValueText.position.set(col2TextX + 210, 55 + 31);
+        // ============================================================
+        // 1. GENERAL TAB
+        // ============================================================
+        const generalTab = this.tabContainers.general;
 
-        this.musicVolumeSlider.onUpdate.connect((val) => {
-            if (this.musicVolumeValueText) {
-                this.musicVolumeValueText.text = `${Math.round(val)}%`;
-            }
-        });
+        this.toggleGridButton = createIconButton('glyph_grid.png', contentBtnX, startY + 0 * rowStep);
+        addOptionLabel(generalTab, contentTextX, startY + 0 * rowStep, 'Toggle Grid Display', 'The grid will remain subtly visible.');
+        generalTab.addChild(this.toggleGridButton);
 
-        this.toggleSoundButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: 'glyph_toggle_music.png' });
-        this.toggleSoundButton.position.set(col2BtnX, 130);
-        this.toggleSoundButton.width = 64;
-        this.toggleSoundButton.height = 60;
+        this.showHealthbarsButton = createIconButton('glyph_toggle_healthbars.png', contentBtnX, startY + 1 * rowStep);
+        addOptionLabel(generalTab, contentTextX, startY + 1 * rowStep, 'Toggle Healthbars', 'Show or hide squad health and stamina bars.');
+        generalTab.addChild(this.showHealthbarsButton);
 
-        this.soundVolumeSlider = new Slider({
-            bg: sliderBg,
-            fill: sliderFill,
-            slider: new Sprite(sliderHandle),
-            nineSliceSprite: {
-                bg: [4, 4, 4, 4],
-                fill: [4, 4, 4, 4],
-            },
-            fillPaddings: {
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-            },
-            min: 0,
-            max: 100,
-            step: 1,
-            value: 75,
-            showValue: false,
-        });
-        this.soundVolumeSlider.position.set(col2TextX, 130 + 34);
-        this.soundVolumeSlider.width = 200;
-        this.soundVolumeSlider.height = 14;
+        this.toggleDamageIndicatorsButton = createIconButton(
+            this.uiSheet.textures['glyph_hp'] ? 'glyph_hp' : 'glyph_plus.png',
+            contentBtnX,
+            startY + 2 * rowStep
+        );
+        addOptionLabel(generalTab, contentTextX, startY + 2 * rowStep, 'Show Damage Indicators', 'Floating indicators on morale/HP/stamina change.');
+        generalTab.addChild(this.toggleDamageIndicatorsButton);
 
-        this.soundVolumeValueText = new Text({
-            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
-            text: '75%',
-            style: { fontSize: 13, fill: '#AACCFF' },
-        });
-        this.soundVolumeValueText.position.set(col2TextX + 210, 130 + 31);
+        this.toggleStatsButton = createIconButton('glyph_toggle_stats.png', contentBtnX, startY + 3 * rowStep);
+        addOptionLabel(generalTab, contentTextX, startY + 3 * rowStep, 'Toggle Unit Stats (F4)', 'Show or hide unit statistics panels.');
+        generalTab.addChild(this.toggleStatsButton);
 
-        this.soundVolumeSlider.onUpdate.connect((val) => {
-            if (this.soundVolumeValueText) {
-                this.soundVolumeValueText.text = `${Math.round(val)}%`;
-            }
-        });
-
-        this.saveButton = new FancyButton({
-            ...this.DEFAULT_BUTTON_STYLE,
-            icon: 'glyph_plus.png',
-        });
-        this.saveButton.position.set(col2BtnX, 205);
-        this.saveButton.width = 64;
-        this.saveButton.height = 60;
-
-        this.loadButton = new FancyButton({
-            ...this.DEFAULT_BUTTON_STYLE,
-            icon: 'glyph_next_turn.png',
-        });
-        this.loadButton.position.set(col2BtnX, 280);
-        this.loadButton.width = 64;
-        this.loadButton.height = 60;
-
-        this.toggleStatsButton = new FancyButton({
-            ...this.DEFAULT_BUTTON_STYLE,
-            icon: 'glyph_toggle_stats.png',
-        });
-        this.toggleStatsButton.position.set(col2BtnX, 355);
-        this.toggleStatsButton.width = 64;
-        this.toggleStatsButton.height = 60;
-
-        this.toggleHardwareCursorButton = new FancyButton({
-            ...this.DEFAULT_BUTTON_STYLE,
-            icon: 'cursor_arrow.png',
-        });
-        this.toggleHardwareCursorButton.position.set(col2BtnX, 430);
-        this.toggleHardwareCursorButton.width = 64;
-        this.toggleHardwareCursorButton.height = 60;
-
-        this.animationSpeedButton = new FancyButton({
-            ...this.DEFAULT_BUTTON_STYLE,
-            icon: this.uiSheet.textures['glyph_movement'] ? 'glyph_movement' : 'glyph_next_unit.png',
-        });
-        this.animationSpeedButton.position.set(col2BtnX, 505);
-        this.animationSpeedButton.width = 64;
-        this.animationSpeedButton.height = 60;
-
-        this.animationSpeedSlider = new Slider({
-            bg: sliderBg,
-            fill: sliderFill,
-            slider: new Sprite(sliderHandle),
-            nineSliceSprite: {
-                bg: [4, 4, 4, 4],
-                fill: [4, 4, 4, 4],
-            },
-            fillPaddings: {
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-            },
-            min: MIN_ANIMATION_SPEED,
-            max: MAX_ANIMATION_SPEED,
-            step: 1,
-            value: DEFAULT_ANIMATION_SPEED,
-            showValue: false,
-        });
-        this.animationSpeedSlider.position.set(col2TextX, 505 + 34);
-        this.animationSpeedSlider.width = 200;
-        this.animationSpeedSlider.height = 14;
-
+        const animY = startY + 4 * rowStep;
+        this.animationSpeedButton = createIconButton(
+            this.uiSheet.textures['glyph_movement'] ? 'glyph_movement' : 'glyph_next_unit.png',
+            contentBtnX,
+            animY
+        );
+        addOptionLabel(generalTab, contentTextX, animY - 2, 'Animation Speed (1-8)');
+        this.animationSpeedSlider = createMobileSlider(MIN_ANIMATION_SPEED, MAX_ANIMATION_SPEED, 1, DEFAULT_ANIMATION_SPEED, 340, 24);
+        this.animationSpeedSlider.position.set(contentTextX, animY + 38);
         this.animationSpeedValueText = new Text({
             ...BattleMenuPanel.DEFAULT_FONT_STYLE,
             text: `${DEFAULT_ANIMATION_SPEED}`,
-            style: { fontSize: 13, fill: '#AACCFF' },
+            style: { fontSize: 20, fill: '#AACCFF', fontWeight: 'bold' },
         });
-        this.animationSpeedValueText.position.set(col2TextX + 210, 505 + 31);
-
+        this.animationSpeedValueText.position.set(contentTextX + 358, animY + 36);
         this.animationSpeedSlider.onUpdate.connect((val) => {
             const speed = clampAnimationSpeed(val);
             if (this.animationSpeedValueText) {
@@ -536,92 +450,217 @@ export class BattleMenuPanel {
                 this.onAnimationSpeedChange(speed);
             }
         });
+        generalTab.addChild(this.animationSpeedButton, this.animationSpeedSlider, this.animationSpeedValueText);
 
-        this.rimLightingText = new Text({
+        this.saveButton = createIconButton('glyph_plus.png', contentBtnX, startY + 5 * rowStep + 6);
+        addOptionLabel(generalTab, contentTextX, startY + 5 * rowStep + 6, 'Save Battle State', 'Save snapshot to local storage.');
+        generalTab.addChild(this.saveButton);
+
+        this.loadButton = createIconButton('glyph_next_turn.png', contentBtnX, startY + 6 * rowStep + 6);
+        addOptionLabel(generalTab, contentTextX, startY + 6 * rowStep + 6, 'Load Saved Battle', 'Select and restore a saved state.');
+        generalTab.addChild(this.loadButton);
+
+        // ============================================================
+        // 2. GRAPHICS TAB
+        // ============================================================
+        const graphicsTab = this.tabContainers.graphics;
+
+        this.fullscreenToggleButton = createIconButton('glyph_fullscreen.png', contentBtnX, startY + 0 * rowStep);
+        addOptionLabel(graphicsTab, contentTextX, startY + 0 * rowStep, 'Full Screen Mode', 'Uses the browser fullscreen API.');
+        graphicsTab.addChild(this.fullscreenToggleButton);
+
+        this.toggleFpsButton = createIconButton('glyph_toggle_perf_stats.png', contentBtnX, startY + 1 * rowStep);
+        addOptionLabel(graphicsTab, contentTextX, startY + 1 * rowStep, 'Show FPS', 'Toggle frames per second counter.');
+        graphicsTab.addChild(this.toggleFpsButton);
+
+        this.toggleHardwareCursorButton = createIconButton('cursor_arrow.png', contentBtnX, startY + 2 * rowStep);
+        this.hardwareCursorText = new Text({
             ...BattleMenuPanel.DEFAULT_FONT_STYLE,
-            text: this.getRimLightingLabel(),
-            style: { fontSize: 13, fill: '#E0F0FF', align: 'center' },
+            text: this.getHardwareCursorLabel(),
+            style: { fill: '#ffffff', fontSize: 20, align: 'left' },
         });
-        this.toggleRimLightingButton = new FancyButton({
-            ...this.THIN_BUTTON_STYLE,
-            text: this.rimLightingText,
+        this.hardwareCursorText.position = { x: contentTextX, y: startY + 2 * rowStep + 8 };
+        graphicsTab.addChild(this.toggleHardwareCursorButton, this.hardwareCursorText);
+
+        const weatherY = startY + 3 * rowStep;
+        this.weatherButton = createIconButton(
+            this.uiSheet.textures['glyph_toggle_perf_stats.png'] ? 'glyph_toggle_perf_stats.png' : 'btn_simple.png',
+            contentBtnX,
+            weatherY
+        );
+        this.weatherButton.onPress.connect(() => {
+            this.weatherDropdown?.toggle();
         });
-        this.toggleRimLightingButton.position.set(col2BtnX, 575);
-        this.toggleRimLightingButton.width = 190;
-        this.toggleRimLightingButton.height = 50;
-        this.toggleRimLightingButton.onPress.connect(() => {
-            this.setRimLightingEnabled(!this.isRimLightingEnabled);
-            this.onToggleRimLighting?.(this.isRimLightingEnabled);
-        });
+        addOptionLabel(graphicsTab, contentTextX, weatherY - 2, 'Weather Effects (Visual)');
+        this.weatherDropdown = new WeatherDropdown(
+            this.THIN_BUTTON_STYLE,
+            WeatherType.NONE,
+            260,
+            42,
+            34,
+            true
+        );
+        this.weatherDropdown.position.set(contentTextX, weatherY + 34);
+        this.weatherDropdown.onChange = (weather) => {
+            if (this.onWeatherChange) {
+                this.onWeatherChange(weather);
+            }
+        };
+        graphicsTab.addChild(this.weatherButton);
+
+        const toggleRow1Y = startY + 4 * rowStep + 24;
+        const toggleRow2Y = toggleRow1Y + 96;
 
         this.tiltShiftText = new Text({
             ...BattleMenuPanel.DEFAULT_FONT_STYLE,
             text: this.getTiltShiftLabel(),
-            style: { fontSize: 13, fill: '#E0F0FF', align: 'center' },
+            style: { fontSize: 19, fill: '#E0F0FF', align: 'center' },
         });
         this.toggleTiltShiftButton = new FancyButton({
             ...this.THIN_BUTTON_STYLE,
             text: this.tiltShiftText,
         });
-        this.toggleTiltShiftButton.position.set(col2BtnX + 205, 575);
-        this.toggleTiltShiftButton.width = 190;
-        this.toggleTiltShiftButton.height = 50;
+        this.toggleTiltShiftButton.position.set(contentBtnX, toggleRow1Y);
+        this.toggleTiltShiftButton.width = 350;
+        this.toggleTiltShiftButton.height = 76;
         this.toggleTiltShiftButton.onPress.connect(() => {
             this.setTiltShiftEnabled(!this.isTiltShiftEnabled);
             this.onToggleTiltShift?.(this.isTiltShiftEnabled);
         });
 
+        this.rimLightingText = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: this.getRimLightingLabel(),
+            style: { fontSize: 19, fill: '#E0F0FF', align: 'center' },
+        });
+        this.toggleRimLightingButton = new FancyButton({
+            ...this.THIN_BUTTON_STYLE,
+            text: this.rimLightingText,
+        });
+        this.toggleRimLightingButton.position.set(contentBtnX + 370, toggleRow1Y);
+        this.toggleRimLightingButton.width = 350;
+        this.toggleRimLightingButton.height = 76;
+        this.toggleRimLightingButton.onPress.connect(() => {
+            this.setRimLightingEnabled(!this.isRimLightingEnabled);
+            this.onToggleRimLighting?.(this.isRimLightingEnabled);
+        });
+
         this.simpleTreesText = new Text({
             ...BattleMenuPanel.DEFAULT_FONT_STYLE,
             text: this.getSimpleTreesLabel(),
-            style: { fontSize: 13, fill: '#E0F0FF', align: 'center' },
+            style: { fontSize: 19, fill: '#E0F0FF', align: 'center' },
         });
         this.toggleSimpleTreesButton = new FancyButton({
             ...this.THIN_BUTTON_STYLE,
             text: this.simpleTreesText,
         });
-        this.toggleSimpleTreesButton.position.set(col2BtnX, 640);
-        this.toggleSimpleTreesButton.width = 190;
-        this.toggleSimpleTreesButton.height = 50;
+        this.toggleSimpleTreesButton.position.set(contentBtnX, toggleRow2Y);
+        this.toggleSimpleTreesButton.width = 350;
+        this.toggleSimpleTreesButton.height = 76;
         this.toggleSimpleTreesButton.onPress.connect(() => {
             this.setSimpleTreesEnabled(!this.isSimpleTreesEnabled);
             this.onToggleSimpleTrees?.(this.isSimpleTreesEnabled);
         });
 
-        this.closeButton.position.set((panelWidth - 140) / 2, 788);
-        this.closeButton.width = 140;
-        this.closeButton.height = 36;
+        graphicsTab.addChild(
+            this.toggleTiltShiftButton,
+            this.toggleRimLightingButton,
+            this.toggleSimpleTreesButton,
+            this.weatherDropdown
+        );
+
+        // ============================================================
+        // 3. AUDIO TAB
+        // ============================================================
+        const audioTab = this.tabContainers.audio;
+        const audioIconTex = this.uiSheet.textures['glyph_toggle_music.png'] || Texture.EMPTY;
+
+        const musicRowY = startY + 20;
+        this.musicIcon = new Sprite(audioIconTex);
+        this.musicIcon.position.set(contentBtnX + 8, musicRowY + 8);
+        this.musicIcon.width = 56;
+        this.musicIcon.height = 56;
+
+        this.musicLabel = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: 'Music level',
+            style: { fill: '#ffffff', fontSize: 24, fontWeight: 'bold' },
+        });
+        this.musicLabel.position.set(contentTextX, musicRowY);
+
+        this.musicVolumeSlider = createMobileSlider(0, 100, 1, 15, 380, 26);
+        this.musicVolumeSlider.position.set(contentTextX, musicRowY + 42);
+
+        this.musicVolumeValueText = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: '15%',
+            style: { fontSize: 22, fill: '#AACCFF', fontWeight: 'bold' },
+        });
+        this.musicVolumeValueText.position.set(contentTextX + 400, musicRowY + 38);
+
+        this.musicVolumeSlider.onUpdate.connect((val) => {
+            if (this.musicVolumeValueText) {
+                this.musicVolumeValueText.text = `${Math.round(val)}%`;
+            }
+        });
+
+        audioTab.addChild(this.musicIcon, this.musicLabel, this.musicVolumeSlider, this.musicVolumeValueText);
+
+        const soundRowY = startY + 160;
+        this.soundIcon = new Sprite(audioIconTex);
+        this.soundIcon.position.set(contentBtnX + 8, soundRowY + 8);
+        this.soundIcon.width = 56;
+        this.soundIcon.height = 56;
+
+        this.soundLabel = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: 'Sound level',
+            style: { fill: '#ffffff', fontSize: 24, fontWeight: 'bold' },
+        });
+        this.soundLabel.position.set(contentTextX, soundRowY);
+
+        this.soundVolumeSlider = createMobileSlider(0, 100, 1, 75, 380, 26);
+        this.soundVolumeSlider.position.set(contentTextX, soundRowY + 42);
+
+        this.soundVolumeValueText = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: '75%',
+            style: { fontSize: 22, fill: '#AACCFF', fontWeight: 'bold' },
+        });
+        this.soundVolumeValueText.position.set(contentTextX + 400, soundRowY + 38);
+
+        this.soundVolumeSlider.onUpdate.connect((val) => {
+            if (this.soundVolumeValueText) {
+                this.soundVolumeValueText.text = `${Math.round(val)}%`;
+            }
+        });
+
+        audioTab.addChild(this.soundIcon, this.soundLabel, this.soundVolumeSlider, this.soundVolumeValueText);
+
+        // ============================================================
+        // 4. DEBUG TAB
+        // ============================================================
+        const debugTab = this.tabContainers.debug;
+
+        this.toggleCoordsButton = createIconButton('glyph_xy.png', contentBtnX, startY + 0 * (rowStep + 16));
+        addOptionLabel(debugTab, contentTextX, startY + 0 * (rowStep + 16), 'Toggle Coordinates Display', 'Show hex coordinates on the battlefield.');
+        debugTab.addChild(this.toggleCoordsButton);
+
+        this.toggleSceneInspectorButton = createIconButton('glyph_toggle_perf_stats.png', contentBtnX, startY + 1 * (rowStep + 16));
+        addOptionLabel(debugTab, contentTextX, startY + 1 * (rowStep + 16), 'Toggle 3D Scene Inspector', '(Same effect as pressing F2)');
+        debugTab.addChild(this.toggleSceneInspectorButton);
+
+        // ============================================================
+        // CLOSE BUTTON
+        // ============================================================
+        this.closeButton.position.set((panelWidth - 180) / 2, 824);
+        this.closeButton.width = 180;
+        this.closeButton.height = 54;
         this.closeButton.text = new Text({
             ...BattleMenuPanel.DEFAULT_FONT_STYLE,
             text: 'Close',
-            style: { fontSize: 16, fill: '#DDFFFF' },
+            style: { fontSize: 22, fill: '#DDFFFF', fontWeight: 'bold' },
         });
-
-        this.mainContainer.addChild(this.fullscreenToggleButton);
-        this.mainContainer.addChild(this.toggleCoordsButton);
-        this.mainContainer.addChild(this.toggleGridButton);
-        this.mainContainer.addChild(this.showHealthbarsButton);
-        this.mainContainer.addChild(this.toggleSceneInspectorButton);
-        this.mainContainer.addChild(this.toggleFpsButton);
-        this.mainContainer.addChild(this.toggleDamageIndicatorsButton);
-        if (this.weatherButton) this.mainContainer.addChild(this.weatherButton);
-        if (this.weatherDropdown) this.mainContainer.addChild(this.weatherDropdown);
-        this.mainContainer.addChild(this.toggleMusicButton);
-        this.mainContainer.addChild(this.musicVolumeSlider);
-        this.mainContainer.addChild(this.musicVolumeValueText);
-        this.mainContainer.addChild(this.toggleSoundButton);
-        this.mainContainer.addChild(this.soundVolumeSlider);
-        this.mainContainer.addChild(this.soundVolumeValueText);
-        this.mainContainer.addChild(this.saveButton);
-        this.mainContainer.addChild(this.loadButton);
-        this.mainContainer.addChild(this.toggleStatsButton);
-        this.mainContainer.addChild(this.toggleHardwareCursorButton);
-        this.mainContainer.addChild(this.animationSpeedButton);
-        this.mainContainer.addChild(this.animationSpeedSlider);
-        this.mainContainer.addChild(this.animationSpeedValueText);
-        this.mainContainer.addChild(this.toggleRimLightingButton);
-        this.mainContainer.addChild(this.toggleTiltShiftButton);
-        this.mainContainer.addChild(this.toggleSimpleTreesButton);
         this.mainContainer.addChild(this.closeButton);
 
         bindButtonUISound(this.fullscreenToggleButton);
@@ -632,8 +671,6 @@ export class BattleMenuPanel {
         bindButtonUISound(this.toggleFpsButton);
         bindButtonUISound(this.toggleDamageIndicatorsButton);
         if (this.weatherButton) bindButtonUISound(this.weatherButton);
-        bindButtonUISound(this.toggleMusicButton);
-        bindButtonUISound(this.toggleSoundButton);
         bindButtonUISound(this.saveButton);
         bindButtonUISound(this.loadButton);
         bindButtonUISound(this.toggleStatsButton);
@@ -648,6 +685,7 @@ export class BattleMenuPanel {
         bindSliderUISound(this.soundVolumeSlider, () => this.isUpdatingSoundValues);
         bindSliderUISound(this.animationSpeedSlider, () => this.isUpdatingAnimationSpeed);
 
+        this.selectTab('general');
         this.connectMainEventHandlers();
     }
 

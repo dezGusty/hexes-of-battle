@@ -880,3 +880,10 @@ function drawStar(ctx: CanvasRenderingContext2D, cx: number, cy: number, spikes:
   ctx.fill();
 }
 
+/**
+ * Clears cached morale icon DOM image elements.
+ */
+export function disposeMoraleImageCache(): void {
+  moraleImageCache.clear();
+}
+

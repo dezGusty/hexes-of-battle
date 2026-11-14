@@ -4614,5 +4614,33 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       const glbBox = glbShield.geometry.boundingBox!;
       expect(glbBox.max.y - glbBox.min.y).toBeGreaterThan(0.55);
     });
+
+    it('should texture the Peasant face and clothing to match the portrait (dark hair & stubble, brown tunic, rope belt, grey trousers, cuffed brown boots)', () => {
+      const faceTex = getHumanoidPartTexture('peasant_face');
+      const faceData = faceTex.image.data as Uint8Array;
+      const samplePixel = (data: Uint8Array, x: number, y: number) => {
+        const idx = (y * 256 + x) * 4;
+        return { r: data[idx], g: data[idx + 1], b: data[idx + 2] };
+      };
+
+      // Top hair region (y = 200) is dark charcoal-black
+      const hair = samplePixel(faceData, 128, 200);
+      expect(hair.r).toBeLessThan(70);
+      expect(hair.g).toBeLessThan(70);
+      expect(hair.b).toBeLessThan(70);
+
+      // Cloth texture (flipY = false: y=20 boots, y=80 grey trousers, y=130 hemp belt, y=180 brown tunic)
+      const clothTex = getHumanoidPartTexture('peasant_cloth');
+      const clothData = clothTex.image.data as Uint8Array;
+      const boot = samplePixel(clothData, 128, 20);
+      expect(boot.r).toBeGreaterThan(boot.b + 20); // warm brown leather
+
+      const trousers = samplePixel(clothData, 128, 80);
+      expect(Math.abs(trousers.r - trousers.g)).toBeLessThanOrEqual(12);
+      expect(Math.abs(trousers.g - trousers.b)).toBeLessThanOrEqual(12); // neutral slate-grey
+
+      const tunic = samplePixel(clothData, 80, 180);
+      expect(tunic.r).toBeGreaterThan(tunic.b + 30); // earthy brown wool
+    });
   });
 });

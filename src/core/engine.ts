@@ -1,9 +1,10 @@
-import { Application, Container, Assets } from 'pixi.js';
-import { sound } from '@pixi/sound';
+import { Application, Container } from 'pixi.js';
 import pkg from '../../package.json';
 import { EventBus } from './event-bus';
 import { GameAssets, GameContext, GameTemplates } from './scene';
 import { SceneManager } from './scene-manager';
+import { AssetBundleManager } from './asset-manager';
+import { ThreeRendererHost } from '../render3d/three-renderer-host';
 import { BattleSettings } from '../battle/settings';
 import { Ability } from '../battle/ability';
 import { CreatureTemplate } from '../battle/creature';
@@ -25,8 +26,10 @@ export class HexesEngine {
   public readonly settings: BattleSettings = new BattleSettings();
   public readonly soundSystem: PixiSoundSystem;
   public readonly sceneManager: SceneManager;
+  public readonly assetManager: AssetBundleManager = new AssetBundleManager();
 
   public readonly renderContainer: Container = new Container();
+  private threeRendererHost: ThreeRendererHost | null = null;
 
   private assets: GameAssets = {
     softCursorTextures: {},
@@ -57,8 +60,23 @@ export class HexesEngine {
       soundSystem: this.soundSystem,
       nativeResolution: this.nativeResolution,
       switchToScene: (sceneName: string, params?: any) => this.sceneManager.switchTo(sceneName, params),
+      getThreeRendererHost: (container?: HTMLElement) => this.getThreeRendererHost(container),
+      loadBattleResources: () => this.loadBattleResources(),
+      unloadBattleResources: () => this.unloadBattleResources(),
       version: this.version,
     };
+  }
+
+  public getThreeRendererHost(container?: HTMLElement): ThreeRendererHost {
+    if (!this.threeRendererHost) {
+      const target =
+        container ??
+        (typeof document !== 'undefined'
+          ? (document.getElementById('game') ?? document.body ?? document.createElement('div'))
+          : ({} as HTMLElement));
+      this.threeRendererHost = new ThreeRendererHost(target);
+    }
+    return this.threeRendererHost;
   }
 
   public async initialize(): Promise<void> {
@@ -98,9 +116,8 @@ export class HexesEngine {
     this.app.stage.addChild(this.renderContainer);
 
     await this.loadTemplates();
-    await this.loadAssets();
-    await this.loadSounds();
-    await Assets.load('./GustysSerpentsFontL.xml');
+    await this.assetManager.loadCoreAssets(this.assets);
+    await this.assetManager.loadCoreSounds(this.soundSystem);
 
     this.app.ticker.maxFPS = 60;
     this.app.ticker.add((ticker) => {
@@ -273,60 +290,31 @@ export class HexesEngine {
     }
   }
 
+  public async loadBattleResources(): Promise<void> {
+    await this.assetManager.loadBattleAssets(this.assets);
+    await this.assetManager.loadBattleSounds(this.soundSystem);
+  }
+
+  public async unloadBattleResources(): Promise<void> {
+    this.assetManager.unloadBattleSounds();
+    await this.assetManager.unloadBattleAssets(this.assets);
+  }
+
   public async loadAssets(): Promise<void> {
-    this.assets.terrainTexture = await Assets.load('stars.jpg');
-    this.assets.hexagonSheet = await Assets.load('hexagon_selections.json');
-    this.assets.terrainSheet = await Assets.load('hex_terrain.json');
-    this.assets.unitsSheet = await Assets.load('unitsspritesheet.json');
-    this.assets.uiSheet = await Assets.load('ui/hexes-ui-sheet.json');
-    this.assets.uiSheet2 = await Assets.load('ui/hexes_blue_ui_sheet.json');
-    this.assets.bannersSheet = await Assets.load('bannersspritesheet.json');
-
-    if (this.assets.uiSheet?.textures) {
-      this.assets.softCursorTextures['default'] = this.assets.uiSheet.textures['cur_gs_arrow.png'];
-      this.assets.softCursorTextures['attack_melee'] = this.assets.uiSheet.textures['cursor_sword.png'];
-      this.assets.softCursorTextures['attack_melee_e'] = this.assets.uiSheet.textures['cursor_sword_e.png'];
-      this.assets.softCursorTextures['attack_melee_w'] = this.assets.uiSheet.textures['cursor_sword_w.png'];
-      this.assets.softCursorTextures['attack_melee_ne'] = this.assets.uiSheet.textures['cursor_sword_ne.png'];
-      this.assets.softCursorTextures['attack_melee_nw'] = this.assets.uiSheet.textures['cursor_sword_nw.png'];
-      this.assets.softCursorTextures['attack_melee_se'] = this.assets.uiSheet.textures['cursor_sword_se.png'];
-      this.assets.softCursorTextures['attack_melee_sw'] = this.assets.uiSheet.textures['cursor_sword_sw.png'];
-      this.assets.softCursorTextures['attack_ranged'] = this.assets.uiSheet.textures['cursor_arrow.png'];
-    }
-
-    try {
-      await Assets.load([
-        'traits/icon_shield_block.png',
-        'traits/icon_spear_wall.png',
-        'traits/icon_volley_fire.png',
-        'traits/icon_fragile_line.png',
-        'traits/icon_armor_penetration.png',
-        'traits/icon_cavalry.png',
-        'traits/icon_charge.png',
-        'skills/icon_patch_up.png',
-        'skills/icon_pickup_ammo.png',
-        'skills/icon_throw_javelin.png',
-        'skills/icon_quick_draw.png',
-        'skills/icon_mend_wounds.png',
-        'morale/morale_high.png',
-        'morale/morale_steady.png',
-        'morale/morale_wavering.png',
-        'morale/morale_panicked.png',
-        'morale/morale_routing.png',
-      ]);
-    } catch {
-      // Ignore if offline/headless
-    }
+    await this.assetManager.loadCoreAssets(this.assets);
+    await this.assetManager.loadBattleAssets(this.assets);
   }
 
   public async loadSounds(): Promise<void> {
-    await sound.add('arrow', 'audio/arrow.ogg');
-    await sound.add('die', 'audio/die.ogg');
-    await sound.add('move', 'audio/move.ogg');
-    await sound.add('sword', 'audio/sword.ogg');
-    await sound.add('track_dark_whispers', 'audio/dark_whispers.ogg');
-    await this.soundSystem.loadSoundGroups();
-    await this.soundSystem.loadUISounds();
+    await this.assetManager.loadCoreSounds(this.soundSystem);
+    await this.assetManager.loadBattleSounds(this.soundSystem);
+  }
+
+  public destroy(): void {
+    this.sceneManager.destroy();
+    this.threeRendererHost?.dispose();
+    this.threeRendererHost = null;
+    this.app?.destroy(true);
   }
 
   public setScalingForSize(width: number, height: number): void {

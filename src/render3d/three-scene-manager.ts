@@ -13,6 +13,7 @@ import {
   createEadorPostProcessing,
   EadorPostProcessingPipeline,
 } from './post-processing';
+import { ThreeRendererHost } from './three-renderer-host';
 
 export class ThreeSceneManager {
   public readonly scene: THREE.Scene = new THREE.Scene();
@@ -22,6 +23,8 @@ export class ThreeSceneManager {
   public readonly weatherSystem: WeatherSystem3D = new WeatherSystem3D();
   private skyboxTheme: BattleLocationType = BattleLocationType.FARM;
 
+  private readonly host: ThreeRendererHost;
+  private readonly ownsHost: boolean;
   public readonly canvas: HTMLCanvasElement;
   private containerElement: HTMLElement;
 
@@ -57,52 +60,22 @@ export class ThreeSceneManager {
   private raycaster: THREE.Raycaster = new THREE.Raycaster();
   private mouseVec: THREE.Vector2 = new THREE.Vector2();
 
-  constructor(container: HTMLElement) {
+  constructor(container: HTMLElement, sharedHost?: ThreeRendererHost) {
     this.containerElement = container;
-    this.canvas = document.createElement('canvas');
-    this.canvas.id = 'webgl-3d-canvas';
-    this.canvas.style.position = 'absolute';
-    this.canvas.style.top = '0';
-    this.canvas.style.left = '0';
-    this.canvas.style.width = '100%';
-    this.canvas.style.height = '100%';
-    this.canvas.style.zIndex = '0';
-    this.canvas.style.outline = 'none';
+    if (sharedHost) {
+      this.host = sharedHost;
+      this.ownsHost = false;
+    } else {
+      this.host = new ThreeRendererHost(container);
+      this.ownsHost = true;
+    }
 
-    this.containerElement.appendChild(this.canvas);
+    this.canvas = this.host.canvas;
+    this.renderer = this.host.renderer;
+    this.hasRealWebGL = this.host.hasRealWebGL;
 
     const width = this.containerElement.clientWidth || 1920;
     const height = this.containerElement.clientHeight || 1080;
-
-    try {
-      this.renderer = new THREE.WebGLRenderer({
-        canvas: this.canvas,
-        antialias: true,
-        alpha: false,
-        powerPreference: 'high-performance',
-      });
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
-      this.renderer.shadowMap.enabled = true;
-      this.renderer.shadowMap.type = THREE.PCFShadowMap;
-      this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      this.renderer.toneMappingExposure = 1.05;
-      this.renderer.setClearColor(0x0a141d, 1.0);
-      this.renderer.setSize(width, height, false);
-      this.hasRealWebGL = true;
-    } catch {
-      // In headless environments or environments lacking WebGL2/WebGL context
-      this.renderer = {
-        domElement: this.canvas,
-        setPixelRatio: () => { },
-        setSize: () => { },
-        setClearColor: () => { },
-        render: () => { },
-        dispose: () => { },
-        toneMapping: THREE.ACESFilmicToneMapping,
-        toneMappingExposure: 1.05,
-        shadowMap: { enabled: true, type: THREE.PCFShadowMap },
-      } as any;
-    }
 
     this.camera = new THREE.PerspectiveCamera(
       this.cameraConfig.fov,
@@ -447,9 +420,9 @@ export class ThreeSceneManager {
       this.skyboxMesh.geometry?.dispose();
       (this.skyboxMesh.material as THREE.Material)?.dispose();
     }
-    this.renderer.dispose();
-    if (this.canvas.parentElement) {
-      this.canvas.parentElement.removeChild(this.canvas);
+    this.scene.clear();
+    if (this.ownsHost) {
+      this.host.dispose();
     }
   }
 }

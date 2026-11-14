@@ -2,6 +2,7 @@ import { Container } from "pixi.js";
 import * as THREE from "three";
 import { GameContext, Scene } from "../core/scene";
 import { setSharedBannersTexture } from "../render3d/decorations/retreat-flag-3d";
+import { disposeBattleRender3DCaches } from "../render3d/render3d-resource-manager";
 import { HexDirection, HexMap } from "../shared/hex-map";
 import {
   configureArrowVolleySounds,
@@ -44,6 +45,7 @@ export class BattleScene3D implements Scene {
   public async enter(context: GameContext, params?: { config?: BattleConfig; soundSystem?: ISoundSystem }): Promise<void> {
     this.context = context;
     this.currentConfig = params?.config;
+    await context.loadBattleResources?.();
     this.soundSystem = params?.soundSystem ?? context.soundSystem ?? new PixiSoundSystem(context.settings);
     setActiveUISoundSystem(this.soundSystem, context.settings);
     if (context.templates.hudConfig?.sounds !== undefined || context.templates.hudConfig?.uiSounds !== undefined) {
@@ -141,6 +143,7 @@ export class BattleScene3D implements Scene {
       setSharedBannersTexture(bannersTex);
     }
 
+    const sharedRendererHost = gameElement ? context.getThreeRendererHost?.(gameElement) : undefined;
     this.view = new BattleView3D(
       gameElement as HTMLElement,
       this.hexMap,
@@ -148,7 +151,8 @@ export class BattleScene3D implements Scene {
       context.settings,
       this.cpuPlayer,
       unitsImg as any,
-      spriteFrames
+      spriteFrames,
+      sharedRendererHost
     );
     this.view.setSoundSystem(this.soundSystem);
 
@@ -313,11 +317,35 @@ export class BattleScene3D implements Scene {
     this.hud?.resize?.(width, height);
   }
 
-  public exit(): void {
+  public async exit(): Promise<void> {
     this.soundSystem?.stop(SoundCategory.MUSIC);
+    this.clearBattleHooks();
     this.view?.destroy();
     this.hud?.destroy();
     this.container.removeChildren();
+    disposeBattleRender3DCaches();
+    await this.context?.unloadBattleResources?.();
+    this.view = undefined!;
+    this.hud = undefined!;
+    this.cpuPlayer = undefined!;
+    this.battle = undefined!;
+  }
+
+  private clearBattleHooks(): void {
+    if (!this.battle) return;
+    const noop = () => {};
+    this.battle.hookDoingAttackRanged = noop;
+    this.battle.hookDoingAttack = noop;
+    this.battle.hookDoingHeal = noop;
+    this.battle.hookNextTurn = noop;
+    this.battle.hookWindChanged = noop;
+    this.battle.hookMovingUnit = noop;
+    this.battle.hookUnitDied = noop;
+    this.battle.hookUnitRetreated = noop;
+    this.battle.hookMoraleBreak = noop;
+    this.battle.hookBattleFinished = noop;
+    this.battle.hookRecommendEndTurn = noop;
+    this.battle.hookActiveUnitChanged = noop;
   }
 
   public getSoundSystem(): ISoundSystem {

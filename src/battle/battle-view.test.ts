@@ -438,15 +438,17 @@ describe("BattleMenuPanel 2-Column Layout & Scene Inspector Toggle", () => {
 
     const menu = new BattleMenuPanel(container, dummyUiSheet);
 
-    expect(menu.window.width).toBeGreaterThanOrEqual(900);
+    expect(menu.window.width).toBeGreaterThanOrEqual(1000);
     expect(menu.fullscreenToggleButton).toBeDefined();
     expect(menu.toggleCoordsButton).toBeDefined();
     expect(menu.toggleGridButton).toBeDefined();
     expect(menu.showHealthbarsButton).toBeDefined();
     expect(menu.toggleFpsButton).toBeDefined();
-    expect(menu.toggleMusicButton).toBeDefined();
+    expect(menu.musicIcon).toBeDefined();
+    expect(menu.musicLabel?.text).toBe("Music level");
     expect(menu.musicVolumeSlider).toBeDefined();
-    expect(menu.toggleSoundButton).toBeDefined();
+    expect(menu.soundIcon).toBeDefined();
+    expect(menu.soundLabel?.text).toBe("Sound level");
     expect(menu.soundVolumeSlider).toBeDefined();
     expect(menu.toggleSceneInspectorButton).toBeDefined();
     expect(menu.saveButton).toBeDefined();
@@ -454,14 +456,35 @@ describe("BattleMenuPanel 2-Column Layout & Scene Inspector Toggle", () => {
     expect(menu.toggleStatsButton).toBeDefined();
     expect(menu.toggleHardwareCursorButton).toBeDefined();
 
-    // Verify column 2 X coordinates are greater than column 1 X coordinates
-    expect(menu.toggleMusicButton!.position.x).toBeGreaterThan(menu.fullscreenToggleButton!.position.x);
-    expect(menu.toggleSoundButton!.position.x).toBeGreaterThan(menu.toggleCoordsButton!.position.x);
-    expect(menu.saveButton!.position.x).toBeGreaterThan(menu.toggleGridButton!.position.x);
-    expect(menu.loadButton!.position.x).toBeGreaterThan(menu.showHealthbarsButton!.position.x);
-    expect(menu.toggleStatsButton!.position.x).toBeGreaterThan(menu.toggleSceneInspectorButton!.position.x);
-    expect(menu.toggleHardwareCursorButton!.position.x).toBeGreaterThan(menu.toggleFpsButton!.position.x);
-    expect(menu.toggleHardwareCursorButton!.position.y).toBe(430);
+    // Verify vertical tabs and initial General tab visibility
+    expect(menu.activeTab).toBe("general");
+    expect(menu.tabContainers.general.visible).toBe(true);
+    expect(menu.tabContainers.graphics.visible).toBe(false);
+    expect(menu.tabContainers.audio.visible).toBe(false);
+    expect(menu.tabContainers.debug.visible).toBe(false);
+
+    // Verify vertical tab ordering (top-to-bottom on the left sidebar)
+    expect(menu.tabButtons.graphics!.position.y).toBeGreaterThan(menu.tabButtons.general!.position.y);
+    expect(menu.tabButtons.audio!.position.y).toBeGreaterThan(menu.tabButtons.graphics!.position.y);
+    expect(menu.tabButtons.debug!.position.y).toBeGreaterThan(menu.tabButtons.audio!.position.y);
+
+    // Verify switching tabs updates container visibility
+    menu.selectTab("graphics");
+    expect(menu.tabContainers.general.visible).toBe(false);
+    expect(menu.tabContainers.graphics.visible).toBe(true);
+
+    menu.selectTab("audio");
+    expect(menu.tabContainers.graphics.visible).toBe(false);
+    expect(menu.tabContainers.audio.visible).toBe(true);
+
+    menu.selectTab("debug");
+    expect(menu.tabContainers.audio.visible).toBe(false);
+    expect(menu.tabContainers.debug.visible).toBe(true);
+
+    // Verify mobile-friendly larger button and font sizes
+    expect((BattleMenuPanel.DEFAULT_FONT_STYLE.style as any).fontSize).toBeGreaterThanOrEqual(20);
+    expect(menu.fullscreenToggleButton!.width).toBeGreaterThanOrEqual(72);
+    expect(menu.fullscreenToggleButton!.height).toBeGreaterThanOrEqual(70);
 
     let inspectorToggled = false;
     menu.onToggleSceneInspector = () => {

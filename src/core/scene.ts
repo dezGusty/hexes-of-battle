@@ -6,6 +6,7 @@ import { CreatureTemplate } from '../battle/creature';
 import { CombatConfig } from '../battle/combat-rules';
 import { TraitsConfig } from '../battle/trait-system';
 import { ArrowVolleySoundConfig, ISoundSystem, SoundGroupsConfig, SoundsConfig, UISoundsConfig } from './sound-system';
+import type { ThreeRendererHost } from '../render3d/three-renderer-host';
 
 export interface GameAssets {
   terrainTexture?: Texture;
@@ -105,6 +106,9 @@ export interface GameContext {
   soundSystem?: ISoundSystem;
   nativeResolution: { width: number; height: number };
   switchToScene: (sceneName: string, params?: any) => Promise<void>;
+  getThreeRendererHost?: (container?: HTMLElement) => ThreeRendererHost;
+  loadBattleResources?: () => Promise<void>;
+  unloadBattleResources?: () => Promise<void>;
   version?: string;
 }
 

@@ -70,10 +70,10 @@ function fbm(x: number, y: number, baseScale: number, seed: number): number {
 // ==========================================
 
 /**
- * Generates a 256x256 RGBA pixel buffer for the Peasant's face & cloth hood:
- * - Rows y = 0..62 (v = 0.76..1.0): Coarse homespun cloth hood weave with stitched seams.
- * - Rows y = 63..255 (v = 0.0..0.76): Weathered rustic face, realistic eyes, bushy brows,
- *   nose shading, scruff/stubble, mouth, and subtle field labor dirt smudges.
+ * Generates a 256x256 RGBA pixel buffer for the Peasant's head & face (y=0 top -> y=255 chin, flipped for WebGL):
+ * - Rows y = 0..108: Messy dark charcoal-black hair and jagged bangs over forehead.
+ * - Rows y = 109..255: Weathered tanned skin, thick dark brows, expressive eyes,
+ *   nose shading, and heavy dark beard/stubble along the jaw and chin (matching peasant_face.png).
  */
 export function generatePeasantFacePixels(): Uint8Array {
   const size = HUMANOID_TEXTURE_SIZE;
@@ -84,119 +84,96 @@ export function generatePeasantFacePixels(): Uint8Array {
       const idx = (y * size + x) * 4;
       const n = fbm(x, y, 7, 301);
       const fine = hash2D(x, y, 303);
+      const dx = x - 128;
+      const adx = Math.abs(dx);
 
-      // Top band: Peasant tousled hair (y < 63)
-      if (y < 63) {
-        // Natural tousled peasant hair strands
-        const strandWave = Math.sin(x * 0.85 + n * 4.2) * 14;
-        const crossStrand = Math.sin((x * 0.4 + y * 0.9)) * 10;
-        const depthVar = (n - 0.5) * 22;
-        let lum = 54 + depthVar + strandWave + crossStrand;
+      // Jagged bangs line across forehead (y ~ 96..114) and side/back hair wrapping around head
+      const bangDip = Math.sin(x * 0.28 + n * 2.4) * 7 + Math.sin(x * 0.65) * 4;
+      const isTopHair = y <= 108 + bangDip;
+      const isSideBackHair = y <= 200 && adx >= 60 + Math.sin(y * 0.18) * 5;
 
-        // Hairline bangs / fringe transition at y = 56..63
-        if (y >= 56) {
-          const fringeNoise = hash2D(x, y, 305);
-          if (fringeNoise > 0.45) {
-            const t = (y - 56) / 7.0;
-            const skinR = 215;
-            const skinG = 170;
-            const skinB = 135;
-            data[idx] = clampByte(lum * (1 - t) + skinR * t);
-            data[idx + 1] = clampByte((lum * 0.72) * (1 - t) + skinG * t);
-            data[idx + 2] = clampByte((lum * 0.52) * (1 - t) + skinB * t);
-            data[idx + 3] = 255;
-            continue;
-          }
-        }
-
-        data[idx] = clampByte(lum * 1.15);
-        data[idx + 1] = clampByte(lum * 0.80);
-        data[idx + 2] = clampByte(lum * 0.58);
+      if (isTopHair || isSideBackHair) {
+        const strandWave = Math.sin(x * 0.9 + y * 0.35 + n * 4.2) * 10;
+        const depthVar = (n - 0.5) * 16;
+        const lum = 34 + depthVar + strandWave + (fine - 0.5) * 8;
+        data[idx] = clampByte(lum);
+        data[idx + 1] = clampByte(lum * 0.97);
+        data[idx + 2] = clampByte(lum * 0.95);
         data[idx + 3] = 255;
         continue;
       }
 
-      // Rustic face region (y >= 63, center at x = 128)
-      const dx = x - 128;
-      const adx = Math.abs(dx);
-      const pore = (n - 0.5) * 20 + (fine - 0.5) * 8;
+      // Rustic face region (center at x = 128)
+      const pore = (n - 0.5) * 18 + (fine - 0.5) * 8;
 
-      // Natural weathered peasant skin base
-      let r = 222 + pore;
-      let g = 178 + pore * 0.82;
-      let b = 142 + pore * 0.68;
+      // Weathered tanned peasant skin base
+      let r = 218 + pore;
+      let g = 172 + pore * 0.82;
+      let b = 132 + pore * 0.68;
 
-      // Cheek dirt smudges from farm work
-      const dirt1 = fbm(x + 50, y, 12, 311);
-      if (adx >= 18 && adx <= 48 && y >= 140 && y <= 180 && dirt1 > 0.62) {
-        const dAmt = (dirt1 - 0.62) * 60;
-        r -= dAmt * 1.1;
-        g -= dAmt * 1.2;
-        b -= dAmt * 1.3;
+      // Thick dark eyebrows (y = 122..132, adx = 8..36)
+      const browY = 127 + (adx - 10) * -0.10;
+      if (adx >= 8 && adx <= 36 && Math.abs(y - browY) <= 4.0) {
+        const hair = Math.sin(x * 1.2 + n * 4) * 10;
+        r = 34 + hair;
+        g = 30 + hair * 0.9;
+        b = 28 + hair * 0.9;
       }
 
-      // Bushy rustic eyebrows (y = 126..136, adx = 8..36)
-      const browY = 132 + (adx - 10) * -0.12;
-      if (adx >= 8 && adx <= 36 && Math.abs(y - browY) <= 3.8) {
-        const hair = Math.sin(x * 1.2 + n * 4) * 16;
-        r = 72 + hair;
-        g = 52 + hair * 0.8;
-        b = 36 + hair * 0.6;
-      }
-
-      // Expressive eyes (centers at x = 128 +/- 19, y = 144)
+      // Expressive determined eyes (centers at x = 128 +/- 19, y = 142)
       const eyeDx = adx - 19;
-      const eyeDy = y - 144;
+      const eyeDy = y - 142;
       const eyeDist = Math.hypot(eyeDx * 0.8, eyeDy * 1.4);
-      if (eyeDist < 7.8) {
-        if (eyeDist > 6.2) {
-          r = 48;
-          g = 34;
-          b = 28;
+      if (eyeDist < 7.6) {
+        if (eyeDist > 6.0) {
+          r = 42;
+          g = 30;
+          b = 24;
         } else if (Math.hypot(eyeDx, eyeDy) < 3.2) {
-          const glint = eyeDx < -0.4 && eyeDy < -0.4 ? 215 : 0;
-          r = clampByte(40 + glint);
-          g = clampByte(32 + glint);
-          b = clampByte(22 + glint);
+          const glint = eyeDx < -0.4 && eyeDy < -0.4 ? 195 : 0;
+          r = clampByte(45 + glint);
+          g = clampByte(36 + glint);
+          b = clampByte(26 + glint);
         } else {
-          r = 238;
-          g = 234;
-          b = 226;
+          r = 235;
+          g = 230;
+          b = 222;
         }
       }
 
-      // Nose bridge and nostrils
-      if (adx <= 8 && y >= 140 && y <= 168) {
+      // Nose bridge and nostrils (y = 138..168)
+      if (adx <= 8 && y >= 138 && y <= 168) {
         if (adx <= 3.2 && y <= 162) {
           r += 14;
           g += 10;
           b += 6;
         } else if (adx >= 5.0) {
-          r -= 22;
-          g -= 18;
-          b -= 14;
+          r -= 24;
+          g -= 20;
+          b -= 16;
         }
         if (y >= 163 && Math.abs(adx - 3.8) <= 2.0) {
-          r = 60;
+          r = 58;
           g = 38;
           b = 30;
         }
       }
 
-      // Peasant short stubble around jaw and upper lip (y = 168..210, adx <= 54)
-      if (y >= 168 && adx <= 54) {
+      // Heavy dark beard / stubble around jaw, chin, and upper lip (y >= 166, adx <= 56)
+      if (y >= 166 && adx <= 56) {
         const stubbleNoise = hash2D(x, y, 321);
-        if (stubbleNoise > 0.52) {
-          const s = (stubbleNoise - 0.52) * 55;
-          r -= s * 1.1;
-          g -= s * 1.2;
-          b -= s * 1.3;
+        const beardDensity = y >= 190 ? 0.72 : 0.56;
+        if (stubbleNoise > 0.25) {
+          const blend = beardDensity * (0.55 + stubbleNoise * 0.45);
+          r = r * (1 - blend) + 42 * blend;
+          g = g * (1 - blend) + 38 * blend;
+          b = b * (1 - blend) + 36 * blend;
         }
-        // Mouth line at y = 178, adx <= 14
-        if (Math.abs(y - 178) <= 1.5 && adx <= 14) {
-          r = 85;
-          g = 48;
-          b = 42;
+        // Firm mouth line at y = 180, adx <= 14
+        if (Math.abs(y - 180) <= 1.6 && adx <= 14) {
+          r = 92;
+          g = 56;
+          b = 48;
         }
       }
 
@@ -211,11 +188,11 @@ export function generatePeasantFacePixels(): Uint8Array {
 }
 
 /**
- * Generates a 256x256 RGBA pixel buffer for the Peasant's clothing:
- * - Upper band (y = 0..100): Coarse homespun linen tunic with threads and fold creases.
- * - Mid band (y = 101..135): Hemp rope belt with bronze buckle.
- * - Lower band (y = 136..200): Wool trousers with patch stitching.
- * - Bottom band (y = 201..255): Rough hide boots with cross-laced straps.
+ * Generates a 256x256 RGBA pixel buffer for the Peasant's clothing (y=0 top -> y=255 bottom, flipped for WebGL):
+ * - Upper band (y = 0..109): Earthy brown homespun wool tunic with laced V-neck undershirt collar.
+ * - Mid band (y = 110..140): Twisted hemp rope belt.
+ * - Lower-mid band (y = 141..201): Charcoal/slate-grey wool trousers with twill weave.
+ * - Bottom band (y = 202..255): Cuffed brown leather boots with folded cuff ridge.
  */
 export function generatePeasantClothPixels(): Uint8Array {
   const size = HUMANOID_TEXTURE_SIZE;
@@ -227,67 +204,59 @@ export function generatePeasantClothPixels(): Uint8Array {
       const n = fbm(x, y, 6, 331);
       const fine = hash2D(x, y, 333);
 
-      if (y < 105) {
-        // Coarse tunic linen (neutral luminance multiplied by matCloth / matTeam)
-        const threadX = Math.abs(Math.sin(x * 1.1)) * 18;
-        const threadY = Math.abs(Math.sin(y * 1.1)) * 18;
-        const fold = Math.sin((x + y * 0.3) * 0.12) * 22;
-        let lum = 215 + (n - 0.5) * 26 + threadX + threadY + fold;
+      if (y < 110) {
+        // Earthy warm brown homespun wool tunic
+        const threadX = Math.abs(Math.sin(x * 1.1)) * 12;
+        const threadY = Math.abs(Math.sin(y * 1.1)) * 12;
+        const fold = Math.sin((x + y * 0.3) * 0.12) * 18;
+        let lum = 132 + (n - 0.5) * 22 + threadX + threadY + fold;
 
-        // Tunic hem seam at y = 98..102
-        if (y >= 98 && y <= 102) {
-          lum -= (x % 5 < 3) ? 38 : -14;
+        // Tunic hem seam at y = 102..106
+        if (y >= 102 && y <= 106) {
+          lum -= x % 5 < 3 ? 28 : -10;
         }
-        const c = clampByte(lum);
-        data[idx] = c;
-        data[idx + 1] = clampByte(c - 2);
-        data[idx + 2] = clampByte(c - 6);
+
+        // Open laced V-neck collar at top center (y = 0..42, |x - 128| <= 24)
+        const dx = Math.abs(x - 128);
+        if (y <= 42 && dx <= (44 - y) * 0.55) {
+          const shirtLum = 196 + (n - 0.5) * 16;
+          data[idx] = clampByte(shirtLum);
+          data[idx + 1] = clampByte(shirtLum - 6);
+          data[idx + 2] = clampByte(shirtLum - 16);
+          data[idx + 3] = 255;
+          continue;
+        }
+
+        data[idx] = clampByte(lum);
+        data[idx + 1] = clampByte(lum * 0.69);
+        data[idx + 2] = clampByte(lum * 0.44);
         data[idx + 3] = 255;
-      } else if (y < 136) {
-        // Hemp rope / leather belt band
-        const rope = Math.sin((x * 0.75 + y * 0.5)) * 28;
-        let lum = 185 + (n - 0.5) * 24 + rope;
-        // Belt buckle at center x = 120..136
-        if (x >= 120 && x <= 136 && y >= 110 && y <= 128) {
-          if (x === 120 || x === 136 || y === 110 || y === 128) {
-            data[idx] = 235;
-            data[idx + 1] = 195;
-            data[idx + 2] = 85;
-            data[idx + 3] = 255;
-            continue;
-          }
-          lum -= 45;
-        }
-        const c = clampByte(lum);
-        data[idx] = c;
-        data[idx + 1] = clampByte(c - 12);
-        data[idx + 2] = clampByte(c - 24);
+      } else if (y < 141) {
+        // Twisted hemp rope belt
+        const rope = Math.sin(x * 0.75 + y * 0.55) * 22;
+        const lum = 164 + (n - 0.5) * 20 + rope;
+        data[idx] = clampByte(lum);
+        data[idx + 1] = clampByte(lum * 0.84);
+        data[idx + 2] = clampByte(lum * 0.60);
         data[idx + 3] = 255;
-      } else if (y < 205) {
-        // Wool trousers with fabric texture
-        const twill = Math.sin((x + y) * 1.2) * 16;
-        let lum = 205 + (n - 0.5) * 24 + twill;
-        // Patch on right knee at x = 150..180, y = 160..185
-        if (x >= 150 && x <= 180 && y >= 160 && y <= 185) {
-          if (x === 150 || x === 180 || y === 160 || y === 185) {
-            lum -= 55; // stitch border
-          } else {
-            lum += 25; // lighter patch
-          }
-        }
-        const c = clampByte(lum);
-        data[idx] = c;
-        data[idx + 1] = clampByte(c - 4);
-        data[idx + 2] = clampByte(c - 10);
+      } else if (y < 202) {
+        // Charcoal / slate-grey wool trousers (matching peasant_fork_left.png)
+        const twill = Math.sin((x + y) * 1.1) * 12;
+        const fold = Math.sin(x * 0.16 + y * 0.08) * 14;
+        const lum = 116 + (n - 0.5) * 20 + twill + fold;
+        data[idx] = clampByte(lum);
+        data[idx + 1] = clampByte(lum + 2);
+        data[idx + 2] = clampByte(lum - 2);
         data[idx + 3] = 255;
       } else {
-        // Leather boots with cross-lacing
-        const lace = Math.sin((x * 0.4 + y * 0.6)) * 24;
-        let lum = 175 + (n - 0.5) * 22 + (fine - 0.5) * 12 + lace;
-        const c = clampByte(lum);
-        data[idx] = c;
-        data[idx + 1] = clampByte(c - 16);
-        data[idx + 2] = clampByte(c - 28);
+        // Cuffed brown leather boots (with folded cuff band at y = 202..214)
+        const isCuff = y <= 214;
+        const crease = Math.sin(x * 0.18 + y * 0.35) * 10;
+        const seam = y === 213 || y === 214 ? -26 : 0;
+        const base = (isCuff ? 118 : 98) + (n - 0.5) * 20 + (fine - 0.5) * 10 + crease + seam;
+        data[idx] = clampByte(base);
+        data[idx + 1] = clampByte(base * 0.74);
+        data[idx + 2] = clampByte(base * 0.52);
         data[idx + 3] = 255;
       }
     }
@@ -2488,4 +2457,14 @@ export function applyHumanoidUVMapping(
   }
 
   geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+}
+
+/**
+ * Disposes and clears all cached humanoid textures and materials.
+ */
+export function disposeHumanoidTextureCaches(): void {
+  humanoidMaterialCache.forEach((mat) => mat.dispose());
+  humanoidMaterialCache.clear();
+  humanoidTextureCache.forEach((tex) => tex.dispose());
+  humanoidTextureCache.clear();
 }

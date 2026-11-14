@@ -744,3 +744,17 @@ export function applyBarbarianUVMapping(
 
   geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
 }
+
+/**
+ * Disposes and clears all cached barbarian textures and materials.
+ */
+export function disposeBarbarianTextureCaches(): void {
+  for (const key of Object.keys(barbarianMaterialCache) as BarbarianTexturePart[]) {
+    barbarianMaterialCache[key]?.dispose();
+    delete barbarianMaterialCache[key];
+  }
+  for (const key of Object.keys(barbarianTextureCache) as BarbarianTexturePart[]) {
+    barbarianTextureCache[key]?.dispose();
+    delete barbarianTextureCache[key];
+  }
+}

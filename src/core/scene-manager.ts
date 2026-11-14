@@ -22,6 +22,10 @@ export class SceneManager {
     return this.currentScene;
   }
 
+  public hasScene(name: string): boolean {
+    return this.scenes.has(name);
+  }
+
   public async switchTo(name: string, params?: any): Promise<void> {
     if (this.isTransitioning) {
       console.warn(`Cannot switch to scene "${name}" while transition is in progress.`);

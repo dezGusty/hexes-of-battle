@@ -418,33 +418,30 @@ export class BattleHud2D {
       }
     });
 
-    this.battleMenuPanel?.toggleMusicButton?.onPress.connect(() => {
-      this.settings.sound.musicOn = !this.settings.sound.musicOn;
+    this.battleMenuPanel?.musicVolumeSlider?.onUpdate.connect((val) => {
+      const vol = Math.max(0, Math.min(1, val / 100));
+      const wasMusicOn = this.settings.sound.musicOn;
+      this.settings.sound.musicVolume = vol;
+      this.settings.sound.musicOn = vol > 0;
       this.settings.save();
-      sound.stop('track_dark_whispers');
-      if (this.settings.sound.musicOn) {
-        sound.play('track_dark_whispers', { loop: true, volume: this.settings.sound.musicVolume });
-      }
-      if (events.onToggleMusic) {
+      try {
+        if (vol <= 0) {
+          sound.stop('track_dark_whispers');
+        } else if (!wasMusicOn) {
+          sound.play('track_dark_whispers', { loop: true, volume: vol });
+        } else {
+          sound.volume('track_dark_whispers', vol);
+        }
+      } catch {}
+      if (events.onToggleMusic && wasMusicOn !== this.settings.sound.musicOn) {
         events.onToggleMusic(this.settings.sound.musicOn);
       }
     });
 
-    this.battleMenuPanel?.musicVolumeSlider?.onUpdate.connect((val) => {
-      this.settings.sound.musicVolume = Math.max(0, Math.min(1, val / 100));
-      this.settings.save();
-      try {
-        sound.volume('track_dark_whispers', this.settings.sound.musicVolume);
-      } catch {}
-    });
-
-    this.battleMenuPanel?.toggleSoundButton?.onPress.connect(() => {
-      this.settings.sound.soundOn = !this.settings.sound.soundOn;
-      this.settings.save();
-    });
-
     this.battleMenuPanel?.soundVolumeSlider?.onUpdate.connect((val) => {
-      this.settings.sound.soundVolume = Math.max(0, Math.min(1, val / 100));
+      const vol = Math.max(0, Math.min(1, val / 100));
+      this.settings.sound.soundVolume = vol;
+      this.settings.sound.soundOn = vol > 0;
       this.settings.save();
     });
 

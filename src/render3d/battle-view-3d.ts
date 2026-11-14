@@ -7,6 +7,7 @@ import { BattleActionType } from '../battle/battle-action';
 import { CPUPlayer } from '../battle/cpu-player';
 import { BattleSettings } from '../battle/settings';
 import { ThreeSceneManager } from './three-scene-manager';
+import { ThreeRendererHost } from './three-renderer-host';
 import { setUnitRimLightingEnabled, isUnitRimLightingEnabled } from './units/unit-rim-lighting';
 import { HexBoard3D } from './hex-board-3d';
 import { SquadVisual3D } from './units/squad-visual-3d';
@@ -93,14 +94,15 @@ export class BattleView3D {
     settings: BattleSettings,
     _cpuPlayer?: CPUPlayer,
     unitsCatalogImage?: HTMLImageElement,
-    spriteFrames?: Record<string, any>
+    spriteFrames?: Record<string, any>,
+    sharedRendererHost?: ThreeRendererHost
   ) {
     this.hexMap = hexMap;
     this.battle = battle;
     this.settings = settings;
     this.container = container;
 
-    this.sceneManager = new ThreeSceneManager(container);
+    this.sceneManager = new ThreeSceneManager(container, sharedRendererHost);
     this.sceneManager.setSkyboxTheme(this.battle.getMajorTerrainType());
     this.sceneManager.setWeather(this.settings.weather ?? WeatherType.NONE);
     this.sceneManager.setTiltShiftEnabled(this.settings.tiltShift ?? true);

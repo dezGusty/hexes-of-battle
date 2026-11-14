@@ -552,3 +552,13 @@ export function updateRetreatFlagWind(
   posAttr.needsUpdate = true;
   geo.computeVertexNormals();
 }
+
+/**
+ * Disposes and clears the shared banners atlas texture if set.
+ */
+export function disposeSharedBannersTexture(): void {
+  if (sharedBannersTexture) {
+    sharedBannersTexture.dispose();
+    sharedBannersTexture = null;
+  }
+}

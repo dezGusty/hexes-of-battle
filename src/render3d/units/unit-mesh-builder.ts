@@ -1801,7 +1801,11 @@ export function buildArticulatedUnit3DMesh(
   let legMat = matCloth;
   let armMat = matCloth;
 
-  if (unitKey === 'swordsman') {
+  if (unitKey === 'peasant') {
+    torsoMat = makeMat(0xe8dac8, 0.88, 0.0);
+    armMat = makeMat(0xe8dac8, 0.88, 0.0);
+    legMat = makeMat(0xdcdedd, 0.86, 0.02);
+  } else if (unitKey === 'swordsman') {
     torsoMat = matChainmail;
     legMat = matChainmail;
     armMat = matChainmail;
@@ -1917,10 +1921,10 @@ export function buildArticulatedUnit3DMesh(
   // 5. Unit-specific headgear, shields, quivers, and weapons
   switch (unitKey) {
     case 'peasant': {
-      // Bare-headed tousled hair (no hood covering the face)
+      // Bare-headed tousled dark charcoal-black hair (matching peasant_face.png)
       const hairGeo = new THREE.SphereGeometry(0.128, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.58);
       hairGeo.translate(0, 0.03, 0);
-      const hairMesh = new THREE.Mesh(hairGeo, makeMat(0x382212, 0.88, 0.04));
+      const hairMesh = new THREE.Mesh(hairGeo, makeMat(0x222020, 0.90, 0.02));
       hairMesh.name = 'Hair';
       headMesh.add(hairMesh);
 
@@ -3524,4 +3528,41 @@ export function buildLowPolyForestTreeMesh(
     height: FOREST_TREE_TARGET_HEIGHT * heightScale,
   };
   return treeGroup;
+}
+
+function disposeObject3DResources(root: THREE.Object3D): void {
+  root.traverse((obj) => {
+    if (obj instanceof THREE.Mesh) {
+      obj.geometry?.dispose();
+      if (Array.isArray(obj.material)) {
+        obj.material.forEach((m) => m.dispose());
+      } else {
+        obj.material?.dispose();
+      }
+    }
+  });
+}
+
+/**
+ * Disposes and clears all module-level unit, tree, and shared material caches.
+ */
+export function disposeUnitMeshBuilderCaches(): void {
+  proceduralUnitTemplateCache.forEach((mesh) => disposeObject3DResources(mesh));
+  proceduralUnitTemplateCache.clear();
+  glbUnitTemplateCache = new WeakMap();
+
+  forestTreeTemplateCache.forEach((group) => disposeObject3DResources(group));
+  forestTreeTemplateCache.clear();
+
+  sharedColorMaterialCache.forEach((mat) => mat.dispose());
+  sharedColorMaterialCache.clear();
+
+  sharedTreeTrunkMaterial?.dispose();
+  sharedTreeTrunkMaterial = null;
+  sharedTreeFoliageMaterial?.dispose();
+  sharedTreeFoliageMaterial = null;
+  sharedTreeFoliageCardMaterial?.dispose();
+  sharedTreeFoliageCardMaterial = null;
+  sharedTreeFoliageCardDepthMaterial?.dispose();
+  sharedTreeFoliageCardDepthMaterial = null;
 }

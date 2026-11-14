@@ -506,3 +506,13 @@ export function applyTreeUVMapping(
 
   geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
 }
+
+/**
+ * Disposes and clears all cached procedural tree textures.
+ */
+export function disposeTreeTextureCaches(): void {
+  for (const key of Object.keys(treeTextureCache) as TreeTexturePart[]) {
+    treeTextureCache[key]?.dispose();
+    delete treeTextureCache[key];
+  }
+}
