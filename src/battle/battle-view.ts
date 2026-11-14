@@ -469,12 +469,13 @@ export class BattleView {
   }
 
   public showVictoryBanner(victorArmyIndex: number): void {
-    const message = `Victory for Army ${victorArmyIndex + 1}`;
-    const bannerName = this.getBannerTextureNameForArmyIndex(victorArmyIndex);
+    const isDraw = victorArmyIndex < 0;
+    const message = isDraw ? "Battle Ended in a Draw" : `Victory for Army ${victorArmyIndex + 1}`;
+    const bannerName = this.getBannerTextureNameForArmyIndex(isDraw ? 0 : victorArmyIndex);
     const texture = this.assets.bannersSheet?.textures[bannerName];
     this.turnChangeDisplay.addEndOfBattle(message, this.uiPlusRenderGroup, { x: 500, y: 350 }, texture);
 
-    if (this.topSidePanel) {
+    if (this.topSidePanel && !isDraw) {
       this.topSidePanel.setActiveArmyIndex(victorArmyIndex);
     }
 

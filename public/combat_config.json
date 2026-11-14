@@ -1,4 +1,5 @@
 {
+  "maxTurns": 32,
   "terrain": {
     "moveCosts": {
       "0": 1,

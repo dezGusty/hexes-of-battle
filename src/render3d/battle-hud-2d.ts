@@ -578,11 +578,12 @@ export class BattleHud2D {
   }
 
   public showVictoryBanner(victorArmyIndex: number): void {
-    const message = `Victory for Army ${victorArmyIndex + 1}`;
-    const texture = this.getBannerTextureForArmyIndex(victorArmyIndex);
+    const isDraw = victorArmyIndex < 0;
+    const message = isDraw ? "Battle Ended in a Draw" : `Victory for Army ${victorArmyIndex + 1}`;
+    const texture = this.getBannerTextureForArmyIndex(isDraw ? 0 : victorArmyIndex);
     this.turnChangeDisplay.addEndOfBattle(message, this.uiPlusRenderGroup, { x: 500, y: 350 }, texture);
 
-    if (this.topSidePanel) {
+    if (this.topSidePanel && !isDraw) {
       this.topSidePanel.setActiveArmyIndex(victorArmyIndex);
     }
 

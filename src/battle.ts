@@ -8,7 +8,7 @@ import { ReachData } from "./shared/reach-data";
 import { CreatureInBattle } from "./battle/creature-in-battle";
 import { BattleAction, BattleActionType } from "./battle/battle-action";
 import { BattleConfig, BattleResult, DamagePreviewResult } from "./battle/battle-types";
-import { CombatConfig, DEFAULT_COMBAT_CONFIG, ExhaustionState, MoraleState, getRetaliationDamageMultiplier, getHealingMoraleConfig } from "./battle/combat-rules";
+import { CombatConfig, DEFAULT_COMBAT_CONFIG, DEFAULT_MAX_TURNS, ExhaustionState, MoraleState, getRetaliationDamageMultiplier, getHealingMoraleConfig } from "./battle/combat-rules";
 import { TerrainType } from "./battle/terrain-types";
 import { SeedableRNG } from "./shared/prng";
 import { calculateDamageWithTraits, DEFAULT_TRAITS_CONFIG, TraitsConfig } from "./battle/trait-system";
@@ -176,7 +176,7 @@ export class Battle {
   public totalStaminaSpent: [number, number] = [0, 0];
   public moraleBreaks: [number, number] = [0, 0];
   public friendlyFireEvents: number = 0;
-  public maxTurns: number = 100;
+  public maxTurns: number = DEFAULT_MAX_TURNS;
 
   private retreatPoints: Map<number, Coords[]> = new Map();
 
@@ -215,6 +215,9 @@ export class Battle {
     }
     if (config?.wind) {
       this.windSystem.setConfig(config.wind);
+    }
+    if (config?.maxTurns !== undefined && Number.isFinite(config.maxTurns) && config.maxTurns > 0) {
+      this.maxTurns = Math.max(1, Math.floor(config.maxTurns));
     }
     if (config?.playerColors || (config as any)?.player_colors || (config as any)?.teamColors) {
       configurePlayerColors(config.playerColors ?? (config as any)?.player_colors ?? (config as any)?.teamColors);
@@ -1425,6 +1428,10 @@ export class Battle {
 
     if (!this.isFinished() && this.turnNumber >= this.maxTurns) {
       this.checkVictoryConditionsAndState();
+      if (!this.isFinished()) {
+        this.finished = true;
+        this.hookBattleFinished(-1);
+      }
     }
 
     this.army_control = previousControl;

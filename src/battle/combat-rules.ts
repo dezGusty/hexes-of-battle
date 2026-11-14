@@ -182,9 +182,13 @@ export interface CombatConfig {
   majorTerrainType?: string;
   battleLocationType?: string;
   wind?: WindConfig;
+  maxTurns?: number;
 }
 
+export const DEFAULT_MAX_TURNS = 32;
+
 export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
+  maxTurns: DEFAULT_MAX_TURNS,
   terrain: {
     moveCosts: {
       "0": 1,

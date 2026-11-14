@@ -136,4 +136,47 @@ describe('Battle Domain Engine', () => {
     expect(battle.activeCreatureIndex).toBe(1);
     expect(battle.getSelectedCreature()).toBe(aiUnit);
   });
+
+  it('should default maxTurns to 32, allow configuring via combatConfig, and end in a draw when turn limit is reached', () => {
+    const hexMap = new HexMap(10, 8);
+    const battle = new Battle(hexMap);
+    expect(battle.maxTurns).toBe(32);
+
+    const unitA = new Creature(CreatureType.SWORDSMAN);
+    unitA.position = { x: 1, y: 1 };
+    unitA.armyAlignment = 0;
+
+    const unitB = new Creature(CreatureType.PEASANT);
+    unitB.position = { x: 8, y: 1 };
+    unitB.armyAlignment = 1;
+
+    battle.initializeFromConfig({
+      mapWidth: 10,
+      mapHeight: 8,
+      creatures: [unitA, unitB],
+    });
+    battle.setCombatConfig({
+      ...battle.combatConfig,
+      maxTurns: 3,
+    });
+    expect(battle.maxTurns).toBe(3);
+
+    let finishedVictor: number | undefined;
+    battle.hookBattleFinished = (victor) => {
+      finishedVictor = victor;
+    };
+
+    battle.start();
+    // 3 full turns = 6 half-turns (Army 0 -> Army 1 -> turnNumber++ ...)
+    for (let i = 0; i < 5; i++) {
+      battle.nextTurn();
+      expect(battle.isFinished()).toBe(false);
+    }
+
+    // Completing the 3rd full turn triggers draw
+    battle.nextTurn();
+    expect(battle.isFinished()).toBe(true);
+    expect(finishedVictor).toBe(-1);
+    expect(battle.getBattleResult().victorArmyIndex).toBe(-1);
+  });
 });

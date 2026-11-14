@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { GameContext, Scene } from "../core/scene";
 import { setSharedBannersTexture } from "../render3d/decorations/retreat-flag-3d";
 import { disposeBattleRender3DCaches } from "../render3d/render3d-resource-manager";
-import { HexDirection, HexMap } from "../shared/hex-map";
+import { HexMap } from "../shared/hex-map";
 import {
   configureArrowVolleySounds,
   configureSoundGroups,
@@ -15,16 +15,16 @@ import {
   SoundType,
 } from "../battle/sound-system";
 import { MoraleState } from "../battle/combat-rules";
-import { Coords } from "../shared";
 import { ArmyControlType, Battle } from "../battle";
 import { BattleActionType } from "../battle/battle-action";
-import { CreatureType } from "../battle/creature";
 import { CPUPersonalityType, CPUPlayer } from "../battle/cpu-player";
 import { CPUPlayerFactory } from "../battle/cpu-player-factory";
 import { CreatureRepository } from "../battle/creature-repository";
 import { BattleView3D } from "../render3d/battle-view-3d";
 import { BattleHud2D } from "../render3d/battle-hud-2d";
 import { BattleConfig } from "../battle/battle-types";
+import { BattleConfigJson, buildBattleConfigFromJson } from "../battle/battle-config-loader";
+import { JsonLoader } from "../shared/jsonloader";
 import { SaveManager } from "../battle/save-manager";
 
 export class BattleScene3D implements Scene {
@@ -38,13 +38,18 @@ export class BattleScene3D implements Scene {
   private view!: BattleView3D;
   private hud!: BattleHud2D;
   private currentConfig?: BattleConfig;
+  private currentJsonConfig?: BattleConfigJson;
   private soundSystem!: ISoundSystem;
 
   private creatureRepository: CreatureRepository = new CreatureRepository();
 
-  public async enter(context: GameContext, params?: { config?: BattleConfig; soundSystem?: ISoundSystem }): Promise<void> {
+  public async enter(
+    context: GameContext,
+    params?: { config?: BattleConfig; jsonConfig?: BattleConfigJson; soundSystem?: ISoundSystem }
+  ): Promise<void> {
     this.context = context;
     this.currentConfig = params?.config;
+    this.currentJsonConfig = params?.jsonConfig;
     await context.loadBattleResources?.();
     this.soundSystem = params?.soundSystem ?? context.soundSystem ?? new PixiSoundSystem(context.settings);
     setActiveUISoundSystem(this.soundSystem, context.settings);
@@ -77,34 +82,37 @@ export class BattleScene3D implements Scene {
     this.creatureRepository.setAbilities(context.templates.abilityTypes);
     this.creatureRepository.setCreatureTemplates(context.templates.creatureTemplates);
 
-    if (params?.config) {
-      this.hexMap = new HexMap(params.config.mapWidth, params.config.mapHeight);
-      this.battle = new Battle(this.hexMap);
-      if (context.templates.combatConfig) {
-        this.battle.setCombatConfig(context.templates.combatConfig);
+    let resolvedConfig = params?.config;
+    if (!resolvedConfig) {
+      let jsonConfig = params?.jsonConfig ?? context.templates.defaultBattle;
+      if (!jsonConfig) {
+        try {
+          jsonConfig = await JsonLoader.loadJson<BattleConfigJson>('./default-battle.json');
+        } catch {
+          jsonConfig = { mapWidth: 13, mapHeight: 9, creatures: [] };
+        }
       }
-      if (context.templates.traitsConfig) {
-        this.battle.setTraitsConfig(context.templates.traitsConfig);
-      }
-      this.battle.initializeFromConfig(params.config);
-    } else {
-      this.hexMap = new HexMap(13, 9);
-      this.battle = new Battle(this.hexMap);
-      if (context.templates.combatConfig) {
-        this.battle.setCombatConfig(context.templates.combatConfig);
-      }
-      if (context.templates.traitsConfig) {
-        this.battle.setTraitsConfig(context.templates.traitsConfig);
-      }
-      this.initializeDefaultMapAndArmies();
+      this.currentJsonConfig = jsonConfig;
+      resolvedConfig = buildBattleConfigFromJson(jsonConfig, this.creatureRepository);
+      this.currentConfig = resolvedConfig;
     }
+
+    this.hexMap = new HexMap(resolvedConfig.mapWidth, resolvedConfig.mapHeight);
+    this.battle = new Battle(this.hexMap);
+    if (context.templates.combatConfig) {
+      this.battle.setCombatConfig(context.templates.combatConfig);
+    }
+    if (context.templates.traitsConfig) {
+      this.battle.setTraitsConfig(context.templates.traitsConfig);
+    }
+    this.battle.initializeFromConfig(resolvedConfig);
 
     // The battle always starts with manual (human player) control for Army 0
     this.battle.army_control[0] = ArmyControlType.PLAYER;
 
     let overrideDefaultPersonality: string = CPUPersonalityType.AGGRESSIVE;
-    if (params?.config?.aiPersonality != null) {
-      overrideDefaultPersonality = params.config.aiPersonality;
+    if (resolvedConfig.aiPersonality != null) {
+      overrideDefaultPersonality = resolvedConfig.aiPersonality;
     }
 
     this.cpuPlayer = CPUPlayerFactory.create(overrideDefaultPersonality, this.battle);
@@ -378,7 +386,16 @@ export class BattleScene3D implements Scene {
   }
 
   private resetBattle(): void {
-    this.initializeDefaultMapAndArmies();
+    const configToApply = this.currentJsonConfig
+      ? buildBattleConfigFromJson(this.currentJsonConfig, this.creatureRepository)
+      : this.currentConfig;
+    if (configToApply) {
+      this.battle.initializeFromConfig(configToApply);
+    } else {
+      this.battle.initializeToSize(this.hexMap.width, this.hexMap.height);
+      this.battle.start();
+    }
+    this.battle.army_control[0] = ArmyControlType.PLAYER;
     this.hud.setAutoBattleEnabled(false);
     this.cpuPlayer = CPUPlayerFactory.create(this.currentConfig?.aiPersonality, this.battle);
     this.view.setCpuPlayer(this.cpuPlayer);
@@ -449,37 +466,5 @@ export class BattleScene3D implements Scene {
       this.hud.updateUnitStats(creature);
       this.view.updateActiveUnitSelection();
     };
-  }
-
-  private initializeDefaultMapAndArmies(): void {
-    this.battle.initializeToSize(this.hexMap.width, this.hexMap.height);
-
-    const addUnit = (type: CreatureType, pos: Coords, army: number, facing: HexDirection = HexDirection.EAST, extraMoves?: number) => {
-      const creature = this.creatureRepository.createCreature(type);
-      creature.position = { ...pos };
-      creature.armyAlignment = army;
-      creature.facingDirection = facing;
-      if (extraMoves !== undefined) {
-        creature.stats.num_moves = extraMoves;
-        creature.stats.remaining_movement = extraMoves;
-      }
-      this.battle.creatures.push(creature);
-    };
-
-    addUnit(CreatureType.PEASANT, { x: 3, y: 4 }, 0);
-    addUnit(CreatureType.ARMORED_KNIGHT, { x: 2, y: 2 }, 0, HexDirection.EAST, 6);
-    addUnit(CreatureType.PEASANT_ARCHER, { x: 1, y: 5 }, 0);
-    addUnit(CreatureType.CROSSBOWMAN, { x: 0, y: 4 }, 0);
-    addUnit(CreatureType.SLINGER, { x: 2, y: 4 }, 0);
-    addUnit(CreatureType.SPEARMAN, { x: 3, y: 5 }, 0);
-    addUnit(CreatureType.HEALER, { x: 1, y: 1 }, 0);
-    addUnit(CreatureType.MACEMAN, { x: 2, y: 1 }, 0);
-
-    addUnit(CreatureType.SPEARMAN, { x: 5, y: 6 }, 1, HexDirection.WEST);
-    addUnit(CreatureType.SWORDSMAN, { x: 4, y: 4 }, 1, HexDirection.WEST);
-    addUnit(CreatureType.BARBARIAN, { x: 4, y: 6 }, 1, HexDirection.WEST);
-    addUnit(CreatureType.PEASANT, { x: 4, y: 3 }, 1, HexDirection.WEST);
-    addUnit(CreatureType.PEASANT_ARCHER, { x: 7, y: 4 }, 1, HexDirection.WEST);
-    addUnit(CreatureType.ARMORED_KNIGHT, { x: 7, y: 6 }, 1, HexDirection.WEST);
   }
 }

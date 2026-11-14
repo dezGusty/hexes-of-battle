@@ -181,6 +181,11 @@ export class HexesEngine {
       // Use empty if not found
     }
     try {
+      this.templates.defaultBattle = await JsonLoader.loadJson<any>('./default-battle.json');
+    } catch {
+      // Fallback handled by scene if not found
+    }
+    try {
       this.templates.hudConfig = await JsonLoader.loadJson<any>('./hud.json');
       if (this.templates.hudConfig) {
         if (this.templates.hudConfig.grid?.borderThickness !== undefined) {

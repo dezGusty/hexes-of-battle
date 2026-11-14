@@ -6,6 +6,7 @@ import { CreatureTemplate } from '../battle/creature';
 import { CombatConfig } from '../battle/combat-rules';
 import { TraitsConfig } from '../battle/trait-system';
 import { ArrowVolleySoundConfig, ISoundSystem, SoundGroupsConfig, SoundsConfig, UISoundsConfig } from './sound-system';
+import type { BattleConfigJson } from '../battle/battle-config-loader';
 import type { ThreeRendererHost } from '../render3d/three-renderer-host';
 
 export interface GameAssets {
@@ -91,6 +92,7 @@ export interface GameTemplates {
   creatureTemplates: CreatureTemplate[];
   combatConfig?: CombatConfig;
   scenarios?: any[];
+  defaultBattle?: BattleConfigJson;
   hudConfig?: HudConfig;
   soundsConfig?: SoundsConfig;
   traitsConfig?: TraitsConfig;
