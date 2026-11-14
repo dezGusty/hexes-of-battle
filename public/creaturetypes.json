@@ -1,6 +1,8 @@
 [
   {
     "name": "peasant",
+    "display_name": "Peasant",
+    "portrait": "peasant_face.png",
     "model_count": 16,
     "model_hp": 4,
     "tier": 1,
@@ -29,6 +31,8 @@
   },
   {
     "name": "swordsman",
+    "display_name": "Swordsman",
+    "portrait": "swordman_face.png",
     "model_count": 8,
     "model_hp": 6,
     "tier": 2,
@@ -59,6 +63,8 @@
   },
   {
     "name": "spearman",
+    "display_name": "Spearman",
+    "portrait": "spearman_face.png",
     "model_count": 8,
     "model_hp": 6,
     "tier": 2,
@@ -92,6 +98,8 @@
   },
   {
     "name": "barbarian",
+    "display_name": "Barbarian",
+    "portrait": "barbarian_face.png",
     "model_count": 8,
     "model_hp": 7,
     "tier": 2,
@@ -120,6 +128,8 @@
   },
   {
     "name": "peasant-archer",
+    "display_name": "Peasant Archer",
+    "portrait": "peasant_archer_face.png",
     "model_count": 12,
     "model_hp": 4,
     "tier": 1,
@@ -153,6 +163,8 @@
   },
   {
     "name": "crossbowman",
+    "display_name": "Crossbowman",
+    "portrait": "crossbowman_face.png",
     "model_count": 8,
     "model_hp": 6,
     "tier": 2,
@@ -184,6 +196,8 @@
   },
   {
     "name": "heavy-knights",
+    "display_name": "Heavy Knights",
+    "portrait": "swordman_face.png",
     "model_count": 4,
     "model_hp": 20,
     "tier": 3,
@@ -212,6 +226,8 @@
   },
   {
     "name": "hero-commander",
+    "display_name": "Hero Commander",
+    "portrait": "swordman_face.png",
     "model_count": 6,
     "model_hp": 15,
     "tier": 4,
@@ -244,6 +260,8 @@
   },
   {
     "name": "slinger",
+    "display_name": "Slinger",
+    "portrait": "slinger_face.png",
     "model_count": 8,
     "model_hp": 4,
     "tier": 1,
@@ -278,6 +296,8 @@
   },
   {
     "name": "healer",
+    "display_name": "Healer",
+    "portrait": "peasant_face.png",
     "model_count": 8,
     "model_hp": 5,
     "tier": 1,
@@ -310,6 +330,8 @@
   },
   {
     "name": "maceman",
+    "display_name": "Mace Man",
+    "portrait": "spearman_face.png",
     "model_count": 8,
     "model_hp": 6,
     "tier": 2,
@@ -340,6 +362,8 @@
   },
   {
     "name": "armored-knight",
+    "display_name": "Armored Knight",
+    "portrait": "swordman_face.png",
     "model_count": 5,
     "model_hp": 12,
     "tier": 3,

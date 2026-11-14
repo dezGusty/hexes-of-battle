@@ -49,6 +49,7 @@ export interface BattleHud2DEvents {
   onWeatherChange?: (weather: WeatherType) => void;
   onToggleRimLighting?: (enabled: boolean) => void;
   onToggleTiltShift?: (enabled: boolean) => void;
+  onToggleSimpleTrees?: (enabled: boolean) => void;
   onSaveBattle?: (name: string) => boolean;
   onLoadSave?: (entry: BattleSaveEntry) => void;
 }
@@ -341,6 +342,12 @@ export class BattleHud2D {
         this.settings.tiltShift = enabled;
         this.settings.save();
         events.onToggleTiltShift?.(enabled);
+      };
+      this.battleMenuPanel.setSimpleTreesEnabled(this.settings.simpleTrees);
+      this.battleMenuPanel.onToggleSimpleTrees = (enabled) => {
+        this.settings.simpleTrees = enabled;
+        this.settings.save();
+        events.onToggleSimpleTrees?.(enabled);
       };
       this.battleMenuPanel.onSaveBattle = (name) => {
         if (events.onSaveBattle) {
@@ -641,6 +648,9 @@ export class BattleHud2D {
 
   public getFaceTextureForCreature(creature: Creature): Texture | undefined {
     if (!this.assets.unitsSheet) return undefined;
+    if (creature.portrait && this.assets.unitsSheet.textures[creature.portrait]) {
+      return this.assets.unitsSheet.textures[creature.portrait];
+    }
     let faceName = 'peasant_face.png';
     switch (creature.creatureType) {
       case CreatureType.PEASANT:
@@ -693,6 +703,11 @@ export class BattleHud2D {
       case CreatureType.MACEMAN:
       case 'maceman' as any:
         faceName = 'spearman_face.png';
+        break;
+      case CreatureType.ARMORED_KNIGHT:
+      case 'armored-knight' as any:
+      case 'armored_knight' as any:
+        faceName = 'swordman_face.png';
         break;
       default:
         faceName = 'peasant_face.png';

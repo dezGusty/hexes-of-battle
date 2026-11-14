@@ -127,6 +127,8 @@ export enum CreatureType {
 
 export class CreatureTemplate {
   name: string = "none";
+  display_name?: string;
+  portrait?: string;
   model_count: number = 8;
   model_hp: number = 5;
   tier: number = 1;
@@ -191,8 +193,10 @@ export class Creature {
   public get isFlying(): boolean {
     return this.stats.flying === true || this.stats.traits.includes('flying') || this.stats.traits.includes('Floating');
   }
+  public displayName?: string;
+  public portrait?: string;
   public get name(): string {
-    return Creature.CREATURE_NAMES[this.creatureType] ?? "Unknown";
+    return this.displayName ?? Creature.CREATURE_NAMES[this.creatureType] ?? "Unknown";
   }
   public facingDirection: HexDirection = HexDirection.EAST;
   public armyAlignment: number = 0;
@@ -205,6 +209,7 @@ export class Creature {
     "Archer",
     "Barbarian",
     "Heavy Knights",
+    "Behemoth",
     "Hero Commander",
     "Slinger",
     "Healer",

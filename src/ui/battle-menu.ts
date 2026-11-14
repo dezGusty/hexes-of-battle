@@ -60,12 +60,15 @@ export class BattleMenuPanel {
     public weatherDropdown?: WeatherDropdown;
     public toggleRimLightingButton?: FancyButton;
     public toggleTiltShiftButton?: FancyButton;
+    public toggleSimpleTreesButton?: FancyButton;
 
     private hardwareCursorText?: Text;
     private rimLightingText?: Text;
     private tiltShiftText?: Text;
+    private simpleTreesText?: Text;
     private isRimLightingEnabled: boolean = true;
     private isTiltShiftEnabled: boolean = true;
+    private isSimpleTreesEnabled: boolean = false;
     private isHardwareCursorHidden: boolean = false;
     private isUpdatingAnimationSpeed: boolean = false;
     private isUpdatingSoundValues: boolean = false;
@@ -100,6 +103,7 @@ export class BattleMenuPanel {
     public onWeatherChange?: (weather: WeatherType) => void;
     public onToggleRimLighting?: (enabled: boolean) => void;
     public onToggleTiltShift?: (enabled: boolean) => void;
+    public onToggleSimpleTrees?: (enabled: boolean) => void;
 
     public constructor(private view: Container, private uiSheet: Spritesheet) {
         const windowBg = new NineSliceSprite({
@@ -165,6 +169,17 @@ export class BattleMenuPanel {
         this.isTiltShiftEnabled = enabled;
         if (this.tiltShiftText) {
             this.tiltShiftText.text = this.getTiltShiftLabel();
+        }
+    }
+
+    private getSimpleTreesLabel(): string {
+        return `Simple trees\n[${this.isSimpleTreesEnabled ? 'ON' : 'OFF'}]`;
+    }
+
+    public setSimpleTreesEnabled(enabled: boolean): void {
+        this.isSimpleTreesEnabled = enabled;
+        if (this.simpleTreesText) {
+            this.simpleTreesText.text = this.getSimpleTreesLabel();
         }
     }
 
@@ -556,6 +571,23 @@ export class BattleMenuPanel {
             this.onToggleTiltShift?.(this.isTiltShiftEnabled);
         });
 
+        this.simpleTreesText = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: this.getSimpleTreesLabel(),
+            style: { fontSize: 13, fill: '#E0F0FF', align: 'center' },
+        });
+        this.toggleSimpleTreesButton = new FancyButton({
+            ...this.THIN_BUTTON_STYLE,
+            text: this.simpleTreesText,
+        });
+        this.toggleSimpleTreesButton.position.set(col2BtnX, 640);
+        this.toggleSimpleTreesButton.width = 190;
+        this.toggleSimpleTreesButton.height = 50;
+        this.toggleSimpleTreesButton.onPress.connect(() => {
+            this.setSimpleTreesEnabled(!this.isSimpleTreesEnabled);
+            this.onToggleSimpleTrees?.(this.isSimpleTreesEnabled);
+        });
+
         this.closeButton.position.set((panelWidth - 140) / 2, 788);
         this.closeButton.width = 140;
         this.closeButton.height = 36;
@@ -589,6 +621,7 @@ export class BattleMenuPanel {
         this.mainContainer.addChild(this.animationSpeedValueText);
         this.mainContainer.addChild(this.toggleRimLightingButton);
         this.mainContainer.addChild(this.toggleTiltShiftButton);
+        this.mainContainer.addChild(this.toggleSimpleTreesButton);
         this.mainContainer.addChild(this.closeButton);
 
         bindButtonUISound(this.fullscreenToggleButton);
@@ -608,6 +641,7 @@ export class BattleMenuPanel {
         bindButtonUISound(this.animationSpeedButton);
         bindButtonUISound(this.toggleRimLightingButton);
         bindButtonUISound(this.toggleTiltShiftButton);
+        bindButtonUISound(this.toggleSimpleTreesButton);
         bindButtonUISound(this.closeButton);
 
         bindSliderUISound(this.musicVolumeSlider, () => this.isUpdatingSoundValues);

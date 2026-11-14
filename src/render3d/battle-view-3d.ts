@@ -121,6 +121,7 @@ export class BattleView3D {
       majorTerrainType: this.battle.getMajorTerrainType(),
       getMajorTerrainType: () => this.battle.getMajorTerrainType(),
       getWindState: () => this.battle.getWindState(),
+      simpleTrees: settings.simpleTrees ?? false,
     });
     this.sceneManager.scene.add(this.hexBoard.group);
     this.sceneManager.scene.add(this.projectileSystem.group);
@@ -200,6 +201,19 @@ export class BattleView3D {
 
   public isTiltShiftEnabled(): boolean {
     return this.sceneManager.isTiltShiftEnabled();
+  }
+
+  public setSimpleTreesEnabled(enabled: boolean): void {
+    this.settings.simpleTrees = enabled;
+    this.settings.save();
+    this.hexBoard.setSimpleTreesEnabled(enabled);
+    if (this.hud?.battleMenuPanel) {
+      this.hud.battleMenuPanel.setSimpleTreesEnabled(enabled);
+    }
+  }
+
+  public isSimpleTreesEnabled(): boolean {
+    return this.hexBoard.isSimpleTreesEnabled();
   }
 
   public setGridVisible(visible: boolean): void {

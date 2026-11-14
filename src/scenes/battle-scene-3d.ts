@@ -228,6 +228,9 @@ export class BattleScene3D implements Scene {
       onToggleTiltShift: (enabled) => {
         this.view.setTiltShiftEnabled(enabled);
       },
+      onToggleSimpleTrees: (enabled) => {
+        this.view.setSimpleTreesEnabled(enabled);
+      },
       onSaveBattle: (name) => {
         SaveManager.saveBattle(this.battle, name);
         return true;

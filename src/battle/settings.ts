@@ -89,6 +89,7 @@ export class BattleSettings {
   public weather: WeatherType = WeatherType.NONE;
   public unitRimLighting: boolean = true;
   public tiltShift: boolean = true;
+  public simpleTrees: boolean = false;
 
   public setAnimationSpeed(speed: number): void {
     this.animationSpeed = clampAnimationSpeed(speed);
@@ -177,6 +178,11 @@ export class BattleSettings {
       this.tiltShift = tiltShift === 'true';
     }
 
+    const simpleTrees = localStorage.getItem('hob.simpleTrees');
+    if (simpleTrees !== null) {
+      this.simpleTrees = simpleTrees === 'true';
+    }
+
     const hotkeys = localStorage.getItem('hob.hotkeys');
     if (hotkeys) {
       try {
@@ -208,6 +214,7 @@ export class BattleSettings {
     localStorage.setItem('hob.weather', String(this.weather));
     localStorage.setItem('hob.unitRimLighting', String(this.unitRimLighting));
     localStorage.setItem('hob.tiltShift', String(this.tiltShift));
+    localStorage.setItem('hob.simpleTrees', String(this.simpleTrees));
     // Save the hotkeys settings to the browser's local storage
     localStorage.setItem('hob.hotkeys', JSON.stringify(this.hotkeys));
   }

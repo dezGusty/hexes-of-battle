@@ -2,11 +2,12 @@ import * as THREE from 'three';
 
 export const TREE_TEXTURE_SIZE = 256;
 
-export type TreeTexturePart = 'bark' | 'foliage';
+export type TreeTexturePart = 'bark' | 'foliage' | 'foliage_cards';
 
 export const TREE_TEXTURE_PATHS: Record<TreeTexturePart, string> = {
   bark: 'textures/terrain/tree_bark.png',
   foliage: 'textures/terrain/tree_foliage.png',
+  foliage_cards: 'textures/terrain/tree_foliage_cards.png',
 };
 
 function hash2D(ix: number, iy: number, seed: number): number {
@@ -161,10 +162,251 @@ export function generateTreeFoliagePixels(): Uint8Array {
           (nCoarse - 0.5) * 32 +
           (nFine - 0.5) * 20;
 
-        data[idx] = clampByte(lum * 0.28 - 14);     // Deep conifer undertone
-        data[idx + 1] = clampByte(lum + 20);         // Vivid forest pine needle green
-        data[idx + 2] = clampByte(lum * 0.16 - 8);     // Very low blue for vibrant conifer green
+        data[idx] = clampByte(lum * 0.72);         // Muted red for grass-matched petrol-green vertex tinting
+        data[idx + 1] = clampByte(lum * 0.98);     // High-luminance green channel for crisp needle detail
+        data[idx + 2] = clampByte(lum * 0.86);     // Cool petrol-green blue headroom
         data[idx + 3] = 255;
+      }
+    }
+  }
+
+  return data;
+}
+
+/**
+ * Generates a 256x256 RGBA alpha-masked foliage card atlas for crossed/layered tree quads:
+ * - Bottom-left  (x 0..127,   y 0..127,   U 0.0..0.5, V 0.0..0.5): Broadleaf Oak/Maple leaf cluster
+ * - Bottom-right (x 128..255, y 0..127,   U 0.5..1.0, V 0.0..0.5): Conifer Pine needle bough
+ * - Top-left     (x 0..127,   y 128..255, U 0.0..0.5, V 0.5..1.0): Birch airy leaf sprig
+ * - Top-right    (x 128..255, y 128..255, U 0.5..1.0, V 0.5..1.0): Willow weeping leaf curtain
+ *
+ * Uses high-luminance neutral-green/white values with hard alpha cutouts (0 or 255)
+ * so vertex-color tinting produces rich species palettes with crisp alpha-tested edges.
+ */
+export function generateTreeFoliageCardsPixels(): Uint8Array {
+  const size = TREE_TEXTURE_SIZE;
+  const data = new Uint8Array(size * size * 4);
+
+  const setPixel = (x: number, y: number, r: number, g: number, b: number, a: number) => {
+    if (x < 0 || x >= size || y < 0 || y >= size) return;
+    const idx = (y * size + x) * 4;
+    data[idx] = clampByte(r);
+    data[idx + 1] = clampByte(g);
+    data[idx + 2] = clampByte(b);
+    data[idx + 3] = clampByte(a);
+  };
+
+  // Helper: draw a twig segment inside a quadrant
+  const drawTwig = (
+    ox: number,
+    oy: number,
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number,
+    thickness: number
+  ) => {
+    const minX = Math.max(0, Math.floor(Math.min(x0, x1) - thickness - 1));
+    const maxX = Math.min(127, Math.ceil(Math.max(x0, x1) + thickness + 1));
+    const minY = Math.max(0, Math.floor(Math.min(y0, y1) - thickness - 1));
+    const maxY = Math.min(127, Math.ceil(Math.max(y0, y1) + thickness + 1));
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const lenSq = dx * dx + dy * dy || 1;
+
+    for (let ly = minY; ly <= maxY; ly++) {
+      for (let lx = minX; lx <= maxX; lx++) {
+        const t = Math.max(0, Math.min(1, ((lx - x0) * dx + (ly - y0) * dy) / lenSq));
+        const px = x0 + t * dx;
+        const py = y0 + t * dy;
+        const dist = Math.hypot(lx - px, ly - py);
+        if (dist <= thickness) {
+          const shade = 1 - (dist / thickness) * 0.3;
+          setPixel(ox + lx, oy + ly, 128 * shade, 96 * shade, 64 * shade, 255);
+        }
+      }
+    }
+  };
+
+  // 1. Bottom-left (ox=0, oy=0): Broadleaf Oak / Maple cluster
+  {
+    const ox = 0;
+    const oy = 0;
+    drawTwig(ox, oy, 64, 8, 64, 72, 2.5);
+    drawTwig(ox, oy, 64, 34, 30, 62, 1.8);
+    drawTwig(ox, oy, 64, 38, 98, 66, 1.8);
+    drawTwig(ox, oy, 64, 58, 42, 94, 1.5);
+    drawTwig(ox, oy, 64, 62, 88, 96, 1.5);
+
+    // Stamp 17 overlapping lobed leaves in an organic canopy cluster
+    const leaves = [
+      { cx: 64, cy: 102, rx: 17, ry: 20, rot: 0.0, shade: 1.0 },
+      { cx: 42, cy: 92, rx: 16, ry: 18, rot: 0.45, shade: 0.94 },
+      { cx: 86, cy: 92, rx: 16, ry: 18, rot: -0.45, shade: 0.96 },
+      { cx: 24, cy: 68, rx: 15, ry: 17, rot: 0.85, shade: 0.88 },
+      { cx: 104, cy: 68, rx: 15, ry: 17, rot: -0.85, shade: 0.90 },
+      { cx: 46, cy: 68, rx: 18, ry: 19, rot: 0.25, shade: 0.98 },
+      { cx: 82, cy: 70, rx: 18, ry: 19, rot: -0.25, shade: 0.97 },
+      { cx: 64, cy: 76, rx: 19, ry: 20, rot: 0.1, shade: 1.02 },
+      { cx: 28, cy: 42, rx: 14, ry: 16, rot: 1.1, shade: 0.82 },
+      { cx: 100, cy: 42, rx: 14, ry: 16, rot: -1.1, shade: 0.84 },
+      { cx: 48, cy: 44, rx: 16, ry: 17, rot: 0.5, shade: 0.88 },
+      { cx: 80, cy: 44, rx: 16, ry: 17, rot: -0.5, shade: 0.89 },
+      { cx: 64, cy: 50, rx: 17, ry: 18, rot: -0.1, shade: 0.93 },
+      { cx: 38, cy: 26, rx: 13, ry: 14, rot: 0.9, shade: 0.78 },
+      { cx: 90, cy: 26, rx: 13, ry: 14, rot: -0.9, shade: 0.79 },
+      { cx: 64, cy: 28, rx: 15, ry: 15, rot: 0.0, shade: 0.83 },
+    ];
+    for (let li = 0; li < leaves.length; li++) {
+      const lf = leaves[li];
+      const cosR = Math.cos(lf.rot);
+      const sinR = Math.sin(lf.rot);
+      for (let ly = Math.max(2, Math.floor(lf.cy - lf.ry - 4)); ly <= Math.min(125, Math.ceil(lf.cy + lf.ry + 4)); ly++) {
+        for (let lx = Math.max(2, Math.floor(lf.cx - lf.rx - 4)); lx <= Math.min(125, Math.ceil(lf.cx + lf.rx + 4)); lx++) {
+          const dx = lx - lf.cx;
+          const dy = ly - lf.cy;
+          const u = dx * cosR - dy * sinR;
+          const v = dx * sinR + dy * cosR;
+          const normDist = Math.hypot(u / lf.rx, v / lf.ry);
+          const angle = Math.atan2(v, u);
+          const lobeMod = 1.0 + 0.16 * Math.cos(angle * 5.0 + li);
+          if (normDist <= lobeMod) {
+            const n = fbm(lx + li * 13, ly, 4, 901);
+            const vein = Math.abs(u) < 1.1 && Math.abs(v) < lf.ry * 0.7 ? 1.08 : 1.0;
+            const lum = (205 + (1 - normDist) * 38 + (n - 0.5) * 26) * lf.shade * vein;
+            setPixel(ox + lx, oy + ly, lum * 0.86, lum, lum * 0.78, 255);
+          }
+        }
+      }
+    }
+  }
+
+  // 2. Bottom-right (ox=128, oy=0): Conifer Pine needle bough
+  {
+    const ox = 128;
+    const oy = 0;
+    drawTwig(ox, oy, 64, 6, 64, 114, 2.4);
+    drawTwig(ox, oy, 64, 30, 22, 62, 1.5);
+    drawTwig(ox, oy, 64, 32, 106, 62, 1.5);
+    drawTwig(ox, oy, 64, 62, 28, 92, 1.4);
+    drawTwig(ox, oy, 64, 64, 100, 92, 1.4);
+
+    // Radiating needle fans along the central stem and side shoots
+    const tufts = [
+      { cx: 64, cy: 112, rad: 16, angleCenter: Math.PI * 0.5, spread: 1.1, shade: 1.04 },
+      { cx: 44, cy: 90, rad: 22, angleCenter: Math.PI * 0.68, spread: 0.95, shade: 0.96 },
+      { cx: 84, cy: 90, rad: 22, angleCenter: Math.PI * 0.32, spread: 0.95, shade: 0.96 },
+      { cx: 64, cy: 84, rad: 22, angleCenter: Math.PI * 0.5, spread: 1.15, shade: 0.98 },
+      { cx: 30, cy: 62, rad: 24, angleCenter: Math.PI * 0.75, spread: 0.95, shade: 0.88 },
+      { cx: 98, cy: 62, rad: 24, angleCenter: Math.PI * 0.25, spread: 0.95, shade: 0.88 },
+      { cx: 64, cy: 56, rad: 25, angleCenter: Math.PI * 0.5, spread: 1.25, shade: 0.92 },
+      { cx: 28, cy: 36, rad: 22, angleCenter: Math.PI * 0.82, spread: 0.85, shade: 0.82 },
+      { cx: 100, cy: 36, rad: 22, angleCenter: Math.PI * 0.18, spread: 0.85, shade: 0.82 },
+      { cx: 64, cy: 32, rad: 24, angleCenter: Math.PI * 0.5, spread: 1.3, shade: 0.85 },
+    ];
+    for (let ti = 0; ti < tufts.length; ti++) {
+      const tf = tufts[ti];
+      const needleCount = 26;
+      for (let ni = 0; ni < needleCount; ni++) {
+        const frac = needleCount > 1 ? ni / (needleCount - 1) - 0.5 : 0;
+        const ang = tf.angleCenter + frac * tf.spread * 2.0 + (hash2D(ti, ni, 911) - 0.5) * 0.08;
+        const len = tf.rad * (0.72 + 0.28 * hash2D(ni, ti, 919));
+        const x1 = tf.cx + Math.cos(ang) * len;
+        const y1 = tf.cy + Math.sin(ang) * len;
+        const steps = Math.ceil(len * 1.5);
+        for (let s = 0; s <= steps; s++) {
+          const p = s / steps;
+          const px = Math.round(tf.cx + (x1 - tf.cx) * p);
+          const py = Math.round(tf.cy + (y1 - tf.cy) * p);
+          if (px >= 2 && px <= 125 && py >= 2 && py <= 125) {
+            const lum = (178 + p * 65) * tf.shade;
+            setPixel(ox + px, oy + py, lum * 0.72, lum, lum * 0.68, 255);
+            if (p < 0.75) {
+              setPixel(ox + px + 1, oy + py, lum * 0.68, lum * 0.96, lum * 0.64, 255);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 3. Top-left (ox=0, oy=128): Birch airy leaf sprig
+  {
+    const ox = 0;
+    const oy = 128;
+    drawTwig(ox, oy, 64, 6, 62, 114, 1.6);
+    drawTwig(ox, oy, 63, 36, 26, 72, 1.1);
+    drawTwig(ox, oy, 63, 46, 102, 78, 1.1);
+    drawTwig(ox, oy, 62, 74, 34, 106, 1.0);
+    drawTwig(ox, oy, 62, 82, 92, 110, 1.0);
+
+    // Small, airy, spaced diamond-ovate birch leaves
+    for (let bi = 0; bi < 32; bi++) {
+      const cx = 20 + hash2D(bi, 1, 941) * 88;
+      const cy = 22 + hash2D(bi, 2, 947) * 92;
+      const distCenter = Math.hypot((cx - 64) * 0.9, (cy - 68) * 0.85);
+      if (distCenter > 50) continue;
+      const rx = 5.5 + hash2D(bi, 3, 953) * 3.5;
+      const ry = 7.5 + hash2D(bi, 4, 961) * 4.5;
+      const rot = (hash2D(bi, 5, 967) - 0.5) * 2.2;
+      const cosR = Math.cos(rot);
+      const sinR = Math.sin(rot);
+      const shade = 0.84 + (cy / 128) * 0.22;
+
+      for (let ly = Math.max(2, Math.floor(cy - ry - 2)); ly <= Math.min(125, Math.ceil(cy + ry + 2)); ly++) {
+        for (let lx = Math.max(2, Math.floor(cx - rx - 2)); lx <= Math.min(125, Math.ceil(cx + rx + 2)); lx++) {
+          const dx = lx - cx;
+          const dy = ly - cy;
+          const u = dx * cosR - dy * sinR;
+          const v = dx * sinR + dy * cosR;
+          // Pointed ovate birch silhouette
+          const taper = 1.0 - Math.max(0, v / ry) * 0.45;
+          const d = Math.hypot(u / (rx * taper), v / ry);
+          if (d <= 1.0) {
+            const lum = (212 + (1 - d) * 34) * shade;
+            setPixel(ox + lx, oy + ly, lum * 0.96, lum, lum * 0.72, 255);
+          }
+        }
+      }
+    }
+  }
+
+  // 4. Top-right (ox=128, oy=128): Willow weeping leaf curtain (drooping downward)
+  {
+    const ox = 128;
+    const oy = 128;
+    const strands = [18, 30, 42, 54, 66, 78, 90, 102, 112];
+    for (let si = 0; si < strands.length; si++) {
+      const baseX = strands[si];
+      const bottomY = 8 + Math.round(hash2D(si, 7, 971) * 24);
+      const sway = (hash2D(si, 8, 977) - 0.5) * 6;
+      // Vertical drooping stem from top (y=124) down to bottomY
+      for (let ly = bottomY; ly <= 124; ly++) {
+        const t = (124 - ly) / (124 - bottomY);
+        const sx = Math.round(baseX + Math.sin(t * Math.PI) * sway);
+        setPixel(ox + sx, oy + ly, 128, 134, 72, 255);
+      }
+
+      // Narrow lance-shaped weeping willow leaves hanging along the strand
+      for (let ly = bottomY + 4; ly <= 120; ly += 8) {
+        const side = ((ly + si) % 2 === 0 ? 1 : -1);
+        const t = (124 - ly) / (124 - bottomY);
+        const sx = baseX + Math.sin(t * Math.PI) * sway;
+        const leafLen = 9 + hash2D(si, ly, 983) * 4;
+        const leafWidth = 2.4;
+        for (let dy = -Math.ceil(leafLen); dy <= 1; dy++) {
+          const p = Math.max(0, -dy / leafLen);
+          const halfW = Math.sin(p * Math.PI) * leafWidth;
+          const cx = sx + side * (1.8 + p * 2.2);
+          for (let dx = -Math.ceil(halfW); dx <= Math.ceil(halfW); dx++) {
+            const px = Math.round(cx + dx);
+            const py = Math.round(ly + dy);
+            if (px >= 2 && px <= 125 && py >= 2 && py <= 125 && Math.abs(dx) <= halfW) {
+              const lum = 198 + (1 - t) * 40;
+              setPixel(ox + px, oy + py, lum * 0.88, lum, lum * 0.68, 255);
+            }
+          }
+        }
       }
     }
   }
@@ -175,17 +417,22 @@ export function generateTreeFoliagePixels(): Uint8Array {
 const treeTextureCache: Partial<Record<TreeTexturePart, THREE.DataTexture>> = {};
 
 /**
- * Returns a cached 256x256 THREE.DataTexture for the requested forest tree part ('bark' | 'foliage').
+ * Returns a cached 256x256 THREE.DataTexture for the requested forest tree part ('bark' | 'foliage' | 'foliage_cards').
  */
 export function getTreePartTexture(part: TreeTexturePart): THREE.DataTexture {
   let tex = treeTextureCache[part];
   if (tex) return tex;
 
-  const pixels = part === 'bark' ? generateTreeBarkPixels() : generateTreeFoliagePixels();
+  const pixels =
+    part === 'bark'
+      ? generateTreeBarkPixels()
+      : part === 'foliage_cards'
+        ? generateTreeFoliageCardsPixels()
+        : generateTreeFoliagePixels();
   tex = new THREE.DataTexture(pixels, TREE_TEXTURE_SIZE, TREE_TEXTURE_SIZE, THREE.RGBAFormat);
   tex.name = `tree_${part}_256`;
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapS = part === 'foliage_cards' ? THREE.ClampToEdgeWrapping : THREE.RepeatWrapping;
   tex.wrapT = THREE.ClampToEdgeWrapping;
   tex.magFilter = THREE.LinearFilter;
   tex.minFilter = THREE.LinearMipmapLinearFilter;

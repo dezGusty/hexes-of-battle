@@ -157,6 +157,7 @@ export class ThreeSceneManager {
     this.dirLight.shadow.camera.bottom = -shadowSize;
     this.dirLight.shadow.bias = -0.0001;
     this.dirLight.shadow.normalBias = 0.02;
+    this.dirLight.shadow.intensity = 0.7;
     this.configureShadowDepthFilter(this.dirLight);
     this.scene.add(this.dirLight);
   }

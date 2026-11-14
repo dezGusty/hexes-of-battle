@@ -52,6 +52,7 @@ export interface HexBoard3DOptions {
   getWindState?: () => WindState;
   blendTransitionWidth?: number;
   blendNoiseStrength?: number;
+  simpleTrees?: boolean;
 }
 
 export class HexBoard3D {
@@ -70,6 +71,7 @@ export class HexBoard3D {
   public readonly forestTreesGroup: THREE.Group = new THREE.Group();
   private forestTreesByHex: Map<string, THREE.Object3D[]> = new Map();
   private forestTreeTemplates: Partial<Record<ForestTreeVariant, THREE.Object3D>> = {};
+  private simpleTrees: boolean = false;
   public readonly retreatFlagsGroup: THREE.Group = new THREE.Group();
   public readonly outerDecorationsGroup: THREE.Group = new THREE.Group();
   public readonly grassSystem: GrassFieldSystem = new GrassFieldSystem();
@@ -223,7 +225,18 @@ export class HexBoard3D {
     this.group.add(this.grassSystem.group);
     this.group.add(this.blowingLeavesSystem.group);
 
+    this.simpleTrees = options?.simpleTrees ?? false;
     this.buildBoard();
+  }
+
+  public setSimpleTreesEnabled(enabled: boolean): void {
+    if (this.simpleTrees === enabled) return;
+    this.simpleTrees = enabled;
+    this.rebuildBoard();
+  }
+
+  public isSimpleTreesEnabled(): boolean {
+    return this.simpleTrees;
   }
 
   private attachTerrainSplatting(mat: THREE.MeshStandardMaterial, key: string): THREE.MeshStandardMaterial {
@@ -313,12 +326,6 @@ export class HexBoard3D {
           );
         });
       await Promise.all([
-        loadTreeGlb('models/terrain/forest_pine.glb')
-          .then((scene) => {
-            applyTreeGlbMaterials(scene, 'pine');
-            this.forestTreeTemplates.pine = scene;
-          })
-          .catch(() => { }),
         loadTreeGlb('models/terrain/forest_oak.glb')
           .then((scene) => {
             applyTreeGlbMaterials(scene, 'oak');
@@ -1690,7 +1697,9 @@ float hillTerrainNoise(vec2 p) {
     // Symmetric scale variations around 1.0 so the average height is exactly 0.75 * AVERAGE_UNIT_3D_HEIGHT
     const scaleOffsets = [0.0, -0.06, 0.06, -0.04, 0.04];
 
-    const treeVariants: ForestTreeVariant[] = ['pine', 'oak', 'birch', 'willow', 'maple'];
+    const treeVariants: ForestTreeVariant[] = this.simpleTrees
+      ? ['card_pine', 'card_oak', 'card_birch', 'card_willow', 'card_maple']
+      : ['pine', 'pine_2', 'pine_3', 'pine_4', 'pine_5', 'oak', 'birch', 'willow', 'maple'];
 
     for (let i = 0; i < treeCount; i++) {
       const subSeed = (((tileSeed + i * 2654435761) >>> 0) % 1000) / 1000;
@@ -2120,7 +2129,8 @@ float hillTerrainNoise(vec2 p) {
       locationType,
       bounds,
       this.hexHeight,
-      this.forestTreeTemplates
+      this.forestTreeTemplates,
+      this.simpleTrees
     );
     this.animatedWindmillSails = animatedWindmillSails;
     this.rebuildGrassField();

@@ -455,7 +455,7 @@ export class UnitStatsPanel {
     this.stats = creature.live_stats;
     this.buffs = creature.buffs;
     this.abilities = creature.abilities ? [...creature.abilities] : [];
-    this.creatureType = Creature.CREATURE_NAMES[creature.creatureType];
+    this.creatureType = creature.displayName ?? Creature.CREATURE_NAMES[creature.creatureType] ?? "Unknown";
 
     const userTraits = this.stats?.traits?.filter((t) => !t.startsWith("format_")) ?? [];
     if (isDifferentCreature) {

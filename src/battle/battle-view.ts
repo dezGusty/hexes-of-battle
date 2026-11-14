@@ -1506,14 +1506,17 @@ export class BattleView {
       case CreatureType.ARMORED_KNIGHT:
       case 'armored-knight' as any:
       case 'armored_knight' as any:
-        faceName = 'swordsman_helmet.png';
+        faceName = 'swordman_face.png';
         break;
       default:
         faceName = 'peasant_face.png';
         break;
     }
 
-    const faceTexture = this.assets.unitsSheet?.textures[faceName];
+    const portraitKey = creature.portrait && this.assets.unitsSheet?.textures[creature.portrait]
+      ? creature.portrait
+      : faceName;
+    const faceTexture = this.assets.unitsSheet?.textures[portraitKey];
     this.unitStats.setFaceTexture(faceTexture);
     this.unitStats.update();
 

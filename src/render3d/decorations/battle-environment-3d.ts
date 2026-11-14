@@ -761,7 +761,8 @@ export function populateOuterEnvironmentDecorations(
   locationType: BattleLocationType,
   bounds: BoardWorldBounds,
   hexHeight: number = 0.25,
-  treeTemplates?: Partial<Record<ForestTreeVariant, THREE.Object3D>>
+  treeTemplates?: Partial<Record<ForestTreeVariant, THREE.Object3D>>,
+  simpleTrees: boolean = false
 ): { animatedWindmillSails: THREE.Object3D[] } {
   const normalizedType = normalizeBattleLocationType(locationType);
   const animatedWindmillSails: THREE.Object3D[] = [];
@@ -845,7 +846,9 @@ export function populateOuterEnvironmentDecorations(
     // FOREST LOCATION: Dense woodland perimeter of Pines, Oaks, Rocks & Logs
     // ------------------------------------------------------------------------
     const spawnTreeAt = (wx: number, wz: number, seed: number) => {
-      const treeVariants: ForestTreeVariant[] = ['pine', 'oak', 'birch', 'willow', 'maple'];
+      const treeVariants: ForestTreeVariant[] = simpleTrees
+        ? ['card_pine', 'card_oak', 'card_birch', 'card_willow', 'card_maple']
+        : ['pine', 'pine_2', 'pine_3', 'pine_4', 'pine_5', 'oak', 'birch', 'willow', 'maple'];
       const variant: ForestTreeVariant = treeVariants[seed % treeVariants.length];
       const scale = 1.05 + seededRand(seed * 13) * 0.55;
       let treeObj: THREE.Object3D;
@@ -982,12 +985,12 @@ export function populateOuterEnvironmentDecorations(
       targetGroup.add(hay);
     }
 
-    // A few solitary trees in the plains (oak, birch, maple, willow)
+    // A few solitary trees in the plains (matching simpleTrees mode)
     const plainsTrees: Array<{ x: number; z: number; scale: number; variant: ForestTreeVariant }> = [
-      { x: nwX + 4.8, z: nwZ - 1.8, scale: 1.15, variant: 'oak' },
-      { x: innerMaxX + 3.2, z: innerMinZ - 1.8, scale: 1.05, variant: 'birch' },
-      { x: innerMinX - 3.0, z: innerMaxZ + 2.2, scale: 1.1, variant: 'maple' },
-      { x: innerMaxX + 3.5, z: innerMaxZ + 3.0, scale: 1.2, variant: 'willow' },
+      { x: nwX + 4.8, z: nwZ - 1.8, scale: 1.15, variant: simpleTrees ? 'card_oak' : 'oak' },
+      { x: innerMaxX + 3.2, z: innerMinZ - 1.8, scale: 1.05, variant: simpleTrees ? 'card_birch' : 'birch' },
+      { x: innerMinX - 3.0, z: innerMaxZ + 2.2, scale: 1.1, variant: simpleTrees ? 'card_maple' : 'maple' },
+      { x: innerMaxX + 3.5, z: innerMaxZ + 3.0, scale: 1.2, variant: simpleTrees ? 'card_willow' : 'willow' },
     ];
     for (let i = 0; i < plainsTrees.length; i++) {
       const pt = plainsTrees[i];

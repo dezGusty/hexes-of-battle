@@ -2009,13 +2009,15 @@ export function getHumanoidPartTexture(partKey: string): THREE.DataTexture {
 export function getHumanoidPartMaterial(
   partKey: string,
   roughness = 0.76,
-  metalness = 0.08
+  metalness = 0.08,
+  side: THREE.Side = THREE.FrontSide
 ): THREE.MeshStandardMaterial {
   if (partKey === 'skin') {
     return getBarbarianPartMaterial('skin');
   }
 
-  let mat = humanoidMaterialCache.get(partKey);
+  const cacheKey = side === THREE.DoubleSide ? `${partKey}_double` : partKey;
+  let mat = humanoidMaterialCache.get(cacheKey);
   if (!mat) {
     mat = new THREE.MeshStandardMaterial({
       name: `Humanoid_${partKey}_Material`,
@@ -2023,6 +2025,7 @@ export function getHumanoidPartMaterial(
       vertexColors: true,
       roughness,
       metalness,
+      side,
       flatShading: false,
       transparent: false,
       opacity: 1.0,
@@ -2033,7 +2036,7 @@ export function getHumanoidPartMaterial(
       humanoidTexturePart: partKey,
     };
     applyUnitRimLighting(mat);
-    humanoidMaterialCache.set(partKey, mat);
+    humanoidMaterialCache.set(cacheKey, mat);
   }
   return mat;
 }

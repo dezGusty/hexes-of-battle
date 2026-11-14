@@ -39,6 +39,8 @@ export class CreatureRepository {
 
     const templateStats = { ...creatureTemplate.stats };
     const result = new Creature(creatureType, { ...templateStats }, []);
+    result.displayName = creatureTemplate.display_name;
+    result.portrait = creatureTemplate.portrait;
     result.stats.model_count = creatureTemplate.model_count ?? result.stats.model_count;
     result.stats.model_hp = creatureTemplate.model_hp ?? result.stats.model_hp;
     result.stats.tier = creatureTemplate.tier ?? result.stats.tier;

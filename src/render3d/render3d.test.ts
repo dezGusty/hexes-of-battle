@@ -1250,6 +1250,9 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       const spearman = new Creature(CreatureType.SPEARMAN);
       const crossbowman = new Creature(CreatureType.CROSSBOWMAN);
       const barbarian = new Creature(CreatureType.BARBARIAN);
+      const armoredKnight = new Creature(CreatureType.ARMORED_KNIGHT);
+      const jsonPortraitUnit = new Creature(CreatureType.ARMORED_KNIGHT);
+      jsonPortraitUnit.portrait = 'barbarian_face.png';
 
       expect(hud.getFaceTextureForCreature(peasant)).toBe(dummyFaces['peasant_face.png']);
       expect(hud.getFaceTextureForCreature(peasantArcher)).toBe(dummyFaces['peasant_archer_face.png']);
@@ -1257,6 +1260,30 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(hud.getFaceTextureForCreature(spearman)).toBe(dummyFaces['spearman_face.png']);
       expect(hud.getFaceTextureForCreature(crossbowman)).toBe(dummyFaces['crossbowman_face.png']);
       expect(hud.getFaceTextureForCreature(barbarian)).toBe(dummyFaces['barbarian_face.png']);
+      expect(hud.getFaceTextureForCreature(armoredKnight)).toBe(dummyFaces['swordman_face.png']);
+      expect(hud.getFaceTextureForCreature(jsonPortraitUnit)).toBe(dummyFaces['barbarian_face.png']);
+
+      // Verify UnitStatsPanel and EnemyStatsPanel display Armored Knight name and honor displayName from creaturetypes.json
+      const creatureTypesData = JSON.parse(
+        fs.readFileSync(path.resolve(__dirname, '../../public/creaturetypes.json'), 'utf8')
+      );
+      const knightTemplate = creatureTypesData.find((c: any) => c.name === 'armored-knight');
+      expect(knightTemplate.display_name).toBe('Armored Knight');
+      expect(knightTemplate.portrait).toBe('swordman_face.png');
+
+      const panelUiSheet = {
+        textures: new Proxy({}, { get: () => PixiTexture.EMPTY }),
+      } as any;
+      armoredKnight.displayName = knightTemplate.display_name;
+      const unitStats = new UnitStatsPanel(hud.uiPlusRenderGroup, panelUiSheet);
+      unitStats.setCreature(armoredKnight);
+      unitStats.update();
+      expect((unitStats as any).unitTypeText.text).toBe('Unit: Armored Knight');
+
+      const enemyStats = new EnemyStatsPanel(hud.uiPlusRenderGroup, panelUiSheet);
+      enemyStats.setCreature(armoredKnight);
+      enemyStats.update();
+      expect((enemyStats as any).unitTypeText.text).toBe('Enemy: Armored Knight');
 
       hud.destroy();
     });
@@ -2884,7 +2911,7 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(weaponMat).toBe(getHumanoidPartMaterial('swordsman_gear', 0.42, 0.72));
       expect(weaponMat.metalness).toBeGreaterThanOrEqual(0.70);
 
-      expect(swordsmanLimbs.get('Shield')?.material).toBe(getHumanoidPartMaterial('swordsman_gear', 0.42, 0.72));
+      expect(swordsmanLimbs.get('Shield')?.material).toBe(getHumanoidPartMaterial('swordsman_gear', 0.42, 0.72, THREE.DoubleSide));
 
       const torsoMat = swordsmanLimbs.get('Torso')?.material as THREE.MeshStandardMaterial;
       expect(torsoMat).toBe(getHumanoidPartMaterial('swordsman_armor', 0.45, 0.65));
@@ -3257,9 +3284,10 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       const hemiLight = sceneManager.getHemiLight();
       expect(hemiLight.intensity).toBeLessThanOrEqual(0.20);
 
-      // Shadow bias & normalBias should prevent Peter Panning detachment
+      // Shadow bias & normalBias should prevent Peter Panning detachment, and shadow intensity is reduced
       expect(dirLight.shadow.bias).toBeCloseTo(-0.0001, 4);
       expect((dirLight.shadow as any).normalBias).toBeGreaterThanOrEqual(0.015);
+      expect(dirLight.shadow.intensity).toBe(0.7);
 
       // Verify shadow depth texture comparison filtering is configured to NearestFilter to prevent WebGL implementation-defined warnings
       const mockRenderTarget = new THREE.WebGLRenderTarget(2048, 2048);
@@ -4050,7 +4078,7 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       const mapleTris = getTriangleCount(buildLowPolyForestTreeMesh('maple'));
 
       // Baseline trees
-      expect(pineTris).toBe(112);
+      expect(pineTris).toBe(100);
       expect(oakTris).toBe(760);
 
       // 3 New tree models must have higher polygon count than oak (760), but at most double current poly count (<= 1520)
@@ -4151,7 +4179,48 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(geom.dispose).toBeDefined();
     });
 
-    it('should integrate 5 tree variants and blowing leaves system on HexBoard3D', () => {
+    it('should build 5 alpha-tested foliage-card tree variants with DoubleSide cutouts, wind shader, and depth material', () => {
+      const { foliageCardMat, foliageCardDepthMat } = getSharedTreeMaterials();
+      expect(foliageCardMat.alphaTest).toBeGreaterThan(0);
+      expect(foliageCardMat.transparent).toBe(false);
+      expect(foliageCardMat.side).toBe(THREE.DoubleSide);
+      expect(foliageCardMat.customProgramCacheKey()).toBe('TreeFoliageCardWindShader');
+      expect(foliageCardDepthMat.alphaTest).toBeGreaterThan(0);
+      expect(foliageCardDepthMat.side).toBe(THREE.DoubleSide);
+
+      const cardTex = getTreePartTexture('foliage_cards');
+      const pixels = cardTex.image.data as Uint8Array;
+      let transparentPixels = 0;
+      let opaquePixels = 0;
+      for (let i = 3; i < pixels.length; i += 4) {
+        if (pixels[i] === 0) transparentPixels++;
+        else if (pixels[i] === 255) opaquePixels++;
+      }
+      expect(transparentPixels).toBeGreaterThan(1000);
+      expect(opaquePixels).toBeGreaterThan(1000);
+
+      for (const variant of ['card_pine', 'card_oak', 'card_birch', 'card_willow', 'card_maple'] as const) {
+        const tree = buildLowPolyForestTreeMesh(variant);
+        let hasTrunk = false;
+        let hasCardFoliage = false;
+        tree.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            if (child.name === 'Trunk') hasTrunk = true;
+            if (child.name.startsWith('Foliage_Card')) {
+              hasCardFoliage = true;
+              expect(child.material).toBe(foliageCardMat);
+              expect(child.customDepthMaterial).toBe(foliageCardDepthMat);
+              expect(child.geometry.getAttribute('uv')).toBeDefined();
+              expect(child.geometry.getAttribute('color')).toBeDefined();
+            }
+          }
+        });
+        expect(hasTrunk).toBe(true);
+        expect(hasCardFoliage).toBe(true);
+      }
+    });
+
+    it('should toggle between 5 low-poly mesh trees (Simple trees: false) and 5 alpha-card trees (Simple trees: true) on HexBoard3D', () => {
       const hexMap = new HexMap(6, 6);
       const board = new HexBoard3D(hexMap, {
         getTerrain: (x, y) =>
@@ -4160,23 +4229,52 @@ describe('3D Graphics Engine & Rendering Systems', () => {
             : TerrainType.PLAIN,
       });
 
+      expect(board.isSimpleTreesEnabled()).toBe(false);
       expect(board.blowingLeavesSystem).toBeDefined();
       expect(board.group.children.includes(board.blowingLeavesSystem.group)).toBe(true);
 
-      // Inspect forest trees on hexes
+      // Inspect forest trees on hexes (default: simpleTrees = false -> 5 low-poly mesh variants)
       const trees11 = board.getForestTreesForHex(1, 1);
       expect(trees11.length).toBeGreaterThanOrEqual(3);
 
-      const variantsFound = new Set<string>();
-      for (let x = 0; x < 6; x++) {
-        for (let y = 0; y < 6; y++) {
-          const trees = board.getForestTreesForHex(x, y);
-          trees.forEach((t) => {
-            if (t.userData?.treeVariant) variantsFound.add(t.userData.treeVariant);
-          });
+      const collectVariants = () => {
+        const found = new Set<string>();
+        for (let x = 0; x < 6; x++) {
+          for (let y = 0; y < 6; y++) {
+            const trees = board.getForestTreesForHex(x, y);
+            trees.forEach((t) => {
+              if (t.userData?.treeVariant) found.add(t.userData.treeVariant);
+            });
+          }
         }
-      }
-      expect(variantsFound.size).toBeGreaterThanOrEqual(3);
+        return found;
+      };
+
+      const lowPolyVariants = collectVariants();
+      expect(lowPolyVariants.size).toBe(9);
+      expect(lowPolyVariants.has('pine')).toBe(true);
+      expect(lowPolyVariants.has('pine_2')).toBe(true);
+      expect(lowPolyVariants.has('pine_3')).toBe(true);
+      expect(lowPolyVariants.has('pine_4')).toBe(true);
+      expect(lowPolyVariants.has('pine_5')).toBe(true);
+      expect(lowPolyVariants.has('oak')).toBe(true);
+      expect(lowPolyVariants.has('birch')).toBe(true);
+      expect(lowPolyVariants.has('willow')).toBe(true);
+      expect(lowPolyVariants.has('maple')).toBe(true);
+      expect(lowPolyVariants.has('card_pine')).toBe(false);
+
+      // Enable Simple trees -> switches to all 5 alpha-card tree variants
+      board.setSimpleTreesEnabled(true);
+      expect(board.isSimpleTreesEnabled()).toBe(true);
+      const cardVariants = collectVariants();
+      expect(cardVariants.size).toBe(5);
+      expect(cardVariants.has('card_pine')).toBe(true);
+      expect(cardVariants.has('card_oak')).toBe(true);
+      expect(cardVariants.has('card_birch')).toBe(true);
+      expect(cardVariants.has('card_willow')).toBe(true);
+      expect(cardVariants.has('card_maple')).toBe(true);
+      expect(cardVariants.has('pine')).toBe(false);
+      expect(cardVariants.has('oak')).toBe(false);
 
       // Change wind state updates both trees and leaves
       const windAngle = Math.PI * 0.75;
@@ -4336,10 +4434,11 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       armorMat.dispose();
     });
 
-    it('should default unitRimLighting and tiltShift to true in BattleSettings and wire menu toggles', () => {
+    it('should default unitRimLighting and tiltShift to true and simpleTrees to false in BattleSettings and wire menu toggles', () => {
       const settings = new BattleSettings();
       expect(settings.unitRimLighting).toBe(true);
       expect(settings.tiltShift).toBe(true);
+      expect(settings.simpleTrees).toBe(false);
 
       const container = document.createElement('div');
       document.body.appendChild(container);
@@ -4419,6 +4518,101 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(squad.isOverheadStatusVisible()).toBe(true);
 
       squad.dispose();
+    });
+
+    it('should build 5 star-pyramid pine tree variations (4-6 open-bottom tiers, 5-7 point stars, petrol-green) and use them on forest hexes and forest environment', () => {
+      const pineVariants = ['pine', 'pine_2', 'pine_3', 'pine_4', 'pine_5'] as const;
+      // Expected foliage-only triangle counts: 2 * starPoints * numTiers (no base cap)
+      const expectedFoliageTris: Record<(typeof pineVariants)[number], number> = {
+        pine: 2 * 6 * 5,   // 60
+        pine_2: 2 * 5 * 6, // 60
+        pine_3: 2 * 7 * 4, // 56
+        pine_4: 2 * 7 * 5, // 70
+        pine_5: 2 * 6 * 6, // 72
+      };
+
+      for (const variant of pineVariants) {
+        const tree = buildLowPolyForestTreeMesh(variant);
+        const foliageMesh = tree.getObjectByName('Foliage_Pine') as THREE.Mesh;
+        expect(foliageMesh).toBeDefined();
+
+        const index = foliageMesh.geometry.getIndex();
+        const pos = foliageMesh.geometry.getAttribute('position');
+        const triCount = index ? index.count / 3 : pos.count / 3;
+        expect(triCount).toBe(expectedFoliageTris[variant]);
+
+        // Verify petrol-green vertex color palette (green dominant, blue >= red)
+        const col = foliageMesh.geometry.getAttribute('color');
+        expect(col).toBeDefined();
+        let totalR = 0;
+        let totalG = 0;
+        let totalB = 0;
+        for (let i = 0; i < col.count; i++) {
+          totalR += col.getX(i);
+          totalG += col.getY(i);
+          totalB += col.getZ(i);
+        }
+        expect(totalG).toBeGreaterThan(totalR);
+        expect(totalB).toBeGreaterThanOrEqual(totalR);
+      }
+
+      // Verify forest environment outer decorations use all 5 pine variations
+      const hexMap = new HexMap(6, 6);
+      const board = new HexBoard3D(hexMap, {
+        majorTerrainType: BattleLocationType.FOREST,
+        getTerrain: () => TerrainType.FOREST,
+      });
+
+      const outerVariants = new Set<string>();
+      board.outerDecorationsGroup.children.forEach((child) => {
+        if (child.userData?.decorationType === 'forest_tree' && child.userData?.treeVariant) {
+          outerVariants.add(child.userData.treeVariant);
+        }
+      });
+      for (const variant of pineVariants) {
+        expect(outerVariants.has(variant)).toBe(true);
+      }
+      board.dispose();
+    });
+
+    it('should equip Swordsman with a DoubleSide kite shield visible from any camera angle (procedural and GLB)', () => {
+      const swordsman = buildArticulatedUnit3DMesh(CreatureType.SWORDSMAN, 0, false);
+      const shieldMesh = swordsman.getObjectByName('Shield') as THREE.Mesh;
+      expect(shieldMesh).toBeDefined();
+      expect((shieldMesh.material as THREE.MeshStandardMaterial).side).toBe(THREE.DoubleSide);
+
+      shieldMesh.geometry.computeBoundingBox();
+      const bbox = shieldMesh.geometry.boundingBox!;
+      const height = bbox.max.y - bbox.min.y;
+      const spanX = bbox.max.x - bbox.min.x;
+      const spanZ = bbox.max.z - bbox.min.z;
+      const center = new THREE.Vector3();
+      bbox.getCenter(center);
+      // Kite shield attached at Arm_L_Hand (y ~ -0.26), rotated 45° (spans both X and Z) and leaning forward
+      expect(height).toBeGreaterThan(0.55);
+      expect(spanX).toBeGreaterThan(0.20);
+      expect(spanZ).toBeGreaterThan(0.20);
+      expect(center.y).toBeCloseTo(-0.30, 1);
+
+      // Verify GLB instantiation also replaces Swordsman shield with DoubleSide kite shield
+      const mockGlb = new THREE.Group();
+      const torso = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.4, 0.2));
+      torso.name = 'Torso';
+      const armL = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 0.1));
+      armL.name = 'Arm_L';
+      const oldShield = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.4));
+      oldShield.name = 'Shield';
+      armL.add(oldShield);
+      torso.add(armL);
+      mockGlb.add(torso);
+
+      const glbSwordsman = instantiateGlbUnitTemplate(mockGlb, 'swordsman', 0, false);
+      const glbShield = glbSwordsman.getObjectByName('Shield') as THREE.Mesh;
+      expect(glbShield).toBeDefined();
+      expect((glbShield.material as THREE.MeshStandardMaterial).side).toBe(THREE.DoubleSide);
+      glbShield.geometry.computeBoundingBox();
+      const glbBox = glbShield.geometry.boundingBox!;
+      expect(glbBox.max.y - glbBox.min.y).toBeGreaterThan(0.55);
     });
   });
 });

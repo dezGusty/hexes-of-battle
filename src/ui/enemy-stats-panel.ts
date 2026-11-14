@@ -256,7 +256,7 @@ export class EnemyStatsPanel {
     this.stats = creature.live_stats;
     this.buffs = creature.buffs;
     this.abilities = creature.abilities ? [...creature.abilities] : [];
-    this.creatureType = Creature.CREATURE_NAMES[creature.creatureType] || 'Unknown';
+    this.creatureType = creature.displayName || Creature.CREATURE_NAMES[creature.creatureType] || 'Unknown';
     if (creature.combatConfig?.morale?.breakpoints) {
       this.statDescriptions[DisplayedStat.MORALE] = getMoraleTooltip(creature.combatConfig.morale.breakpoints);
     }

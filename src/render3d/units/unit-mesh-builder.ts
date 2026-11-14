@@ -874,8 +874,9 @@ function getUnitLimbMaterial(
         case 'Head':
           return getHumanoidPartMaterial('swordsman_helmet', 0.38, 0.78);
         case 'Weapon':
-        case 'Shield':
           return getHumanoidPartMaterial('swordsman_gear', 0.42, 0.72);
+        case 'Shield':
+          return getHumanoidPartMaterial('swordsman_gear', 0.42, 0.72, THREE.DoubleSide);
         case 'Torso':
         case 'Arm_L':
         case 'Arm_R':
@@ -1265,6 +1266,60 @@ function cloneCompactedUnitTemplate(template: THREE.Mesh): THREE.Mesh {
   return cloned;
 }
 
+function transformSwordsmanKiteShieldGeometry(geo: THREE.BufferGeometry): THREE.BufferGeometry {
+  // Lean forward (~12.5 deg) in shield-local space, rotate 45 deg outward (front-left), attach at Arm_L_Hand
+  geo.rotateZ(-0.22);
+  geo.rotateY(Math.PI * 0.25);
+  geo.translate(0.08, -0.26, -0.06);
+  return geo;
+}
+
+/**
+ * Builds a medieval kite shield BufferGeometry (broad rounded top arch tapering to a pointed tip)
+ * attached to Arm_L_Hand, rotated 45 degrees and leaning slightly forward, with front/back/bevelled edges.
+ */
+function createKiteShieldGeometry(): THREE.BufferGeometry {
+  const shape = new THREE.Shape();
+  shape.moveTo(0, -0.34);
+  shape.quadraticCurveTo(0.135, -0.04, 0.15, 0.14);
+  shape.quadraticCurveTo(0.13, 0.23, 0, 0.25);
+  shape.quadraticCurveTo(-0.13, 0.23, -0.15, 0.14);
+  shape.quadraticCurveTo(-0.135, -0.04, 0, -0.34);
+
+  const geo = new THREE.ExtrudeGeometry(shape, {
+    depth: 0.036,
+    bevelEnabled: true,
+    bevelThickness: 0.008,
+    bevelSize: 0.008,
+    bevelSegments: 1,
+    curveSegments: 6,
+  });
+  geo.translate(0, 0, -0.018);
+  geo.rotateY(Math.PI * 0.5);
+  transformSwordsmanKiteShieldGeometry(geo);
+  smoothGeometryNormals(geo);
+  return geo;
+}
+
+function buildSwordsmanKiteShieldMesh(
+  matTeam: THREE.MeshStandardMaterial,
+  matBrass: THREE.MeshStandardMaterial
+): THREE.Mesh {
+  const shieldMat = matTeam.clone();
+  shieldMat.side = THREE.DoubleSide;
+  const shieldMesh = new THREE.Mesh(createKiteShieldGeometry(), shieldMat);
+  shieldMesh.name = 'Shield';
+
+  const bossGeo = new THREE.SphereGeometry(0.052, 14, 10);
+  bossGeo.translate(0.025, 0.08, 0);
+  transformSwordsmanKiteShieldGeometry(bossGeo);
+  const bossMesh = new THREE.Mesh(bossGeo, matBrass);
+  bossMesh.name = 'Shield_Boss';
+  shieldMesh.add(bossMesh);
+
+  return shieldMesh;
+}
+
 /**
  * Clones a loaded Blender GLB scene hierarchy, applies faction team colors,
  * compacts decorative sub-parts into the articulated limbs, and caches the result.
@@ -1365,6 +1420,23 @@ export function instantiateGlbUnitTemplate(
     rootMesh = new THREE.Mesh(wrapperGeo, makeMat(teamHex));
     rootMesh.name = unitKey === 'armored_knight' ? 'Root' : 'Torso';
     rootMesh.add(cloned);
+  }
+
+  if (unitKey === 'swordsman') {
+    const shieldNode = rootMesh.getObjectByName('Shield');
+    if (shieldNode && (shieldNode as THREE.Mesh).isMesh) {
+      const shieldMesh = shieldNode as THREE.Mesh;
+      shieldMesh.clear();
+      shieldMesh.position.set(0, 0, 0);
+      shieldMesh.rotation.set(0, 0, 0);
+      shieldMesh.scale.set(1, 1, 1);
+      const kiteShield = buildSwordsmanKiteShieldMesh(makeMat(teamHex), makeMat(0xc8a44d, 0.35, 0.85));
+      shieldMesh.geometry = kiteShield.geometry;
+      shieldMesh.material = kiteShield.material;
+      for (const child of [...kiteShield.children]) {
+        shieldMesh.add(child);
+      }
+    }
   }
 
   compactArticulatedUnitHierarchy(rootMesh, unitKey);
@@ -2009,15 +2081,8 @@ export function buildArticulatedUnit3DMesh(
       fauldMesh.name = 'Faulds';
       torsoMesh.add(fauldMesh);
 
-      // Heater Shield on Arm_L
-      const shieldGeo = new THREE.BoxGeometry(0.045, 0.42, 0.32);
-      shieldGeo.translate(0.10, -0.18, -0.09);
-      const shieldMesh = new THREE.Mesh(shieldGeo, matTeam);
-      shieldMesh.name = 'Shield';
-      const bossGeo = new THREE.SphereGeometry(0.058, 16, 12);
-      bossGeo.translate(0.125, -0.16, -0.09);
-      shieldMesh.add(new THREE.Mesh(bossGeo, matBrass));
-      armL.add(shieldMesh);
+      // Kite Shield on Arm_L (solid extruded kite profile + DoubleSide to prevent backface culling)
+      armL.add(buildSwordsmanKiteShieldMesh(matTeam, matBrass));
 
       // Steel Arming Sword in Arm_R
       const bladeGeo = new THREE.ConeGeometry(0.035, 0.72, 8);
@@ -2435,7 +2500,21 @@ export function buildArticulatedUnit3DMesh(
   return cloneCompactedUnitTemplate(torsoMesh);
 }
 
-export type ForestTreeVariant = 'pine' | 'oak' | 'birch' | 'willow' | 'maple';
+export type ForestTreeVariant =
+  | 'pine'
+  | 'pine_2'
+  | 'pine_3'
+  | 'pine_4'
+  | 'pine_5'
+  | 'oak'
+  | 'birch'
+  | 'willow'
+  | 'maple'
+  | 'card_pine'
+  | 'card_oak'
+  | 'card_birch'
+  | 'card_willow'
+  | 'card_maple';
 
 export interface TreeWindUniforms {
   uWindTime: { value: number };
@@ -2463,11 +2542,60 @@ export function updateTreeWindState(
 
 let sharedTreeTrunkMaterial: THREE.MeshStandardMaterial | null = null;
 let sharedTreeFoliageMaterial: THREE.MeshStandardMaterial | null = null;
+let sharedTreeFoliageCardMaterial: THREE.MeshStandardMaterial | null = null;
+let sharedTreeFoliageCardDepthMaterial: THREE.MeshDepthMaterial | null = null;
 const forestTreeTemplateCache: Map<ForestTreeVariant, THREE.Group> = new Map();
+
+function injectFoliageWindShader(material: THREE.Material, cacheKey: string): void {
+  material.customProgramCacheKey = () => cacheKey;
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uWindTime = sharedTreeWindUniforms.uWindTime;
+    shader.uniforms.uWindDir = sharedTreeWindUniforms.uWindDir;
+    shader.uniforms.uWindStrength = sharedTreeWindUniforms.uWindStrength;
+
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <common>',
+      `#include <common>
+uniform float uWindTime;
+uniform vec2 uWindDir;
+uniform float uWindStrength;
+`
+    );
+
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <begin_vertex>',
+      `#include <begin_vertex>
+float heightFactor = clamp(position.y / 0.90, 0.0, 1.0);
+float bendFactor = heightFactor * heightFactor;
+
+vec4 worldPos = modelMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+float treePhase = worldPos.x * 1.4 + worldPos.z * 1.1;
+
+// Branch & canopy sway (speed reduced to 50%)
+float swayCycle = sin(uWindTime * (1.1 + uWindStrength * 0.5) + treePhase);
+float gustCycle = sin(uWindTime * 0.6 + worldPos.x * 0.4 + worldPos.z * 0.4);
+float swayAmt = (0.04 + 0.05 * uWindStrength) * bendFactor * (0.65 + 0.35 * swayCycle) + (0.025 * uWindStrength * gustCycle * bendFactor);
+
+// High-frequency leaves rustling:
+// Speed reduced to 50% of previous value (4.25 + 2.25 * strength vs 8.5 + 4.5 * strength)
+float rustleFreq = uWindTime * (4.25 + uWindStrength * 2.25);
+float rustle = sin(rustleFreq + position.x * 14.0 + position.z * 12.0) * cos(rustleFreq * 0.75 + position.y * 13.0);
+// Intensity reduced to 25% of previous value (0.0035 + 0.0045 * strength vs 0.014 + 0.018 * strength)
+float rustleAmt = rustle * (0.0035 + 0.0045 * uWindStrength) * heightFactor;
+
+transformed.x += (uWindDir.x * swayAmt) + rustleAmt * (0.8 + uWindDir.x * 0.4);
+transformed.z += (uWindDir.y * swayAmt) + rustleAmt * (0.8 + uWindDir.y * 0.4);
+transformed.y += rustleAmt * 0.35 - abs(swayAmt) * 0.20;
+`
+    );
+  };
+}
 
 export function getSharedTreeMaterials(): {
   trunkMat: THREE.MeshStandardMaterial;
   foliageMat: THREE.MeshStandardMaterial;
+  foliageCardMat: THREE.MeshStandardMaterial;
+  foliageCardDepthMat: THREE.MeshDepthMaterial;
 } {
   if (!sharedTreeTrunkMaterial) {
     sharedTreeTrunkMaterial = new THREE.MeshStandardMaterial({
@@ -2529,55 +2657,251 @@ transformed.y -= abs(swayAmt) * 0.15;
       transparent: false,
     });
     sharedTreeFoliageMaterial.userData = { isSharedAsset: true, treePart: 'foliage' };
-    sharedTreeFoliageMaterial.customProgramCacheKey = () => 'TreeFoliageWindShader';
-
-    sharedTreeFoliageMaterial.onBeforeCompile = (shader) => {
-      shader.uniforms.uWindTime = sharedTreeWindUniforms.uWindTime;
-      shader.uniforms.uWindDir = sharedTreeWindUniforms.uWindDir;
-      shader.uniforms.uWindStrength = sharedTreeWindUniforms.uWindStrength;
-
-      shader.vertexShader = shader.vertexShader.replace(
-        '#include <common>',
-        `#include <common>
-uniform float uWindTime;
-uniform vec2 uWindDir;
-uniform float uWindStrength;
-`
-      );
-
-      shader.vertexShader = shader.vertexShader.replace(
-        '#include <begin_vertex>',
-        `#include <begin_vertex>
-float heightFactor = clamp(position.y / 0.90, 0.0, 1.0);
-float bendFactor = heightFactor * heightFactor;
-
-vec4 worldPos = modelMatrix * vec4(0.0, 0.0, 0.0, 1.0);
-float treePhase = worldPos.x * 1.4 + worldPos.z * 1.1;
-
-// Branch & canopy sway (speed reduced to 50%)
-float swayCycle = sin(uWindTime * (1.1 + uWindStrength * 0.5) + treePhase);
-float gustCycle = sin(uWindTime * 0.6 + worldPos.x * 0.4 + worldPos.z * 0.4);
-float swayAmt = (0.04 + 0.05 * uWindStrength) * bendFactor * (0.65 + 0.35 * swayCycle) + (0.025 * uWindStrength * gustCycle * bendFactor);
-
-// High-frequency leaves rustling:
-// Speed reduced to 50% of previous value (4.25 + 2.25 * strength vs 8.5 + 4.5 * strength)
-float rustleFreq = uWindTime * (4.25 + uWindStrength * 2.25);
-float rustle = sin(rustleFreq + position.x * 14.0 + position.z * 12.0) * cos(rustleFreq * 0.75 + position.y * 13.0);
-// Intensity reduced to 25% of previous value (0.0035 + 0.0045 * strength vs 0.014 + 0.018 * strength)
-float rustleAmt = rustle * (0.0035 + 0.0045 * uWindStrength) * heightFactor;
-
-transformed.x += (uWindDir.x * swayAmt) + rustleAmt * (0.8 + uWindDir.x * 0.4);
-transformed.z += (uWindDir.y * swayAmt) + rustleAmt * (0.8 + uWindDir.y * 0.4);
-transformed.y += rustleAmt * 0.35 - abs(swayAmt) * 0.20;
-`
-      );
-    };
+    injectFoliageWindShader(sharedTreeFoliageMaterial, 'TreeFoliageWindShader');
   }
-  return { trunkMat: sharedTreeTrunkMaterial, foliageMat: sharedTreeFoliageMaterial };
+  if (!sharedTreeFoliageCardMaterial) {
+    sharedTreeFoliageCardMaterial = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      map: getTreePartTexture('foliage_cards'),
+      vertexColors: true,
+      alphaTest: 0.45,
+      transparent: false,
+      side: THREE.DoubleSide,
+      roughness: 0.85,
+      metalness: 0.0,
+      flatShading: false,
+    });
+    sharedTreeFoliageCardMaterial.userData = { isSharedAsset: true, treePart: 'foliage_cards' };
+    injectFoliageWindShader(sharedTreeFoliageCardMaterial, 'TreeFoliageCardWindShader');
+  }
+  if (!sharedTreeFoliageCardDepthMaterial) {
+    sharedTreeFoliageCardDepthMaterial = new THREE.MeshDepthMaterial({
+      depthPacking: THREE.RGBADepthPacking,
+      map: getTreePartTexture('foliage_cards'),
+      alphaTest: 0.45,
+      side: THREE.DoubleSide,
+    });
+    sharedTreeFoliageCardDepthMaterial.userData = { isSharedAsset: true, treePart: 'foliage_cards_depth' };
+    injectFoliageWindShader(sharedTreeFoliageCardDepthMaterial, 'TreeFoliageCardDepthWindShader');
+  }
+  return {
+    trunkMat: sharedTreeTrunkMaterial,
+    foliageMat: sharedTreeFoliageMaterial,
+    foliageCardMat: sharedTreeFoliageCardMaterial,
+    foliageCardDepthMat: sharedTreeFoliageCardDepthMaterial,
+  };
+}
+
+type FoliageCardAtlasQuadrant = 'broadleaf' | 'pine' | 'birch' | 'willow';
+
+interface FoliageCardSpec {
+  x: number;
+  y: number;
+  z: number;
+  w: number;
+  h: number;
+  rotX?: number;
+  rotY?: number;
+  rotZ?: number;
+  color: number;
 }
 
 /**
- * Builds a low-poly 3D forest tree (pine, oak, birch, willow, or maple) with total height ~0.90 world units
+ * Builds a merged, vertex-colored BufferGeometry of crossed/layered alpha-tested foliage cards
+ * mapped to the specified quadrant of `tree_foliage_cards.png`.
+ */
+function buildFoliageCardGeometry(
+  quadrant: FoliageCardAtlasQuadrant,
+  cards: FoliageCardSpec[]
+): THREE.BufferGeometry {
+  // UV bounds with a slight inset to avoid bleeding across atlas quadrants
+  let u0 = 0.01;
+  let u1 = 0.49;
+  let v0 = 0.01;
+  let v1 = 0.49;
+  if (quadrant === 'pine') {
+    u0 = 0.51;
+    u1 = 0.99;
+    v0 = 0.01;
+    v1 = 0.49;
+  } else if (quadrant === 'birch') {
+    u0 = 0.01;
+    u1 = 0.49;
+    v0 = 0.51;
+    v1 = 0.99;
+  } else if (quadrant === 'willow') {
+    u0 = 0.51;
+    u1 = 0.99;
+    v0 = 0.51;
+    v1 = 0.99;
+  }
+
+  const identityMat = new THREE.Matrix4().identity();
+  const items: Array<{ mesh: THREE.Mesh; relMatrix: THREE.Matrix4 }> = [];
+
+  for (const c of cards) {
+    // 2x2 segments allow smooth wind bending & leaf rustle across the card surface
+    const geo = new THREE.PlaneGeometry(c.w, c.h, 2, 2);
+    const uvAttr = geo.getAttribute('uv');
+    for (let i = 0; i < uvAttr.count; i++) {
+      const u = uvAttr.getX(i);
+      const v = uvAttr.getY(i);
+      uvAttr.setXY(i, u0 + u * (u1 - u0), v0 + v * (v1 - v0));
+    }
+    if (c.rotX) geo.rotateX(c.rotX);
+    if (c.rotZ) geo.rotateZ(c.rotZ);
+    if (c.rotY) geo.rotateY(c.rotY);
+    geo.translate(c.x, c.y, c.z);
+    items.push({ mesh: new THREE.Mesh(geo, makeMat(c.color, 0.85, 0.0)), relMatrix: identityMat });
+  }
+
+  return mergeMeshesWithVertexColors(items);
+}
+
+const TREE_VARIANT_NAMES: Record<ForestTreeVariant, string> = {
+  pine: 'ForestTree_Pine',
+  pine_2: 'ForestTree_Pine2',
+  pine_3: 'ForestTree_Pine3',
+  pine_4: 'ForestTree_Pine4',
+  pine_5: 'ForestTree_Pine5',
+  oak: 'ForestTree_Oak',
+  birch: 'ForestTree_Birch',
+  willow: 'ForestTree_Willow',
+  maple: 'ForestTree_Maple',
+  card_pine: 'ForestTree_CardPine',
+  card_oak: 'ForestTree_CardOak',
+  card_birch: 'ForestTree_CardBirch',
+  card_willow: 'ForestTree_CardWillow',
+  card_maple: 'ForestTree_CardMaple',
+};
+
+interface StarPyramidTierSpec {
+  y: number;
+  outerRadius: number;
+  height: number;
+  rotY: number;
+  color: number;
+}
+
+interface PineVariantConfig {
+  trunkTopRadius: number;
+  trunkBottomRadius: number;
+  trunkHeight: number;
+  starPoints: 5 | 6 | 7;
+  innerRatio: number;
+  tiers: StarPyramidTierSpec[];
+}
+
+const PINE_VARIANT_CONFIGS: Record<'pine' | 'pine_2' | 'pine_3' | 'pine_4' | 'pine_5', PineVariantConfig> = {
+  pine: {
+    trunkTopRadius: 0.036,
+    trunkBottomRadius: 0.060,
+    trunkHeight: 0.26,
+    starPoints: 6,
+    innerRatio: 0.54,
+    tiers: [
+      { y: 0.21, outerRadius: 0.270, height: 0.24, rotY: 0, color: 0x244a3f },
+      { y: 0.36, outerRadius: 0.225, height: 0.22, rotY: Math.PI / 6, color: 0x2c5749 },
+      { y: 0.50, outerRadius: 0.180, height: 0.20, rotY: 0, color: 0x356654 },
+      { y: 0.63, outerRadius: 0.135, height: 0.18, rotY: Math.PI / 6, color: 0x3f755f },
+      { y: 0.75, outerRadius: 0.088, height: 0.16, rotY: 0, color: 0x4a866c },
+    ],
+  },
+  pine_2: {
+    trunkTopRadius: 0.032,
+    trunkBottomRadius: 0.054,
+    trunkHeight: 0.25,
+    starPoints: 5,
+    innerRatio: 0.50,
+    tiers: [
+      { y: 0.20, outerRadius: 0.220, height: 0.21, rotY: 0, color: 0x264d42 },
+      { y: 0.33, outerRadius: 0.190, height: 0.19, rotY: Math.PI / 5, color: 0x2e5b4d },
+      { y: 0.45, outerRadius: 0.160, height: 0.18, rotY: (Math.PI * 2) / 5, color: 0x366957 },
+      { y: 0.57, outerRadius: 0.130, height: 0.17, rotY: Math.PI / 5, color: 0x3f7762 },
+      { y: 0.68, outerRadius: 0.098, height: 0.15, rotY: 0, color: 0x48856d },
+      { y: 0.79, outerRadius: 0.068, height: 0.14, rotY: Math.PI / 5, color: 0x529378 },
+    ],
+  },
+  pine_3: {
+    trunkTopRadius: 0.042,
+    trunkBottomRadius: 0.068,
+    trunkHeight: 0.26,
+    starPoints: 7,
+    innerRatio: 0.58,
+    tiers: [
+      { y: 0.21, outerRadius: 0.300, height: 0.27, rotY: 0, color: 0x2b5341 },
+      { y: 0.38, outerRadius: 0.240, height: 0.24, rotY: Math.PI / 7, color: 0x34624b },
+      { y: 0.53, outerRadius: 0.175, height: 0.21, rotY: 0, color: 0x3e7156 },
+      { y: 0.68, outerRadius: 0.110, height: 0.19, rotY: Math.PI / 7, color: 0x498162 },
+    ],
+  },
+  pine_4: {
+    trunkTopRadius: 0.036,
+    trunkBottomRadius: 0.058,
+    trunkHeight: 0.24,
+    starPoints: 7,
+    innerRatio: 0.46,
+    tiers: [
+      { y: 0.19, outerRadius: 0.260, height: 0.23, rotY: 0, color: 0x20443d },
+      { y: 0.34, outerRadius: 0.215, height: 0.21, rotY: 0.28, color: 0x285249 },
+      { y: 0.48, outerRadius: 0.170, height: 0.19, rotY: 0.56, color: 0x316155 },
+      { y: 0.61, outerRadius: 0.125, height: 0.18, rotY: 0.84, color: 0x3b7162 },
+      { y: 0.74, outerRadius: 0.080, height: 0.16, rotY: 1.12, color: 0x46816f },
+    ],
+  },
+  pine_5: {
+    trunkTopRadius: 0.038,
+    trunkBottomRadius: 0.062,
+    trunkHeight: 0.25,
+    starPoints: 6,
+    innerRatio: 0.52,
+    tiers: [
+      { y: 0.20, outerRadius: 0.255, height: 0.21, rotY: 0, color: 0x274f43 },
+      { y: 0.33, outerRadius: 0.215, height: 0.19, rotY: Math.PI / 6, color: 0x2f5d4e },
+      { y: 0.45, outerRadius: 0.175, height: 0.18, rotY: 0.25, color: 0x386c59 },
+      { y: 0.57, outerRadius: 0.140, height: 0.17, rotY: Math.PI / 6 + 0.25, color: 0x427b65 },
+      { y: 0.68, outerRadius: 0.105, height: 0.15, rotY: 0.5, color: 0x4c8a71 },
+      { y: 0.78, outerRadius: 0.072, height: 0.14, rotY: Math.PI / 6 + 0.5, color: 0x57997d },
+    ],
+  },
+};
+
+/**
+ * Builds an open-bottom star-based pyramid BufferGeometry (only side faces, no base cap).
+ * Used for stacked low-poly pine tree bough tiers.
+ */
+function createStarPyramidGeometry(
+  starPoints: 5 | 6 | 7,
+  outerRadius: number,
+  innerRadius: number,
+  height: number,
+  rotationY: number = 0
+): THREE.BufferGeometry {
+  const numPerimeter = starPoints * 2;
+  const perimeter: Array<[number, number, number]> = [];
+  for (let k = 0; k < numPerimeter; k++) {
+    const angle = (k / numPerimeter) * Math.PI * 2 + rotationY;
+    const r = k % 2 === 0 ? outerRadius : innerRadius;
+    perimeter.push([Math.cos(angle) * r, 0, Math.sin(angle) * r]);
+  }
+
+  const positions: number[] = [];
+  for (let k = 0; k < numPerimeter; k++) {
+    const curr = perimeter[k];
+    const next = perimeter[(k + 1) % numPerimeter];
+    // Outward-facing CCW winding: apex -> next -> curr
+    positions.push(0, height, 0, next[0], next[1], next[2], curr[0], curr[1], curr[2]);
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.computeVertexNormals();
+  applyTreeUVMapping(geo, 'pine_foliage');
+  return geo;
+}
+
+/**
+ * Builds a low-poly 3D forest tree (opaque low-poly or alpha-tested foliage cards) with total height ~0.90 world units
  * (75% of the 1.20 average humanoid unit height).
  * Compacts all foliage tiers/clusters into a single vertex-colored `Foliage` mesh
  * and caches the template per variant so all forest trees share geometries and materials.
@@ -2589,19 +2913,27 @@ export function buildLowPolyForestTreeMesh(
   let templateGroup = forestTreeTemplateCache.get(variant);
   if (!templateGroup) {
     templateGroup = new THREE.Group();
-    templateGroup.name =
-      variant === 'pine' ? 'ForestTree_Pine' :
-      variant === 'oak' ? 'ForestTree_Oak' :
-      variant === 'birch' ? 'ForestTree_Birch' :
-      variant === 'willow' ? 'ForestTree_Willow' : 'ForestTree_Maple';
+    templateGroup.name = TREE_VARIANT_NAMES[variant];
 
-    const { trunkMat, foliageMat } = getSharedTreeMaterials();
+    const { trunkMat, foliageMat, foliageCardMat, foliageCardDepthMat } = getSharedTreeMaterials();
     const identityMat = new THREE.Matrix4().identity();
 
-    if (variant === 'pine') {
-      const trunkGeo = new THREE.CylinderGeometry(0.042, 0.065, 0.28, 10);
+    if (
+      variant === 'pine' ||
+      variant === 'pine_2' ||
+      variant === 'pine_3' ||
+      variant === 'pine_4' ||
+      variant === 'pine_5'
+    ) {
+      const cfg = PINE_VARIANT_CONFIGS[variant];
+      const trunkGeo = new THREE.CylinderGeometry(
+        cfg.trunkTopRadius,
+        cfg.trunkBottomRadius,
+        cfg.trunkHeight,
+        10
+      );
       applyTreeUVMapping(trunkGeo, 'trunk');
-      trunkGeo.translate(0, 0.14, 0);
+      trunkGeo.translate(0, cfg.trunkHeight * 0.5, 0);
       smoothGeometryNormals(trunkGeo);
       trunkGeo.userData = { isSharedAsset: true };
       const trunkMesh = new THREE.Mesh(trunkGeo, trunkMat);
@@ -2610,25 +2942,23 @@ export function buildLowPolyForestTreeMesh(
       trunkMesh.receiveShadow = true;
       templateGroup.add(trunkMesh);
 
-      const pineDark = makeMat(0x2d8236, 0.86, 0.0);
-      const pineMid = makeMat(0x3fa548, 0.84, 0.0);
-      const pineLight = makeMat(0x58cb62, 0.82, 0.0);
+      const tierItems: Array<{ mesh: THREE.Mesh; relMatrix: THREE.Matrix4 }> = [];
+      for (const tier of cfg.tiers) {
+        const tierGeo = createStarPyramidGeometry(
+          cfg.starPoints,
+          tier.outerRadius,
+          tier.outerRadius * cfg.innerRatio,
+          tier.height,
+          tier.rotY
+        );
+        tierGeo.translate(0, tier.y, 0);
+        tierItems.push({
+          mesh: new THREE.Mesh(tierGeo, makeMat(tier.color, 0.85, 0.0)),
+          relMatrix: identityMat,
+        });
+      }
 
-      const tier1Geo = new THREE.ConeGeometry(0.26, 0.34, 12);
-      applyTreeUVMapping(tier1Geo, 'pine_foliage');
-      tier1Geo.translate(0, 0.40, 0);
-      const tier2Geo = new THREE.ConeGeometry(0.21, 0.30, 12);
-      applyTreeUVMapping(tier2Geo, 'pine_foliage');
-      tier2Geo.translate(0, 0.59, 0);
-      const tier3Geo = new THREE.ConeGeometry(0.15, 0.26, 12);
-      applyTreeUVMapping(tier3Geo, 'pine_foliage');
-      tier3Geo.translate(0, 0.77, 0);
-
-      const foliageGeo = mergeMeshesWithVertexColors([
-        { mesh: new THREE.Mesh(tier1Geo, pineDark), relMatrix: identityMat },
-        { mesh: new THREE.Mesh(tier2Geo, pineMid), relMatrix: identityMat },
-        { mesh: new THREE.Mesh(tier3Geo, pineLight), relMatrix: identityMat },
-      ]);
+      const foliageGeo = mergeMeshesWithVertexColors(tierItems);
       const foliageMesh = new THREE.Mesh(foliageGeo, foliageMat);
       foliageMesh.name = 'Foliage_Pine';
       foliageMesh.castShadow = true;
@@ -2822,7 +3152,7 @@ export function buildLowPolyForestTreeMesh(
       foliageMesh.castShadow = true;
       foliageMesh.receiveShadow = true;
       templateGroup.add(foliageMesh);
-    } else {
+    } else if (variant === 'maple') {
       // 1. Sturdy flared hardwood maple trunk
       const trunkGeo = new THREE.CylinderGeometry(0.046, 0.076, 0.32, 12, 2);
       trunkGeo.translate(0, 0.16, 0);
@@ -2892,12 +3222,300 @@ export function buildLowPolyForestTreeMesh(
       foliageMesh.castShadow = true;
       foliageMesh.receiveShadow = true;
       templateGroup.add(foliageMesh);
+    } else if (variant === 'card_pine') {
+      // Tapered conifer trunk visible between layered pine bough cards
+      const trunkGeo = new THREE.CylinderGeometry(0.012, 0.056, 0.78, 8);
+      applyTreeUVMapping(trunkGeo, 'trunk');
+      trunkGeo.translate(0, 0.39, 0);
+      smoothGeometryNormals(trunkGeo);
+      trunkGeo.userData = { isSharedAsset: true };
+      const trunkMesh = new THREE.Mesh(trunkGeo, trunkMat);
+      trunkMesh.name = 'Trunk';
+      trunkMesh.castShadow = true;
+      trunkMesh.receiveShadow = true;
+      templateGroup.add(trunkMesh);
+
+      const pineCards: FoliageCardSpec[] = [];
+      const tiers = [
+        { y: 0.30, w: 0.44, h: 0.24, tilt: 0.48, color: 0x244a3f },
+        { y: 0.44, w: 0.37, h: 0.22, tilt: 0.44, color: 0x2c5749 },
+        { y: 0.57, w: 0.30, h: 0.20, tilt: 0.40, color: 0x356654 },
+        { y: 0.69, w: 0.22, h: 0.18, tilt: 0.34, color: 0x3f755f },
+        { y: 0.80, w: 0.14, h: 0.15, tilt: 0.18, color: 0x4a866c },
+      ];
+      for (let ti = 0; ti < tiers.length; ti++) {
+        const t = tiers[ti];
+        const baseYaw = ti * 0.62;
+        // 3 crossed/angled cards per tier for full 360-degree silhouette
+        for (let ci = 0; ci < 3; ci++) {
+          pineCards.push({
+            x: 0,
+            y: t.y,
+            z: 0,
+            w: t.w,
+            h: t.h,
+            rotX: ci === 0 ? t.tilt : -t.tilt * 0.65,
+            rotY: baseYaw + (ci * Math.PI) / 3,
+            color: t.color,
+          });
+        }
+      }
+
+      const foliageGeo = buildFoliageCardGeometry('pine', pineCards);
+      const foliageMesh = new THREE.Mesh(foliageGeo, foliageCardMat);
+      foliageMesh.name = 'Foliage_CardPine';
+      foliageMesh.customDepthMaterial = foliageCardDepthMat;
+      foliageMesh.castShadow = true;
+      foliageMesh.receiveShadow = true;
+      templateGroup.add(foliageMesh);
+    } else if (variant === 'card_oak') {
+      // Sturdy oak trunk + 4 thick spreading branches
+      const trunkGeo = new THREE.CylinderGeometry(0.044, 0.072, 0.38, 10);
+      trunkGeo.translate(0, 0.19, 0);
+      smoothGeometryNormals(trunkGeo);
+      const oakBark = makeMat(0x5c422c, 0.92, 0.0);
+      const trunkItems: Array<{ mesh: THREE.Mesh; relMatrix: THREE.Matrix4 }> = [
+        { mesh: new THREE.Mesh(trunkGeo, oakBark), relMatrix: identityMat },
+      ];
+      for (const [angY, angZ, len] of [
+        [0.4, -0.58, 0.18],
+        [2.0, 0.54, 0.17],
+        [3.6, -0.52, 0.16],
+        [5.1, 0.50, 0.15],
+      ]) {
+        const limbGeo = new THREE.CylinderGeometry(0.016, 0.028, len, 6);
+        limbGeo.translate(0, len * 0.5, 0);
+        limbGeo.rotateZ(angZ);
+        limbGeo.rotateY(angY);
+        limbGeo.translate(0, 0.28, 0);
+        trunkItems.push({ mesh: new THREE.Mesh(limbGeo, oakBark), relMatrix: identityMat });
+      }
+      const mergedTrunkGeo = mergeMeshesWithVertexColors(trunkItems);
+      applyTreeUVMapping(mergedTrunkGeo, 'trunk');
+      mergedTrunkGeo.userData = { isSharedAsset: true };
+      const trunkMesh = new THREE.Mesh(mergedTrunkGeo, trunkMat);
+      trunkMesh.name = 'Trunk';
+      trunkMesh.castShadow = true;
+      trunkMesh.receiveShadow = true;
+      templateGroup.add(trunkMesh);
+
+      const oakCards: FoliageCardSpec[] = [];
+      const clusters = [
+        { x: 0.0, y: 0.62, z: 0.0, w: 0.40, h: 0.36, color: 0x4cb840 },
+        { x: 0.14, y: 0.52, z: 0.09, w: 0.30, h: 0.28, color: 0x3fa334 },
+        { x: -0.13, y: 0.54, z: -0.10, w: 0.30, h: 0.28, color: 0x58c74a },
+        { x: -0.08, y: 0.50, z: 0.13, w: 0.28, h: 0.26, color: 0x44ad38 },
+        { x: 0.04, y: 0.72, z: -0.05, w: 0.28, h: 0.26, color: 0x69d65a },
+      ];
+      for (let i = 0; i < clusters.length; i++) {
+        const cl = clusters[i];
+        const yaw = i * 0.72;
+        oakCards.push(
+          { x: cl.x, y: cl.y, z: cl.z, w: cl.w, h: cl.h, rotX: 0.18, rotY: yaw, color: cl.color },
+          { x: cl.x, y: cl.y, z: cl.z, w: cl.w, h: cl.h, rotX: -0.18, rotY: yaw + Math.PI * 0.5, color: cl.color }
+        );
+      }
+
+      const foliageGeo = buildFoliageCardGeometry('broadleaf', oakCards);
+      const foliageMesh = new THREE.Mesh(foliageGeo, foliageCardMat);
+      foliageMesh.name = 'Foliage_CardOak';
+      foliageMesh.customDepthMaterial = foliageCardDepthMat;
+      foliageMesh.castShadow = true;
+      foliageMesh.receiveShadow = true;
+      templateGroup.add(foliageMesh);
+    } else if (variant === 'card_birch') {
+      // Slender curved white-barked trunk + 3 ascending limbs
+      const trunkGeo = new THREE.CylinderGeometry(0.020, 0.036, 0.48, 10, 3);
+      const pos = trunkGeo.getAttribute('position');
+      for (let i = 0; i < pos.count; i++) {
+        const y = pos.getY(i);
+        const ny = Math.max(0, y) / 0.48;
+        pos.setX(i, pos.getX(i) + Math.sin(ny * Math.PI) * 0.018);
+      }
+      trunkGeo.computeVertexNormals();
+      trunkGeo.translate(0, 0.24, 0);
+
+      const birchBark = makeMat(0xf0ede6, 0.90, 0.0);
+      const trunkItems: Array<{ mesh: THREE.Mesh; relMatrix: THREE.Matrix4 }> = [
+        { mesh: new THREE.Mesh(trunkGeo, birchBark), relMatrix: identityMat },
+      ];
+      for (const limb of [
+        { y: 0.30, len: 0.16, angleZ: -0.42, angleY: 0.5 },
+        { y: 0.38, len: 0.15, angleZ: 0.45, angleY: 2.5 },
+        { y: 0.44, len: 0.13, angleZ: -0.38, angleY: -1.8 },
+      ]) {
+        const limbGeo = new THREE.CylinderGeometry(0.008, 0.015, limb.len, 6);
+        limbGeo.translate(0, limb.len * 0.5, 0);
+        limbGeo.rotateZ(limb.angleZ);
+        limbGeo.rotateY(limb.angleY);
+        limbGeo.translate(0, limb.y, 0);
+        trunkItems.push({ mesh: new THREE.Mesh(limbGeo, birchBark), relMatrix: identityMat });
+      }
+      const mergedTrunkGeo = mergeMeshesWithVertexColors(trunkItems);
+      applyTreeUVMapping(mergedTrunkGeo, 'trunk');
+      mergedTrunkGeo.userData = { isSharedAsset: true };
+      const trunkMesh = new THREE.Mesh(mergedTrunkGeo, trunkMat);
+      trunkMesh.name = 'Trunk';
+      trunkMesh.castShadow = true;
+      trunkMesh.receiveShadow = true;
+      templateGroup.add(trunkMesh);
+
+      const birchCards: FoliageCardSpec[] = [];
+      const clusters = [
+        { x: 0.01, y: 0.70, z: 0.0, w: 0.30, h: 0.34, color: 0xebd038 },
+        { x: 0.10, y: 0.52, z: 0.06, w: 0.24, h: 0.26, color: 0xa4cc3a },
+        { x: -0.09, y: 0.56, z: 0.07, w: 0.23, h: 0.25, color: 0xe3ac2a },
+        { x: 0.02, y: 0.60, z: -0.09, w: 0.23, h: 0.25, color: 0xdc8d26 },
+      ];
+      for (let i = 0; i < clusters.length; i++) {
+        const cl = clusters[i];
+        const yaw = i * 0.85;
+        birchCards.push(
+          { x: cl.x, y: cl.y, z: cl.z, w: cl.w, h: cl.h, rotX: 0.12, rotY: yaw, color: cl.color },
+          { x: cl.x, y: cl.y, z: cl.z, w: cl.w, h: cl.h, rotX: -0.12, rotY: yaw + Math.PI * 0.5, color: cl.color }
+        );
+      }
+
+      const foliageGeo = buildFoliageCardGeometry('birch', birchCards);
+      const foliageMesh = new THREE.Mesh(foliageGeo, foliageCardMat);
+      foliageMesh.name = 'Foliage_CardBirch';
+      foliageMesh.customDepthMaterial = foliageCardDepthMat;
+      foliageMesh.castShadow = true;
+      foliageMesh.receiveShadow = true;
+      templateGroup.add(foliageMesh);
+    } else if (variant === 'card_willow') {
+      // Gnarled curved trunk + 4 arching limbs
+      const trunkGeo = new THREE.CylinderGeometry(0.048, 0.080, 0.38, 12, 3);
+      const pos = trunkGeo.getAttribute('position');
+      for (let i = 0; i < pos.count; i++) {
+        const y = pos.getY(i);
+        const ny = Math.max(0, y) / 0.38;
+        pos.setX(i, pos.getX(i) + Math.sin(ny * Math.PI * 0.8) * 0.022);
+        pos.setZ(i, pos.getZ(i) + Math.cos(ny * Math.PI * 0.8) * 0.016);
+      }
+      trunkGeo.computeVertexNormals();
+      trunkGeo.translate(0, 0.19, 0);
+
+      const willowBark = makeMat(0x564230, 0.92, 0.0);
+      const trunkItems: Array<{ mesh: THREE.Mesh; relMatrix: THREE.Matrix4 }> = [
+        { mesh: new THREE.Mesh(trunkGeo, willowBark), relMatrix: identityMat },
+      ];
+      for (const ang of [0, Math.PI * 0.5, Math.PI, Math.PI * 1.5]) {
+        const limbGeo = new THREE.CylinderGeometry(0.016, 0.026, 0.19, 8);
+        limbGeo.translate(0, 0.095, 0);
+        limbGeo.rotateZ(0.68);
+        limbGeo.rotateY(ang);
+        limbGeo.translate(0, 0.29, 0);
+        trunkItems.push({ mesh: new THREE.Mesh(limbGeo, willowBark), relMatrix: identityMat });
+      }
+      const mergedTrunkGeo = mergeMeshesWithVertexColors(trunkItems);
+      applyTreeUVMapping(mergedTrunkGeo, 'trunk');
+      mergedTrunkGeo.userData = { isSharedAsset: true };
+      const trunkMesh = new THREE.Mesh(mergedTrunkGeo, trunkMat);
+      trunkMesh.name = 'Trunk';
+      trunkMesh.castShadow = true;
+      trunkMesh.receiveShadow = true;
+      templateGroup.add(trunkMesh);
+
+      // Hanging curtain cards draped around the arching limbs
+      const willowCards: FoliageCardSpec[] = [
+        { x: 0, y: 0.58, z: 0, w: 0.38, h: 0.30, rotX: 0.35, rotY: 0.3, color: 0x86a83a },
+        { x: 0, y: 0.58, z: 0, w: 0.38, h: 0.30, rotX: -0.35, rotY: 0.3 + Math.PI * 0.5, color: 0x9eb838 },
+      ];
+      const curtains = [
+        { x: 0.17, y: 0.39, z: 0.0, color: 0xd4be3a },
+        { x: -0.17, y: 0.40, z: 0.0, color: 0x9eb838 },
+        { x: 0.0, y: 0.38, z: 0.17, color: 0xc89832 },
+        { x: 0.0, y: 0.39, z: -0.17, color: 0xa4782e },
+        { x: 0.12, y: 0.41, z: 0.12, color: 0x8aa838 },
+        { x: -0.12, y: 0.41, z: -0.12, color: 0xc4aa36 },
+      ];
+      for (let i = 0; i < curtains.length; i++) {
+        const cr = curtains[i];
+        const yaw = i * 0.55;
+        willowCards.push(
+          { x: cr.x, y: cr.y, z: cr.z, w: 0.22, h: 0.38, rotY: yaw, color: cr.color },
+          { x: cr.x, y: cr.y, z: cr.z, w: 0.22, h: 0.38, rotY: yaw + Math.PI * 0.5, color: cr.color }
+        );
+      }
+
+      const foliageGeo = buildFoliageCardGeometry('willow', willowCards);
+      const foliageMesh = new THREE.Mesh(foliageGeo, foliageCardMat);
+      foliageMesh.name = 'Foliage_CardWillow';
+      foliageMesh.customDepthMaterial = foliageCardDepthMat;
+      foliageMesh.castShadow = true;
+      foliageMesh.receiveShadow = true;
+      templateGroup.add(foliageMesh);
+    } else if (variant === 'card_maple') {
+      // Flared hardwood trunk + 4 branch forks
+      const trunkGeo = new THREE.CylinderGeometry(0.044, 0.074, 0.34, 10, 2);
+      trunkGeo.translate(0, 0.17, 0);
+      smoothGeometryNormals(trunkGeo);
+
+      const mapleBark = makeMat(0x654732, 0.90, 0.0);
+      const trunkItems: Array<{ mesh: THREE.Mesh; relMatrix: THREE.Matrix4 }> = [
+        { mesh: new THREE.Mesh(trunkGeo, mapleBark), relMatrix: identityMat },
+      ];
+      for (const fork of [
+        { len: 0.16, angleZ: -0.50, angleY: 0.3 },
+        { len: 0.15, angleZ: 0.52, angleY: 1.8 },
+        { len: 0.14, angleZ: -0.45, angleY: -1.4 },
+        { len: 0.13, angleZ: 0.40, angleY: -2.8 },
+      ]) {
+        const forkGeo = new THREE.CylinderGeometry(0.014, 0.024, fork.len, 6);
+        forkGeo.translate(0, fork.len * 0.5, 0);
+        forkGeo.rotateZ(fork.angleZ);
+        forkGeo.rotateY(fork.angleY);
+        forkGeo.translate(0, 0.25, 0);
+        trunkItems.push({ mesh: new THREE.Mesh(forkGeo, mapleBark), relMatrix: identityMat });
+      }
+      const mergedTrunkGeo = mergeMeshesWithVertexColors(trunkItems);
+      applyTreeUVMapping(mergedTrunkGeo, 'trunk');
+      mergedTrunkGeo.userData = { isSharedAsset: true };
+      const trunkMesh = new THREE.Mesh(mergedTrunkGeo, trunkMat);
+      trunkMesh.name = 'Trunk';
+      trunkMesh.castShadow = true;
+      trunkMesh.receiveShadow = true;
+      templateGroup.add(trunkMesh);
+
+      const mapleCards: FoliageCardSpec[] = [];
+      const clusters = [
+        { x: 0.0, y: 0.62, z: 0.0, w: 0.42, h: 0.36, color: 0xedb82b },
+        { x: 0.15, y: 0.52, z: 0.10, w: 0.30, h: 0.28, color: 0x86b032 },
+        { x: -0.14, y: 0.54, z: -0.08, w: 0.29, h: 0.28, color: 0xa42d1e },
+        { x: -0.06, y: 0.50, z: 0.15, w: 0.29, h: 0.27, color: 0xdf6c22 },
+        { x: 0.08, y: 0.53, z: -0.14, w: 0.28, h: 0.26, color: 0xc85222 },
+      ];
+      for (let i = 0; i < clusters.length; i++) {
+        const cl = clusters[i];
+        const yaw = i * 0.68;
+        mapleCards.push(
+          { x: cl.x, y: cl.y, z: cl.z, w: cl.w, h: cl.h, rotX: 0.20, rotY: yaw, color: cl.color },
+          { x: cl.x, y: cl.y, z: cl.z, w: cl.w, h: cl.h, rotX: -0.20, rotY: yaw + Math.PI * 0.5, color: cl.color }
+        );
+      }
+
+      const foliageGeo = buildFoliageCardGeometry('broadleaf', mapleCards);
+      const foliageMesh = new THREE.Mesh(foliageGeo, foliageCardMat);
+      foliageMesh.name = 'Foliage_CardMaple';
+      foliageMesh.customDepthMaterial = foliageCardDepthMat;
+      foliageMesh.castShadow = true;
+      foliageMesh.receiveShadow = true;
+      templateGroup.add(foliageMesh);
     }
 
     forestTreeTemplateCache.set(variant, templateGroup);
   }
 
   const treeGroup = templateGroup.clone(true);
+  if (variant.startsWith('card_')) {
+    const { foliageCardDepthMat } = getSharedTreeMaterials();
+    treeGroup.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.name.startsWith('Foliage_Card')) {
+        child.customDepthMaterial = foliageCardDepthMat;
+      }
+    });
+  }
   treeGroup.scale.setScalar(heightScale);
   treeGroup.userData = {
     isForestTree: true,
