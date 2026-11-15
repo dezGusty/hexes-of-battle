@@ -12,6 +12,7 @@ import {
 } from './overview-economy';
 import { GeneratedOverviewMap } from './overview-map-generator';
 import {
+  createEmptyResourcePool,
   DEFAULT_ARMY_SIGHT_RANGE,
   isOverviewTerrainPassable,
   OverviewArmy,
@@ -21,6 +22,7 @@ import {
   OverviewResourceType,
   OverviewTerrainType,
   RegionState,
+  ResourcePool,
 } from './overview-types';
 
 export interface MoveArmyOutcome {
@@ -444,6 +446,20 @@ export class OverviewCampaign {
     this.recomputeFogOfWar();
     this.updateEliminatedPlayers();
     this.checkVictoryConditions();
+  }
+
+  public getForeseenResourceChanges(playerId: string): ResourcePool {
+    const delta = createEmptyResourcePool();
+    for (const region of this.regions) {
+      if (!region.settlementTier || region.ownerPlayerId !== playerId) continue;
+      const regionHexes = this.getRegionHexes(region.id);
+      const econ = calculateRegionTurnEconomy(region, regionHexes);
+      (Object.keys(econ.produced) as OverviewResourceType[]).forEach((resKey) => {
+        delta[resKey] += econ.produced[resKey];
+      });
+      delta.food -= econ.foodConsumed;
+    }
+    return delta;
   }
 
   public endTurn(): void {

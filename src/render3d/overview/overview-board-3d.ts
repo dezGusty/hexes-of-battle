@@ -29,29 +29,19 @@ import {
   createEadorWaterMaterial,
   createProceduralWaterNormalTexture,
 } from './overview-water-shader';
+import { updateOverviewCowAnimation } from './overview-cow-3d';
+import {
+  createOverviewBlendedTerrainMaterial,
+  createOverviewTerrainAtlas,
+  createOverviewTerrainGridTexture,
+  getTerrainVariationIndex,
+  OVERVIEW_LAND_TERRAINS,
+  OVERVIEW_TERRAIN_TEXTURE_CONFIG,
+  OverviewTerrainAtlasHandle,
+  updateOverviewTerrainGridCell,
+} from './overview-terrain-shader';
 
-const TERRAIN_COLORS: Record<OverviewTerrainType, number> = {
-  grassland: 0x5c8a47,
-  forest: 0x3b6634,
-  deep_forest: 0x244221,
-  swamp: 0x4f6346,
-  hill: 0x7b7856,
-  mountain: 0x6b6f75,
-  water: 0x2c638c,
-};
-
-export const OVERVIEW_TERRAIN_TEXTURE_CONFIG: Record<
-  OverviewTerrainType,
-  { file: string; tint: number }
-> = {
-  grassland: { file: 'grass.jpg', tint: 0xffffff },
-  forest: { file: 'forest.jpg', tint: 0xffffff },
-  deep_forest: { file: 'forest.jpg', tint: 0x9cb896 },
-  swamp: { file: 'swamp.jpg', tint: 0xffffff },
-  hill: { file: 'dirt.jpg', tint: 0xcfc8a8 },
-  mountain: { file: 'mountain.jpg', tint: 0xffffff },
-  water: { file: 'overview_water.png', tint: 0xffffff },
-};
+export { OVERVIEW_TERRAIN_TEXTURE_CONFIG };
 
 function getTerrainHeight(terrain: OverviewTerrainType): number {
   switch (terrain) {
@@ -82,11 +72,15 @@ export class OverviewBoard3D {
   private readonly fogGroup = new THREE.Group();
 
   public readonly tileMeshes: THREE.Mesh[] = [];
+  private readonly tileMeshMap = new Map<string, THREE.Mesh>();
   private readonly armyGroups: Map<string, THREE.Group> = new Map();
   private readonly terrainMaterials = new Map<
     OverviewTerrainType,
     THREE.MeshStandardMaterial
   >();
+  private terrainAtlas: OverviewTerrainAtlasHandle | null = null;
+  private terrainGridTex: THREE.DataTexture | null = null;
+  private landTerrainMaterial: THREE.MeshStandardMaterial | null = null;
   private readonly terrainTextures = new Map<string, THREE.Texture>();
   private waterMaterial: THREE.ShaderMaterial | null = null;
   private waterNormalA: THREE.DataTexture | null = null;
@@ -97,6 +91,7 @@ export class OverviewBoard3D {
   private windAngleRad = Math.PI * 0.25;
   private windStrength = 1.0;
   private readonly animatedUnits: THREE.Object3D[] = [];
+  private readonly animatedCows: THREE.Object3D[] = [];
   private readonly animatedFlagPivots: THREE.Object3D[] = [];
   private readonly animatedFlagCloths: THREE.Mesh[] = [];
   private fogMaskTexture: THREE.DataTexture | null = null;
@@ -268,9 +263,31 @@ export class OverviewBoard3D {
     return geo;
   }
 
+  private buildLandGeometryWithAttrs(
+    baseGeo: THREE.BufferGeometry,
+    hx: number,
+    hy: number,
+    worldPos: THREE.Vector3
+  ): THREE.BufferGeometry {
+    const geo = baseGeo.clone();
+    const count = geo.getAttribute('position').count;
+    const hexCoords = new Float32Array(count * 2);
+    const tileCenters = new Float32Array(count * 2);
+    for (let i = 0; i < count; i++) {
+      hexCoords[i * 2] = hx;
+      hexCoords[i * 2 + 1] = hy;
+      tileCenters[i * 2] = worldPos.x;
+      tileCenters[i * 2 + 1] = worldPos.z;
+    }
+    geo.setAttribute('aHexCoord', new THREE.BufferAttribute(hexCoords, 2));
+    geo.setAttribute('aTileCenter', new THREE.BufferAttribute(tileCenters, 2));
+    return geo;
+  }
+
   private buildTiles(): void {
     this.computeWaterShoreSteps();
     this.waterHexHeights.length = 0;
+    this.tileMeshMap.clear();
 
     const landWorldPositions: THREE.Vector3[] = [];
     for (let x = 0; x < this.mapWidth; x++) {
@@ -280,6 +297,30 @@ export class OverviewBoard3D {
         }
       }
     }
+
+    this.terrainAtlas = createOverviewTerrainAtlas();
+    this.terrainGridTex = createOverviewTerrainGridTexture(this.mapWidth, this.mapHeight);
+    for (let x = 0; x < this.mapWidth; x++) {
+      for (let y = 0; y < this.mapHeight; y++) {
+        const hex = this.campaign.hexes[x][y];
+        updateOverviewTerrainGridCell(
+          this.terrainGridTex,
+          x,
+          y,
+          hex.terrain,
+          getTerrainVariationIndex(x, y)
+        );
+      }
+    }
+    this.terrainGridTex.needsUpdate = true;
+
+    this.landTerrainMaterial = createOverviewBlendedTerrainMaterial(
+      this.terrainAtlas.texture,
+      this.terrainGridTex,
+      this.mapWidth,
+      this.mapHeight,
+      this.hexRadius
+    );
 
     this.waterNormalA = createProceduralWaterNormalTexture(128, 0.0, 1.0);
     this.waterNormalB = createProceduralWaterNormalTexture(128, 1.7, 1.4);
@@ -302,8 +343,8 @@ export class OverviewBoard3D {
         let baseGeo = hexGeoCache.get(height);
         if (!baseGeo) {
           baseGeo = new THREE.CylinderGeometry(
-            this.hexRadius * 0.98,
-            this.hexRadius * 0.98,
+            this.hexRadius,
+            this.hexRadius,
             height,
             6
           );
@@ -311,7 +352,7 @@ export class OverviewBoard3D {
         }
 
         const pos = this.hexToWorld(x, y);
-        let tileGeo: THREE.BufferGeometry = baseGeo;
+        let tileGeo: THREE.BufferGeometry;
         let mat: THREE.Material;
 
         if (hex.terrain === 'water') {
@@ -323,17 +364,8 @@ export class OverviewBoard3D {
           mat = this.waterMaterial;
           this.waterHexHeights.push(height);
         } else {
-          let stdMat = this.terrainMaterials.get(hex.terrain);
-          if (!stdMat) {
-            stdMat = new THREE.MeshStandardMaterial({
-              color: TERRAIN_COLORS[hex.terrain] ?? 0x5c8a47,
-              roughness: 0.88,
-              metalness: 0.05,
-            });
-            stdMat.userData.isSharedAsset = true;
-            this.terrainMaterials.set(hex.terrain, stdMat);
-          }
-          mat = stdMat;
+          tileGeo = this.buildLandGeometryWithAttrs(baseGeo, x, y, pos);
+          mat = this.landTerrainMaterial;
         }
 
         const mesh = new THREE.Mesh(tileGeo, mat);
@@ -348,8 +380,56 @@ export class OverviewBoard3D {
         this.tilesGroup.add(mesh);
         this.gridBordersGroup.add(edges);
         this.tileMeshes.push(mesh);
+        this.tileMeshMap.set(`${x},${y}`, mesh);
       }
     }
+  }
+
+  public updateHexTerrain(x: number, y: number): void {
+    if (x < 0 || x >= this.mapWidth || y < 0 || y >= this.mapHeight) return;
+    const hex = this.campaign.hexes[x][y];
+    if (this.terrainGridTex) {
+      updateOverviewTerrainGridCell(
+        this.terrainGridTex,
+        x,
+        y,
+        hex.terrain,
+        getTerrainVariationIndex(x, y)
+      );
+      this.terrainGridTex.needsUpdate = true;
+    }
+
+    const mesh = this.tileMeshMap.get(`${x},${y}`);
+    if (mesh) {
+      const height = this.getSurfaceY(hex);
+      const pos = this.hexToWorld(x, y);
+      const baseGeo = new THREE.CylinderGeometry(
+        this.hexRadius,
+        this.hexRadius,
+        height,
+        6
+      );
+      mesh.geometry.dispose();
+      if (hex.terrain === 'water' && this.waterMaterial) {
+        mesh.geometry = this.buildWaterGeometryWithShoreDist(baseGeo, pos, []);
+        mesh.material = this.waterMaterial;
+      } else if (this.landTerrainMaterial) {
+        mesh.geometry = this.buildLandGeometryWithAttrs(baseGeo, x, y, pos);
+        mesh.material = this.landTerrainMaterial;
+      }
+      baseGeo.dispose();
+      mesh.position.set(pos.x, height * 0.5, pos.z);
+      mesh.castShadow = hex.terrain === 'mountain';
+    }
+    this.rebuildTrees();
+  }
+
+  public getLandTerrainMaterial(): THREE.MeshStandardMaterial | null {
+    return this.landTerrainMaterial;
+  }
+
+  public getTerrainGridTexture(): THREE.DataTexture | null {
+    return this.terrainGridTex;
   }
 
   public async loadTerrainAssets(
@@ -377,7 +457,9 @@ export class OverviewBoard3D {
 
     const uniqueFiles = Array.from(
       new Set(
-        Object.values(OVERVIEW_TERRAIN_TEXTURE_CONFIG).map((cfg) => cfg.file)
+        Object.values(OVERVIEW_TERRAIN_TEXTURE_CONFIG).flatMap(
+          (cfg) => cfg.variations
+        )
       )
     );
 
@@ -393,14 +475,20 @@ export class OverviewBoard3D {
       })
     );
 
-    for (const [terrain, mat] of this.terrainMaterials.entries()) {
-      const cfg = OVERVIEW_TERRAIN_TEXTURE_CONFIG[terrain];
-      const tex = this.terrainTextures.get(cfg.file);
-      if (tex) {
-        mat.map = tex;
-        mat.color.setHex(cfg.tint);
-        mat.needsUpdate = true;
-      }
+    if (this.terrainAtlas) {
+      OVERVIEW_LAND_TERRAINS.forEach((terrain, row) => {
+        const variations = OVERVIEW_TERRAIN_TEXTURE_CONFIG[terrain].variations;
+        variations.forEach((file, col) => {
+          const tex = this.terrainTextures.get(file);
+          if (tex && tex.image) {
+            this.terrainAtlas?.paintImageToCell(
+              row,
+              col,
+              tex.image as CanvasImageSource
+            );
+          }
+        });
+      });
     }
 
     const waterTex = this.terrainTextures.get(
@@ -484,6 +572,10 @@ export class OverviewBoard3D {
       unit.position.y = Math.max(0, bob);
       unit.rotation.y = Math.sin(this.windTime * 0.9 + phase) * 0.06;
     }
+
+    for (const cow of this.animatedCows) {
+      updateOverviewCowAnimation(cow, dt);
+    }
   }
 
   public getWindState(): { angleRad: number; strength: number } {
@@ -550,6 +642,13 @@ export class OverviewBoard3D {
     return group;
   }
 
+  private seededHexRandom(x: number, y: number, salt: number): number {
+    let h = ((x + 1) * 73856093) ^ ((y + 1) * 19349663) ^ ((salt + 1) * 83492791);
+    h = Math.imul(h ^ (h >>> 16), 0x45d9f3b);
+    h = Math.imul(h ^ (h >>> 16), 0x45d9f3b);
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  }
+
   private rebuildTrees(): void {
     this.disposeGroupChildren(this.treesGroup);
     for (let x = 0; x < this.mapWidth; x++) {
@@ -558,18 +657,64 @@ export class OverviewBoard3D {
         if (hex.terrain !== 'forest' && hex.terrain !== 'deep_forest') continue;
         const pos = this.hexToWorld(x, y);
         const height = getTerrainHeight(hex.terrain);
-        const treeCount = hex.terrain === 'deep_forest' ? 3 : 2;
+        const treeCount =
+          hex.terrain === 'deep_forest'
+            ? 10 + Math.floor(this.seededHexRandom(x, y, 0) * 5)
+            : 8 + Math.floor(this.seededHexRandom(x, y, 0) * 7);
+        const baseScale = (hex.terrain === 'deep_forest' ? 0.42 : 0.34) * 2;
+        const hasBuilding = Boolean(
+          hex.resourceBuilding || hex.isSettlement || hex.isDefenseHex
+        );
+        const minCenterDist = hex.resourceBuilding === 'lumber_camp' || hasBuilding ? 0.48 : 0.16;
+        const maxCenterDist = 0.76;
+        const minTreeSpacing = 0.21;
+        const placedOffsets: Array<{ dx: number; dz: number }> = [];
+
         for (let t = 0; t < treeCount; t++) {
-          const scale = hex.terrain === 'deep_forest' ? 0.42 : 0.34;
+          const r1 = this.seededHexRandom(x, y, t * 3 + 1);
+          const scale = baseScale * (0.85 + r1 * 0.3);
           const tree = this.simpleTreesEnabled
             ? this.createSimpleTreeMesh(scale * 2.2)
             : buildLowPolyForestTreeMesh(t % 2 === 0 ? 'pine' : 'pine_2', scale);
-          const angle = (t / treeCount) * Math.PI * 2 + (x + y) * 0.5;
-          tree.position.set(
-            pos.x + Math.cos(angle) * 0.34,
-            height,
-            pos.z + Math.sin(angle) * 0.34
-          );
+
+          let chosenDx = 0;
+          let chosenDz = 0;
+          let bestMinDist = -1;
+          for (let attempt = 0; attempt < 18; attempt++) {
+            const ra = this.seededHexRandom(x, y, t * 40 + attempt * 2 + 10);
+            const rr = this.seededHexRandom(x, y, t * 40 + attempt * 2 + 11);
+            const angle =
+              ((t + attempt * 0.37) / treeCount) * Math.PI * 2 + (ra - 0.5) * 0.85;
+            // Area-uniform radial distribution so trees don't bunch at the center
+            const dist = Math.sqrt(
+              minCenterDist * minCenterDist +
+                rr * (maxCenterDist * maxCenterDist - minCenterDist * minCenterDist)
+            );
+            const dx = Math.cos(angle) * dist;
+            const dz = Math.sin(angle) * dist;
+
+            let nearest = Infinity;
+            for (const p of placedOffsets) {
+              const d = Math.hypot(dx - p.dx, dz - p.dz);
+              if (d < nearest) nearest = d;
+            }
+            if (nearest >= minTreeSpacing) {
+              chosenDx = dx;
+              chosenDz = dz;
+              break;
+            }
+            if (nearest > bestMinDist) {
+              bestMinDist = nearest;
+              chosenDx = dx;
+              chosenDz = dz;
+            }
+          }
+
+          placedOffsets.push({ dx: chosenDx, dz: chosenDz });
+          tree.position.set(pos.x + chosenDx, height, pos.z + chosenDz);
+          tree.userData.hexCoords = { x, y };
+          tree.userData.baseScale = baseScale;
+          tree.userData.localOffset = { x: chosenDx, z: chosenDz };
           this.treesGroup.add(tree);
         }
       }
@@ -641,7 +786,8 @@ export class OverviewBoard3D {
           this.landmarksGroup.add(model);
         } else if (hex.isAgriculturalPlot) {
           const model = createOverviewAgricultureModel(
-            hex.agricultureOption ?? 'none'
+            hex.agricultureOption ?? 'none',
+            x * 97 + y * 31 + 1
           );
           model.position.set(pos.x, surfaceY, pos.z);
           this.landmarksGroup.add(model);
@@ -657,6 +803,7 @@ export class OverviewBoard3D {
 
   private refreshAnimatedReferences(): void {
     this.animatedUnits.length = 0;
+    this.animatedCows.length = 0;
     this.animatedFlagPivots.length = 0;
     this.animatedFlagCloths.length = 0;
 
@@ -664,6 +811,8 @@ export class OverviewBoard3D {
       root.traverse((obj) => {
         if (obj.userData?.isOverviewUnit) {
           this.animatedUnits.push(obj);
+        } else if (obj.userData?.isOverviewCow) {
+          this.animatedCows.push(obj);
         } else if (obj.userData?.isOverviewFlagPivot) {
           this.animatedFlagPivots.push(obj);
         } else if (obj.userData?.isOverviewFlagCloth && obj instanceof THREE.Mesh) {
@@ -1058,6 +1207,13 @@ export class OverviewBoard3D {
       mat.dispose();
     }
     this.terrainMaterials.clear();
+    this.landTerrainMaterial?.dispose();
+    this.landTerrainMaterial = null;
+    this.terrainAtlas?.dispose();
+    this.terrainAtlas = null;
+    this.terrainGridTex?.dispose();
+    this.terrainGridTex = null;
+    this.tileMeshMap.clear();
     for (const tex of this.terrainTextures.values()) {
       tex.dispose();
     }
@@ -1077,6 +1233,7 @@ export class OverviewBoard3D {
     this.tileMeshes.length = 0;
     this.armyGroups.clear();
     this.animatedUnits.length = 0;
+    this.animatedCows.length = 0;
     this.animatedFlagPivots.length = 0;
     this.animatedFlagCloths.length = 0;
   }

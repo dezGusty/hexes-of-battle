@@ -51,7 +51,9 @@ export class OverviewView3D {
     settings?: BattleSettings
   ) {
     this.settings = settings ?? new BattleSettings();
-    this.sceneManager = new ThreeSceneManager(container, sharedRendererHost);
+    this.sceneManager = new ThreeSceneManager(container, sharedRendererHost, {
+      enableWeather: false,
+    });
     this.board = new OverviewBoard3D(campaign);
     this.sceneManager.scene.add(this.board.group);
     this.sceneManager.setCameraTarget(new THREE.Vector3(0, 0, 0));
@@ -89,6 +91,7 @@ export class OverviewView3D {
 
     this.boundContextMenu = (e: MouseEvent) => e.preventDefault();
     this.boundPointerDown = (e: PointerEvent) => {
+      if (this.callbacks.isMenuBlockingInput?.()) return;
       this.isPointerDown = true;
       this.isDragging = false;
       this.pointerButton = e.button;
@@ -98,6 +101,12 @@ export class OverviewView3D {
     this.boundPointerMove = (e: PointerEvent) => {
       const stageCoords = this.getStageCoords(e.clientX, e.clientY);
       this.callbacks.onPointerMove?.(stageCoords);
+
+      if (this.callbacks.isMenuBlockingInput?.()) {
+        this.isPointerDown = false;
+        this.isDragging = false;
+        return;
+      }
 
       if (!this.isPointerDown) {
         if (typeof this.sceneManager.canvas?.getBoundingClientRect === 'function') {
@@ -128,6 +137,11 @@ export class OverviewView3D {
       this.lastPointerPos = { x: e.clientX, y: e.clientY };
     };
     this.boundPointerUp = (e: PointerEvent) => {
+      if (this.callbacks.isMenuBlockingInput?.()) {
+        this.isPointerDown = false;
+        this.isDragging = false;
+        return;
+      }
       const wasDragging = this.isDragging;
       this.isPointerDown = false;
       this.isDragging = false;
@@ -136,6 +150,7 @@ export class OverviewView3D {
       }
     };
     this.boundWheel = (e: WheelEvent) => {
+      if (this.callbacks.isMenuBlockingInput?.()) return;
       this.sceneManager.zoomCamera(e.deltaY * 0.01);
     };
 
@@ -334,6 +349,10 @@ export class OverviewView3D {
   }
 
   public updateCameraKeyboardInput(deltaMS: number): void {
+    if (this.callbacks.isMenuBlockingInput?.()) {
+      this.pressedKeys.clear();
+      return;
+    }
     if (this.pressedKeys.size === 0) return;
 
     const dt = deltaMS / 1000;

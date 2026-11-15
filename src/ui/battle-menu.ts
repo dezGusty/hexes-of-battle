@@ -288,7 +288,7 @@ export class BattleMenuPanel {
 
     private initializeMainContainer(panelWidth: number): void {
         const title = new Text({
-            text: `Battle Menu`,
+            text: this.mode === 'overview' ? 'Menu' : 'Battle Menu',
             style: { fill: 0xffffff, fontSize: 32, fontWeight: 'bold' },
         });
         title.anchor.set(0.5);

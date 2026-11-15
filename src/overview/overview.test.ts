@@ -36,6 +36,13 @@ import { createOverviewCombinedArmyVisual } from '../render3d/overview/overview-
 import { OverviewView3D } from '../render3d/overview/overview-view-3d';
 import { EventBus } from '../core/event-bus';
 import { OverviewScene3D } from '../scenes/overview-scene-3d';
+import {
+  countGroupTriangles,
+  CowAnimationData,
+  createOverviewCowModel,
+  triggerOverviewCowAnimation,
+  updateOverviewCowAnimation,
+} from '../render3d/overview/overview-cow-3d';
 
 describe('Overview Map Phase 1: Regions, Economy & Campaign Loop', () => {
   it('should create the 2x2 starter map with 1 player region, 3 neutral regions, 10-squad garrisons, and 4-12 agricultural hexes', () => {
@@ -1251,5 +1258,384 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
     expect(panel.isVisible()).toBe(false);
 
     scene.exit();
+  });
+
+  it('displays foreseen resource changes underneath current quantities in gold/dark orange and hides zero changes', () => {
+    const campaign = new OverviewCampaign(createStarterOverviewMap());
+    const playerRegion = campaign.regions.find((r) => r.ownerPlayerId === 'player')!;
+    // Ensure positive money (taxes), negative food (high pop, 0 food workers), and 0 stone/iron/lumber
+    playerRegion.population = 2000;
+    playerRegion.taxRate = 0.25;
+    for (const coord of playerRegion.hexCoords) {
+      const hex = campaign.getHex(coord);
+      if (hex) {
+        hex.assignedWorkers = 0;
+      }
+    }
+
+    const deltas = campaign.getForeseenResourceChanges('player');
+    expect(deltas.money).toBeGreaterThan(0);
+    expect(deltas.food).toBeLessThan(0);
+    expect(deltas.stone).toBe(0);
+    expect(deltas.iron).toBe(0);
+
+    const hud = new OverviewHud2D(new Container());
+    hud.bindCampaign(campaign);
+
+    const moneyBadge = hud.resourceBadges.money;
+    expect(moneyBadge.deltaText.visible).toBe(true);
+    expect(moneyBadge.deltaText.text).toBe(`+${deltas.money}`);
+    expect(moneyBadge.deltaText.style.fill).toBe('#f5d46f');
+    expect(moneyBadge.deltaText.y).toBeGreaterThan(moneyBadge.valueText.y);
+
+    const foodBadge = hud.resourceBadges.food;
+    expect(foodBadge.deltaText.visible).toBe(true);
+    expect(foodBadge.deltaText.text).toBe(`${deltas.food}`);
+    expect(foodBadge.deltaText.style.fill).toBe('#d96b1b');
+    expect(foodBadge.deltaText.y).toBeGreaterThan(foodBadge.valueText.y);
+
+    const stoneBadge = hud.resourceBadges.stone;
+    expect(stoneBadge.deltaText.visible).toBe(false);
+    expect(stoneBadge.deltaText.text).toBe('');
+
+    hud.destroy();
+  });
+
+  it('does not create battle WeatherSystem3D or sunny drifting clouds on OverviewView3D', () => {
+    const campaign = new OverviewCampaign(createStarterOverviewMap());
+    const mockHost = {
+      canvas: {},
+      hasRealWebGL: false,
+      renderer: {
+        domElement: {},
+        setSize: () => {},
+        setPixelRatio: () => {},
+        setClearColor: () => {},
+        setScissorTest: () => {},
+        getSize: () => ({ width: 800, height: 600 }),
+        shadowMap: { enabled: false, type: 0 },
+        render: () => {},
+        dispose: () => {},
+      },
+      dispose: () => {},
+    } as any;
+    const container = {
+      clientWidth: 800,
+      clientHeight: 600,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      style: {},
+    } as any;
+
+    const view = new OverviewView3D(container, campaign, {}, mockHost);
+    expect(view.sceneManager.weatherSystem).toBeUndefined();
+    expect(view.sceneManager.scene.getObjectByName('WeatherSystem3D')).toBeUndefined();
+    expect(view.sceneManager.scene.getObjectByName('DriftingCloudsSystem')).toBeUndefined();
+    view.destroy();
+  });
+
+  it('places 8-14 trees per forest hex at double scale on OverviewBoard3D', () => {
+    const campaign = new OverviewCampaign(createStarterOverviewMap());
+    // Set exactly one forest hex and clear others to grassland so we can count directly
+    for (let x = 0; x < campaign.mapWidth; x++) {
+      for (let y = 0; y < campaign.mapHeight; y++) {
+        campaign.hexes[x][y].terrain = x === 3 && y === 3 ? 'forest' : 'grassland';
+      }
+    }
+
+    const board = new OverviewBoard3D(campaign);
+    const treesGroup = board.group.children.find((g) => g.children.some((c) => c.userData?.hexCoords));
+    expect(treesGroup).toBeDefined();
+    const forestTrees = treesGroup!.children.filter(
+      (c) => c.userData?.hexCoords?.x === 3 && c.userData?.hexCoords?.y === 3
+    );
+    expect(forestTrees.length).toBeGreaterThanOrEqual(8);
+    expect(forestTrees.length).toBeLessThanOrEqual(14);
+    expect(forestTrees[0].userData.baseScale).toBeCloseTo(0.68, 5);
+    board.dispose();
+  });
+
+  it('uses 4 unique overview texture variations per land terrain and updates seamless blending grid via updateHexTerrain', () => {
+    const battleTextures = new Set(['grass.jpg', 'forest.jpg', 'swamp.jpg', 'dirt.jpg', 'mountain.jpg', 'water.jpg']);
+    const landTerrains = ['grassland', 'forest', 'deep_forest', 'swamp', 'hill', 'mountain'] as const;
+    for (const terrain of landTerrains) {
+      const cfg = OVERVIEW_TERRAIN_TEXTURE_CONFIG[terrain];
+      expect(cfg.variations).toHaveLength(4);
+      for (const file of cfg.variations) {
+        expect(battleTextures.has(file)).toBe(false);
+        const buf = readFileSync(`public/textures/terrain/${file}`);
+        expect(buf.byteLength).toBeGreaterThan(100);
+      }
+    }
+
+    const campaign = new OverviewCampaign(createStarterOverviewMap(42));
+    const board = new OverviewBoard3D(campaign);
+    const landMat = board.getLandTerrainMaterial();
+    expect(landMat).not.toBeNull();
+    expect(landMat!.userData.isOverviewBlendedTerrain).toBe(true);
+
+    const gridTex = board.getTerrainGridTexture();
+    expect(gridTex).not.toBeNull();
+
+    // Verify land hex geometry carries aHexCoord and aTileCenter
+    const landTile = board.tileMeshes.find((m) => {
+      const c = m.userData?.coords;
+      return c && campaign.hexes[c.x][c.y].terrain !== 'water';
+    })!;
+    expect(landTile.geometry.getAttribute('aHexCoord')).toBeDefined();
+    expect(landTile.geometry.getAttribute('aTileCenter')).toBeDefined();
+
+    // Future map editor hook: mutating a hex updates the grid texture cell immediately
+    const c = landTile.userData.coords;
+    campaign.hexes[c.x][c.y].terrain = 'mountain';
+    board.updateHexTerrain(c.x, c.y);
+    const data = gridTex!.image.data as Uint8Array;
+    const idx = (c.y * campaign.mapWidth + c.x) * 4;
+    expect(data[idx]).toBe(5); // mountain = 5
+
+    board.dispose();
+  });
+
+  it('creates ~500-tri black-and-white cow meshes, places 3 per cattle hex, desyncs animations, and stays 85% idle / 15% graze or tail-wag', () => {
+    const cow = createOverviewCowModel(1);
+    const tris = countGroupTriangles(cow);
+    expect(tris).toBeGreaterThanOrEqual(420);
+    expect(tris).toBeLessThanOrEqual(650);
+
+    const anim = cow.userData as CowAnimationData;
+    expect(anim.isOverviewCow).toBe(true);
+    expect(anim.idleProbability).toBe(0.85);
+
+    // Graze animation lowers head
+    triggerOverviewCowAnimation(cow, 'graze');
+    updateOverviewCowAnimation(cow, 0.65);
+    expect(anim.headPivot.rotation.x).toBeGreaterThan(0.35);
+
+    // Tail-wag animation swings tailPivot.rotation.z
+    triggerOverviewCowAnimation(cow, 'wag_tail');
+    updateOverviewCowAnimation(cow, 0.2);
+    const z1 = anim.tailPivot.rotation.z;
+    updateOverviewCowAnimation(cow, 0.13);
+    const z2 = anim.tailPivot.rotation.z;
+    expect(Math.abs(z1) + Math.abs(z2)).toBeGreaterThan(0.2);
+
+    // Duty cycle check over 600s (~85% idle, ~15% active)
+    let idleTicks = 0;
+    const totalTicks = 6000;
+    for (let i = 0; i < totalTicks; i++) {
+      updateOverviewCowAnimation(cow, 0.1);
+      if (anim.state === 'idle') idleTicks++;
+    }
+    const idleRatio = idleTicks / totalTicks;
+    expect(idleRatio).toBeGreaterThan(0.75);
+    expect(idleRatio).toBeLessThan(0.93);
+
+    // 3 desynced cows on a cattle hex in OverviewBoard3D
+    const campaign = new OverviewCampaign(createStarterOverviewMap(77));
+    for (let x = 0; x < campaign.mapWidth; x++) {
+      for (let y = 0; y < campaign.mapHeight; y++) {
+        campaign.hexes[x][y].isSettlement = false;
+        campaign.hexes[x][y].resourceBuilding = undefined;
+        campaign.hexes[x][y].isDefenseHex = false;
+        campaign.hexes[x][y].isAgriculturalPlot = x === 2 && y === 2;
+        campaign.hexes[x][y].agricultureOption = x === 2 && y === 2 ? 'cattle' : 'none';
+      }
+    }
+    const board = new OverviewBoard3D(campaign);
+    const cows: CowAnimationData[] = [];
+    board.group.traverse((obj) => {
+      if (obj.userData?.isOverviewCow) {
+        cows.push(obj.userData as CowAnimationData);
+      }
+    });
+    expect(cows).toHaveLength(3);
+    // Desynced initial elapsed times
+    expect(new Set(cows.map((c) => c.elapsed)).size).toBe(3);
+    board.dispose();
+  });
+
+  it('blocks map mouse/keyboard events when menu is open and closes menuPanel on Escape key', () => {
+    const listeners = new Map<string, Array<(e: any) => void>>();
+    const origWindow = (globalThis as any).window;
+    (globalThis as any).window = {
+      addEventListener: (type: string, fn: (e: any) => void) => {
+        const arr = listeners.get(type) ?? [];
+        arr.push(fn);
+        listeners.set(type, arr);
+      },
+      removeEventListener: (type: string, fn: (e: any) => void) => {
+        const arr = listeners.get(type) ?? [];
+        listeners.set(
+          type,
+          arr.filter((f) => f !== fn)
+        );
+      },
+    };
+
+    try {
+      const campaign = new OverviewCampaign(createStarterOverviewMap());
+      let blocking = true;
+      const mockHost = {
+        canvas: {},
+        hasRealWebGL: false,
+        renderer: {
+          domElement: {},
+          setSize: () => {},
+          setPixelRatio: () => {},
+          setClearColor: () => {},
+          setScissorTest: () => {},
+          getSize: () => ({ width: 800, height: 600 }),
+          shadowMap: { enabled: false, type: 0 },
+          render: () => {},
+          dispose: () => {},
+        },
+        dispose: () => {},
+      } as any;
+      const container = {
+        clientWidth: 800,
+        clientHeight: 600,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        style: {},
+      } as any;
+
+      const view = new OverviewView3D(
+        container,
+        campaign,
+        { isMenuBlockingInput: () => blocking },
+        mockHost
+      );
+
+      const startTarget = view.sceneManager.getCameraTarget().clone();
+      const startDist = view.sceneManager.getCameraDistance();
+
+      // Dispatch pointerdown + drag + pointerup + wheel + keydown while menu is blocking
+      for (const fn of listeners.get('pointerdown') ?? []) {
+        fn({ button: 0, clientX: 100, clientY: 100 });
+      }
+      for (const fn of listeners.get('pointermove') ?? []) {
+        fn({ clientX: 250, clientY: 250 });
+      }
+      for (const fn of listeners.get('pointerup') ?? []) {
+        fn({ button: 0, clientX: 250, clientY: 250 });
+      }
+      for (const fn of listeners.get('wheel') ?? []) {
+        fn({ deltaY: 200 });
+      }
+      for (const fn of listeners.get('keydown') ?? []) {
+        fn({ key: 'w' });
+      }
+      view.setKeyPressed('d', true);
+      view.updateCameraKeyboardInput(500);
+
+      expect(view.sceneManager.getCameraTarget().x).toBeCloseTo(startTarget.x, 5);
+      expect(view.sceneManager.getCameraTarget().z).toBeCloseTo(startTarget.z, 5);
+      expect(view.sceneManager.getCameraDistance()).toBeCloseTo(startDist, 5);
+      expect(view.isKeyPressed('d')).toBe(false);
+
+      // Verify Escape toggles menuPanel open and closed in OverviewHud2D
+      const hud = new OverviewHud2D(new Container());
+      let menuVisible = true;
+      hud.menuPanel = {
+        isVisible: () => menuVisible,
+        show: () => {
+          menuVisible = true;
+        },
+        hide: () => {
+          menuVisible = false;
+        },
+        destroy: () => {},
+      } as any;
+
+      let prevented = false;
+      for (const fn of listeners.get('keydown') ?? []) {
+        fn({
+          key: 'Escape',
+          defaultPrevented: false,
+          preventDefault: () => {
+            prevented = true;
+          },
+        });
+      }
+      expect(prevented).toBe(true);
+      expect(menuVisible).toBe(false);
+
+      // Pressing Escape again while hidden opens the menuPanel
+      prevented = false;
+      for (const fn of listeners.get('keydown') ?? []) {
+        fn({
+          key: 'Escape',
+          defaultPrevented: false,
+          preventDefault: () => {
+            prevented = true;
+          },
+        });
+      }
+      expect(prevented).toBe(true);
+      expect(menuVisible).toBe(true);
+
+      hud.destroy();
+      view.destroy();
+    } finally {
+      (globalThis as any).window = origWindow;
+    }
+  });
+
+  it('spreads forest trees away from center, avoids lumber_camp overlap, and spaces cattle without intersection', () => {
+    const campaign = new OverviewCampaign(createStarterOverviewMap(88));
+    for (let x = 0; x < campaign.mapWidth; x++) {
+      for (let y = 0; y < campaign.mapHeight; y++) {
+        campaign.hexes[x][y].terrain = 'grassland';
+        campaign.hexes[x][y].isSettlement = false;
+        campaign.hexes[x][y].resourceBuilding = undefined;
+        campaign.hexes[x][y].isDefenseHex = false;
+        campaign.hexes[x][y].isAgriculturalPlot = false;
+      }
+    }
+    campaign.hexes[2][2].terrain = 'forest';
+    campaign.hexes[4][2].terrain = 'forest';
+    campaign.hexes[4][2].resourceBuilding = 'lumber_camp';
+    campaign.hexes[3][3].isAgriculturalPlot = true;
+    campaign.hexes[3][3].agricultureOption = 'cattle';
+
+    const board = new OverviewBoard3D(campaign);
+    const treesGroup = board.group.children.find((g) => g.children.some((c) => c.userData?.hexCoords))!;
+
+    const plainForestTrees = treesGroup.children.filter(
+      (c) => c.userData?.hexCoords?.x === 2 && c.userData?.hexCoords?.y === 2
+    );
+    const plainAvgDist =
+      plainForestTrees.reduce(
+        (sum, t) => sum + Math.hypot(t.userData.localOffset.x, t.userData.localOffset.z),
+        0
+      ) / plainForestTrees.length;
+    expect(plainAvgDist).toBeGreaterThan(0.4);
+
+    const campForestTrees = treesGroup.children.filter(
+      (c) => c.userData?.hexCoords?.x === 4 && c.userData?.hexCoords?.y === 2
+    );
+    expect(campForestTrees.length).toBeGreaterThanOrEqual(8);
+    for (const t of campForestTrees) {
+      const dist = Math.hypot(t.userData.localOffset.x, t.userData.localOffset.z);
+      expect(dist).toBeGreaterThanOrEqual(0.479);
+    }
+
+    const cowPositions: Array<{ x: number; z: number }> = [];
+    board.group.traverse((obj) => {
+      if (obj.userData?.isOverviewCow) {
+        cowPositions.push({ x: obj.position.x, z: obj.position.z });
+      }
+    });
+    expect(cowPositions).toHaveLength(3);
+    for (let i = 0; i < cowPositions.length; i++) {
+      for (let j = i + 1; j < cowPositions.length; j++) {
+        const d = Math.hypot(
+          cowPositions[i].x - cowPositions[j].x,
+          cowPositions[i].z - cowPositions[j].z
+        );
+        expect(d).toBeGreaterThanOrEqual(0.35);
+      }
+    }
+    board.dispose();
   });
 });

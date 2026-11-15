@@ -15,12 +15,16 @@ import {
 } from './post-processing';
 import { ThreeRendererHost } from './three-renderer-host';
 
+export interface ThreeSceneManagerOptions {
+  enableWeather?: boolean;
+}
+
 export class ThreeSceneManager {
   public readonly scene: THREE.Scene = new THREE.Scene();
   public readonly camera: THREE.PerspectiveCamera;
   public readonly renderer: THREE.WebGLRenderer;
   public skyboxMesh!: THREE.Mesh;
-  public readonly weatherSystem: WeatherSystem3D = new WeatherSystem3D();
+  public readonly weatherSystem?: WeatherSystem3D;
   private skyboxTheme: BattleLocationType = BattleLocationType.FARM;
 
   private readonly host: ThreeRendererHost;
@@ -60,7 +64,11 @@ export class ThreeSceneManager {
   private raycaster: THREE.Raycaster = new THREE.Raycaster();
   private mouseVec: THREE.Vector2 = new THREE.Vector2();
 
-  constructor(container: HTMLElement, sharedHost?: ThreeRendererHost) {
+  constructor(
+    container: HTMLElement,
+    sharedHost?: ThreeRendererHost,
+    options: ThreeSceneManagerOptions = {}
+  ) {
     this.containerElement = container;
     if (sharedHost) {
       this.host = sharedHost;
@@ -86,7 +94,10 @@ export class ThreeSceneManager {
 
     this.setupLighting();
     this.setupSkyBackground();
-    this.setupWeatherSystem();
+    if (options.enableWeather !== false) {
+      this.weatherSystem = new WeatherSystem3D();
+      this.setupWeatherSystem();
+    }
     if (this.hasRealWebGL) {
       try {
         this.postProcessing = createEadorPostProcessing(
@@ -192,6 +203,7 @@ export class ThreeSceneManager {
   }
 
   private setupWeatherSystem(): void {
+    if (!this.weatherSystem) return;
     this.scene.add(this.weatherSystem.group);
     this.weatherSystem.attachScene(
       this.scene,
@@ -214,15 +226,15 @@ export class ThreeSceneManager {
       this.skyboxMesh = createSkyboxMesh(normalized, 120);
       this.scene.add(this.skyboxMesh);
     }
-    this.weatherSystem.setBaseEnvironment(theme.fogHex, theme.fogDensity, theme.horizonHex);
+    this.weatherSystem?.setBaseEnvironment(theme.fogHex, theme.fogDensity, theme.horizonHex);
   }
 
   public setWeather(weather: WeatherType): void {
-    this.weatherSystem.setWeather(weather);
+    this.weatherSystem?.setWeather(weather);
   }
 
   public getWeather(): WeatherType {
-    return this.weatherSystem.getWeather();
+    return this.weatherSystem?.getWeather() ?? WeatherType.NONE;
   }
 
   public getSkyboxTheme(): BattleLocationType {
@@ -414,7 +426,7 @@ export class ThreeSceneManager {
   public dispose(): void {
     this.postProcessing?.dispose();
     this.postProcessing = null;
-    this.weatherSystem.dispose();
+    this.weatherSystem?.dispose();
     if (this.skyboxMesh) {
       this.scene.remove(this.skyboxMesh);
       this.skyboxMesh.geometry?.dispose();

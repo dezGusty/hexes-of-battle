@@ -4041,7 +4041,7 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       // Switch weather via BattleView3D
       view.setWeather(WeatherType.RAIN);
       expect(view.getWeather()).toBe(WeatherType.RAIN);
-      expect(view.sceneManager.weatherSystem.getWeather()).toBe(WeatherType.RAIN);
+      expect(view.sceneManager.weatherSystem?.getWeather()).toBe(WeatherType.RAIN);
       expect(settings.weather).toBe(WeatherType.RAIN);
 
       // Update loops step weather system smoothly

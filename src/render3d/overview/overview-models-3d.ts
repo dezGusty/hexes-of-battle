@@ -7,6 +7,7 @@ import {
   SettlementTier,
 } from '../../overview/overview-types';
 import { buildArticulatedUnit3DMesh } from '../units/unit-mesh-builder';
+import { createOverviewCowModel } from './overview-cow-3d';
 
 function makeMat(color: number, roughness = 0.8, metalness = 0.1): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({ color, roughness, metalness });
@@ -191,7 +192,10 @@ export function createOverviewResourceBuildingModel(type: ResourceBuildingType):
   return group;
 }
 
-export function createOverviewAgricultureModel(option: AgricultureOption): THREE.Group {
+export function createOverviewAgricultureModel(
+  option: AgricultureOption,
+  seed: number = 1
+): THREE.Group {
   const group = new THREE.Group();
   group.name = `OverviewAgri_${option}`;
 
@@ -202,7 +206,28 @@ export function createOverviewAgricultureModel(option: AgricultureOption): THREE
       row.position.set(0, 0.03, i * 0.12);
       group.add(row);
     }
-  } else if (option === 'cattle' || option === 'sheep' || option === 'horses') {
+  } else if (option === 'cattle') {
+    const fenceMat = makeMat(0x7c5333, 0.9);
+    const fence = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.06, 0.03), fenceMat);
+    fence.position.set(0, 0.04, -0.34);
+    const fence2 = fence.clone();
+    fence2.position.z = 0.34;
+    group.add(fence, fence2);
+
+    const cowConfigs: Array<[number, number, number]> = [
+      [-0.24, -0.12, 0.55],
+      [0.24, -0.1, -0.75],
+      [0.0, 0.18, 2.65],
+    ];
+    for (let i = 0; i < cowConfigs.length; i++) {
+      const [ax, az, rotY] = cowConfigs[i];
+      const cow = createOverviewCowModel(seed * 31 + i + 1);
+      cow.scale.setScalar(0.28);
+      cow.position.set(ax, 0, az);
+      cow.rotation.y = rotY;
+      group.add(cow);
+    }
+  } else if (option === 'sheep' || option === 'horses') {
     const fenceMat = makeMat(0x7c5333, 0.9);
     const fence = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.06, 0.03), fenceMat);
     fence.position.set(0, 0.04, -0.28);
@@ -210,8 +235,7 @@ export function createOverviewAgricultureModel(option: AgricultureOption): THREE
     fence2.position.z = 0.28;
     group.add(fence, fence2);
 
-    const animalColor =
-      option === 'sheep' ? 0xf2f0e6 : option === 'cattle' ? 0x6e472b : 0x4b2f1d;
+    const animalColor = option === 'sheep' ? 0xf2f0e6 : 0x4b2f1d;
     const animalMat = makeMat(animalColor, 0.85);
     const positions = [
       [-0.16, -0.08],

@@ -145,22 +145,30 @@ export interface OverviewResourceBadge {
   container: Container;
   icon: Sprite;
   valueText: Text;
-  setValue: (value: number | string) => void;
+  deltaText: Text;
+  setValue: (value: number | string, delta?: number) => void;
+  setDelta: (delta: number) => void;
   getTooltipText: () => string;
 }
+
+export const POSITIVE_DELTA_COLOR = '#f5d46f';
+export const NEGATIVE_DELTA_COLOR = '#d96b1b';
 
 export function createOverviewResourceBadge(
   key: ResourceIconKey,
   options: {
     iconSize?: number;
     fontSize?: number;
+    deltaFontSize?: number;
     textColor?: string;
+    showDelta?: boolean;
     tooltip?: OverviewResourceTooltip;
     getAnchorStagePos?: () => { x: number; y: number };
   } = {}
 ): OverviewResourceBadge {
   const iconSize = options.iconSize ?? 28;
   const fontSize = options.fontSize ?? 19;
+  const deltaFontSize = options.deltaFontSize ?? 14;
   const textColor = options.textColor ?? '#f3f7fb';
   const meta = RESOURCE_ICON_META[key];
 
@@ -171,7 +179,7 @@ export function createOverviewResourceBadge(
   const icon = new Sprite(Texture.EMPTY);
   icon.width = iconSize;
   icon.height = iconSize;
-  icon.position.set(0, 0);
+  icon.position.set(0, options.showDelta ? 4 : 0);
   bindResourceIconTexture(icon, key);
 
   const valueText = new Text({
@@ -182,12 +190,35 @@ export function createOverviewResourceBadge(
       fontWeight: 'bold',
     },
   });
-  valueText.position.set(iconSize + 6, Math.max(0, Math.floor((iconSize - fontSize) / 2)));
+  valueText.position.set(
+    iconSize + 6,
+    options.showDelta ? 0 : Math.max(0, Math.floor((iconSize - fontSize) / 2))
+  );
 
-  container.addChild(icon, valueText);
+  const deltaText = new Text({
+    text: '',
+    style: {
+      fill: POSITIVE_DELTA_COLOR,
+      fontSize: deltaFontSize,
+      fontWeight: 'bold',
+    },
+  });
+  deltaText.position.set(iconSize + 6, fontSize + 2);
+  deltaText.visible = false;
+
+  container.addChild(icon, valueText, deltaText);
 
   let currentValue: number | string = 0;
-  const getTooltipText = () => `${meta.label}: ${currentValue}\n${meta.description}`;
+  let currentDelta = 0;
+  const getTooltipText = () => {
+    const deltaSuffix =
+      currentDelta > 0
+        ? ` (+${currentDelta}/turn)`
+        : currentDelta < 0
+          ? ` (${currentDelta}/turn)`
+          : '';
+    return `${meta.label}: ${currentValue}${deltaSuffix}\n${meta.description}`;
+  };
 
   const showTip = (e?: any) => {
     if (!options.tooltip) return;
@@ -208,14 +239,35 @@ export function createOverviewResourceBadge(
     options.tooltip?.hide();
   });
 
+  const setDelta = (delta: number) => {
+    currentDelta = delta;
+    if (delta > 0) {
+      deltaText.text = `+${delta}`;
+      deltaText.style.fill = POSITIVE_DELTA_COLOR;
+      deltaText.visible = true;
+    } else if (delta < 0) {
+      deltaText.text = `${delta}`;
+      deltaText.style.fill = NEGATIVE_DELTA_COLOR;
+      deltaText.visible = true;
+    } else {
+      deltaText.text = '';
+      deltaText.visible = false;
+    }
+  };
+
   return {
     container,
     icon,
     valueText,
-    setValue: (value: number | string) => {
+    deltaText,
+    setValue: (value: number | string, delta?: number) => {
       currentValue = value;
       valueText.text = String(value);
+      if (delta !== undefined) {
+        setDelta(delta);
+      }
     },
+    setDelta,
     getTooltipText,
   };
 }

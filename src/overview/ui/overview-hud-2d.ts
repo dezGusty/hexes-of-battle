@@ -69,6 +69,7 @@ export class OverviewHud2D {
   private campaign?: OverviewCampaign;
   private onEndTurn?: () => void;
   private readonly settings: BattleSettings;
+  private boundEscapeHandler?: (e: KeyboardEvent) => void;
 
   constructor(
     parent: Container,
@@ -102,11 +103,13 @@ export class OverviewHud2D {
       const badge = createOverviewResourceBadge(key, {
         iconSize: 30,
         fontSize: 20,
+        deltaFontSize: 14,
         textColor: '#f3f7fb',
+        showDelta: true,
         tooltip: this.resourceTooltip,
         getAnchorStagePos: () => ({ x: bx, y: 54 }),
       });
-      badge.container.position.set(bx, 16);
+      badge.container.position.set(bx, 10);
       this.container.addChild(badge.container);
       badges[key] = badge;
     });
@@ -348,6 +351,24 @@ export class OverviewHud2D {
     }
 
     parent.addChild(this.container);
+
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      this.boundEscapeHandler = (e: KeyboardEvent) => {
+        if (e.key !== 'Escape' || e.defaultPrevented) return;
+        if (this.menuPanel?.isVisible()) {
+          e.preventDefault();
+          this.menuPanel.hide();
+        } else if (
+          this.menuPanel &&
+          !this.battlePromptPanel.isVisible() &&
+          !this.armyExchangePanel.isVisible()
+        ) {
+          e.preventDefault();
+          this.menuPanel.show();
+        }
+      };
+      window.addEventListener('keydown', this.boundEscapeHandler);
+    }
   }
 
   public showSelectionAtHex(coords: Coords): void {
@@ -383,14 +404,15 @@ export class OverviewHud2D {
     const ownedCount = standardRegions.filter((r) => r.ownerPlayerId === 'player').length;
 
     const r = player?.resources;
+    const deltas = this.campaign.getForeseenResourceChanges('player');
     this.summaryText.text =
       `Turn ${this.campaign.turnNumber}   |   ` +
       `Regions: ${ownedCount}/${standardRegions.length}`;
-    this.resourceBadges.money.setValue(r?.money ?? 0);
-    this.resourceBadges.food.setValue(r?.food ?? 0);
-    this.resourceBadges.lumber.setValue(r?.lumber ?? 0);
-    this.resourceBadges.stone.setValue(r?.stone ?? 0);
-    this.resourceBadges.iron.setValue(r?.iron ?? 0);
+    this.resourceBadges.money.setValue(r?.money ?? 0, deltas.money);
+    this.resourceBadges.food.setValue(r?.food ?? 0, deltas.food);
+    this.resourceBadges.lumber.setValue(r?.lumber ?? 0, deltas.lumber);
+    this.resourceBadges.stone.setValue(r?.stone ?? 0, deltas.stone);
+    this.resourceBadges.iron.setValue(r?.iron ?? 0, deltas.iron);
 
     this.victoryBanner.visible = this.campaign.finished;
     if (this.campaign.finished) {
@@ -402,6 +424,10 @@ export class OverviewHud2D {
   }
 
   public destroy(): void {
+    if (this.boundEscapeHandler && typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+      window.removeEventListener('keydown', this.boundEscapeHandler);
+      this.boundEscapeHandler = undefined;
+    }
     this.resourceTooltip.destroy();
     this.battlePromptPanel.destroy();
     this.armyExchangePanel.destroy();
