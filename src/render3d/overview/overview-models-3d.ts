@@ -10,6 +10,7 @@ import { buildArticulatedUnit3DMesh } from '../units/unit-mesh-builder';
 import { createOverviewCowModel } from './overview-cow-3d';
 import { createOverviewIronMineModel } from './overview-iron-mine-3d';
 import { createOverviewLumberMillModel } from './overview-lumber-mill-3d';
+import { createOverviewWheatFieldModel } from './overview-wheat-field-3d';
 
 function makeMat(color: number, roughness = 0.8, metalness = 0.1): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({ color, roughness, metalness });
@@ -190,23 +191,75 @@ export function createOverviewAgricultureModel(
   option: AgricultureOption,
   seed: number = 1
 ): THREE.Group {
+  if (option === 'wheat') {
+    return createOverviewWheatFieldModel(seed);
+  }
+
   const group = new THREE.Group();
   group.name = `OverviewAgri_${option}`;
 
-  if (option === 'wheat') {
-    const wheatMat = makeMat(0xd4a838, 0.9);
-    for (let i = -2; i <= 2; i++) {
-      const row = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.06, 0.06), wheatMat);
-      row.position.set(0, 0.03, i * 0.12);
-      group.add(row);
+  if (option === 'cattle') {
+    const fenceMat = makeMat(0x6b4829, 0.94);
+    const fenceGroup = new THREE.Group();
+    fenceGroup.name = 'CattleFence';
+
+    const pseudoRand = (n: number) => {
+      const v = Math.sin((seed * 17.3 + n) * 12.9898) * 43758.5453;
+      return v - Math.floor(v);
+    };
+
+    // 8 rustic posts around the pasture with slight organic jitter
+    const postCount = 8;
+    const baseRadius = 0.48;
+    const posts: Array<{ x: number; z: number; h: number }> = [];
+    const postGeo = new THREE.BoxGeometry(0.022, 0.11, 0.022);
+    for (let i = 0; i < postCount; i++) {
+      const angle = (i / postCount) * Math.PI * 2 + (pseudoRand(i * 3) - 0.5) * 0.18;
+      const r = baseRadius + (pseudoRand(i * 3 + 1) - 0.5) * 0.06;
+      const px = Math.cos(angle) * r;
+      const pz = Math.sin(angle) * r;
+      const ph = 0.095 + pseudoRand(i * 3 + 2) * 0.025;
+      posts.push({ x: px, z: pz, h: ph });
+
+      const post = new THREE.Mesh(postGeo, fenceMat);
+      post.position.set(px, ph * 0.5, pz);
+      post.rotation.x = (pseudoRand(i * 5 + 1) - 0.5) * 0.14;
+      post.rotation.z = (pseudoRand(i * 5 + 2) - 0.5) * 0.14;
+      post.rotation.y = pseudoRand(i * 5 + 3) * Math.PI;
+      post.castShadow = true;
+      post.userData.isCattleFencePart = true;
+      post.userData.baseLocalY = ph * 0.5;
+      fenceGroup.add(post);
     }
-  } else if (option === 'cattle') {
-    const fenceMat = makeMat(0x7c5333, 0.9);
-    const fence = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.06, 0.03), fenceMat);
-    fence.position.set(0, 0.04, -0.34);
-    const fence2 = fence.clone();
-    fence2.position.z = 0.34;
-    group.add(fence, fence2);
+
+    // Criss-crossing crooked wooden rails between posts (leaving 1 segment open as a gate)
+    for (let i = 0; i < postCount - 1; i++) {
+      const a = posts[i];
+      const b = posts[i + 1];
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const dist = Math.hypot(dx, dz);
+      const yaw = Math.atan2(-dz, dx);
+
+      for (const crossDir of [-1, 1]) {
+        const railGeo = new THREE.BoxGeometry(dist + 0.03, 0.014, 0.013);
+        const rail = new THREE.Mesh(railGeo, fenceMat);
+        const midY = 0.048 + (pseudoRand(i * 7 + (crossDir > 0 ? 1 : 2)) - 0.5) * 0.012;
+        rail.position.set(
+          (a.x + b.x) * 0.5 + (pseudoRand(i * 11 + crossDir) - 0.5) * 0.01,
+          midY,
+          (a.z + b.z) * 0.5 + (pseudoRand(i * 13 + crossDir) - 0.5) * 0.01
+        );
+        rail.rotation.order = 'YXZ';
+        rail.rotation.y = yaw + (pseudoRand(i * 9 + crossDir) - 0.5) * 0.08;
+        rail.rotation.z = crossDir * (0.14 + pseudoRand(i * 17 + crossDir) * 0.06);
+        rail.castShadow = true;
+        rail.userData.isCattleFencePart = true;
+        rail.userData.baseLocalY = midY;
+        fenceGroup.add(rail);
+      }
+    }
+    group.add(fenceGroup);
 
     const cowConfigs: Array<[number, number, number]> = [
       [-0.24, -0.12, 0.55],

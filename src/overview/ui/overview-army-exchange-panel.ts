@@ -1,23 +1,77 @@
-import { Container, Graphics, Text } from 'pixi.js';
+import { Assets, Container, Graphics, Sprite, Spritesheet, Text, Texture } from 'pixi.js';
+import { CreatureType } from '../../battle/creature';
 import { OverviewCampaign } from '../overview-campaign';
 import { MAX_SQUADS_PER_ARMY } from '../overview-economy';
 import { OverviewArmy } from '../overview-types';
 import { createOverviewButton, OverviewUiButton } from './overview-ui-helpers';
 
 const PANEL_W = 860;
-const PANEL_H = 660;
+const PANEL_H = 680;
 const PANEL_X = (1920 - PANEL_W) / 2;
 const PANEL_Y = (1080 - PANEL_H) / 2;
 
 const COL_W = 360;
-const ROW_H = 42;
+const ROW_H = 46;
 const ROW_GAP = 6;
 const LEFT_COL_X = PANEL_X + 36;
 const RIGHT_COL_X = PANEL_X + PANEL_W - 36 - COL_W;
 const SLOTS_START_Y = PANEL_Y + 112;
+const PORTRAIT_SIZE = 34;
+const HP_BAR_W = 6;
+const HP_BAR_H = 36;
+
+const CREATURE_DISPLAY_NAMES: Record<number, string> = {
+  [CreatureType.PEASANT]: 'Peasant',
+  [CreatureType.PEASANT_ARCHER]: 'Peasant Archer',
+  [CreatureType.SWORDSMAN]: 'Swordsman',
+  [CreatureType.SPEARMAN]: 'Spearman',
+  [CreatureType.CROSSBOWMAN]: 'Crossbowman',
+  [CreatureType.ARCHER]: 'Archer',
+  [CreatureType.BARBARIAN]: 'Barbarian',
+  [CreatureType.HEAVY_KNIGHTS]: 'Heavy Knight',
+  [CreatureType.BEHEMOTH]: 'Behemoth',
+  [CreatureType.HERO_COMMANDER]: 'Commander',
+  [CreatureType.SLINGER]: 'Slinger',
+  [CreatureType.HEALER]: 'Healer',
+  [CreatureType.MACEMAN]: 'Maceman',
+  [CreatureType.ARMORED_KNIGHT]: 'Armored Knight',
+};
+
+export function getExchangeCreatureDisplayName(creatureType: CreatureType): string {
+  return CREATURE_DISPLAY_NAMES[creatureType] ?? `Unit ${creatureType}`;
+}
+
+export function getExchangeFaceKey(creatureType: CreatureType): string {
+  switch (creatureType) {
+    case CreatureType.PEASANT_ARCHER:
+    case CreatureType.ARCHER:
+      return 'peasant_archer_face.png';
+    case CreatureType.SWORDSMAN:
+    case CreatureType.HERO_COMMANDER:
+    case CreatureType.ARMORED_KNIGHT:
+      return 'swordman_face.png';
+    case CreatureType.SPEARMAN:
+    case CreatureType.MACEMAN:
+      return 'spearman_face.png';
+    case CreatureType.CROSSBOWMAN:
+      return 'crossbowman_face.png';
+    case CreatureType.BARBARIAN:
+    case CreatureType.BEHEMOTH:
+      return 'barbarian_face.png';
+    case CreatureType.SLINGER:
+      return 'slinger_face.png';
+    case CreatureType.PEASANT:
+    case CreatureType.HEALER:
+    default:
+      return 'peasant_face.png';
+  }
+}
 
 interface ExchangeSlotRow {
   bg: Graphics;
+  healthBar: Graphics;
+  portraitFrame: Graphics;
+  portrait: Sprite;
   label: Text;
   button: OverviewUiButton;
 }
@@ -39,9 +93,11 @@ export class OverviewArmyExchangePanel {
   private leftArmyId: string | null = null;
   private rightArmyId: string | null = null;
   private readonly onDone: () => void;
+  private unitsSheet?: Spritesheet;
 
-  constructor(parent: Container, onDone: () => void) {
+  constructor(parent: Container, onDone: () => void, unitsSheet?: Spritesheet) {
     this.onDone = onDone;
+    this.unitsSheet = unitsSheet;
     this.container.label = 'OverviewArmyExchangePanel';
     this.container.visible = false;
 
@@ -135,6 +191,26 @@ export class OverviewArmyExchangePanel {
     parent.addChild(this.container);
   }
 
+  public setUnitsSheet(unitsSheet?: Spritesheet): void {
+    this.unitsSheet = unitsSheet;
+    if (this.container.visible) {
+      this.refresh();
+    }
+  }
+
+  private getPortraitTexture(creatureType: CreatureType): Texture {
+    const faceKey = getExchangeFaceKey(creatureType);
+    const fromSheet = this.unitsSheet?.textures?.[faceKey];
+    if (fromSheet) return fromSheet;
+    try {
+      const cached = Assets.cache.get(faceKey) as Texture | undefined;
+      if (cached) return cached;
+    } catch {
+      // Ignore cache miss in headless tests
+    }
+    return Texture.EMPTY;
+  }
+
   private createSlotRow(
     x: number,
     y: number,
@@ -143,6 +219,13 @@ export class OverviewArmyExchangePanel {
     onTransfer: () => void
   ): ExchangeSlotRow {
     const bg = new Graphics();
+    const healthBar = new Graphics();
+    const portraitFrame = new Graphics();
+    const portrait = new Sprite(Texture.EMPTY);
+    portrait.width = PORTRAIT_SIZE - 2;
+    portrait.height = PORTRAIT_SIZE - 2;
+    portrait.visible = false;
+
     const label = new Text({
       text: 'Empty',
       style: {
@@ -158,16 +241,32 @@ export class OverviewArmyExchangePanel {
       fontSize: 16,
     });
 
+    const barX = arrowOnRight ? x + 8 : x + 62;
+    const barY = y + (ROW_H - HP_BAR_H) / 2;
+    const portX = barX + HP_BAR_W + 4;
+    const portY = y + (ROW_H - PORTRAIT_SIZE) / 2;
+    const labelX = portX + PORTRAIT_SIZE + 8;
+
+    portraitFrame.position.set(portX, portY);
+    portrait.position.set(portX + 1, portY + 1);
+    healthBar.position.set(barX, barY);
+    label.position.set(labelX, y + ROW_H / 2);
+
     if (arrowOnRight) {
-      label.position.set(x + 12, y + ROW_H / 2);
       button.container.position.set(x + COL_W - 54, y + (ROW_H - 32) / 2);
     } else {
       button.container.position.set(x + 8, y + (ROW_H - 32) / 2);
-      label.position.set(x + 64, y + ROW_H / 2);
     }
 
-    this.container.addChild(bg, label, button.container);
-    return { bg, label, button };
+    this.container.addChild(
+      bg,
+      healthBar,
+      portraitFrame,
+      portrait,
+      label,
+      button.container
+    );
+    return { bg, healthBar, portraitFrame, portrait, label, button };
   }
 
   public isVisible(): boolean {
@@ -290,12 +389,42 @@ export class OverviewArmyExchangePanel {
     canTransfer: boolean
   ): void {
     row.bg.clear();
+    row.healthBar.clear();
+    row.portraitFrame.clear();
+
     if (squad) {
       row.bg
         .roundRect(x, y, COL_W, ROW_H, 6)
         .fill({ color: 0x1b2838, alpha: 0.95 })
         .stroke({ width: 1.5, color: 0x5c7fa3, alpha: 0.85 });
-      row.label.text = `${index + 1}. ${squad.creatureType} (x${squad.count})`;
+
+      const hp = Math.max(0, Math.min(1, squad.hpPercent ?? 1));
+      const hpColor = hp >= 0.65 ? 0x46d160 : hp >= 0.35 ? 0xf0b432 : 0xe24a4a;
+      const innerH = HP_BAR_H - 2;
+      const fillH = Math.max(2, Math.round(innerH * hp));
+      row.healthBar
+        .roundRect(0, 0, HP_BAR_W, HP_BAR_H, 2)
+        .fill({ color: 0x0b1016, alpha: 0.95 })
+        .stroke({ width: 1, color: 0x3b4d63, alpha: 0.85 });
+      row.healthBar
+        .rect(1, 1 + (innerH - fillH), HP_BAR_W - 2, fillH)
+        .fill({ color: hpColor, alpha: 0.98 });
+      row.healthBar.visible = true;
+
+      row.portraitFrame
+        .roundRect(0, 0, PORTRAIT_SIZE, PORTRAIT_SIZE, 4)
+        .fill({ color: 0x0f1722, alpha: 0.95 })
+        .stroke({ width: 1, color: 0x8ea4be, alpha: 0.8 });
+      row.portraitFrame.visible = true;
+
+      const tex = this.getPortraitTexture(squad.creatureType);
+      row.portrait.texture = tex;
+      row.portrait.width = PORTRAIT_SIZE - 2;
+      row.portrait.height = PORTRAIT_SIZE - 2;
+      row.portrait.visible = tex !== Texture.EMPTY;
+
+      const name = getExchangeCreatureDisplayName(squad.creatureType);
+      row.label.text = `${index + 1}. ${name} (x${squad.count})`;
       row.label.style.fill = '#e8f1fa';
       row.button.setEnabled(canTransfer);
       row.button.container.visible = true;
@@ -304,6 +433,9 @@ export class OverviewArmyExchangePanel {
         .roundRect(x, y, COL_W, ROW_H, 6)
         .fill({ color: 0x121923, alpha: 0.65 })
         .stroke({ width: 1, color: 0x334154, alpha: 0.6 });
+      row.healthBar.visible = false;
+      row.portraitFrame.visible = false;
+      row.portrait.visible = false;
       row.label.text = `${index + 1}. Empty`;
       row.label.style.fill = '#6b7a8c';
       row.button.setEnabled(false);

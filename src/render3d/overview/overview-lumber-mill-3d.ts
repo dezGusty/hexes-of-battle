@@ -170,7 +170,7 @@ function addRoundedLog(
   logMat: THREE.Material,
   endMat: THREE.Material
 ): THREE.Mesh {
-  const geo = new THREE.CylinderGeometry(radius, radius, length, 10, 1);
+  const geo = new THREE.CylinderGeometry(radius, radius, length, 6, 1);
   geo.rotateZ(Math.PI * 0.5);
   const mesh = new THREE.Mesh(geo, [logMat, endMat, endMat]);
   mesh.position.set(x, y, z);
@@ -294,8 +294,8 @@ export function createOverviewLumberMillModel(): THREE.Group {
 
   const cabinW = 0.28;
   const cabinD = 0.25;
-  const logR = 0.017;
-  const logCourses = 6;
+  const logR = 0.024;
+  const logCourses = 4;
   const wallBaseY = 0.022;
 
   // Stone foundation plinth
@@ -312,12 +312,12 @@ export function createOverviewLumberMillModel(): THREE.Group {
   for (const sx of [-1, 1]) {
     for (const sz of [-1, 1]) {
       const post = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.016, 0.018, logCourses * logR * 1.75 + 0.02, 8),
+        new THREE.CylinderGeometry(0.016, 0.018, logCourses * logR * 1.85 + 0.02, 5),
         darkTimberMat
       );
       post.position.set(
         sx * (cabinW * 0.5 - 0.006),
-        wallBaseY + (logCourses * logR * 1.75) * 0.5,
+        wallBaseY + (logCourses * logR * 1.85) * 0.5,
         sz * (cabinD * 0.5 - 0.006)
       );
       post.castShadow = true;
@@ -327,7 +327,7 @@ export function createOverviewLumberMillModel(): THREE.Group {
 
   // Stacked horizontal rounded log walls with interlocking protruding ends
   for (let c = 0; c < logCourses; c++) {
-    const ly = wallBaseY + logR * 0.9 + c * (logR * 1.72);
+    const ly = wallBaseY + logR * 0.9 + c * (logR * 1.8);
     // Front (+Z) and Back (-Z) walls
     addRoundedLog(cabinGroup, cabinW + 0.04, logR, 0, ly, cabinD * 0.5, 0, logMat, endGrainMat);
     addRoundedLog(cabinGroup, cabinW + 0.04, logR, 0, ly, -cabinD * 0.5, 0, logMat, endGrainMat);
@@ -358,12 +358,12 @@ export function createOverviewLumberMillModel(): THREE.Group {
   }
 
   // Gable log courses (front & back triangular peaks)
-  const wallTopY = wallBaseY + logCourses * logR * 1.72 + 0.01;
-  for (let g = 0; g < 3; g++) {
-    const gLen = cabinW * (0.76 - g * 0.24);
-    const gy = wallTopY + g * (logR * 1.6);
-    addRoundedLog(cabinGroup, gLen, logR * 0.92, 0, gy, cabinD * 0.5, 0, logMat, endGrainMat);
-    addRoundedLog(cabinGroup, gLen, logR * 0.92, 0, gy, -cabinD * 0.5, 0, logMat, endGrainMat);
+  const wallTopY = wallBaseY + logCourses * logR * 1.8 + 0.006;
+  for (let g = 0; g < 2; g++) {
+    const gLen = cabinW * (0.72 - g * 0.3);
+    const gy = wallTopY + g * (logR * 1.5);
+    addRoundedLog(cabinGroup, gLen, logR * 0.9, 0, gy, cabinD * 0.5, 0, logMat, endGrainMat);
+    addRoundedLog(cabinGroup, gLen, logR * 0.9, 0, gy, -cabinD * 0.5, 0, logMat, endGrainMat);
   }
 
   // Wooden door on front (+Z) wall with frame, planks, iron hinges, and stone step
@@ -403,7 +403,7 @@ export function createOverviewLumberMillModel(): THREE.Group {
     hinge.position.set(-0.016, hy, 0.01);
     doorGroup.add(hinge);
   }
-  const doorRing = new THREE.Mesh(new THREE.TorusGeometry(0.007, 0.0022, 6, 10), ironMat);
+  const doorRing = new THREE.Mesh(new THREE.TorusGeometry(0.007, 0.0022, 4, 6), ironMat);
   doorRing.position.set(0.02, 0.058, 0.011);
   doorGroup.add(doorRing);
 
@@ -434,7 +434,7 @@ export function createOverviewLumberMillModel(): THREE.Group {
   }
   // Ridge beam
   const ridge = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.016, 0.016, roofLen + 0.02, 8),
+    new THREE.CylinderGeometry(0.016, 0.016, roofLen + 0.02, 5),
     darkTimberMat
   );
   ridge.rotation.x = Math.PI * 0.5;
@@ -466,7 +466,7 @@ export function createOverviewLumberMillModel(): THREE.Group {
     const angle = Math.atan2(dx, dz);
     for (const ry of [0.032, 0.072]) {
       const rail = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.006, 0.006, len, 6),
+        new THREE.CylinderGeometry(0.006, 0.006, len, 4),
         darkTimberMat
       );
       rail.rotation.x = Math.PI * 0.5;
@@ -487,7 +487,7 @@ export function createOverviewLumberMillModel(): THREE.Group {
   ];
   for (const [fx, fz] of fenceCorners) {
     const post = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.011, 0.013, 0.095, 8),
+      new THREE.CylinderGeometry(0.011, 0.013, 0.095, 5),
       darkTimberMat
     );
     post.position.set(fx, 0.0475, fz);
@@ -537,7 +537,7 @@ export function createOverviewLumberMillModel(): THREE.Group {
 
   // Chopping stump + axe beside the front-left of the cabin
   const stump = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.026, 0.032, 0.055, 10),
+    new THREE.CylinderGeometry(0.026, 0.032, 0.055, 6),
     [logMat, endGrainMat, endGrainMat]
   );
   stump.position.set(-0.24, 0.0275, 0.19);

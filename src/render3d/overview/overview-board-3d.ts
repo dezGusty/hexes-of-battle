@@ -30,6 +30,7 @@ import {
   createProceduralWaterNormalTexture,
 } from './overview-water-shader';
 import { updateOverviewCowAnimation } from './overview-cow-3d';
+import { updateOverviewWheatWind } from './overview-wheat-field-3d';
 import {
   createOverviewBlendedTerrainMaterial,
   createOverviewHighlightGridTexture,
@@ -728,6 +729,7 @@ export class OverviewBoard3D {
       Math.sin(this.windTime * 1.3) * 0.12;
 
     updateTreeWindState(this.windAngleRad, this.windStrength, dt);
+    updateOverviewWheatWind(this.windTime, this.windAngleRad, this.windStrength);
 
     if (this.waterMaterial) {
       this.waterMaterial.uniforms.uTime.value += dt;
@@ -1011,15 +1013,37 @@ export class OverviewBoard3D {
             x * 97 + y * 31 + 1
           );
           model.position.set(pos.x, surfaceY, pos.z);
-          for (const child of model.children) {
+          model.traverse((child) => {
             if (child.userData?.isOverviewCow) {
               const cowWorldY = this.sampleElevationAtWorld(
                 pos.x + child.position.x,
                 pos.z + child.position.z
               );
               child.position.y = cowWorldY - surfaceY;
+            } else if (child.userData?.isCattleFencePart) {
+              const fenceWorldY = this.sampleElevationAtWorld(
+                pos.x + child.position.x,
+                pos.z + child.position.z
+              );
+              const baseLocalY = Number(child.userData.baseLocalY ?? 0);
+              child.position.y = fenceWorldY - surfaceY + baseLocalY;
+            } else if (
+              child.userData?.isOverviewWheatMesh &&
+              child instanceof THREE.Mesh
+            ) {
+              const wPos = child.geometry.getAttribute(
+                'position'
+              ) as THREE.BufferAttribute;
+              for (let vi = 0; vi < wPos.count; vi++) {
+                const vx = wPos.getX(vi);
+                const vz = wPos.getZ(vi);
+                const groundDelta =
+                  this.sampleElevationAtWorld(pos.x + vx, pos.z + vz) - surfaceY;
+                wPos.setY(vi, wPos.getY(vi) + groundDelta);
+              }
+              wPos.needsUpdate = true;
             }
-          }
+          });
           this.landmarksGroup.add(model);
         } else if (hex.isDefenseHex && region && region.defenseTier !== 'none') {
           const model = createOverviewDefenseModel(region.defenseTier);

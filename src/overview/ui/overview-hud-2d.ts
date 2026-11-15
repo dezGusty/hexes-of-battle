@@ -202,7 +202,8 @@ export class OverviewHud2D {
       () => {
         this.refresh();
         options.onExchangeDone?.();
-      }
+      },
+      options.assets?.unitsSheet
     );
 
     // FPS Counter

@@ -1220,10 +1220,10 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
     const armyA = campaign.armies.find((a) => a.ownerPlayerId === 'player')!;
     armyA.coords = { x: 2, y: 2 };
     armyA.movementPoints = 4;
-    armyA.squads = Array.from({ length: 6 }, () => ({
+    armyA.squads = Array.from({ length: 6 }, (_, i) => ({
       creatureType: CreatureType.SWORDSMAN,
       count: 3,
-      hpPercent: 1,
+      hpPercent: i === 0 ? 0.45 : 1,
     }));
 
     campaign.hexes[2][2].terrain = 'grassland';
@@ -1253,6 +1253,22 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
     expect(panel.isVisible()).toBe(true);
     expect(panel.leftSlots).toHaveLength(10);
     expect(panel.rightSlots).toHaveLength(10);
+
+    // Verify human-readable unit names, vertical healthbars, and portrait textures
+    const dummyFaceTex = new Texture();
+    panel.setUnitsSheet({
+      textures: {
+        'swordman_face.png': dummyFaceTex,
+        'spearman_face.png': dummyFaceTex,
+      },
+    } as any);
+    expect(panel.leftSlots[0].label.text).toBe('1. Swordsman (x3)');
+    expect(panel.rightSlots[0].label.text).toBe('1. Spearman (x2)');
+    expect(panel.leftSlots[0].healthBar.visible).toBe(true);
+    expect(panel.leftSlots[0].portrait.visible).toBe(true);
+    expect(panel.leftSlots[0].portrait.texture).toBe(dummyFaceTex);
+    expect(panel.leftSlots[9].healthBar.visible).toBe(false);
+    expect(panel.leftSlots[9].portrait.visible).toBe(false);
 
     // Move one squad from left (6 -> 5) to right (6 -> 7) via arrow button
     panel.leftSlots[0].button.container.emit('pointertap', {} as any);
@@ -1828,7 +1844,8 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
 
     const mill = createOverviewResourceBuildingModel('lumber_camp');
     const tris = countGroupTriangles(mill);
-    expect(tris).toBeGreaterThan(1500);
+    expect(tris).toBeGreaterThan(800);
+    expect(tris).toBeLessThan(1500);
 
     expect(mill.getObjectByName('LumberMillCabin')).toBeDefined();
     expect(mill.getObjectByName('LumberMillDoor')).toBeDefined();
@@ -1843,5 +1860,36 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
     const shingleTex = getLumberMillShingleTexture();
     expect(shingleTex.image.width).toBeLessThanOrEqual(256);
     expect(shingleTex.image.height).toBeLessThanOrEqual(256);
+
+    // Cattle field has low-poly rustic medieval criss-crossing fence around the cows
+    const { createOverviewAgricultureModel } = await import(
+      '../render3d/overview/overview-models-3d'
+    );
+    const cattleField = createOverviewAgricultureModel('cattle', 7);
+    const cattleFence = cattleField.getObjectByName('CattleFence');
+    expect(cattleFence).toBeDefined();
+    expect(countGroupTriangles(cattleFence!)).toBeLessThan(350);
+
+    // Wheat field has <=256x256 textures and wind-reactive shader uniforms
+    const {
+      getWheatStalkTexture,
+      getWheatSoilTexture,
+      getOverviewWheatMaterial,
+      updateOverviewWheatWind,
+    } = await import('../render3d/overview/overview-wheat-field-3d');
+    const wheatField = createOverviewAgricultureModel('wheat', 3);
+    expect(wheatField.getObjectByName('WheatSoilBed')).toBeDefined();
+    expect(wheatField.getObjectByName('WheatStalks')).toBeDefined();
+    expect(wheatField.getObjectByName('WheatHayBale')).toBeDefined();
+    expect(getWheatStalkTexture().image.width).toBeLessThanOrEqual(256);
+    expect(getWheatStalkTexture().image.height).toBeLessThanOrEqual(256);
+    expect(getWheatSoilTexture().image.width).toBeLessThanOrEqual(256);
+    expect(getWheatSoilTexture().image.height).toBeLessThanOrEqual(256);
+
+    const wheatMat = getOverviewWheatMaterial();
+    updateOverviewWheatWind(2.5, Math.PI * 0.5, 0.42);
+    expect(wheatMat.userData.uWindTime.value).toBeCloseTo(2.5, 5);
+    expect(wheatMat.userData.uWindStrength.value).toBeCloseTo(0.42, 5);
+    expect(wheatMat.userData.uWindDir.value.y).toBeCloseTo(1, 4);
   });
 });
