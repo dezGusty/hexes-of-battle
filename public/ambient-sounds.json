@@ -1,0 +1,49 @@
+{
+  "settings": {
+    "sampleRadiusHexes": 2,
+    "checkIntervalMs": 600,
+    "maxConcurrentOneShots": 2,
+    "bedBaseVolume": 0.28,
+    "oneShotBaseVolume": 0.45,
+    "minOneShotCooldownMs": 9000,
+    "maxOneShotCooldownMs": 22000
+  },
+  "beds": {
+    "grassland": [
+      "audio/ambient/grasslands-bird-and-cricket-singing.ogg"
+    ],
+    "forest": [],
+    "deep_forest": [],
+    "swamp": [],
+    "hill": [],
+    "mountain": [],
+    "water": []
+  },
+  "oneShots": {
+    "cattle": [
+      "audio/ambient/cow-moo-1.ogg",
+      "audio/ambient/cow-moo-2.ogg",
+      "audio/ambient/cow-bell-01.ogg",
+      "audio/ambient/cow-bell-02.ogg"
+    ],
+    "lumber_camp": [
+      "audio/ambient/wood-chopping-01.ogg",
+      "audio/ambient/wood-chopping-02.ogg",
+      "audio/ambient/wood-chopping-03.ogg",
+      "audio/ambient/wood-chopping-04.ogg"
+    ],
+    "settlement": [
+      "audio/ambient/large-anvil-steel-hammer-4.ogg"
+    ],
+    "wheat": [],
+    "sheep": [],
+    "horses": [],
+    "quarry": [],
+    "iron_mine": [],
+    "gold_mine": [],
+    "forest": [],
+    "deep_forest": [],
+    "swamp": [],
+    "water": []
+  }
+}

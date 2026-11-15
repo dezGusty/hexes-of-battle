@@ -34,8 +34,10 @@ export function getAnimationSpeedMultiplier(speed: number): number {
 export class SoundSettings {
   public musicOn: boolean = false;
   public soundOn: boolean = true;
+  public ambientOn: boolean = true;
   public musicVolume: number = 0.15;
   public soundVolume: number = 0.75;
+  public ambientVolume: number = 0.75;
 }
 
 export class HexDisplaySettings {

@@ -62,6 +62,10 @@ export class BattleMenuPanel {
     public soundLabel?: Text;
     public soundVolumeSlider?: Slider;
     public soundVolumeValueText?: Text;
+    public ambientIcon?: Sprite;
+    public ambientLabel?: Text;
+    public ambientVolumeSlider?: Slider;
+    public ambientVolumeValueText?: Text;
     public toggleSceneInspectorButton?: FancyButton;
     public toggleStatsButton?: FancyButton;
     public saveButton?: FancyButton;
@@ -215,7 +219,7 @@ export class BattleMenuPanel {
         this.setHardwareCursorHidden(checked);
     }
 
-    public setSoundValues(musicVolume: number, soundVolume: number): void {
+    public setSoundValues(musicVolume: number, soundVolume: number, ambientVolume?: number): void {
         const mPercent = Math.max(0, Math.min(100, Math.round(musicVolume * 100)));
         const sPercent = Math.max(0, Math.min(100, Math.round(soundVolume * 100)));
         this.isUpdatingSoundValues = true;
@@ -231,6 +235,15 @@ export class BattleMenuPanel {
             }
             if (this.soundVolumeValueText) {
                 this.soundVolumeValueText.text = `${sPercent}%`;
+            }
+            if (ambientVolume !== undefined) {
+                const aPercent = Math.max(0, Math.min(100, Math.round(ambientVolume * 100)));
+                if (this.ambientVolumeSlider) {
+                    this.ambientVolumeSlider.value = aPercent;
+                }
+                if (this.ambientVolumeValueText) {
+                    this.ambientVolumeValueText.text = `${aPercent}%`;
+                }
             }
         } finally {
             this.isUpdatingSoundValues = false;
@@ -672,6 +685,44 @@ export class BattleMenuPanel {
 
         audioTab.addChild(this.soundIcon, this.soundLabel, this.soundVolumeSlider, this.soundVolumeValueText);
 
+        if (this.mode === 'overview') {
+            const ambientRowY = startY + 2 * (rowStep + 34);
+            this.ambientIcon = new Sprite(audioIconTex);
+            this.ambientIcon.position.set(contentBtnX + 8, ambientRowY + 8);
+            this.ambientIcon.width = 56;
+            this.ambientIcon.height = 56;
+
+            this.ambientLabel = new Text({
+                ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+                text: 'Ambient level',
+                style: { fill: '#ffffff', fontSize: 24, fontWeight: 'bold' },
+            });
+            this.ambientLabel.position.set(contentTextX, ambientRowY);
+
+            this.ambientVolumeSlider = createMobileSlider(0, 100, 1, 75, 380, 26);
+            this.ambientVolumeSlider.position.set(contentTextX, ambientRowY + 42);
+
+            this.ambientVolumeValueText = new Text({
+                ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+                text: '75%',
+                style: { fontSize: 22, fill: '#AACCFF', fontWeight: 'bold' },
+            });
+            this.ambientVolumeValueText.position.set(contentTextX + 400, ambientRowY + 38);
+
+            this.ambientVolumeSlider.onUpdate.connect((val) => {
+                if (this.ambientVolumeValueText) {
+                    this.ambientVolumeValueText.text = `${Math.round(val)}%`;
+                }
+            });
+
+            audioTab.addChild(
+                this.ambientIcon,
+                this.ambientLabel,
+                this.ambientVolumeSlider,
+                this.ambientVolumeValueText
+            );
+        }
+
         // ============================================================
         // 4. DEBUG TAB
         // ============================================================
@@ -718,6 +769,9 @@ export class BattleMenuPanel {
 
         bindSliderUISound(this.musicVolumeSlider, () => this.isUpdatingSoundValues);
         bindSliderUISound(this.soundVolumeSlider, () => this.isUpdatingSoundValues);
+        if (this.ambientVolumeSlider) {
+            bindSliderUISound(this.ambientVolumeSlider, () => this.isUpdatingSoundValues);
+        }
         bindSliderUISound(this.animationSpeedSlider, () => this.isUpdatingAnimationSpeed);
 
         this.selectTab('general');

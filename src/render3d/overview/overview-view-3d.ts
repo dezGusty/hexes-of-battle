@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { BattleSettings } from '../../battle/settings';
+import { OverviewAmbientAudio } from '../../overview/overview-ambient-audio';
 import { OverviewCampaign } from '../../overview/overview-campaign';
 import { Coords } from '../../shared';
 import { ThreeSceneDebugger } from '../debug/three-scene-debugger';
@@ -21,6 +22,7 @@ export class OverviewView3D {
   public readonly sceneManager: ThreeSceneManager;
   public readonly board: OverviewBoard3D;
   public readonly settings: BattleSettings;
+  public readonly ambientAudio: OverviewAmbientAudio;
   public readonly sceneDebugger?: ThreeSceneDebugger;
   public selectedArmyId: string | null = null;
   public cameraPanSpeed: number = 16.0;
@@ -58,6 +60,8 @@ export class OverviewView3D {
     this.sceneManager.scene.add(this.board.group);
     this.sceneManager.setCameraTarget(new THREE.Vector3(0, 0, 0));
     void this.board.loadTerrainAssets('textures/terrain/');
+    this.ambientAudio = new OverviewAmbientAudio(campaign, this.settings);
+    void this.ambientAudio.init();
 
     this.sceneManager.setTiltShiftEnabled(this.settings.tiltShift ?? true);
     setUnitRimLightingEnabled(this.settings.unitRimLighting ?? true);
@@ -382,6 +386,15 @@ export class OverviewView3D {
   public update(deltaMS: number): void {
     this.updateCameraKeyboardInput(deltaMS);
     this.board.update(deltaMS, this.sceneManager.camera.position);
+    const camCfg = this.sceneManager.getCameraConfig();
+    const centerHex = this.board.worldToHex(this.sceneManager.getCameraTarget());
+    this.ambientAudio.update(
+      deltaMS,
+      centerHex,
+      this.sceneManager.getCameraDistance(),
+      camCfg.minDistance,
+      camCfg.maxDistance
+    );
     this.sceneManager.render();
   }
 
@@ -390,6 +403,7 @@ export class OverviewView3D {
   }
 
   public destroy(): void {
+    this.ambientAudio.destroy();
     this.sceneDebugger?.dispose();
     if (this.boundContextMenu) {
       this.container?.removeEventListener('contextmenu', this.boundContextMenu);

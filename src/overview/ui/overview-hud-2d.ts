@@ -247,7 +247,11 @@ export class OverviewHud2D {
       const panel = new BattleMenuPanel(this.uiPlusRenderGroup, options.assets.uiSheet, 'overview');
       this.menuPanel = panel;
 
-      panel.setSoundValues(this.settings.sound.musicVolume, this.settings.sound.soundVolume);
+      panel.setSoundValues(
+        this.settings.sound.musicVolume,
+        this.settings.sound.soundVolume,
+        this.settings.sound.ambientVolume
+      );
       panel.setAnimationSpeed(this.settings.overviewAnimationSpeed);
       panel.setHardwareCursorHidden(this.settings.hideHardwareCursor);
       panel.setRimLightingEnabled(this.settings.unitRimLighting);
@@ -268,6 +272,13 @@ export class OverviewHud2D {
         const vol = Math.max(0, Math.min(1, val / 100));
         this.settings.sound.soundVolume = vol;
         this.settings.sound.soundOn = vol > 0;
+        this.settings.save();
+      });
+
+      panel.ambientVolumeSlider?.onUpdate.connect((val) => {
+        const vol = Math.max(0, Math.min(1, val / 100));
+        this.settings.sound.ambientVolume = vol;
+        this.settings.sound.ambientOn = vol > 0;
         this.settings.save();
       });
 

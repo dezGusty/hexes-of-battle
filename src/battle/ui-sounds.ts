@@ -98,6 +98,7 @@ const defaultCombatConfig: any = tryLoadPublicJsonFromDisk('public/combat_config
 export enum SoundCategory {
   MUSIC = 'MUSIC',
   SOUND = 'SOUND',
+  AMBIENT = 'AMBIENT',
 }
 
 export enum SoundType {

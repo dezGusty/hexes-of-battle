@@ -590,6 +590,24 @@ export class PixiSoundSystem implements ISoundSystem {
       } catch (err) {
         console.warn(`[PixiSoundSystem] Failed to play sound '${soundName}':`, err);
       }
+    } else if (category === SoundCategory.AMBIENT) {
+      if (this.settings && !this.settings.sound.ambientOn) {
+        return;
+      }
+      const finalVolume = volume ?? this.settings?.sound.ambientVolume ?? 0.75;
+      const finalSpeed = speed ?? 1.0;
+      try {
+        const playOptions: { loop?: boolean; volume?: number; speed?: number } = {
+          volume: finalVolume,
+          speed: finalSpeed,
+        };
+        if (loop !== undefined) {
+          playOptions.loop = loop;
+        }
+        sound.play(soundName, playOptions);
+      } catch (err) {
+        console.warn(`[PixiSoundSystem] Failed to play ambient '${soundName}':`, err);
+      }
     }
   }
 

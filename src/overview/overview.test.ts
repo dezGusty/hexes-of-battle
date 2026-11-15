@@ -43,6 +43,10 @@ import {
   triggerOverviewCowAnimation,
   updateOverviewCowAnimation,
 } from '../render3d/overview/overview-cow-3d';
+import {
+  AmbientSoundsConfig,
+  OverviewAmbientAudio,
+} from './overview-ambient-audio';
 
 describe('Overview Map Phase 1: Regions, Economy & Campaign Loop', () => {
   it('should create the 2x2 starter map with 1 player region, 3 neutral regions, 10-squad garrisons, and 4-12 agricultural hexes', () => {
@@ -822,9 +826,13 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
       setSoundVolume: () => {},
     };
 
+    expect(SoundCategory.AMBIENT).toBe('AMBIENT');
+
     const settings = new BattleSettings();
-    settings.sound.soundOn = true;
-    settings.sound.soundVolume = 0.8;
+    settings.sound.soundOn = false;
+    settings.sound.soundVolume = 0;
+    settings.sound.ambientOn = true;
+    settings.sound.ambientVolume = 0.8;
 
     const hud = new OverviewHud2D(new Container(), undefined, {
       settings,
@@ -1405,11 +1413,27 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
     const anim = cow.userData as CowAnimationData;
     expect(anim.isOverviewCow).toBe(true);
     expect(anim.idleProbability).toBe(0.85);
+    expect(cow.getObjectByName('CowNeckBelt')).toBeDefined();
+    expect(cow.getObjectByName('CowBell')).toBeDefined();
 
     // Graze animation lowers head
     triggerOverviewCowAnimation(cow, 'graze');
     updateOverviewCowAnimation(cow, 0.65);
     expect(anim.headPivot.rotation.x).toBeGreaterThan(0.35);
+
+    // Graze-right animation bows head to the right (-Y rotation), moves mouth, holds ~2.5s, and returns
+    triggerOverviewCowAnimation(cow, 'graze_right');
+    updateOverviewCowAnimation(cow, 1.0);
+    expect(anim.headPivot.rotation.x).toBeGreaterThan(0.5);
+    expect(anim.headPivot.rotation.y).toBeLessThan(-0.2);
+    const muzzleRot1 = anim.muzzle.rotation.x;
+    updateOverviewCowAnimation(cow, 1.2);
+    expect(anim.headPivot.rotation.x).toBeGreaterThan(0.5);
+    expect(anim.muzzle.rotation.x).not.toBeCloseTo(muzzleRot1, 3);
+    updateOverviewCowAnimation(cow, 1.45);
+    expect(anim.state).toBe('idle');
+    expect(Math.abs(anim.headPivot.rotation.y)).toBeLessThan(0.05);
+    expect(anim.muzzle.rotation.x).toBeCloseTo(Math.PI * 0.58, 3);
 
     // Tail-wag animation swings tailPivot.rotation.z
     triggerOverviewCowAnimation(cow, 'wag_tail');
@@ -1637,5 +1661,103 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
       }
     }
     board.dispose();
+  });
+
+  it('loads ambient-sounds.json, samples camera context, scales volume by zoom, avoids immediate repeats, and plays beds/one-shots', async () => {
+    const raw = JSON.parse(
+      readFileSync('public/ambient-sounds.json', 'utf8')
+    ) as AmbientSoundsConfig;
+    expect(raw.beds.grassland).toEqual([
+      'audio/ambient/grasslands-bird-and-cricket-singing.ogg',
+    ]);
+    expect(raw.oneShots.cattle).toHaveLength(2);
+    expect(raw.oneShots.lumber_camp).toHaveLength(4);
+    expect(raw.oneShots.settlement).toEqual([
+      'audio/ambient/large-anvil-steel-hammer-4.ogg',
+    ]);
+    expect(raw.beds.forest).toEqual([]);
+    expect(raw.oneShots.quarry).toEqual([]);
+
+    // Verify all configured audio files exist on disk
+    for (const list of [...Object.values(raw.beds), ...Object.values(raw.oneShots)]) {
+      for (const file of list) {
+        expect(readFileSync(`public/${file}`).byteLength).toBeGreaterThan(100);
+      }
+    }
+
+    const campaign = new OverviewCampaign(createStarterOverviewMap(123));
+    for (let x = 0; x < campaign.mapWidth; x++) {
+      for (let y = 0; y < campaign.mapHeight; y++) {
+        campaign.hexes[x][y].terrain = 'grassland';
+        campaign.hexes[x][y].isSettlement = false;
+        campaign.hexes[x][y].resourceBuilding = undefined;
+        campaign.hexes[x][y].isAgriculturalPlot = false;
+      }
+    }
+    campaign.hexes[2][2].isAgriculturalPlot = true;
+    campaign.hexes[2][2].agricultureOption = 'cattle';
+    campaign.hexes[2][3].resourceBuilding = 'lumber_camp';
+    campaign.hexes[1][2].isSettlement = true;
+
+    const played: Array<{ alias: string; opts: any }> = [];
+    const stopped: string[] = [];
+    const mockDriver = {
+      add: async () => {},
+      exists: () => true,
+      play: (alias: string, opts: any) => {
+        played.push({ alias, opts });
+        return { volume: opts?.volume ?? 1 };
+      },
+      stop: (alias: string) => {
+        stopped.push(alias);
+      },
+    };
+
+    expect(SoundCategory.AMBIENT).toBe('AMBIENT');
+
+    const settings = new BattleSettings();
+    settings.sound.soundOn = false;
+    settings.sound.soundVolume = 0;
+    settings.sound.ambientOn = true;
+    settings.sound.ambientVolume = 0.8;
+
+    const ambient = new OverviewAmbientAudio(campaign, settings, mockDriver);
+    ambient.setConfig(raw);
+    await ambient.loadSounds();
+
+    // Non-repeating variation check
+    const picks: Array<string | null> = [];
+    for (let i = 0; i < 10; i++) {
+      picks.push(ambient.pickVariationWithoutRepeat('cattle', raw.oneShots.cattle));
+    }
+    for (let i = 1; i < picks.length; i++) {
+      expect(picks[i]).not.toBe(picks[i - 1]);
+    }
+
+    // Zoom attenuation check
+    expect(ambient.computeZoomVolumeFactor(4.5, 4.5, 32)).toBeCloseTo(1.0, 5);
+    expect(ambient.computeZoomVolumeFactor(32, 4.5, 32)).toBeCloseTo(0.35, 5);
+
+    // Context sampling & playback
+    const ctx = ambient.sampleContextAroundHex({ x: 2, y: 2 });
+    expect(ctx.dominantBedTag).toBe('grassland');
+    expect(ctx.oneShotTags).toContain('cattle');
+    expect(ctx.oneShotTags).toContain('lumber_camp');
+    expect(ctx.oneShotTags).toContain('settlement');
+
+    ambient.update(700, { x: 2, y: 2 }, 4.5, 4.5, 32);
+    expect(
+      played.some((p) => p.alias === 'audio/ambient/grasslands-bird-and-cricket-singing.ogg' && p.opts.loop === true)
+    ).toBe(true);
+    expect(played.some((p) => p.opts.loop === false)).toBe(true);
+
+    ambient.destroy();
+    expect(stopped).toContain('audio/ambient/grasslands-bird-and-cricket-singing.ogg');
+
+    // SoundSettings exposes separate ambientOn and ambientVolume defaults
+    const { SoundSettings } = await import('../battle/settings');
+    const soundSettings = new SoundSettings();
+    expect(soundSettings.ambientOn).toBe(true);
+    expect(soundSettings.ambientVolume).toBe(0.75);
   });
 });

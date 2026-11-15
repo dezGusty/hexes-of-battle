@@ -1,11 +1,13 @@
 import * as THREE from 'three';
 
-export type CowAnimState = 'idle' | 'graze' | 'wag_tail';
+export type CowAnimState = 'idle' | 'graze' | 'graze_right' | 'wag_tail';
 
 export interface CowAnimationData {
   isOverviewCow: true;
   headPivot: THREE.Group;
   tailPivot: THREE.Group;
+  muzzle: THREE.Mesh;
+  bellPivot: THREE.Group;
   state: CowAnimState;
   elapsed: number;
   duration: number;
@@ -156,6 +158,16 @@ export function createOverviewCowModel(seed: number = 1): THREE.Group {
     roughness: 0.85,
     metalness: 0.06,
   });
+  const beltMat = new THREE.MeshStandardMaterial({
+    color: 0x5c361e,
+    roughness: 0.82,
+    metalness: 0.06,
+  });
+  const bellMat = new THREE.MeshStandardMaterial({
+    color: 0xd4a43a,
+    roughness: 0.35,
+    metalness: 0.68,
+  });
 
   // 1. Torso: barrel-chested DX9-style cow body
   const torsoGeo = new THREE.SphereGeometry(0.24, 9, 6);
@@ -214,6 +226,30 @@ export function createOverviewCowModel(seed: number = 1): THREE.Group {
   neck.rotation.x = Math.PI * 0.28;
   neck.position.set(0, 0.04, 0.08);
   headPivot.add(neck);
+
+  // Leather neck belt / collar (16 tris) + hanging brass cowbell (24 tris)
+  const neckBelt = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.118, 0.128, 0.032, 8, 1, true),
+    beltMat
+  );
+  neckBelt.name = 'CowNeckBelt';
+  neckBelt.rotation.x = Math.PI * 0.28;
+  neckBelt.position.set(0, 0.045, 0.085);
+  headPivot.add(neckBelt);
+
+  const bellPivot = new THREE.Group();
+  bellPivot.name = 'CowBellPivot';
+  bellPivot.position.set(0, -0.045, 0.155);
+  headPivot.add(bellPivot);
+
+  const cowBell = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.017, 0.031, 0.052, 6, 1),
+    bellMat
+  );
+  cowBell.name = 'CowBell';
+  cowBell.position.set(0, -0.028, 0);
+  cowBell.castShadow = true;
+  bellPivot.add(cowBell);
 
   // Skull (64 tris)
   const skullGeo = new THREE.SphereGeometry(0.125, 8, 6);
@@ -290,6 +326,8 @@ export function createOverviewCowModel(seed: number = 1): THREE.Group {
     isOverviewCow: true,
     headPivot,
     tailPivot,
+    muzzle,
+    bellPivot,
     state: 'idle',
     elapsed: r1.value * initialIdleDuration,
     duration: initialIdleDuration,
@@ -303,13 +341,18 @@ export function createOverviewCowModel(seed: number = 1): THREE.Group {
 
 export function triggerOverviewCowAnimation(
   cow: THREE.Object3D,
-  anim: 'graze' | 'wag_tail'
+  anim: 'graze' | 'graze_right' | 'wag_tail'
 ): void {
   const data = cow.userData as CowAnimationData | undefined;
   if (!data?.isOverviewCow) return;
   data.state = anim;
   data.elapsed = 0;
-  data.duration = anim === 'graze' ? 1.35 : 0.95;
+  data.duration = anim === 'graze' ? 1.35 : anim === 'graze_right' ? 3.6 : 0.95;
+}
+
+function smoothstep01(t: number): number {
+  const c = Math.min(1, Math.max(0, t));
+  return c * c * (3 - 2 * c);
 }
 
 export function updateOverviewCowAnimation(
@@ -330,9 +373,12 @@ export function updateOverviewCowAnimation(
       data.elapsed = 0;
 
       if (rRoll.value >= data.idleProbability) {
-        if (rChoice.value < 0.5) {
+        if (rChoice.value < 0.34) {
           data.state = 'graze';
           data.duration = 1.35;
+        } else if (rChoice.value < 0.68) {
+          data.state = 'graze_right';
+          data.duration = 3.6;
         } else {
           data.state = 'wag_tail';
           data.duration = 0.95;
@@ -358,6 +404,35 @@ export function updateOverviewCowAnimation(
     const envelope = Math.sin(tNorm * Math.PI);
     const munch = Math.sin(data.elapsed * 16.0) * 0.06 * envelope;
     data.headPivot.rotation.x = 0.62 * envelope + munch;
+    data.headPivot.rotation.y *= 0.85;
+    data.muzzle.rotation.x = Math.PI * 0.58;
+    data.muzzle.position.y = 0.05;
+    data.bellPivot.rotation.x = -0.45 * envelope;
+    data.tailPivot.rotation.z *= 0.85;
+    data.tailPivot.rotation.x = 0.22;
+  } else if (data.state === 'graze_right') {
+    // Bow head to the right side, chew/move mouth for ~2.5s, then return to initial pose
+    const bowDur = 0.55;
+    const returnDur = 0.55;
+    const hold =
+      data.elapsed < bowDur
+        ? smoothstep01(data.elapsed / bowDur)
+        : data.elapsed > data.duration - returnDur
+          ? smoothstep01((data.duration - data.elapsed) / returnDur)
+          : 1;
+    const isStayingDown =
+      data.elapsed >= bowDur && data.elapsed <= data.duration - returnDur;
+    const chewEnvelope = isStayingDown ? 1 : hold * 0.35;
+
+    data.headPivot.rotation.x =
+      0.64 * hold + Math.sin(data.elapsed * 9.0) * 0.025 * chewEnvelope;
+    data.headPivot.rotation.y = -0.28 * hold;
+    data.muzzle.rotation.x =
+      Math.PI * 0.58 + Math.sin(data.elapsed * 18.0) * 0.14 * chewEnvelope;
+    data.muzzle.position.y =
+      0.05 + Math.sin(data.elapsed * 18.0) * 0.008 * chewEnvelope;
+    data.bellPivot.rotation.x =
+      -0.45 * hold + Math.sin(data.elapsed * 7.0) * 0.05 * chewEnvelope;
     data.tailPivot.rotation.z *= 0.85;
     data.tailPivot.rotation.x = 0.22;
   } else if (data.state === 'wag_tail') {
@@ -366,9 +441,17 @@ export function updateOverviewCowAnimation(
     data.tailPivot.rotation.z = Math.sin(data.elapsed * 24.0) * 0.58 * envelope;
     data.tailPivot.rotation.x = 0.22 - 0.35 * envelope;
     data.headPivot.rotation.x *= 0.85;
+    data.headPivot.rotation.y *= 0.85;
+    data.muzzle.rotation.x = Math.PI * 0.58;
+    data.muzzle.position.y = 0.05;
+    data.bellPivot.rotation.x *= 0.85;
   } else {
     // Idle: subtle breathing/resting pose
     data.headPivot.rotation.x = Math.sin(data.elapsed * 1.1) * 0.015;
+    data.headPivot.rotation.y = 0;
+    data.muzzle.rotation.x = Math.PI * 0.58;
+    data.muzzle.position.y = 0.05;
+    data.bellPivot.rotation.x = Math.sin(data.elapsed * 1.1) * 0.015;
     data.tailPivot.rotation.z = 0;
     data.tailPivot.rotation.x = 0.22;
   }

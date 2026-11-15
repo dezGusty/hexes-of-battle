@@ -450,6 +450,16 @@ describe("BattleMenuPanel 2-Column Layout & Scene Inspector Toggle", () => {
     expect(menu.soundIcon).toBeDefined();
     expect(menu.soundLabel?.text).toBe("Sound level");
     expect(menu.soundVolumeSlider).toBeDefined();
+    expect(menu.ambientVolumeSlider).toBeUndefined();
+
+    const overviewMenu = new BattleMenuPanel(new Container(), dummyUiSheet, "overview");
+    expect(overviewMenu.ambientIcon).toBeDefined();
+    expect(overviewMenu.ambientLabel?.text).toBe("Ambient level");
+    expect(overviewMenu.ambientVolumeSlider).toBeDefined();
+    overviewMenu.setSoundValues(0.2, 0.5, 0.42);
+    expect(overviewMenu.ambientVolumeSlider!.value).toBe(42);
+    expect(overviewMenu.ambientVolumeValueText!.text).toBe("42%");
+    overviewMenu.destroy();
     expect(menu.toggleSceneInspectorButton).toBeDefined();
     expect(menu.saveButton).toBeDefined();
     expect(menu.loadButton).toBeDefined();
