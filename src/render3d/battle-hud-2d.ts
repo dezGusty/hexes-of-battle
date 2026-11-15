@@ -424,15 +424,19 @@ export class BattleHud2D {
       this.settings.sound.musicVolume = vol;
       this.settings.sound.musicOn = vol > 0;
       this.settings.save();
-      try {
-        if (vol <= 0) {
-          sound.stop('track_dark_whispers');
-        } else if (!wasMusicOn) {
-          sound.play('track_dark_whispers', { loop: true, volume: vol });
-        } else {
-          sound.volume('track_dark_whispers', vol);
-        }
-      } catch {}
+      if (this.musicManager) {
+        void this.musicManager.updateVolume(this.settings);
+      } else {
+        try {
+          if (vol <= 0) {
+            sound.stop('track_dark_whispers');
+          } else if (!wasMusicOn) {
+            sound.play('track_dark_whispers', { loop: true, volume: vol });
+          } else {
+            sound.volume('track_dark_whispers', vol);
+          }
+        } catch {}
+      }
       if (events.onToggleMusic && wasMusicOn !== this.settings.sound.musicOn) {
         events.onToggleMusic(this.settings.sound.musicOn);
       }
@@ -1042,6 +1046,12 @@ export class BattleHud2D {
 
   public isFpsVisible(): boolean {
     return this.fpsText?.visible ?? this.settings.debug.showFps;
+  }
+
+  private musicManager?: import('../core/music-manager').MusicManager;
+
+  public setMusicManager(musicManager?: import('../core/music-manager').MusicManager): void {
+    this.musicManager = musicManager;
   }
 
   public isMenuBlockingInput(): boolean {

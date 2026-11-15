@@ -86,6 +86,7 @@ export class BattleSettings {
   public hotkeys: HotkeysSettings = new HotkeysSettings();
   public hideHardwareCursor: boolean = false;
   public animationSpeed: number = DEFAULT_ANIMATION_SPEED;
+  public overviewAnimationSpeed: number = DEFAULT_ANIMATION_SPEED;
   public weather: WeatherType = WeatherType.NONE;
   public unitRimLighting: boolean = true;
   public tiltShift: boolean = true;
@@ -97,6 +98,14 @@ export class BattleSettings {
 
   public getAnimationSpeedMultiplier(): number {
     return getAnimationSpeedMultiplier(this.animationSpeed);
+  }
+
+  public setOverviewAnimationSpeed(speed: number): void {
+    this.overviewAnimationSpeed = clampAnimationSpeed(speed);
+  }
+
+  public getOverviewAnimationSpeedMultiplier(): number {
+    return getAnimationSpeedMultiplier(this.overviewAnimationSpeed);
   }
 
   public load() {
@@ -163,6 +172,14 @@ export class BattleSettings {
       }
     }
 
+    const overviewAnimationSpeed = localStorage.getItem('hob.overviewAnimationSpeed');
+    if (overviewAnimationSpeed !== null) {
+      const parsed = Number(overviewAnimationSpeed);
+      if (Number.isFinite(parsed)) {
+        this.overviewAnimationSpeed = clampAnimationSpeed(parsed);
+      }
+    }
+
     const weather = localStorage.getItem('hob.weather');
     if (weather !== null) {
       this.weather = normalizeWeatherType(weather);
@@ -210,6 +227,7 @@ export class BattleSettings {
     localStorage.setItem('hob.hideHardwareCursor', String(this.hideHardwareCursor));
     // Save the animation speed setting to local storage
     localStorage.setItem('hob.animationSpeed', String(clampAnimationSpeed(this.animationSpeed)));
+    localStorage.setItem('hob.overviewAnimationSpeed', String(clampAnimationSpeed(this.overviewAnimationSpeed)));
     // Save the weather setting to local storage
     localStorage.setItem('hob.weather', String(this.weather));
     localStorage.setItem('hob.unitRimLighting', String(this.unitRimLighting));

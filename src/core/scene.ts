@@ -8,6 +8,7 @@ import { TraitsConfig } from '../battle/trait-system';
 import { ArrowVolleySoundConfig, ISoundSystem, SoundGroupsConfig, SoundsConfig, UISoundsConfig } from './sound-system';
 import type { BattleConfigJson } from '../battle/battle-config-loader';
 import type { ThreeRendererHost } from '../render3d/three-renderer-host';
+import type { MusicConfig, MusicManager } from './music-manager';
 
 export interface GameAssets {
   terrainTexture?: Texture;
@@ -96,6 +97,7 @@ export interface GameTemplates {
   hudConfig?: HudConfig;
   soundsConfig?: SoundsConfig;
   traitsConfig?: TraitsConfig;
+  musicConfig?: MusicConfig;
 }
 
 export interface GameContext {
@@ -106,6 +108,7 @@ export interface GameContext {
   templates: GameTemplates;
   settings: BattleSettings;
   soundSystem?: ISoundSystem;
+  musicManager?: MusicManager;
   nativeResolution: { width: number; height: number };
   switchToScene: (sceneName: string, params?: any) => Promise<void>;
   getThreeRendererHost?: (container?: HTMLElement) => ThreeRendererHost;

@@ -36,7 +36,6 @@ export const BATTLE_SOUND_ASSETS: Array<{ alias: string; url: string }> = [
   { alias: 'die', url: 'audio/die.ogg' },
   { alias: 'move', url: 'audio/move.ogg' },
   { alias: 'sword', url: 'audio/sword.ogg' },
-  { alias: 'track_dark_whispers', url: 'audio/dark_whispers.ogg' },
 ];
 
 /**

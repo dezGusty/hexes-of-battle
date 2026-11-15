@@ -45,7 +45,12 @@ export class BattleScene3D implements Scene {
 
   public async enter(
     context: GameContext,
-    params?: { config?: BattleConfig; jsonConfig?: BattleConfigJson; soundSystem?: ISoundSystem }
+    params?: {
+      config?: BattleConfig;
+      jsonConfig?: BattleConfigJson;
+      soundSystem?: ISoundSystem;
+      replayMode?: boolean;
+    }
   ): Promise<void> {
     this.context = context;
     this.currentConfig = params?.config;
@@ -173,6 +178,10 @@ export class BattleScene3D implements Scene {
       params?.config?.armyNames,
       context.version
     );
+    this.hud.setMusicManager?.(context.musicManager);
+    if (context.settings) {
+      void context.musicManager?.setMode('battle', context.settings);
+    }
     this.container.addChild(this.hud.container);
 
     this.hud.initialize({
@@ -304,6 +313,10 @@ export class BattleScene3D implements Scene {
     });
 
     this.hookBattleEvents();
+    if (params?.replayMode) {
+      this.hud.setAutoBattlePersonality(CPUPersonalityType.AGGRESSIVE);
+      this.hud.setAutoBattleEnabled(true);
+    }
     this.startBattle();
   }
 
@@ -453,6 +466,11 @@ export class BattleScene3D implements Scene {
 
     this.battle.hookBattleFinished = (victor) => {
       this.hud.showVictoryBanner(victor);
+      if (this.hud.postBattlePanel) {
+        this.hud.postBattlePanel.onClose = () => {
+          this.context.eventBus.emit("battle:exit-to-overview");
+        };
+      }
       const result = this.battle.getBattleResult();
       this.context.eventBus.emit("battle:finished", result ?? { victorArmyIndex: victor });
     };

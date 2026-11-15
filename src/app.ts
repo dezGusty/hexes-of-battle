@@ -2,6 +2,7 @@ import { Application } from "pixi.js";
 import { HexesEngine } from "./core/engine";
 import { GameFlowController } from "./core/game-flow";
 import { BattleScene3D } from "./scenes/battle-scene-3d";
+import { OverviewScene3D } from "./scenes/overview-scene-3d";
 
 export enum GameState {
   InMenu,
@@ -23,7 +24,9 @@ export class HexesApp {
     await this.engine.initialize();
 
     // Register scenes
+    const overviewScene = new OverviewScene3D();
     const battleScene = new BattleScene3D();
+    this.engine.sceneManager.register(overviewScene);
     this.engine.sceneManager.register(battleScene);
 
     // Coordinate overview <-> battle scene transitions

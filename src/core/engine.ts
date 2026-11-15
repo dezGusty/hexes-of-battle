@@ -4,6 +4,7 @@ import { EventBus } from './event-bus';
 import { GameAssets, GameContext, GameTemplates } from './scene';
 import { SceneManager } from './scene-manager';
 import { AssetBundleManager } from './asset-manager';
+import { DEFAULT_MUSIC_CONFIG, MusicConfig, MusicManager } from './music-manager';
 import { ThreeRendererHost } from '../render3d/three-renderer-host';
 import { BattleSettings } from '../battle/settings';
 import { Ability } from '../battle/ability';
@@ -25,6 +26,7 @@ export class HexesEngine {
   public readonly eventBus: EventBus = new EventBus();
   public readonly settings: BattleSettings = new BattleSettings();
   public readonly soundSystem: PixiSoundSystem;
+  public readonly musicManager: MusicManager = new MusicManager();
   public readonly sceneManager: SceneManager;
   public readonly assetManager: AssetBundleManager = new AssetBundleManager();
 
@@ -58,6 +60,7 @@ export class HexesEngine {
       templates: this.templates,
       settings: this.settings,
       soundSystem: this.soundSystem,
+      musicManager: this.musicManager,
       nativeResolution: this.nativeResolution,
       switchToScene: (sceneName: string, params?: any) => this.sceneManager.switchTo(sceneName, params),
       getThreeRendererHost: (container?: HTMLElement) => this.getThreeRendererHost(container),
@@ -133,6 +136,15 @@ export class HexesEngine {
   public async loadTemplates(): Promise<void> {
     this.templates.abilityTypes = await JsonLoader.loadJson<Ability[]>('./abilitytypes.json');
     this.templates.creatureTemplates = await JsonLoader.loadJson<CreatureTemplate[]>('./creaturetypes.json');
+    try {
+      const musicCfg = await JsonLoader.loadJson<MusicConfig>('./music.json');
+      if (musicCfg) {
+        this.templates.musicConfig = musicCfg;
+        this.musicManager.setConfig(musicCfg);
+      }
+    } catch {
+      this.musicManager.setConfig(DEFAULT_MUSIC_CONFIG);
+    }
     try {
       this.templates.combatConfig = await JsonLoader.loadJson<any>('./combat_config.json');
       if (this.templates.combatConfig?.morale) {

@@ -5,6 +5,7 @@ import { ISoundSystem } from './sound-system';
 export interface BattleLaunchParams {
   config?: BattleConfig;
   soundSystem?: ISoundSystem;
+  replayMode?: boolean;
 }
 
 export interface OverviewReturnParams {

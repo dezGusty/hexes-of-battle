@@ -1,0 +1,41 @@
+{
+  "global": [
+    {
+      "alias": "music_global_mournfoul_morning",
+      "url": "audio/music/Mournfoul Morning.ogg",
+      "title": "Mournfoul Morning"
+    },
+    {
+      "alias": "music_global_mournful_modal_phrases",
+      "url": "audio/music/Mournful Modal Phrases.ogg",
+      "title": "Mournful Modal Phrases"
+    },
+    {
+      "alias": "music_global_open_vowels",
+      "url": "audio/music/Open Vowels.ogg",
+      "title": "Open Vowels"
+    },
+    {
+      "alias": "music_global_ticha_pout_2",
+      "url": "audio/music/Ticha Pout 2.ogg",
+      "title": "Ticha Pout 2"
+    },
+    {
+      "alias": "music_global_ticha_pout",
+      "url": "audio/music/Ticha Pout.ogg",
+      "title": "Ticha Pout"
+    },
+    {
+      "alias": "music_global_wandering_map",
+      "url": "audio/music/Wandering Map.ogg",
+      "title": "Wandering Map"
+    }
+  ],
+  "battle": [
+    {
+      "alias": "track_dark_whispers",
+      "url": "audio/dark_whispers.ogg",
+      "title": "Dark Whispers"
+    }
+  ]
+}

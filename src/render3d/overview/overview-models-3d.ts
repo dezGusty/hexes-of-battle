@@ -1,0 +1,319 @@
+import * as THREE from 'three';
+import {
+  AgricultureOption,
+  DefenseStructureTier,
+  OverviewArmy,
+  ResourceBuildingType,
+  SettlementTier,
+} from '../../overview/overview-types';
+import { buildArticulatedUnit3DMesh } from '../units/unit-mesh-builder';
+
+function makeMat(color: number, roughness = 0.8, metalness = 0.1): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({ color, roughness, metalness });
+}
+
+export function createOverviewWindFlag(
+  colorHex: string = '#8c929a',
+  poleHeight: number = 0.85,
+  flagWidth: number = 0.34,
+  flagHeight: number = 0.2
+): THREE.Group {
+  const flagGroup = new THREE.Group();
+  flagGroup.name = 'OverviewWindFlag';
+
+  const pole = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.018, 0.02, poleHeight, 6),
+    makeMat(0x5e432a, 0.85)
+  );
+  pole.position.set(0, poleHeight * 0.5, 0);
+  pole.castShadow = true;
+
+  const clothPivot = new THREE.Group();
+  clothPivot.position.set(0, poleHeight - flagHeight * 0.55, 0);
+  clothPivot.userData.isOverviewFlagPivot = true;
+
+  const clothGeo = new THREE.PlaneGeometry(flagWidth, flagHeight, 6, 2);
+  clothGeo.translate(flagWidth * 0.5, 0, 0);
+  const basePositions = Float32Array.from(
+    clothGeo.attributes.position.array as Float32Array
+  );
+
+  const clothMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(colorHex),
+    roughness: 0.65,
+    side: THREE.DoubleSide,
+  });
+
+  const clothMesh = new THREE.Mesh(clothGeo, clothMat);
+  clothMesh.castShadow = true;
+  clothMesh.userData = {
+    isOverviewFlagCloth: true,
+    flagWidth,
+    basePositions,
+    flagPhase: (colorHex.charCodeAt(1) || 1) * 0.37,
+  };
+
+  clothPivot.add(clothMesh);
+  flagGroup.add(pole, clothPivot);
+  return flagGroup;
+}
+
+export function createOverviewSettlementModel(
+  tier: SettlementTier,
+  ownerColorHex: string = '#8c929a'
+): THREE.Group {
+  const group = new THREE.Group();
+  group.name = `OverviewSettlement_${tier}`;
+
+  const wallMat = makeMat(0xd9ccb4, 0.85);
+  const roofMat = makeMat(tier === 'city' ? 0x8e3b2e : tier === 'town' ? 0xa34b32 : 0xb5894c, 0.78);
+  const stoneMat = makeMat(0x7c828a, 0.9);
+
+  const addHouse = (x: number, z: number, w: number, h: number, d: number, rotY = 0) => {
+    const house = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
+    body.position.y = h * 0.5;
+    body.castShadow = true;
+    body.receiveShadow = true;
+
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(Math.max(w, d) * 0.78, h * 0.75, 4), roofMat);
+    roof.position.y = h + h * 0.37;
+    roof.rotation.y = Math.PI * 0.25;
+    roof.castShadow = true;
+
+    house.add(body, roof);
+    house.position.set(x, 0, z);
+    house.rotation.y = rotY;
+    group.add(house);
+  };
+
+  if (tier === 'village') {
+    addHouse(-0.22, -0.12, 0.22, 0.16, 0.18, 0.2);
+    addHouse(0.2, 0.14, 0.2, 0.14, 0.18, -0.4);
+    addHouse(-0.1, 0.24, 0.18, 0.13, 0.16, 0.6);
+  } else if (tier === 'town') {
+    addHouse(-0.28, -0.2, 0.22, 0.2, 0.2, 0.1);
+    addHouse(0.26, -0.18, 0.22, 0.18, 0.2, -0.3);
+    addHouse(-0.22, 0.24, 0.2, 0.18, 0.18, 0.4);
+    addHouse(0.24, 0.22, 0.22, 0.17, 0.2, -0.2);
+    // Central town hall
+    const hall = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.3, 0.26), stoneMat);
+    hall.position.y = 0.15;
+    hall.castShadow = true;
+    const spire = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.26, 4), roofMat);
+    spire.position.y = 0.43;
+    spire.rotation.y = Math.PI * 0.25;
+    group.add(hall, spire);
+  } else {
+    // City: outer wall ring + grand keep + 4 houses
+    const wallRing = new THREE.Mesh(new THREE.CylinderGeometry(0.66, 0.68, 0.16, 6, 1, true), stoneMat);
+    wallRing.position.y = 0.08;
+    wallRing.material.side = THREE.DoubleSide;
+    group.add(wallRing);
+
+    addHouse(-0.3, -0.22, 0.2, 0.2, 0.18, 0.15);
+    addHouse(0.3, -0.2, 0.2, 0.2, 0.18, -0.25);
+    addHouse(-0.28, 0.24, 0.2, 0.18, 0.18, 0.3);
+    addHouse(0.28, 0.24, 0.2, 0.18, 0.18, -0.1);
+
+    const keep = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.42, 0.32), stoneMat);
+    keep.position.y = 0.21;
+    keep.castShadow = true;
+    const spire = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.34, 4), roofMat);
+    spire.position.y = 0.59;
+    spire.rotation.y = Math.PI * 0.25;
+    group.add(keep, spire);
+  }
+
+  const settlementFlag = createOverviewWindFlag(
+    ownerColorHex,
+    tier === 'city' ? 0.56 : tier === 'town' ? 0.5 : 0.48,
+    0.28,
+    0.16
+  );
+  if (tier === 'city') {
+    settlementFlag.position.set(0, 0.72, 0);
+  } else if (tier === 'town') {
+    settlementFlag.position.set(0, 0.52, 0);
+  } else {
+    settlementFlag.position.set(0.06, 0, -0.02);
+  }
+  group.add(settlementFlag);
+
+  return group;
+}
+
+export function createOverviewResourceBuildingModel(type: ResourceBuildingType): THREE.Group {
+  const group = new THREE.Group();
+  group.name = `OverviewResource_${type}`;
+
+  const woodMat = makeMat(0x7c5333, 0.88);
+  const stoneMat = makeMat(0x767c84, 0.9);
+
+  if (type === 'lumber_camp') {
+    const cabin = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.2, 0.26), woodMat);
+    cabin.position.set(-0.14, 0.1, 0);
+    cabin.castShadow = true;
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.16, 4), makeMat(0x5d4329, 0.9));
+    roof.position.set(-0.14, 0.28, 0);
+    roof.rotation.y = Math.PI * 0.25;
+    group.add(cabin, roof);
+
+    for (let i = 0; i < 3; i++) {
+      const log = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.28, 6), woodMat);
+      log.rotation.z = Math.PI * 0.5;
+      log.position.set(0.2, 0.04 + (i === 2 ? 0.06 : 0), i === 0 ? -0.05 : i === 1 ? 0.05 : 0);
+      group.add(log);
+    }
+  } else if (type === 'quarry') {
+    const block1 = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.18, 0.28), stoneMat);
+    block1.position.set(-0.1, 0.09, -0.06);
+    const block2 = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.12, 0.18), makeMat(0x9aa0a8, 0.85));
+    block2.position.set(0.18, 0.06, 0.12);
+    const crane = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.38, 0.05), woodMat);
+    crane.position.set(0.12, 0.19, -0.1);
+    group.add(block1, block2, crane);
+  } else {
+    // iron_mine or gold_mine
+    const mound = new THREE.Mesh(new THREE.ConeGeometry(0.36, 0.34, 6), stoneMat);
+    mound.position.set(0, 0.17, -0.05);
+    const arch = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 0.12), makeMat(0x1f2226, 0.95));
+    arch.position.set(0, 0.09, 0.16);
+    const oreColor = type === 'gold_mine' ? 0xe6b800 : 0x5c6873;
+    const ore = new THREE.Mesh(
+      new THREE.DodecahedronGeometry(0.09, 0),
+      makeMat(oreColor, 0.4, 0.7)
+    );
+    ore.position.set(0.24, 0.09, 0.14);
+    group.add(mound, arch, ore);
+  }
+
+  return group;
+}
+
+export function createOverviewAgricultureModel(option: AgricultureOption): THREE.Group {
+  const group = new THREE.Group();
+  group.name = `OverviewAgri_${option}`;
+
+  if (option === 'wheat') {
+    const wheatMat = makeMat(0xd4a838, 0.9);
+    for (let i = -2; i <= 2; i++) {
+      const row = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.06, 0.06), wheatMat);
+      row.position.set(0, 0.03, i * 0.12);
+      group.add(row);
+    }
+  } else if (option === 'cattle' || option === 'sheep' || option === 'horses') {
+    const fenceMat = makeMat(0x7c5333, 0.9);
+    const fence = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.06, 0.03), fenceMat);
+    fence.position.set(0, 0.04, -0.28);
+    const fence2 = fence.clone();
+    fence2.position.z = 0.28;
+    group.add(fence, fence2);
+
+    const animalColor =
+      option === 'sheep' ? 0xf2f0e6 : option === 'cattle' ? 0x6e472b : 0x4b2f1d;
+    const animalMat = makeMat(animalColor, 0.85);
+    const positions = [
+      [-0.16, -0.08],
+      [0.14, 0.06],
+      [-0.04, 0.14],
+    ];
+    for (const [ax, az] of positions) {
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.09, 0.08), animalMat);
+      body.position.set(ax, 0.06, az);
+      group.add(body);
+    }
+  } else {
+    const fallow = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.03, 0.5), makeMat(0x6b5239, 0.95));
+    fallow.position.y = 0.015;
+    group.add(fallow);
+  }
+
+  return group;
+}
+
+export function createOverviewDefenseModel(tier: DefenseStructureTier): THREE.Group {
+  const group = new THREE.Group();
+  group.name = `OverviewDefense_${tier}`;
+  if (tier === 'none') return group;
+
+  if (tier === 'palisade') {
+    const woodMat = makeMat(0x7c5333, 0.9);
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2;
+      const stake = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.24, 5), woodMat);
+      stake.position.set(Math.cos(angle) * 0.28, 0.12, Math.sin(angle) * 0.28);
+      group.add(stake);
+    }
+  } else if (tier === 'keep') {
+    const stoneMat = makeMat(0x889098, 0.88);
+    const tower = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.42, 0.34), stoneMat);
+    tower.position.y = 0.21;
+    tower.castShadow = true;
+    group.add(tower);
+  } else {
+    const stoneMat = makeMat(0x889098, 0.88);
+    const keep = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.48, 0.32), stoneMat);
+    keep.position.y = 0.24;
+    group.add(keep);
+    const corners = [
+      [-0.28, -0.28],
+      [0.28, -0.28],
+      [-0.28, 0.28],
+      [0.28, 0.28],
+    ];
+    for (const [cx, cz] of corners) {
+      const t = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.09, 0.34, 6), stoneMat);
+      t.position.set(cx, 0.17, cz);
+      group.add(t);
+    }
+  }
+
+  return group;
+}
+
+/**
+ * Builds a combined-squad army visual:
+ * 1 unit model per squad in the army + an allegiance standard (gray if neutral).
+ */
+export function createOverviewCombinedArmyVisual(
+  army: OverviewArmy,
+  playerColorHex: string = '#3498db'
+): THREE.Group {
+  const group = new THREE.Group();
+  group.name = `OverviewArmy_${army.id}`;
+  group.userData = { isOverviewArmy: true, armyId: army.id };
+
+  const isNeutral = army.ownerPlayerId === null;
+  const armyAlignment = isNeutral ? 1 : 0;
+  const flagColor = isNeutral ? '#8c929a' : playerColorHex;
+
+  const squads = army.squads;
+  const count = squads.length;
+  const ringRadius = count <= 1 ? 0 : 0.34;
+
+  squads.forEach((sq, idx) => {
+    const unitMesh = buildArticulatedUnit3DMesh(sq.creatureType, armyAlignment, false);
+    unitMesh.scale.setScalar(0.38);
+    unitMesh.userData = {
+      ...unitMesh.userData,
+      isOverviewUnit: true,
+      baseScale: 0.38,
+      idlePhase: idx * 1.15,
+    };
+
+    if (count === 1) {
+      unitMesh.position.set(0, 0, 0);
+    } else {
+      const angle = (idx / count) * Math.PI * 2;
+      const r = idx >= 6 ? ringRadius * 0.52 : ringRadius;
+      unitMesh.position.set(Math.cos(angle) * r, 0, Math.sin(angle) * r);
+    }
+    group.add(unitMesh);
+  });
+
+  // Allegiance standard (pole + wind-animated flag)
+  const flag = createOverviewWindFlag(flagColor, 0.85, 0.34, 0.2);
+  group.add(flag);
+  return group;
+}

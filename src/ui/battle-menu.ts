@@ -109,7 +109,9 @@ export class BattleMenuPanel {
 
     public battle?: Battle;
     public onSaveBattle?: (name: string) => boolean;
-    public onLoadSave?: (entry: BattleSaveEntry) => void;
+    public onLoadSave?: (entry: any) => void;
+    public getSavesList?: () => any[];
+    public onDeleteSave?: (id: string) => void;
     public onToggleSceneInspector?: () => void;
     public onToggleStats?: () => void;
     public onToggleFps?: (showFps: boolean) => void;
@@ -120,7 +122,14 @@ export class BattleMenuPanel {
     public onToggleTiltShift?: (enabled: boolean) => void;
     public onToggleSimpleTrees?: (enabled: boolean) => void;
 
-    public constructor(private view: Container, private uiSheet: Spritesheet) {
+    private readonly mode: 'battle' | 'overview';
+
+    public constructor(
+        private view: Container,
+        private uiSheet: Spritesheet,
+        mode: 'battle' | 'overview' = 'battle'
+    ) {
+        this.mode = mode;
         const windowBg = new NineSliceSprite({
             texture: this.uiSheet.textures['panel.png'],
             leftWidth: 15,
@@ -410,29 +419,37 @@ export class BattleMenuPanel {
         addOptionLabel(generalTab, contentTextX, startY + 0 * rowStep, 'Toggle Grid Display', 'The grid will remain subtly visible.');
         generalTab.addChild(this.toggleGridButton);
 
-        this.showHealthbarsButton = createIconButton('glyph_toggle_healthbars.png', contentBtnX, startY + 1 * rowStep);
-        addOptionLabel(generalTab, contentTextX, startY + 1 * rowStep, 'Toggle Healthbars', 'Show or hide squad health and stamina bars.');
-        generalTab.addChild(this.showHealthbarsButton);
+        if (this.mode === 'battle') {
+            this.showHealthbarsButton = createIconButton('glyph_toggle_healthbars.png', contentBtnX, startY + 1 * rowStep);
+            addOptionLabel(generalTab, contentTextX, startY + 1 * rowStep, 'Toggle Healthbars', 'Show or hide squad health and stamina bars.');
+            generalTab.addChild(this.showHealthbarsButton);
 
-        this.toggleDamageIndicatorsButton = createIconButton(
-            this.uiSheet.textures['glyph_hp'] ? 'glyph_hp' : 'glyph_plus.png',
-            contentBtnX,
-            startY + 2 * rowStep
-        );
-        addOptionLabel(generalTab, contentTextX, startY + 2 * rowStep, 'Show Damage Indicators', 'Floating indicators on morale/HP/stamina change.');
-        generalTab.addChild(this.toggleDamageIndicatorsButton);
+            this.toggleDamageIndicatorsButton = createIconButton(
+                this.uiSheet.textures['glyph_hp'] ? 'glyph_hp' : 'glyph_plus.png',
+                contentBtnX,
+                startY + 2 * rowStep
+            );
+            addOptionLabel(generalTab, contentTextX, startY + 2 * rowStep, 'Show Damage Indicators', 'Floating indicators on morale/HP/stamina change.');
+            generalTab.addChild(this.toggleDamageIndicatorsButton);
 
-        this.toggleStatsButton = createIconButton('glyph_toggle_stats.png', contentBtnX, startY + 3 * rowStep);
-        addOptionLabel(generalTab, contentTextX, startY + 3 * rowStep, 'Toggle Unit Stats (F4)', 'Show or hide unit statistics panels.');
-        generalTab.addChild(this.toggleStatsButton);
+            this.toggleStatsButton = createIconButton('glyph_toggle_stats.png', contentBtnX, startY + 3 * rowStep);
+            addOptionLabel(generalTab, contentTextX, startY + 3 * rowStep, 'Toggle Unit Stats (F4)', 'Show or hide unit statistics panels.');
+            generalTab.addChild(this.toggleStatsButton);
+        }
 
-        const animY = startY + 4 * rowStep;
+        const animRow = this.mode === 'overview' ? 1 : 4;
+        const animY = startY + animRow * rowStep;
         this.animationSpeedButton = createIconButton(
             this.uiSheet.textures['glyph_movement'] ? 'glyph_movement' : 'glyph_next_unit.png',
             contentBtnX,
             animY
         );
-        addOptionLabel(generalTab, contentTextX, animY - 2, 'Animation Speed (1-8)');
+        addOptionLabel(
+            generalTab,
+            contentTextX,
+            animY - 2,
+            this.mode === 'overview' ? 'Overview Animation Speed (1-8)' : 'Animation Speed (1-8)'
+        );
         this.animationSpeedSlider = createMobileSlider(MIN_ANIMATION_SPEED, MAX_ANIMATION_SPEED, 1, DEFAULT_ANIMATION_SPEED, 340, 24);
         this.animationSpeedSlider.position.set(contentTextX, animY + 38);
         this.animationSpeedValueText = new Text({
@@ -452,12 +469,26 @@ export class BattleMenuPanel {
         });
         generalTab.addChild(this.animationSpeedButton, this.animationSpeedSlider, this.animationSpeedValueText);
 
-        this.saveButton = createIconButton('glyph_plus.png', contentBtnX, startY + 5 * rowStep + 6);
-        addOptionLabel(generalTab, contentTextX, startY + 5 * rowStep + 6, 'Save Battle State', 'Save snapshot to local storage.');
+        const saveRow = this.mode === 'overview' ? 2 : 5;
+        const loadRow = this.mode === 'overview' ? 3 : 6;
+        this.saveButton = createIconButton('glyph_plus.png', contentBtnX, startY + saveRow * rowStep + 6);
+        addOptionLabel(
+            generalTab,
+            contentTextX,
+            startY + saveRow * rowStep + 6,
+            this.mode === 'overview' ? 'Save Campaign State' : 'Save Battle State',
+            'Save snapshot to local storage.'
+        );
         generalTab.addChild(this.saveButton);
 
-        this.loadButton = createIconButton('glyph_next_turn.png', contentBtnX, startY + 6 * rowStep + 6);
-        addOptionLabel(generalTab, contentTextX, startY + 6 * rowStep + 6, 'Load Saved Battle', 'Select and restore a saved state.');
+        this.loadButton = createIconButton('glyph_next_turn.png', contentBtnX, startY + loadRow * rowStep + 6);
+        addOptionLabel(
+            generalTab,
+            contentTextX,
+            startY + loadRow * rowStep + 6,
+            this.mode === 'overview' ? 'Load Saved Campaign' : 'Load Saved Battle',
+            'Select and restore a saved state.'
+        );
         generalTab.addChild(this.loadButton);
 
         // ============================================================
@@ -482,33 +513,35 @@ export class BattleMenuPanel {
         this.hardwareCursorText.position = { x: contentTextX, y: startY + 2 * rowStep + 8 };
         graphicsTab.addChild(this.toggleHardwareCursorButton, this.hardwareCursorText);
 
-        const weatherY = startY + 3 * rowStep;
-        this.weatherButton = createIconButton(
-            this.uiSheet.textures['glyph_toggle_perf_stats.png'] ? 'glyph_toggle_perf_stats.png' : 'btn_simple.png',
-            contentBtnX,
-            weatherY
-        );
-        this.weatherButton.onPress.connect(() => {
-            this.weatherDropdown?.toggle();
-        });
-        addOptionLabel(graphicsTab, contentTextX, weatherY - 2, 'Weather Effects (Visual)');
-        this.weatherDropdown = new WeatherDropdown(
-            this.THIN_BUTTON_STYLE,
-            WeatherType.NONE,
-            260,
-            42,
-            34,
-            true
-        );
-        this.weatherDropdown.position.set(contentTextX, weatherY + 34);
-        this.weatherDropdown.onChange = (weather) => {
-            if (this.onWeatherChange) {
-                this.onWeatherChange(weather);
-            }
-        };
-        graphicsTab.addChild(this.weatherButton);
-
-        const toggleRow1Y = startY + 4 * rowStep + 24;
+        let toggleRow1Y = startY + 3 * rowStep + 24;
+        if (this.mode === 'battle') {
+            const weatherY = startY + 3 * rowStep;
+            this.weatherButton = createIconButton(
+                this.uiSheet.textures['glyph_toggle_perf_stats.png'] ? 'glyph_toggle_perf_stats.png' : 'btn_simple.png',
+                contentBtnX,
+                weatherY
+            );
+            this.weatherButton.onPress.connect(() => {
+                this.weatherDropdown?.toggle();
+            });
+            addOptionLabel(graphicsTab, contentTextX, weatherY - 2, 'Weather Effects (Visual)');
+            this.weatherDropdown = new WeatherDropdown(
+                this.THIN_BUTTON_STYLE,
+                WeatherType.NONE,
+                260,
+                42,
+                34,
+                true
+            );
+            this.weatherDropdown.position.set(contentTextX, weatherY + 34);
+            this.weatherDropdown.onChange = (weather) => {
+                if (this.onWeatherChange) {
+                    this.onWeatherChange(weather);
+                }
+            };
+            graphicsTab.addChild(this.weatherButton);
+            toggleRow1Y = startY + 4 * rowStep + 24;
+        }
         const toggleRow2Y = toggleRow1Y + 96;
 
         this.tiltShiftText = new Text({
@@ -565,9 +598,11 @@ export class BattleMenuPanel {
         graphicsTab.addChild(
             this.toggleTiltShiftButton,
             this.toggleRimLightingButton,
-            this.toggleSimpleTreesButton,
-            this.weatherDropdown
+            this.toggleSimpleTreesButton
         );
+        if (this.weatherDropdown) {
+            graphicsTab.addChild(this.weatherDropdown);
+        }
 
         // ============================================================
         // 3. AUDIO TAB
@@ -948,7 +983,7 @@ export class BattleMenuPanel {
     }
 
     private refreshSavesList(): void {
-        this.currentSavesList = SaveManager.listSaves();
+        this.currentSavesList = this.getSavesList ? this.getSavesList() : SaveManager.listSaves();
         if (this.loadScrollIndex >= this.currentSavesList.length) {
             this.loadScrollIndex = Math.max(0, this.currentSavesList.length - this.LOAD_PAGE_SIZE);
         }
@@ -1005,10 +1040,15 @@ export class BattleMenuPanel {
             nameText.position.set(16, 8);
             itemContainer.addChild(nameText);
 
-            const turnInfo = `Turn ${entry.turnNumber + 1} • Turn: Army ${entry.currentArmyIndex === 0 ? '0 (Player)' : '1 (AI)'} • Squads: ${entry.army0UnitsAlive} vs ${entry.army1UnitsAlive}`;
+            const turnInfo =
+                entry.army0UnitsAlive !== undefined
+                    ? `Turn ${entry.turnNumber + 1} • Turn: Army ${entry.currentArmyIndex === 0 ? '0 (Player)' : '1 (AI)'} • Squads: ${entry.army0UnitsAlive} vs ${entry.army1UnitsAlive}`
+                    : `Turn ${entry.turnNumber}`;
+            const dateStr =
+                entry.dateFormatted ?? new Date((entry as any).timestamp ?? Date.now()).toLocaleString();
             const detailsText = new Text({
                 ...BattleMenuPanel.DEFAULT_FONT_STYLE,
-                text: `${turnInfo}\n${entry.dateFormatted}`,
+                text: `${turnInfo}\n${dateStr}`,
                 style: { fontSize: 11, fill: '#88CCFF' },
             });
             detailsText.position.set(16, 30);
@@ -1046,7 +1086,11 @@ export class BattleMenuPanel {
             });
             bindButtonUISound(delBtn);
             delBtn.onPress.connect(() => {
-                SaveManager.deleteSave(entry.id);
+                if (this.onDeleteSave) {
+                    this.onDeleteSave(entry.id);
+                } else {
+                    SaveManager.deleteSave(entry.id);
+                }
                 this.refreshSavesList();
             });
             itemContainer.addChild(delBtn);

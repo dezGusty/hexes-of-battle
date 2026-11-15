@@ -363,9 +363,9 @@ export class ThreeSceneDebugger {
         this.syncCameraState();
       },
       focusActive: () => {
-        const active = this.battleView.battle.getActiveCreature();
+        const active = this.battleView.battle?.getActiveCreature();
         if (active) {
-          const squad = this.battleView.squadVisuals.get(active.GUID.toString());
+          const squad = this.battleView.squadVisuals?.get(active.GUID.toString());
           if (squad) {
             this.focusCameraOnObject(squad.rootGroup);
           }
@@ -492,44 +492,44 @@ export class ThreeSceneDebugger {
 
     const commands = {
       nextTurn: () => {
-        this.battleView.battle.nextTurn();
+        this.battleView.battle?.nextTurn();
       },
       nextUnit: () => {
-        this.battleView.battle.selectNextUnitAndGetIndex();
+        this.battleView.battle?.selectNextUnitAndGetIndex();
       },
       restUnit: () => {
-        const active = this.battleView.battle.getActiveCreature();
+        const active = this.battleView.battle?.getActiveCreature();
         if (active) {
           this.battleView.battle.restActiveCreature();
         }
       },
       killActive: () => {
-        const active = this.battleView.battle.getActiveCreature();
+        const active = this.battleView.battle?.getActiveCreature();
         if (active) {
           active.stats.remaining_health = 0;
         }
       },
       deal15Dmg: () => {
-        const active = this.battleView.battle.getActiveCreature();
+        const active = this.battleView.battle?.getActiveCreature();
         if (active) {
           active.stats.remaining_health = Math.max(0, active.stats.remaining_health - 15);
         }
       },
       heal20: () => {
-        const active = this.battleView.battle.getActiveCreature();
+        const active = this.battleView.battle?.getActiveCreature();
         if (active) {
           active.stats.remaining_health = Math.min(active.stats.health, active.stats.remaining_health + 20);
         }
       },
       toggleGrid: () => {
-        const cur = (this.battleView as any).hexBoard;
+        const cur = (this.battleView as any).hexBoard ?? (this.battleView as any).board;
         if (cur) {
           const isGridVisible = (cur as any).showGrid ?? true;
           this.battleView.setGridVisible(!isGridVisible);
         }
       },
       toggleCoords: () => {
-        const cur = (this.battleView as any).hexBoard;
+        const cur = (this.battleView as any).hexBoard ?? (this.battleView as any).board;
         if (cur) {
           const isCoordsVisible = (cur as any).showCoords ?? true;
           this.battleView.setCoordsVisible(!isCoordsVisible);
@@ -872,7 +872,7 @@ export class ThreeSceneDebugger {
     this.statsState.totalObjects = objects;
     this.statsState.totalMeshes = meshes;
     this.statsState.totalLights = lights;
-    this.statsState.activeSquads = this.battleView.squadVisuals.size;
+    this.statsState.activeSquads = this.battleView.squadVisuals?.size ?? 0;
   }
 
   private syncCameraState(): void {
