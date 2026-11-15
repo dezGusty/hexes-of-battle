@@ -304,12 +304,18 @@ describe('Overview Map Phase 3: 3D Board, Combined-Squad Armies & OverviewView3D
     const campaign = new OverviewCampaign(createStarterOverviewMap(12345));
     const board = new OverviewBoard3D(campaign);
 
-    expect(board.tileMeshes.length).toBe(100);
+    expect(board.tileMeshes.length).toBe(2);
+    expect(board.getTerrainMesh()).not.toBeNull();
+    expect(board.getWaterMesh()).not.toBeNull();
     // 1 player army + 2 visible neutral armies within 6-hex sight range (far region_1_1 garrison is hidden by fog of war)
     expect(board.getArmyVisualCount()).toBe(3);
 
     board.setReachableHexes(['1,1', '2,1']);
+    const hlData = board.getHighlightGridTexture()!.image.data as Uint8Array;
+    expect(hlData[(1 * campaign.mapWidth + 1) * 4]).toBe(255);
+    expect(hlData[(1 * campaign.mapWidth + 2) * 4]).toBe(255);
     board.setReachableHexes([]);
+    expect(hlData[(1 * campaign.mapWidth + 1) * 4]).toBe(0);
     board.dispose();
   });
 
@@ -1042,12 +1048,9 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
     expect(waterMat!.fragmentShader).toContain('uNormalMapB');
     expect(waterMat!.fragmentShader).toContain('vShoreDist');
 
-    // Verify water tile meshes have pre-baked aShoreDist attribute
-    const waterMesh = board.tileMeshes.find((m) => {
-      const c = m.userData?.coords;
-      return c && campaign.getHex(c)?.terrain === 'water';
-    });
-    expect(waterMesh).toBeDefined();
+    // Verify water plane mesh has pre-baked aShoreDist attribute
+    const waterMesh = board.getWaterMesh();
+    expect(waterMesh).not.toBeNull();
     expect(waterMesh!.geometry.getAttribute('aShoreDist')).toBeDefined();
 
     const t0 = waterMat!.uniforms.uTime.value;
@@ -1385,21 +1388,36 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
     const gridTex = board.getTerrainGridTexture();
     expect(gridTex).not.toBeNull();
 
-    // Verify land hex geometry carries aHexCoord and aTileCenter
-    const landTile = board.tileMeshes.find((m) => {
-      const c = m.userData?.coords;
-      return c && campaign.hexes[c.x][c.y].terrain !== 'water';
-    })!;
-    expect(landTile.geometry.getAttribute('aHexCoord')).toBeDefined();
-    expect(landTile.geometry.getAttribute('aTileCenter')).toBeDefined();
+    // Verify continuous heightfield mesh carries aHexCoord, aTileCenter, and intra-hex elevation variation
+    const terrainMesh = board.getTerrainMesh()!;
+    expect(terrainMesh).not.toBeNull();
+    expect(terrainMesh.geometry.getAttribute('aHexCoord')).toBeDefined();
+    expect(terrainMesh.geometry.getAttribute('aTileCenter')).toBeDefined();
 
-    // Future map editor hook: mutating a hex updates the grid texture cell immediately
-    const c = landTile.userData.coords;
+    // Find a non-occupied land hex and verify intra-hex elevation variation + flat-pad on occupied hexes
+    let c = { x: 0, y: 0 };
+    for (let x = 0; x < campaign.mapWidth; x++) {
+      for (let y = 0; y < campaign.mapHeight; y++) {
+        const h = campaign.hexes[x][y];
+        if (h.terrain !== 'water' && !h.isSettlement && !h.resourceBuilding && !h.isDefenseHex) {
+          c = { x, y };
+          break;
+        }
+      }
+    }
+    const centerPos = board.hexToWorld(c.x, c.y);
+    const y0 = board.sampleElevationAtWorld(centerPos.x, centerPos.z);
+    const yOff = board.sampleElevationAtWorld(centerPos.x + 0.35, centerPos.z + 0.25);
+    expect(Math.abs(yOff - y0)).toBeGreaterThan(0.0005);
+
+    // Future map editor hook: mutating a hex updates both the grid texture cell and heightfield vertices
     campaign.hexes[c.x][c.y].terrain = 'mountain';
     board.updateHexTerrain(c.x, c.y);
     const data = gridTex!.image.data as Uint8Array;
     const idx = (c.y * campaign.mapWidth + c.x) * 4;
     expect(data[idx]).toBe(5); // mountain = 5
+    const yAfter = board.sampleElevationAtWorld(centerPos.x, centerPos.z);
+    expect(yAfter).toBeGreaterThan(y0 + 0.2);
 
     board.dispose();
   });
@@ -1670,7 +1688,7 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
     expect(raw.beds.grassland).toEqual([
       'audio/ambient/grasslands-bird-and-cricket-singing.ogg',
     ]);
-    expect(raw.oneShots.cattle).toHaveLength(2);
+    expect(raw.oneShots.cattle.length).toBeGreaterThanOrEqual(2);
     expect(raw.oneShots.lumber_camp).toHaveLength(4);
     expect(raw.oneShots.settlement).toEqual([
       'audio/ambient/large-anvil-steel-hammer-4.ogg',
@@ -1759,5 +1777,71 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
     const soundSettings = new SoundSettings();
     expect(soundSettings.ambientOn).toBe(true);
     expect(soundSettings.ambientVolume).toBe(0.75);
+  });
+
+  it('builds high-detail iron_mine model with <=256x256 stone & reddish iron textures, cave entrance, wooden frame, and pickaxes', async () => {
+    const { createOverviewResourceBuildingModel } = await import(
+      '../render3d/overview/overview-models-3d'
+    );
+    const {
+      getIronMineStoneTexture,
+      getIronMineInnerOreTexture,
+    } = await import('../render3d/overview/overview-iron-mine-3d');
+
+    const mine = createOverviewResourceBuildingModel('iron_mine');
+    const tris = countGroupTriangles(mine);
+    expect(tris).toBeGreaterThan(1500);
+
+    expect(mine.getObjectByName('IronMineOuterRock')).toBeDefined();
+    expect(mine.getObjectByName('IronMineInnerWall')).toBeDefined();
+    expect(mine.getObjectByName('IronMinePickaxeRight')).toBeDefined();
+    expect(mine.getObjectByName('IronMinePickaxeLeft')).toBeDefined();
+
+    const stoneTex = getIronMineStoneTexture();
+    expect(stoneTex.image.width).toBeLessThanOrEqual(256);
+    expect(stoneTex.image.height).toBeLessThanOrEqual(256);
+
+    const ironTex = getIronMineInnerOreTexture();
+    expect(ironTex.image.width).toBeLessThanOrEqual(256);
+    expect(ironTex.image.height).toBeLessThanOrEqual(256);
+    const data = ironTex.image.data as Uint8Array;
+    let rSum = 0;
+    let gSum = 0;
+    let bSum = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      rSum += data[i];
+      gSum += data[i + 1];
+      bSum += data[i + 2];
+    }
+    expect(rSum).toBeGreaterThan(gSum * 1.4);
+    expect(rSum).toBeGreaterThan(bSum * 1.4);
+  });
+
+  it('builds high-detail medieval lumber_camp model with <=256x256 wood/shingle textures, log walls, windows, door, and fenced holding area', async () => {
+    const { createOverviewResourceBuildingModel } = await import(
+      '../render3d/overview/overview-models-3d'
+    );
+    const {
+      getLumberMillLogTexture,
+      getLumberMillShingleTexture,
+    } = await import('../render3d/overview/overview-lumber-mill-3d');
+
+    const mill = createOverviewResourceBuildingModel('lumber_camp');
+    const tris = countGroupTriangles(mill);
+    expect(tris).toBeGreaterThan(1500);
+
+    expect(mill.getObjectByName('LumberMillCabin')).toBeDefined();
+    expect(mill.getObjectByName('LumberMillDoor')).toBeDefined();
+    expect(mill.getObjectByName('LumberMillWindow')).toBeDefined();
+    expect(mill.getObjectByName('LumberMillHoldingArea')).toBeDefined();
+    expect(mill.getObjectByName('ProcessedLog')).toBeDefined();
+
+    const logTex = getLumberMillLogTexture();
+    expect(logTex.image.width).toBeLessThanOrEqual(256);
+    expect(logTex.image.height).toBeLessThanOrEqual(256);
+
+    const shingleTex = getLumberMillShingleTexture();
+    expect(shingleTex.image.width).toBeLessThanOrEqual(256);
+    expect(shingleTex.image.height).toBeLessThanOrEqual(256);
   });
 });

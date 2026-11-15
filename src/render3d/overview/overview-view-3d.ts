@@ -119,7 +119,10 @@ export class OverviewView3D {
             e.clientY,
             this.board.tileMeshes
           );
-          const hitCoords = hits[0]?.object?.userData?.coords as Coords | undefined;
+          const hit = hits[0];
+          const hitCoords =
+            (hit?.object?.userData?.coords as Coords | undefined) ??
+            (hit ? this.board.worldToHex(hit.point) : null);
           this.hoverAtHex(hitCoords ?? null);
         }
         return;
@@ -191,7 +194,10 @@ export class OverviewView3D {
       false
     );
     if (hits.length === 0) return;
-    const coords = hits[0].object.userData?.coords as Coords | undefined;
+    const hit = hits[0];
+    const coords =
+      (hit.object.userData?.coords as Coords | undefined) ??
+      this.board.worldToHex(hit.point);
     if (!coords) return;
 
     this.selectOrMoveAtHex(coords, button);

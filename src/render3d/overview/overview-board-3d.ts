@@ -32,6 +32,7 @@ import {
 import { updateOverviewCowAnimation } from './overview-cow-3d';
 import {
   createOverviewBlendedTerrainMaterial,
+  createOverviewHighlightGridTexture,
   createOverviewTerrainAtlas,
   createOverviewTerrainGridTexture,
   getTerrainVariationIndex,
@@ -43,16 +44,43 @@ import {
 
 export { OVERVIEW_TERRAIN_TEXTURE_CONFIG };
 
+const WATER_SURFACE_Y = 0.08;
+
 function getTerrainHeight(terrain: OverviewTerrainType): number {
   switch (terrain) {
     case 'mountain':
-      return 0.65;
+      return 1.05;
     case 'hill':
-      return 0.34;
+      return 0.54;
+    case 'deep_forest':
+      return 0.26;
+    case 'forest':
+      return 0.24;
+    case 'swamp':
+      return 0.15;
     case 'water':
-      return 0.1;
+      return -0.24;
     default:
-      return 0.2;
+      return 0.22;
+  }
+}
+
+function getTerrainNoiseAmp(terrain: OverviewTerrainType): number {
+  switch (terrain) {
+    case 'mountain':
+      return 0.18;
+    case 'hill':
+      return 0.095;
+    case 'deep_forest':
+      return 0.055;
+    case 'forest':
+      return 0.045;
+    case 'swamp':
+      return 0.025;
+    case 'water':
+      return 0.015;
+    default:
+      return 0.04;
   }
 }
 
@@ -73,6 +101,8 @@ export class OverviewBoard3D {
 
   public readonly tileMeshes: THREE.Mesh[] = [];
   private readonly tileMeshMap = new Map<string, THREE.Mesh>();
+  private terrainMesh: THREE.Mesh | null = null;
+  private waterMesh: THREE.Mesh | null = null;
   private readonly armyGroups: Map<string, THREE.Group> = new Map();
   private readonly terrainMaterials = new Map<
     OverviewTerrainType,
@@ -80,6 +110,7 @@ export class OverviewBoard3D {
   >();
   private terrainAtlas: OverviewTerrainAtlasHandle | null = null;
   private terrainGridTex: THREE.DataTexture | null = null;
+  private highlightGridTex: THREE.DataTexture | null = null;
   private landTerrainMaterial: THREE.MeshStandardMaterial | null = null;
   private readonly terrainTextures = new Map<string, THREE.Texture>();
   private waterMaterial: THREE.ShaderMaterial | null = null;
@@ -150,33 +181,145 @@ export class OverviewBoard3D {
     return new THREE.Vector3(worldX, 0, worldZ);
   }
 
-  public worldToHex(pos: THREE.Vector3): Coords | null {
-    let closest: Coords | null = null;
-    let minDistSq = Infinity;
-
-    for (let x = 0; x < this.mapWidth; x++) {
-      for (let y = 0; y < this.mapHeight; y++) {
-        const w = this.hexToWorld(x, y);
-        const dx = pos.x - w.x;
-        const dz = pos.z - w.z;
-        const dSq = dx * dx + dz * dz;
-        if (dSq < minDistSq) {
-          minDistSq = dSq;
-          closest = { x, y };
-        }
-      }
+  private worldToNearestHexUnclamped(wx: number, wz: number): Coords {
+    const widthSpacing = this.hexRadius * Math.sqrt(3);
+    const heightSpacing = this.hexRadius * 1.5;
+    const px = wx + (this.mapWidth - 1) * 0.5 * widthSpacing;
+    const pz = wz + (this.mapHeight - 1) * 0.5 * heightSpacing;
+    const qf = ((Math.sqrt(3) / 3) * px - (1 / 3) * pz) / this.hexRadius;
+    const rf = ((2 / 3) * pz) / this.hexRadius;
+    const sf = -qf - rf;
+    let rx = Math.round(qf);
+    let ry = Math.round(rf);
+    const rz = Math.round(sf);
+    const dx = Math.abs(rx - qf);
+    const dy = Math.abs(ry - rf);
+    const dz = Math.abs(rz - sf);
+    if (dx > dy && dx > dz) {
+      rx = -ry - rz;
+    } else if (dy > dz) {
+      ry = -rx - rz;
     }
-    return minDistSq <= this.hexRadius * this.hexRadius * 1.15 ? closest : null;
+    const odd = Math.abs(ry) % 2;
+    const hx = rx + Math.floor((ry - odd) / 2);
+    const hy = ry;
+    return {
+      x: Math.max(0, Math.min(this.mapWidth - 1, hx)),
+      y: Math.max(0, Math.min(this.mapHeight - 1, hy)),
+    };
+  }
+
+  public worldToHex(pos: THREE.Vector3): Coords | null {
+    const candidate = this.worldToNearestHexUnclamped(pos.x, pos.z);
+    const w = this.hexToWorld(candidate.x, candidate.y);
+    const dSq = (pos.x - w.x) ** 2 + (pos.z - w.z) ** 2;
+    return dSq <= this.hexRadius * this.hexRadius * 1.15 ? candidate : null;
+  }
+
+  private sampleTerrainNoise2D(x: number, z: number): number {
+    const hash = (ix: number, iz: number) => {
+      const h = Math.sin(ix * 127.1 + iz * 311.7) * 43758.5453123;
+      return h - Math.floor(h);
+    };
+    const ix = Math.floor(x);
+    const iz = Math.floor(z);
+    const fx = x - ix;
+    const fz = z - iz;
+    const ux = fx * fx * (3 - 2 * fx);
+    const uz = fz * fz * (3 - 2 * fz);
+    const a = hash(ix, iz);
+    const b = hash(ix + 1, iz);
+    const c = hash(ix, iz + 1);
+    const d = hash(ix + 1, iz + 1);
+    return a + (b - a) * ux + (c - a) * uz + (a - b - c + d) * ux * uz;
+  }
+
+  private sampleTerrainFbm(wx: number, wz: number): number {
+    let value = 0;
+    let amp = 0.5;
+    let freq = 1.0;
+    for (let i = 0; i < 3; i++) {
+      value += amp * (this.sampleTerrainNoise2D(wx * freq, wz * freq) * 2 - 1);
+      freq *= 2.03;
+      amp *= 0.5;
+    }
+    return value;
+  }
+
+  public sampleElevationAtWorld(wx: number, wz: number): number {
+    const centerCoords = this.worldToNearestHexUnclamped(wx, wz);
+    const nearestHex = this.campaign.hexes[centerCoords.x][centerCoords.y];
+    const nearestCenter = this.hexToWorld(centerCoords.x, centerCoords.y);
+
+    const oddOffsets: ReadonlyArray<[number, number]> = [
+      [0, 0],
+      [1, 0],
+      [1, -1],
+      [0, -1],
+      [-1, 0],
+      [0, 1],
+      [1, 1],
+    ];
+    const evenOffsets: ReadonlyArray<[number, number]> = [
+      [0, 0],
+      [1, 0],
+      [0, -1],
+      [-1, -1],
+      [-1, 0],
+      [-1, 1],
+      [0, 1],
+    ];
+    const offsets = Math.abs(centerCoords.y) % 2 === 1 ? oddOffsets : evenOffsets;
+
+    const sigma = this.hexRadius * 0.82;
+    const invTwoSigmaSq = 1 / (2 * sigma * sigma);
+    let sumH = 0;
+    let sumNoiseAmp = 0;
+    let sumW = 0;
+
+    for (const [dx, dy] of offsets) {
+      const nx = centerCoords.x + dx;
+      const ny = centerCoords.y + dy;
+      const h = this.campaign.getHex({ x: nx, y: ny });
+      if (!h) continue;
+      const hp = this.hexToWorld(nx, ny);
+      const dSq = (wx - hp.x) ** 2 + (wz - hp.z) ** 2;
+      const w = Math.exp(-dSq * invTwoSigmaSq);
+      sumH += w * getTerrainHeight(h.terrain);
+      sumNoiseAmp += w * getTerrainNoiseAmp(h.terrain);
+      sumW += w;
+    }
+
+    const macroH = sumW > 0 ? sumH / sumW : getTerrainHeight(nearestHex.terrain);
+    const noiseAmp = sumW > 0 ? sumNoiseAmp / sumW : getTerrainNoiseAmp(nearestHex.terrain);
+    const noise = this.sampleTerrainFbm(wx * 1.35, wz * 1.35) * noiseAmp;
+    let elevation = macroH + noise;
+
+    // Level flat-pad around occupied hexes (settlements, resource buildings, defenses)
+    // so structures never float on one side or sink into slopes on the other.
+    if (
+      nearestHex.isSettlement ||
+      nearestHex.resourceBuilding ||
+      nearestHex.isDefenseHex
+    ) {
+      const dist = Math.hypot(wx - nearestCenter.x, wz - nearestCenter.z);
+      const padInner = this.hexRadius * 0.42;
+      const padOuter = this.hexRadius * 0.85;
+      const t = Math.min(1, Math.max(0, (dist - padInner) / (padOuter - padInner)));
+      const padMask = t * t * (3 - 2 * t);
+      const centerBaseY = getTerrainHeight(nearestHex.terrain);
+      elevation = centerBaseY * (1 - padMask) + elevation * padMask;
+    }
+
+    return elevation;
   }
 
   public getSurfaceY(hex: OverviewHex): number {
     if (hex.terrain === 'water') {
-      const steps = this.waterShoreSteps.get(`${hex.coords.x},${hex.coords.y}`) ?? 1;
-      if (steps <= 1) return 0.13;
-      if (steps === 2) return 0.1;
-      return 0.07;
+      return WATER_SURFACE_Y;
     }
-    return getTerrainHeight(hex.terrain);
+    const pos = this.hexToWorld(hex.coords.x, hex.coords.y);
+    return this.sampleElevationAtWorld(pos.x, pos.z);
   }
 
   private computeWaterShoreSteps(): void {
@@ -229,58 +372,145 @@ export class OverviewBoard3D {
     }
   }
 
-  private buildWaterGeometryWithShoreDist(
-    baseGeo: THREE.CylinderGeometry,
-    worldPos: THREE.Vector3,
-    landWorldPositions: THREE.Vector3[]
-  ): THREE.BufferGeometry {
-    const geo = baseGeo.clone();
-    const posAttr = geo.getAttribute('position');
-    const shoreDists = new Float32Array(posAttr.count);
-    const halfHexFlatWidth = this.hexRadius * Math.sqrt(3) * 0.5;
-    const maxSearchSq = (this.hexRadius * 4.5) ** 2;
+  private getHeightfieldBounds(): {
+    minX: number;
+    maxX: number;
+    minZ: number;
+    maxZ: number;
+  } {
+    const widthSpacing = this.hexRadius * Math.sqrt(3);
+    const heightSpacing = this.hexRadius * 1.5;
+    const minX = -(this.mapWidth - 1) * 0.5 * widthSpacing - this.hexRadius * 1.05;
+    const maxX = (this.mapWidth - 1) * 0.5 * widthSpacing + this.hexRadius * 1.55;
+    const minZ = -(this.mapHeight - 1) * 0.5 * heightSpacing - this.hexRadius * 1.1;
+    const maxZ = (this.mapHeight - 1) * 0.5 * heightSpacing + this.hexRadius * 1.1;
+    return { minX, maxX, minZ, maxZ };
+  }
 
-    for (let i = 0; i < posAttr.count; i++) {
-      const wx = worldPos.x + posAttr.getX(i);
-      const wz = worldPos.z + posAttr.getZ(i);
-      let minDist = 2.0;
+  private buildTerrainHeightfieldGeometry(): THREE.BufferGeometry {
+    const { minX, maxX, minZ, maxZ } = this.getHeightfieldBounds();
+    const step = this.hexRadius / 3.5;
+    const cols = Math.max(16, Math.ceil((maxX - minX) / step));
+    const rows = Math.max(16, Math.ceil((maxZ - minZ) / step));
+    const vertCount = (cols + 1) * (rows + 1);
 
-      for (let j = 0; j < landWorldPositions.length; j++) {
-        const lp = landWorldPositions[j];
-        const dx = wx - lp.x;
-        const dz = wz - lp.z;
-        const dSq = dx * dx + dz * dz;
-        if (dSq > maxSearchSq) continue;
-        const edgeDist = Math.max(0, Math.sqrt(dSq) - halfHexFlatWidth);
-        if (edgeDist < minDist) {
-          minDist = edgeDist;
-        }
+    const positions = new Float32Array(vertCount * 3);
+    const uvs = new Float32Array(vertCount * 2);
+    const hexCoords = new Float32Array(vertCount * 2);
+    const tileCenters = new Float32Array(vertCount * 2);
+
+    for (let r = 0; r <= rows; r++) {
+      const tz = r / rows;
+      const wz = minZ + tz * (maxZ - minZ);
+      for (let c = 0; c <= cols; c++) {
+        const tx = c / cols;
+        const wx = minX + tx * (maxX - minX);
+        const idx = r * (cols + 1) + c;
+        const wy = this.sampleElevationAtWorld(wx, wz);
+
+        positions[idx * 3] = wx;
+        positions[idx * 3 + 1] = wy;
+        positions[idx * 3 + 2] = wz;
+
+        uvs[idx * 2] = tx;
+        uvs[idx * 2 + 1] = tz;
+
+        const hc = this.worldToNearestHexUnclamped(wx, wz);
+        const center = this.hexToWorld(hc.x, hc.y);
+        hexCoords[idx * 2] = hc.x;
+        hexCoords[idx * 2 + 1] = hc.y;
+        tileCenters[idx * 2] = center.x;
+        tileCenters[idx * 2 + 1] = center.z;
       }
-      shoreDists[i] = minDist;
     }
 
-    geo.setAttribute('aShoreDist', new THREE.BufferAttribute(shoreDists, 1));
+    const indices: number[] = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const i0 = r * (cols + 1) + c;
+        const i1 = i0 + 1;
+        const i2 = i0 + (cols + 1);
+        const i3 = i2 + 1;
+        // Counter-clockwise winding for +Y up normal
+        indices.push(i0, i2, i1);
+        indices.push(i1, i2, i3);
+      }
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    geo.setAttribute('aHexCoord', new THREE.BufferAttribute(hexCoords, 2));
+    geo.setAttribute('aTileCenter', new THREE.BufferAttribute(tileCenters, 2));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
     return geo;
   }
 
-  private buildLandGeometryWithAttrs(
-    baseGeo: THREE.BufferGeometry,
-    hx: number,
-    hy: number,
-    worldPos: THREE.Vector3
+  private buildWaterPlaneGeometry(
+    landWorldPositions: THREE.Vector3[]
   ): THREE.BufferGeometry {
-    const geo = baseGeo.clone();
-    const count = geo.getAttribute('position').count;
-    const hexCoords = new Float32Array(count * 2);
-    const tileCenters = new Float32Array(count * 2);
-    for (let i = 0; i < count; i++) {
-      hexCoords[i * 2] = hx;
-      hexCoords[i * 2 + 1] = hy;
-      tileCenters[i * 2] = worldPos.x;
-      tileCenters[i * 2 + 1] = worldPos.z;
+    const { minX, maxX, minZ, maxZ } = this.getHeightfieldBounds();
+    const step = this.hexRadius * 0.5;
+    const cols = Math.max(12, Math.ceil((maxX - minX) / step));
+    const rows = Math.max(12, Math.ceil((maxZ - minZ) / step));
+    const vertCount = (cols + 1) * (rows + 1);
+
+    const positions = new Float32Array(vertCount * 3);
+    const uvs = new Float32Array(vertCount * 2);
+    const shoreDists = new Float32Array(vertCount);
+    const halfHexFlatWidth = this.hexRadius * Math.sqrt(3) * 0.5;
+    const maxSearchSq = (this.hexRadius * 4.5) ** 2;
+
+    for (let r = 0; r <= rows; r++) {
+      const tz = r / rows;
+      const wz = minZ + tz * (maxZ - minZ);
+      for (let c = 0; c <= cols; c++) {
+        const tx = c / cols;
+        const wx = minX + tx * (maxX - minX);
+        const idx = r * (cols + 1) + c;
+
+        positions[idx * 3] = wx;
+        positions[idx * 3 + 1] = 0;
+        positions[idx * 3 + 2] = wz;
+
+        uvs[idx * 2] = tx;
+        uvs[idx * 2 + 1] = tz;
+
+        let minDist = 2.0;
+        for (let j = 0; j < landWorldPositions.length; j++) {
+          const lp = landWorldPositions[j];
+          const dx = wx - lp.x;
+          const dz = wz - lp.z;
+          const dSq = dx * dx + dz * dz;
+          if (dSq > maxSearchSq) continue;
+          const edgeDist = Math.max(0, Math.sqrt(dSq) - halfHexFlatWidth);
+          if (edgeDist < minDist) {
+            minDist = edgeDist;
+          }
+        }
+        shoreDists[idx] = minDist;
+      }
     }
-    geo.setAttribute('aHexCoord', new THREE.BufferAttribute(hexCoords, 2));
-    geo.setAttribute('aTileCenter', new THREE.BufferAttribute(tileCenters, 2));
+
+    const indices: number[] = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const i0 = r * (cols + 1) + c;
+        const i1 = i0 + 1;
+        const i2 = i0 + (cols + 1);
+        const i3 = i2 + 1;
+        indices.push(i0, i2, i1);
+        indices.push(i1, i2, i3);
+      }
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    geo.setAttribute('aShoreDist', new THREE.BufferAttribute(shoreDists, 1));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
     return geo;
   }
 
@@ -288,18 +518,29 @@ export class OverviewBoard3D {
     this.computeWaterShoreSteps();
     this.waterHexHeights.length = 0;
     this.tileMeshMap.clear();
+    this.tileMeshes.length = 0;
 
     const landWorldPositions: THREE.Vector3[] = [];
     for (let x = 0; x < this.mapWidth; x++) {
       for (let y = 0; y < this.mapHeight; y++) {
-        if (this.campaign.hexes[x][y].terrain !== 'water') {
+        const hex = this.campaign.hexes[x][y];
+        if (hex.terrain !== 'water') {
           landWorldPositions.push(this.hexToWorld(x, y));
+        } else {
+          const steps = this.waterShoreSteps.get(`${x},${y}`) ?? 1;
+          this.waterHexHeights.push(
+            steps <= 1 ? 0.13 : steps === 2 ? 0.1 : 0.07
+          );
         }
       }
     }
 
     this.terrainAtlas = createOverviewTerrainAtlas();
     this.terrainGridTex = createOverviewTerrainGridTexture(this.mapWidth, this.mapHeight);
+    this.highlightGridTex = createOverviewHighlightGridTexture(
+      this.mapWidth,
+      this.mapHeight
+    );
     for (let x = 0; x < this.mapWidth; x++) {
       for (let y = 0; y < this.mapHeight; y++) {
         const hex = this.campaign.hexes[x][y];
@@ -319,7 +560,8 @@ export class OverviewBoard3D {
       this.terrainGridTex,
       this.mapWidth,
       this.mapHeight,
-      this.hexRadius
+      this.hexRadius,
+      this.highlightGridTex
     );
 
     this.waterNormalA = createProceduralWaterNormalTexture(128, 0.0, 1.0);
@@ -329,60 +571,25 @@ export class OverviewBoard3D {
       this.waterNormalB
     );
 
-    const hexGeoCache = new Map<number, THREE.CylinderGeometry>();
-    const edgeMat = new THREE.LineBasicMaterial({
-      color: 0x1e262e,
-      transparent: true,
-      opacity: 0.35,
-    });
+    const terrainGeo = this.buildTerrainHeightfieldGeometry();
+    const terrainMesh = new THREE.Mesh(terrainGeo, this.landTerrainMaterial);
+    terrainMesh.name = 'OverviewTerrainHeightfield';
+    terrainMesh.receiveShadow = true;
+    terrainMesh.castShadow = true;
+    terrainMesh.userData = { isOverviewTerrainHeightfield: true };
+    this.terrainMesh = terrainMesh;
+    this.tilesGroup.add(terrainMesh);
+    this.tileMeshes.push(terrainMesh);
 
-    for (let x = 0; x < this.mapWidth; x++) {
-      for (let y = 0; y < this.mapHeight; y++) {
-        const hex = this.campaign.hexes[x][y];
-        const height = this.getSurfaceY(hex);
-        let baseGeo = hexGeoCache.get(height);
-        if (!baseGeo) {
-          baseGeo = new THREE.CylinderGeometry(
-            this.hexRadius,
-            this.hexRadius,
-            height,
-            6
-          );
-          hexGeoCache.set(height, baseGeo);
-        }
-
-        const pos = this.hexToWorld(x, y);
-        let tileGeo: THREE.BufferGeometry;
-        let mat: THREE.Material;
-
-        if (hex.terrain === 'water') {
-          tileGeo = this.buildWaterGeometryWithShoreDist(
-            baseGeo,
-            pos,
-            landWorldPositions
-          );
-          mat = this.waterMaterial;
-          this.waterHexHeights.push(height);
-        } else {
-          tileGeo = this.buildLandGeometryWithAttrs(baseGeo, x, y, pos);
-          mat = this.landTerrainMaterial;
-        }
-
-        const mesh = new THREE.Mesh(tileGeo, mat);
-        mesh.position.set(pos.x, height * 0.5, pos.z);
-        mesh.receiveShadow = true;
-        mesh.castShadow = hex.terrain === 'mountain';
-        mesh.userData = { isOverviewHex: true, coords: { x, y } };
-
-        const edges = new THREE.LineSegments(new THREE.EdgesGeometry(baseGeo), edgeMat);
-        edges.position.copy(mesh.position);
-
-        this.tilesGroup.add(mesh);
-        this.gridBordersGroup.add(edges);
-        this.tileMeshes.push(mesh);
-        this.tileMeshMap.set(`${x},${y}`, mesh);
-      }
-    }
+    const waterGeo = this.buildWaterPlaneGeometry(landWorldPositions);
+    const waterMesh = new THREE.Mesh(waterGeo, this.waterMaterial);
+    waterMesh.name = 'OverviewWaterPlane';
+    waterMesh.position.y = WATER_SURFACE_Y;
+    waterMesh.receiveShadow = true;
+    waterMesh.userData = { isOverviewWaterPlane: true };
+    this.waterMesh = waterMesh;
+    this.tilesGroup.add(waterMesh);
+    this.tileMeshes.push(waterMesh);
   }
 
   public updateHexTerrain(x: number, y: number): void {
@@ -399,29 +606,36 @@ export class OverviewBoard3D {
       this.terrainGridTex.needsUpdate = true;
     }
 
-    const mesh = this.tileMeshMap.get(`${x},${y}`);
-    if (mesh) {
-      const height = this.getSurfaceY(hex);
-      const pos = this.hexToWorld(x, y);
-      const baseGeo = new THREE.CylinderGeometry(
-        this.hexRadius,
-        this.hexRadius,
-        height,
-        6
-      );
-      mesh.geometry.dispose();
-      if (hex.terrain === 'water' && this.waterMaterial) {
-        mesh.geometry = this.buildWaterGeometryWithShoreDist(baseGeo, pos, []);
-        mesh.material = this.waterMaterial;
-      } else if (this.landTerrainMaterial) {
-        mesh.geometry = this.buildLandGeometryWithAttrs(baseGeo, x, y, pos);
-        mesh.material = this.landTerrainMaterial;
+    if (this.terrainMesh) {
+      const center = this.hexToWorld(x, y);
+      const updateRadiusSq = (this.hexRadius * 2.4) ** 2;
+      const posAttr = this.terrainMesh.geometry.getAttribute(
+        'position'
+      ) as THREE.BufferAttribute;
+      for (let i = 0; i < posAttr.count; i++) {
+        const wx = posAttr.getX(i);
+        const wz = posAttr.getZ(i);
+        const dSq = (wx - center.x) ** 2 + (wz - center.z) ** 2;
+        if (dSq <= updateRadiusSq) {
+          posAttr.setY(i, this.sampleElevationAtWorld(wx, wz));
+        }
       }
-      baseGeo.dispose();
-      mesh.position.set(pos.x, height * 0.5, pos.z);
-      mesh.castShadow = hex.terrain === 'mountain';
+      posAttr.needsUpdate = true;
+      this.terrainMesh.geometry.computeVertexNormals();
     }
     this.rebuildTrees();
+  }
+
+  public getTerrainMesh(): THREE.Mesh | null {
+    return this.terrainMesh;
+  }
+
+  public getWaterMesh(): THREE.Mesh | null {
+    return this.waterMesh;
+  }
+
+  public getHighlightGridTexture(): THREE.DataTexture | null {
+    return this.highlightGridTex;
   }
 
   public getLandTerrainMaterial(): THREE.MeshStandardMaterial | null {
@@ -601,6 +815,10 @@ export class OverviewBoard3D {
   public setGridVisible(visible: boolean): void {
     this.showGrid = visible;
     this.gridBordersGroup.visible = visible;
+    const shader = this.landTerrainMaterial?.userData?.shader;
+    if (shader?.uniforms?.uShowGrid) {
+      shader.uniforms.uShowGrid.value = visible ? 1.0 : 0.0;
+    }
   }
 
   public isGridVisible(): boolean {
@@ -656,7 +874,6 @@ export class OverviewBoard3D {
         const hex = this.campaign.hexes[x][y];
         if (hex.terrain !== 'forest' && hex.terrain !== 'deep_forest') continue;
         const pos = this.hexToWorld(x, y);
-        const height = getTerrainHeight(hex.terrain);
         const treeCount =
           hex.terrain === 'deep_forest'
             ? 10 + Math.floor(this.seededHexRandom(x, y, 0) * 5)
@@ -711,7 +928,11 @@ export class OverviewBoard3D {
           }
 
           placedOffsets.push({ dx: chosenDx, dz: chosenDz });
-          tree.position.set(pos.x + chosenDx, height, pos.z + chosenDz);
+          const treeY = this.sampleElevationAtWorld(
+            pos.x + chosenDx,
+            pos.z + chosenDz
+          );
+          tree.position.set(pos.x + chosenDx, treeY, pos.z + chosenDz);
           tree.userData.hexCoords = { x, y };
           tree.userData.baseScale = baseScale;
           tree.userData.localOffset = { x: chosenDx, z: chosenDz };
@@ -790,6 +1011,15 @@ export class OverviewBoard3D {
             x * 97 + y * 31 + 1
           );
           model.position.set(pos.x, surfaceY, pos.z);
+          for (const child of model.children) {
+            if (child.userData?.isOverviewCow) {
+              const cowWorldY = this.sampleElevationAtWorld(
+                pos.x + child.position.x,
+                pos.z + child.position.z
+              );
+              child.position.y = cowWorldY - surfaceY;
+            }
+          }
           this.landmarksGroup.add(model);
         } else if (hex.isDefenseHex && region && region.defenseTier !== 'none') {
           const model = createOverviewDefenseModel(region.defenseTier);
@@ -983,25 +1213,30 @@ export class OverviewBoard3D {
 
   public setReachableHexes(reachableKeys: Iterable<string>): void {
     this.disposeGroupChildren(this.overlaysGroup);
-    const geo = new THREE.RingGeometry(this.hexRadius * 0.45, this.hexRadius * 0.78, 6);
-    geo.rotateX(-Math.PI * 0.5);
-    geo.rotateY(Math.PI / 6);
-    const mat = new THREE.MeshBasicMaterial({
-      color: 0x4fd18b,
-      transparent: true,
-      opacity: 0.65,
-      side: THREE.DoubleSide,
-    });
+    if (!this.highlightGridTex) return;
+
+    const data = this.highlightGridTex.image.data as Uint8Array;
+    for (let i = 0; i < data.length; i += 4) {
+      data[i] = 0; // clear reachable channel
+      data[i + 3] = 255;
+    }
 
     for (const key of reachableKeys) {
       const [sx, sy] = key.split(',').map(Number);
-      const hex = this.campaign.getHex({ x: sx, y: sy });
-      if (!hex) continue;
-      const pos = this.hexToWorld(sx, sy);
-      const ring = new THREE.Mesh(geo, mat);
-      ring.position.set(pos.x, this.getSurfaceY(hex) + 0.03, pos.z);
-      this.overlaysGroup.add(ring);
+      if (
+        Number.isNaN(sx) ||
+        Number.isNaN(sy) ||
+        sx < 0 ||
+        sx >= this.mapWidth ||
+        sy < 0 ||
+        sy >= this.mapHeight
+      ) {
+        continue;
+      }
+      const idx = (sy * this.mapWidth + sx) * 4;
+      data[idx] = 255;
     }
+    this.highlightGridTex.needsUpdate = true;
   }
 
   private disposeGroupChildren(group: THREE.Group): void {
@@ -1213,6 +1448,10 @@ export class OverviewBoard3D {
     this.terrainAtlas = null;
     this.terrainGridTex?.dispose();
     this.terrainGridTex = null;
+    this.highlightGridTex?.dispose();
+    this.highlightGridTex = null;
+    this.terrainMesh = null;
+    this.waterMesh = null;
     this.tileMeshMap.clear();
     for (const tex of this.terrainTextures.values()) {
       tex.dispose();

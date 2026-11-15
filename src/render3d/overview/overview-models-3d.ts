@@ -8,6 +8,8 @@ import {
 } from '../../overview/overview-types';
 import { buildArticulatedUnit3DMesh } from '../units/unit-mesh-builder';
 import { createOverviewCowModel } from './overview-cow-3d';
+import { createOverviewIronMineModel } from './overview-iron-mine-3d';
+import { createOverviewLumberMillModel } from './overview-lumber-mill-3d';
 
 function makeMat(color: number, roughness = 0.8, metalness = 0.1): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({ color, roughness, metalness });
@@ -145,28 +147,20 @@ export function createOverviewSettlementModel(
 }
 
 export function createOverviewResourceBuildingModel(type: ResourceBuildingType): THREE.Group {
+  if (type === 'iron_mine') {
+    return createOverviewIronMineModel();
+  }
+  if (type === 'lumber_camp') {
+    return createOverviewLumberMillModel();
+  }
+
   const group = new THREE.Group();
   group.name = `OverviewResource_${type}`;
 
   const woodMat = makeMat(0x7c5333, 0.88);
   const stoneMat = makeMat(0x767c84, 0.9);
 
-  if (type === 'lumber_camp') {
-    const cabin = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.2, 0.26), woodMat);
-    cabin.position.set(-0.14, 0.1, 0);
-    cabin.castShadow = true;
-    const roof = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.16, 4), makeMat(0x5d4329, 0.9));
-    roof.position.set(-0.14, 0.28, 0);
-    roof.rotation.y = Math.PI * 0.25;
-    group.add(cabin, roof);
-
-    for (let i = 0; i < 3; i++) {
-      const log = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.28, 6), woodMat);
-      log.rotation.z = Math.PI * 0.5;
-      log.position.set(0.2, 0.04 + (i === 2 ? 0.06 : 0), i === 0 ? -0.05 : i === 1 ? 0.05 : 0);
-      group.add(log);
-    }
-  } else if (type === 'quarry') {
+  if (type === 'quarry') {
     const block1 = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.18, 0.28), stoneMat);
     block1.position.set(-0.1, 0.09, -0.06);
     const block2 = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.12, 0.18), makeMat(0x9aa0a8, 0.85));

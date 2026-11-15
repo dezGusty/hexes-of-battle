@@ -241,13 +241,38 @@ export function updateOverviewTerrainGridCell(
   data[idx + 3] = 255;
 }
 
+export function createOverviewHighlightGridTexture(
+  width: number,
+  height: number
+): THREE.DataTexture {
+  const data = new Uint8Array(width * height * 4);
+  const texture = new THREE.DataTexture(
+    data,
+    width,
+    height,
+    THREE.RGBAFormat,
+    THREE.UnsignedByteType
+  );
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.NearestFilter;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.generateMipmaps = false;
+  texture.needsUpdate = true;
+  return texture;
+}
+
 export function createOverviewBlendedTerrainMaterial(
   atlasTexture: THREE.Texture,
   terrainGridTexture: THREE.DataTexture,
   mapWidth: number,
   mapHeight: number,
-  hexRadius: number
+  hexRadius: number,
+  highlightGridTexture?: THREE.DataTexture
 ): THREE.MeshStandardMaterial {
+  const highlightTex =
+    highlightGridTexture ?? createOverviewHighlightGridTexture(mapWidth, mapHeight);
+
   const mat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
     roughness: 0.88,
@@ -258,25 +283,24 @@ export function createOverviewBlendedTerrainMaterial(
     isOverviewBlendedTerrain: true,
     uTerrainAtlas: atlasTexture,
     uTerrainGridTex: terrainGridTexture,
+    uHighlightGridTex: highlightTex,
   };
 
-  mat.customProgramCacheKey = () => 'OverviewSeamlessHexTerrain_v1';
+  mat.customProgramCacheKey = () => 'OverviewSeamlessHexTerrain_v2';
 
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTerrainAtlas = { value: atlasTexture };
     shader.uniforms.uTerrainGridTex = { value: terrainGridTexture };
+    shader.uniforms.uHighlightGridTex = { value: highlightTex };
     shader.uniforms.uGridSize = { value: new THREE.Vector2(mapWidth, mapHeight) };
     shader.uniforms.uHexRadius = { value: hexRadius };
     shader.uniforms.uAtlasGrid = { value: new THREE.Vector2(4, 8) };
+    shader.uniforms.uShowGrid = { value: 1.0 };
     mat.userData.shader = shader;
 
     shader.vertexShader = shader.vertexShader.replace(
       '#include <common>',
       `#include <common>
-attribute vec2 aHexCoord;
-attribute vec2 aTileCenter;
-varying vec2 vHexCoord;
-varying vec2 vTileCenter;
 varying vec3 vTerrainWorldPos;
 varying vec3 vTerrainWorldNormal;`
     );
@@ -284,8 +308,6 @@ varying vec3 vTerrainWorldNormal;`
     shader.vertexShader = shader.vertexShader.replace(
       '#include <begin_vertex>',
       `#include <begin_vertex>
-vHexCoord = aHexCoord;
-vTileCenter = aTileCenter;
 vTerrainWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
 vTerrainWorldNormal = normalize(mat3(modelMatrix) * normal);`
     );
@@ -293,15 +315,15 @@ vTerrainWorldNormal = normalize(mat3(modelMatrix) * normal);`
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <common>',
       `#include <common>
-varying vec2 vHexCoord;
-varying vec2 vTileCenter;
 varying vec3 vTerrainWorldPos;
 varying vec3 vTerrainWorldNormal;
 uniform sampler2D uTerrainAtlas;
 uniform sampler2D uTerrainGridTex;
+uniform sampler2D uHighlightGridTex;
 uniform vec2 uGridSize;
 uniform float uHexRadius;
 uniform vec2 uAtlasGrid;
+uniform float uShowGrid;
 
 float overviewHash21(vec2 p) {
   return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
@@ -343,6 +365,48 @@ vec2 fetchGridCell(vec2 coord) {
   vec2 uv = (coord + 0.5) / uGridSize;
   vec4 texel = texture2D(uTerrainGridTex, uv);
   return vec2(floor(texel.r * 255.0 + 0.5), floor(texel.g * 255.0 + 0.5));
+}
+
+vec4 fetchHighlightCell(vec2 coord) {
+  vec2 uv = (coord + 0.5) / uGridSize;
+  return texture2D(uHighlightGridTex, uv);
+}
+
+vec2 hexCoordToWorldXZ(vec2 coord) {
+  float widthSpacing = uHexRadius * 1.73205080757;
+  float heightSpacing = uHexRadius * 1.5;
+  float odd = mod(abs(coord.y), 2.0);
+  float wx = (coord.x + odd * 0.5 - (uGridSize.x - 1.0) * 0.5) * widthSpacing;
+  float wz = (coord.y - (uGridSize.y - 1.0) * 0.5) * heightSpacing;
+  return vec2(wx, wz);
+}
+
+vec2 worldXZToHexCoord(vec2 worldXZ) {
+  float widthSpacing = uHexRadius * 1.73205080757;
+  float heightSpacing = uHexRadius * 1.5;
+  float px = worldXZ.x + (uGridSize.x - 1.0) * 0.5 * widthSpacing;
+  float pz = worldXZ.y + (uGridSize.y - 1.0) * 0.5 * heightSpacing;
+  float qf = (0.57735026919 * px - 0.33333333333 * pz) / uHexRadius;
+  float rf = (0.66666666667 * pz) / uHexRadius;
+  float sf = -qf - rf;
+  float rx = floor(qf + 0.5);
+  float ry = floor(rf + 0.5);
+  float rz = floor(sf + 0.5);
+  float dx = abs(rx - qf);
+  float dy = abs(ry - rf);
+  float dz = abs(rz - sf);
+  if (dx > dy && dx > dz) {
+    rx = -ry - rz;
+  } else if (dy > dz) {
+    ry = -rx - rz;
+  }
+  float odd = mod(abs(ry), 2.0);
+  float hx = rx + (ry - odd) * 0.5;
+  float hy = ry;
+  return vec2(
+    clamp(hx, 0.0, uGridSize.x - 1.0),
+    clamp(hy, 0.0, uGridSize.y - 1.0)
+  );
 }`
     );
 
@@ -350,67 +414,89 @@ vec2 fetchGridCell(vec2 coord) {
       '#include <map_fragment>',
       `#include <map_fragment>
 {
-  vec2 ownCell = fetchGridCell(vHexCoord);
+  vec2 hexCoord = worldXZToHexCoord(vTerrainWorldPos.xz);
+  vec2 tileCenter = hexCoordToWorldXZ(hexCoord);
+  vec2 ownCell = fetchGridCell(hexCoord);
   float ownType = ownCell.x;
   float ownVar = ownCell.y;
 
-  if (vTerrainWorldNormal.y < 0.5) {
-    vec2 sideUv = vec2(vTerrainWorldPos.x + vTerrainWorldPos.z, vTerrainWorldPos.y * 1.6) * 0.45;
-    vec4 sideCol = sampleAtlasTerrain(ownType, ownVar, sideUv);
-    diffuseColor.rgb *= sideCol.rgb * 0.82;
-  } else {
-    vec2 worldUv = vTerrainWorldPos.xz * 0.42;
-    vec4 accColor = sampleAtlasTerrain(ownType, ownVar, worldUv);
-    float totalWeight = 1.0;
+  vec2 worldUv = vTerrainWorldPos.xz * 0.42;
+  vec4 accColor = (ownType > 5.5)
+    ? vec4(0.46, 0.42, 0.31, 1.0)
+    : sampleAtlasTerrain(ownType, ownVar, worldUv);
+  float totalWeight = 1.0;
 
-    float apothem = uHexRadius * 0.86602540378;
-    float edgeNoise = (overviewFbm(vTerrainWorldPos.xz * 2.3) - 0.5) * 0.34;
+  float apothem = uHexRadius * 0.86602540378;
+  float edgeNoise = (overviewFbm(vTerrainWorldPos.xz * 2.3) - 0.5) * 0.34;
 
-    int hx = int(floor(vHexCoord.x + 0.5));
-    int hy = int(floor(vHexCoord.y + 0.5));
-    int odd = hy - (hy / 2) * 2;
+  int hx = int(floor(hexCoord.x + 0.5));
+  int hy = int(floor(hexCoord.y + 0.5));
+  int odd = hy - (hy / 2) * 2;
 
-    vec2 edgeNorms[6];
-    edgeNorms[0] = vec2(1.0, 0.0);
-    edgeNorms[1] = vec2(0.5, 0.8660254);
-    edgeNorms[2] = vec2(-0.5, 0.8660254);
-    edgeNorms[3] = vec2(-1.0, 0.0);
-    edgeNorms[4] = vec2(-0.5, -0.8660254);
-    edgeNorms[5] = vec2(0.5, -0.8660254);
+  vec2 edgeNorms[6];
+  edgeNorms[0] = vec2(1.0, 0.0);
+  edgeNorms[1] = vec2(0.5, 0.8660254);
+  edgeNorms[2] = vec2(-0.5, 0.8660254);
+  edgeNorms[3] = vec2(-1.0, 0.0);
+  edgeNorms[4] = vec2(-0.5, -0.8660254);
+  edgeNorms[5] = vec2(0.5, -0.8660254);
 
-    vec2 neighborCoords[6];
-    neighborCoords[0] = vec2(float(hx + 1), float(hy));
-    neighborCoords[1] = vec2(float(hx + odd), float(hy + 1));
-    neighborCoords[2] = vec2(float(hx - (1 - odd)), float(hy + 1));
-    neighborCoords[3] = vec2(float(hx - 1), float(hy));
-    neighborCoords[4] = vec2(float(hx - (1 - odd)), float(hy - 1));
-    neighborCoords[5] = vec2(float(hx + odd), float(hy - 1));
+  vec2 neighborCoords[6];
+  neighborCoords[0] = vec2(float(hx + 1), float(hy));
+  neighborCoords[1] = vec2(float(hx + odd), float(hy + 1));
+  neighborCoords[2] = vec2(float(hx - (1 - odd)), float(hy + 1));
+  neighborCoords[3] = vec2(float(hx - 1), float(hy));
+  neighborCoords[4] = vec2(float(hx - (1 - odd)), float(hy - 1));
+  neighborCoords[5] = vec2(float(hx + odd), float(hy - 1));
 
-    vec2 localXZ = vTerrainWorldPos.xz - vTileCenter;
+  vec2 localXZ = vTerrainWorldPos.xz - tileCenter;
 
-    for (int k = 0; k < 6; k++) {
-      vec2 nc = neighborCoords[k];
-      if (nc.x >= 0.0 && nc.x < uGridSize.x && nc.y >= 0.0 && nc.y < uGridSize.y) {
-        vec2 nCell = fetchGridCell(nc);
-        float nType = nCell.x;
-        float nVar = nCell.y;
-        if (abs(nType - ownType) > 0.1 || abs(nVar - ownVar) > 0.1) {
-          float proj = dot(localXZ, edgeNorms[k]) / apothem;
-          float s = clamp(smoothstep(0.58, 1.42, proj + edgeNoise), 0.0, 0.96);
-          if (s > 0.001) {
-            float w = s / (1.0 - s);
-            vec4 nColor = (nType > 5.5)
-              ? vec4(0.36, 0.34, 0.25, 1.0)
-              : sampleAtlasTerrain(nType, nVar, worldUv);
-            accColor += nColor * w;
-            totalWeight += w;
-          }
+  for (int k = 0; k < 6; k++) {
+    vec2 nc = neighborCoords[k];
+    if (nc.x >= 0.0 && nc.x < uGridSize.x && nc.y >= 0.0 && nc.y < uGridSize.y) {
+      vec2 nCell = fetchGridCell(nc);
+      float nType = nCell.x;
+      float nVar = nCell.y;
+      if (abs(nType - ownType) > 0.1 || abs(nVar - ownVar) > 0.1) {
+        float proj = dot(localXZ, edgeNorms[k]) / apothem;
+        float s = clamp(smoothstep(0.58, 1.42, proj + edgeNoise), 0.0, 0.96);
+        if (s > 0.001) {
+          float w = s / (1.0 - s);
+          vec4 nColor = (nType > 5.5)
+            ? vec4(0.46, 0.42, 0.31, 1.0)
+            : sampleAtlasTerrain(nType, nVar, worldUv);
+          accColor += nColor * w;
+          totalWeight += w;
         }
       }
     }
-
-    diffuseColor.rgb *= (accColor.rgb / totalWeight);
   }
+
+  vec3 blendedRgb = accColor.rgb / totalWeight;
+
+  // Hex distance SDF (0 at center, 1 at hex border) for terrain-conforming grid & highlights
+  float hexEdgeDist = max(
+    max(abs(dot(localXZ, edgeNorms[0])), abs(dot(localXZ, edgeNorms[1]))),
+    abs(dot(localXZ, edgeNorms[2]))
+  ) / apothem;
+
+  if (uShowGrid > 0.5) {
+    float gridLine = smoothstep(0.955, 0.985, hexEdgeDist);
+    blendedRgb = mix(blendedRgb, vec3(0.08, 0.11, 0.13), gridLine * 0.35);
+  }
+
+  vec4 hl = fetchHighlightCell(hexCoord);
+  if (hl.r > 0.5) {
+    float ring = smoothstep(0.64, 0.70, hexEdgeDist) * (1.0 - smoothstep(0.86, 0.92, hexEdgeDist));
+    float fill = 1.0 - smoothstep(0.88, 0.96, hexEdgeDist);
+    blendedRgb = mix(blendedRgb, vec3(0.28, 0.85, 0.52), fill * 0.12 + ring * 0.65);
+  }
+  if (hl.g > 0.5) {
+    float hoverRing = smoothstep(0.80, 0.86, hexEdgeDist) * (1.0 - smoothstep(0.93, 0.98, hexEdgeDist));
+    blendedRgb = mix(blendedRgb, vec3(0.95, 0.85, 0.42), hoverRing * 0.65);
+  }
+
+  diffuseColor.rgb *= blendedRgb;
 }`
     );
   };
