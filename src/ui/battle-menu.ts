@@ -1,5 +1,6 @@
 import { ButtonOptions, FancyButton, Slider } from "@pixi/ui";
 import { Container, NineSliceSprite, Sprite, Spritesheet, Text, TextOptions, Texture } from "pixi.js";
+import pkg from "../../package.json";
 import { BattleSaveEntry, SaveManager } from "../battle/save-manager";
 import { Battle } from "../battle";
 import {
@@ -88,6 +89,7 @@ export class BattleMenuPanel {
     public internalResolutionScalingLabel?: Text;
     public internalResolutionScalingSlider?: Slider;
     public internalResolutionScalingValueText?: Text;
+    public versionText?: Text;
 
     private hardwareCursorText?: Text;
     private rimLightingText?: Text;
@@ -342,6 +344,17 @@ export class BattleMenuPanel {
         title.x = panelWidth / 2;
         title.y = 36;
         this.mainContainer.addChild(title);
+
+        if (this.mode === 'overview') {
+            this.versionText = new Text({
+                text: `Hexes Of Battle v.${pkg.version}`,
+                style: { fill: '#B8CDE0', fontSize: 16, align: 'right' },
+            });
+            this.versionText.anchor.set(1, 0.5);
+            this.versionText.x = panelWidth - 28;
+            this.versionText.y = 36;
+            this.mainContainer.addChild(this.versionText);
+        }
 
         // Vertical tab sidebar
         const sidebarX = 28;

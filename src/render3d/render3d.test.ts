@@ -3721,6 +3721,7 @@ describe('3D Graphics Engine & Rendering Systems', () => {
 
       let autoBattleState: boolean | undefined;
       let chosenPersonality: string | undefined;
+      let exitReplayCalled = false;
 
       hud.initialize({
         onZoomIn: () => {},
@@ -3735,6 +3736,9 @@ describe('3D Graphics Engine & Rendering Systems', () => {
         },
         onAutoBattlePersonalityChange: (personality) => {
           chosenPersonality = personality;
+        },
+        onExitReplay: () => {
+          exitReplayCalled = true;
         },
       });
 
@@ -3773,6 +3777,21 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       dropdown!.optionButtonsByPersonality.get('aggressive' as any)!.onPress.emit();
       expect(dropdown!.isOpen).toBe(false);
       expect(chosenPersonality).toBe('aggressive');
+
+      // Replay mode hides Auto-Battle & AI dropdown and shows Exit Replay button
+      const exitReplayBtn = hud.commonControls.exitReplayButton;
+      expect(exitReplayBtn).toBeDefined();
+      expect(exitReplayBtn!.visible).toBe(false);
+
+      hud.setReplayMode(true);
+      expect(autoBtn!.visible).toBe(false);
+      expect(dropdown!.visible).toBe(false);
+      expect(exitReplayBtn!.visible).toBe(true);
+      expect(hud.isPointerOverUI(exitReplayBtn!.x + 10, exitReplayBtn!.y + 10)).toBe(true);
+      expect(hud.isPointerOverUI(dropdown!.x + 40, dropdown!.y + 20)).toBe(false);
+
+      exitReplayBtn!.onPress.emit();
+      expect(exitReplayCalled).toBe(true);
       expect(hud.getPlayerCpuPlayer()?.personalityName).toBe('aggressive');
       expect(hud.getFormattedArmyName(0)).toContain('CPU Aggressive');
 
@@ -4751,6 +4770,14 @@ describe('3D Graphics Engine & Rendering Systems', () => {
         menu.setInternalResolutionScaling(300);
         expect(menu.getInternalResolutionScaling()).toBe(300);
         expect(menu.internalResolutionScalingValueText?.text).toBe('300%');
+
+        if (mode === 'overview') {
+          expect(menu.versionText?.text).toMatch(/^Hexes Of Battle v\.\d+\.\d+\.\d+/);
+          expect(menu.versionText?.x).toBeGreaterThan(900);
+          expect(menu.versionText?.y).toBeLessThan(60);
+        } else {
+          expect(menu.versionText).toBeUndefined();
+        }
       }
 
       // Verify OverviewHud2D wires internalResolutionScaling to settings and callback

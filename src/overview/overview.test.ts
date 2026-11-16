@@ -1097,6 +1097,26 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
     expect(posAttr.getZ(posAttr.count - 1)).not.toBe(tipZBefore);
     expect(sampleUnit!.rotation.y).not.toBe(unitRotBefore);
 
+    // Low/no wind: flag drops along the pole into a cone shape
+    board.updateFlagWindMeshes(0.2);
+    let minYLow = Infinity;
+    let maxXLow = -Infinity;
+    for (let i = 0; i < posAttr.count; i++) {
+      minYLow = Math.min(minYLow, posAttr.getY(i));
+      maxXLow = Math.max(maxXLow, posAttr.getX(i));
+    }
+    const flagWidth = (sampleCloth!.userData.flagWidth as number) || 0.34;
+    expect(maxXLow).toBeLessThan(flagWidth * 0.35);
+    expect(minYLow).toBeLessThan(-0.25);
+
+    // Above medium wind: flag is extended horizontally
+    board.updateFlagWindMeshes(1.4);
+    let maxXHigh = -Infinity;
+    for (let i = 0; i < posAttr.count; i++) {
+      maxXHigh = Math.max(maxXHigh, posAttr.getX(i));
+    }
+    expect(maxXHigh).toBeGreaterThan(flagWidth * 0.95);
+
     board.dispose();
   });
 
@@ -2036,6 +2056,10 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
     const campaign = new OverviewCampaign(createStarterOverviewMap(12345));
     const board = new OverviewBoard3D(campaign);
     expect(board.getRoadMesh()).not.toBeNull();
+    expect(board.getMeadowDecorCount()).toBeGreaterThan(0);
+    expect(board.getFieldstoneCount()).toBeGreaterThan(0);
+    expect(board.group.getObjectByName('OverviewMeadowInstanced')).toBeDefined();
+    expect(board.group.getObjectByName('OverviewFieldstonesInstanced')).toBeDefined();
     board.dispose();
   });
 });

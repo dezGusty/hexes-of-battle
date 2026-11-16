@@ -510,6 +510,13 @@ vec2 worldXZToHexCoord(vec2 worldXZ) {
 
   vec3 blendedRgb = accColor.rgb / totalWeight;
 
+  // Subtle world-space sunlit & clover variation on grassland plains
+  if (abs(ownType) < 0.5) {
+    float meadowVar = overviewFbm(vTerrainWorldPos.xz * 1.45);
+    vec3 sunlitTint = mix(vec3(0.92, 0.96, 0.90), vec3(1.07, 1.05, 0.93), meadowVar);
+    blendedRgb *= sunlitTint;
+  }
+
   // Hex distance SDF (0 at center, 1 at hex border) for terrain-conforming grid & highlights
   float hexEdgeDist = max(
     max(abs(dot(localXZ, edgeNorms[0])), abs(dot(localXZ, edgeNorms[1]))),

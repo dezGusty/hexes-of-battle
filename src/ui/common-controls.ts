@@ -233,6 +233,7 @@ export class CommonControls {
   public static readonly END_TURN_BUTTON_BOUNDS = { x: 1702, y: 962, width: 160, height: 104 };
   public static readonly AUTO_BATTLE_BUTTON_BOUNDS = { x: 4, y: 58, width: 130, height: 40 };
   public static readonly AUTO_BATTLE_DROPDOWN_BOUNDS = { x: 140, y: 58, width: 140, height: 40 };
+  public static readonly EXIT_REPLAY_BUTTON_BOUNDS = { x: 4, y: 58, width: 150, height: 40 };
 
   private panelOrigin: { x: number; y: number } = { ...CommonControls.DEFAULT_PANEL_ORIGIN };
 
@@ -240,6 +241,7 @@ export class CommonControls {
   public autoBattleButton?: FancyButton;
   public autoBattlePersonalityDropdown?: CPUPersonalityDropdown;
   public cpuPersonalityDropdown?: CPUPersonalityDropdown;
+  public exitReplayButton?: FancyButton;
   public isAutoBattleEnabled: boolean = false;
   public autoBattlePersonality: CPUPersonalityType = CPUPersonalityType.DEFENSIVE;
 
@@ -476,6 +478,28 @@ export class CommonControls {
     this.autoBattlePersonalityDropdown.position.set(dropdownBounds.x, dropdownBounds.y);
     this.cpuPersonalityDropdown = this.autoBattlePersonalityDropdown;
 
+    const exitReplayBounds = CommonControls.EXIT_REPLAY_BUTTON_BOUNDS;
+    this.exitReplayButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE });
+    this.exitReplayButton.position.set(exitReplayBounds.x, exitReplayBounds.y);
+    this.exitReplayButton.width = exitReplayBounds.width;
+    this.exitReplayButton.height = exitReplayBounds.height;
+    this.exitReplayButton.text = new Text({
+      style: {
+        fontFamily: "GustysSerpents",
+        fontSize: 15,
+        fill: "#f5e6c4",
+        align: "center",
+      },
+      text: "Exit Replay",
+    });
+    this.decorateActionButton(
+      this.exitReplayButton,
+      exitReplayBounds.width,
+      exitReplayBounds.height,
+      false
+    );
+    this.exitReplayButton.visible = false;
+
     bindButtonUISound(this.zoomOutButton);
     bindButtonUISound(this.zoomInButton);
     bindButtonUISound(this.altitudeUpButton);
@@ -487,7 +511,23 @@ export class CommonControls {
     bindButtonUISound(this.nextTurnButton);
     bindButtonUISound(this.menuButton);
     bindButtonUISound(this.autoBattleButton);
+    bindButtonUISound(this.exitReplayButton);
     bindSliderUISound(this.zoomSlider);
+  }
+
+  public setReplayMode(replayMode: boolean): void {
+    if (this.autoBattleButton) {
+      this.autoBattleButton.visible = !replayMode;
+    }
+    if (this.autoBattlePersonalityDropdown) {
+      this.autoBattlePersonalityDropdown.visible = !replayMode;
+      if (replayMode) {
+        this.autoBattlePersonalityDropdown.close();
+      }
+    }
+    if (this.exitReplayButton) {
+      this.exitReplayButton.visible = replayMode;
+    }
   }
 
   public setAutoBattleEnabled(enabled: boolean): void {
@@ -579,6 +619,7 @@ export class CommonControls {
     if (this.menuButton) results.push(this.menuButton);
     if (this.autoBattleButton) results.push(this.autoBattleButton);
     if (this.autoBattlePersonalityDropdown) results.push(this.autoBattlePersonalityDropdown);
+    if (this.exitReplayButton) results.push(this.exitReplayButton);
     if (this.activeAbility1Button) results.push(this.activeAbility1Button);
 
     return results;

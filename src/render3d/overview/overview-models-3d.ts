@@ -53,6 +53,7 @@ export function createOverviewWindFlag(
   clothMesh.userData = {
     isOverviewFlagCloth: true,
     flagWidth,
+    flagHeight,
     basePositions,
     flagPhase: (colorHex.charCodeAt(1) || 1) * 0.37,
   };

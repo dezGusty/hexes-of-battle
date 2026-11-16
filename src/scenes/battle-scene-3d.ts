@@ -240,6 +240,16 @@ export class BattleScene3D implements Scene {
       onAutoBattlePersonalityChange: () => {
         this.view.updateActiveUnitSelection();
       },
+      onExitReplay: () => {
+        let result = this.battle.getBattleResult();
+        if (result.victorArmyIndex === -1) {
+          const p0Cpu =
+            this.hud.getPlayerCpuPlayer() ??
+            CPUPlayerFactory.create(CPUPersonalityType.AGGRESSIVE, this.battle);
+          result = this.battle.computeAutomatically([p0Cpu, this.cpuPlayer]);
+        }
+        this.context.eventBus.emit("battle:exit-to-overview", result);
+      },
       onWeatherChange: (weather) => {
         this.view.setWeather(weather);
       },
@@ -319,6 +329,9 @@ export class BattleScene3D implements Scene {
     if (params?.replayMode) {
       this.hud.setAutoBattlePersonality(CPUPersonalityType.AGGRESSIVE);
       this.hud.setAutoBattleEnabled(true);
+      this.hud.setReplayMode(true);
+    } else {
+      this.hud.setReplayMode(false);
     }
     this.startBattle();
   }

@@ -9,6 +9,7 @@ import {
   buildLowPolyForestTreeMesh,
   updateTreeWindState,
 } from '../units/unit-mesh-builder';
+import { getWindThresholds } from '../decorations/wind-system';
 import {
   createOverviewAgricultureModel,
   createOverviewBridgeModel,
@@ -33,6 +34,12 @@ import {
 } from './overview-water-shader';
 import { updateOverviewCowAnimation } from './overview-cow-3d';
 import { updateOverviewWheatWind } from './overview-wheat-field-3d';
+import {
+  buildOverviewMeadowClusterGeometry,
+  getOverviewFieldstoneMaterial,
+  getOverviewMeadowMaterial,
+  updateOverviewMeadowWind,
+} from './overview-grassland-decor-3d';
 import {
   createOverviewBlendedTerrainMaterial,
   createOverviewHighlightGridTexture,
@@ -94,6 +101,7 @@ export class OverviewBoard3D {
   private readonly tilesGroup = new THREE.Group();
   private readonly gridBordersGroup = new THREE.Group();
   private readonly treesGroup = new THREE.Group();
+  private readonly meadowDecorGroup = new THREE.Group();
   private readonly coordsGroup = new THREE.Group();
   private readonly landmarksGroup = new THREE.Group();
   private readonly armiesGroup = new THREE.Group();
@@ -132,6 +140,8 @@ export class OverviewBoard3D {
   private readonly terrainTextures = new Map<string, THREE.Texture>();
   private waterMaterial: THREE.ShaderMaterial | null = null;
   private riverMaterial: THREE.ShaderMaterial | null = null;
+  private meadowInstancedCount = 0;
+  private fieldstoneInstancedCount = 0;
   private waterNormalA: THREE.DataTexture | null = null;
   private waterNormalB: THREE.DataTexture | null = null;
   private readonly waterShoreSteps = new Map<string, number>();
@@ -172,6 +182,7 @@ export class OverviewBoard3D {
       this.tilesGroup,
       this.gridBordersGroup,
       this.treesGroup,
+      this.meadowDecorGroup,
       this.coordsGroup,
       this.landmarksGroup,
       this.armiesGroup,
@@ -183,6 +194,7 @@ export class OverviewBoard3D {
 
     this.buildTiles();
     this.rebuildTrees();
+    this.rebuildMeadowDecorations();
     this.rebuildCoords();
     this.rebuildLandmarks();
     this.syncArmies();
@@ -1215,6 +1227,7 @@ export class OverviewBoard3D {
 
     updateTreeWindState(this.windAngleRad, this.windStrength, dt);
     updateOverviewWheatWind(this.windTime, this.windAngleRad, this.windStrength);
+    updateOverviewMeadowWind(this.windTime, this.windAngleRad, this.windStrength);
 
     if (this.waterMaterial) {
       this.waterMaterial.uniforms.uTime.value += dt;
@@ -1234,36 +1247,7 @@ export class OverviewBoard3D {
     }
 
     // Animate army & settlement flags reacting to wind direction and strength
-    for (const pivot of this.animatedFlagPivots) {
-      pivot.rotation.y =
-        -this.windAngleRad +
-        Math.sin(this.windTime * 2.2) * 0.08 * this.windStrength;
-    }
-
-    for (const cloth of this.animatedFlagCloths) {
-      const basePositions = cloth.userData.basePositions as Float32Array | undefined;
-      const flagWidth = (cloth.userData.flagWidth as number) || 0.34;
-      const phase = (cloth.userData.flagPhase as number) || 0;
-      const posAttr = cloth.geometry.getAttribute('position');
-      if (!basePositions || !posAttr) continue;
-
-      for (let i = 0; i < posAttr.count; i++) {
-        const bx = basePositions[i * 3];
-        const by = basePositions[i * 3 + 1];
-        const bz = basePositions[i * 3 + 2];
-        const u = Math.max(0, Math.min(1, bx / flagWidth));
-        const wave =
-          Math.sin(u * 5.5 - this.windTime * (4.5 + this.windStrength * 4.0) + phase) *
-          0.045 *
-          this.windStrength *
-          u;
-        const droop =
-          -(1.0 - Math.min(1.0, this.windStrength * 0.75)) * 0.05 * u;
-        posAttr.setY(i, by + droop);
-        posAttr.setZ(i, bz + wave);
-      }
-      posAttr.needsUpdate = true;
-    }
+    this.updateFlagWindMeshes();
 
     // Subtle idle breathing/bobbing/sway for overview units (matching battle map idle feel)
     for (const unit of this.animatedUnits) {
@@ -1282,6 +1266,67 @@ export class OverviewBoard3D {
 
     for (const cow of this.animatedCows) {
       updateOverviewCowAnimation(cow, dt);
+    }
+  }
+
+  public updateFlagWindMeshes(overrideStrength?: number): void {
+    const strength = overrideStrength ?? this.windStrength;
+    const thresholds = getWindThresholds();
+    const calmThreshold = Math.min(0.45, thresholds.mediumStrengthThreshold * 0.45);
+    const tRaw = Math.max(
+      0,
+      Math.min(
+        1,
+        (strength - calmThreshold) /
+          Math.max(0.05, thresholds.mediumStrengthThreshold - calmThreshold)
+      )
+    );
+    // 0 = low/no wind (textile drops along pole into a cone), 1 = above medium wind (extended)
+    const extendFactor = tRaw * tRaw * (3 - 2 * tRaw);
+    const dropFactor = 1 - extendFactor;
+    const freqStrength = Math.min(strength, thresholds.strongStrengthThreshold);
+
+    for (const pivot of this.animatedFlagPivots) {
+      pivot.rotation.y =
+        -this.windAngleRad +
+        Math.sin(this.windTime * 2.2) * 0.08 * freqStrength * extendFactor;
+    }
+
+    for (const cloth of this.animatedFlagCloths) {
+      const basePositions = cloth.userData.basePositions as Float32Array | undefined;
+      const flagWidth = (cloth.userData.flagWidth as number) || 0.34;
+      const flagHeight = (cloth.userData.flagHeight as number) || 0.2;
+      const phase = (cloth.userData.flagPhase as number) || 0;
+      const posAttr = cloth.geometry.getAttribute('position');
+      if (!basePositions || !posAttr) continue;
+
+      const halfH = Math.max(0.01, flagHeight * 0.5);
+      for (let i = 0; i < posAttr.count; i++) {
+        const bx = basePositions[i * 3];
+        const by = basePositions[i * 3 + 1];
+        const bz = basePositions[i * 3 + 2];
+        const u = Math.max(0, Math.min(1, bx / flagWidth));
+        const vNorm = Math.max(-1, Math.min(1, by / halfH));
+
+        // Extended wind-blown wave (active when wind is above medium strength)
+        const wave =
+          Math.sin(u * 5.5 - this.windTime * (4.5 + freqStrength * 4.0) + phase) *
+          0.045 *
+          freqStrength *
+          u;
+
+        // Gravity-draped cone shape along the pole (active when wind is low or none)
+        const droopedX = bx * 0.08 + u * (0.042 - vNorm * 0.014);
+        const droopedY = by * (1 - 0.15 * u) - u * flagWidth * 0.92;
+        const droopedZ =
+          bz + Math.sin(u * Math.PI * 3.0 + phase) * 0.022 * u * (1.1 - vNorm * 0.3);
+
+        posAttr.setX(i, droopedX * dropFactor + bx * extendFactor);
+        posAttr.setY(i, droopedY * dropFactor + by * extendFactor);
+        posAttr.setZ(i, droopedZ * dropFactor + (bz + wave) * extendFactor);
+      }
+      posAttr.needsUpdate = true;
+      cloth.geometry.computeVertexNormals();
     }
   }
 
@@ -1358,6 +1403,212 @@ export class OverviewBoard3D {
     h = Math.imul(h ^ (h >>> 16), 0x45d9f3b);
     h = Math.imul(h ^ (h >>> 16), 0x45d9f3b);
     return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  }
+
+  public getMeadowDecorCount(): number {
+    return this.meadowInstancedCount;
+  }
+
+  public getFieldstoneCount(): number {
+    return this.fieldstoneInstancedCount;
+  }
+
+  public rebuildMeadowDecorations(): void {
+    this.disposeGroupChildren(this.meadowDecorGroup);
+    this.meadowInstancedCount = 0;
+    this.fieldstoneInstancedCount = 0;
+
+    const pseudoRand = (a: number, b: number) => {
+      const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453123;
+      return s - Math.floor(s);
+    };
+
+    const meadowPlacements: Array<{
+      x: number;
+      y: number;
+      z: number;
+      rotY: number;
+      scaleXZ: number;
+      scaleY: number;
+      atlasOffset: number;
+      color: THREE.Color;
+    }> = [];
+
+    const stonePlacements: Array<{
+      x: number;
+      y: number;
+      z: number;
+      rotX: number;
+      rotY: number;
+      rotZ: number;
+      sx: number;
+      sy: number;
+      sz: number;
+      color: THREE.Color;
+    }> = [];
+
+    const stonePalette = [0x7b7a74, 0x6b6e68, 0x8a8478, 0x64686e];
+
+    for (let x = 0; x < this.mapWidth; x++) {
+      for (let y = 0; y < this.mapHeight; y++) {
+        const hex = this.campaign.hexes[x][y];
+        if (
+          hex.terrain !== 'grassland' ||
+          hex.isSettlement ||
+          hex.isDefenseHex ||
+          hex.resourceBuilding ||
+          hex.isAgriculturalPlot ||
+          hex.isLake
+        ) {
+          continue;
+        }
+
+        const center = this.hexToWorld(x, y);
+        const seed = x * 73 + y * 139 + 7;
+
+        // 5-8 meadow grass & wildflower clusters per open grassland hex
+        const clusterCount = 5 + Math.floor(pseudoRand(seed, 1) * 4);
+        for (let i = 0; i < clusterCount; i++) {
+          const ang = pseudoRand(seed + i, 2) * Math.PI * 2;
+          const rad = (0.18 + pseudoRand(seed + i, 3) * 0.56) * this.hexRadius;
+          const wx = center.x + Math.cos(ang) * rad;
+          const wz = center.z + Math.sin(ang) * rad;
+
+          if (
+            this.riverSegments.length > 0 &&
+            this.sampleDistanceToSegments(wx, wz, this.riverSegments) < 0.34
+          ) {
+            continue;
+          }
+          if (
+            this.roadSegments.length > 0 &&
+            this.sampleDistanceToSegments(wx, wz, this.roadSegments) < 0.22
+          ) {
+            continue;
+          }
+
+          const wy = this.sampleElevationAtWorld(wx, wz);
+          const isFlower = pseudoRand(seed + i, 4) < 0.42;
+          const col = new THREE.Color(isFlower ? 0xffffff : 0xdde8c8);
+          col.offsetHSL(
+            (pseudoRand(seed + i, 5) - 0.5) * 0.04,
+            (pseudoRand(seed + i, 6) - 0.5) * 0.08,
+            (pseudoRand(seed + i, 7) - 0.5) * 0.12
+          );
+
+          meadowPlacements.push({
+            x: wx,
+            y: wy,
+            z: wz,
+            rotY: pseudoRand(seed + i, 8) * Math.PI * 2,
+            scaleXZ: 0.78 + pseudoRand(seed + i, 9) * 0.48,
+            scaleY: 0.72 + pseudoRand(seed + i, 10) * 0.52,
+            atlasOffset: isFlower ? 0.5 : 0.0,
+            color: col,
+          });
+        }
+
+        // Occasional 1-3 small fieldstones on ~45% of open grassland hexes
+        if (pseudoRand(seed, 20) < 0.45) {
+          const stoneCount = 1 + Math.floor(pseudoRand(seed, 21) * 3);
+          const baseAng = pseudoRand(seed, 22) * Math.PI * 2;
+          const baseRad = (0.2 + pseudoRand(seed, 23) * 0.46) * this.hexRadius;
+          const bx = center.x + Math.cos(baseAng) * baseRad;
+          const bz = center.z + Math.sin(baseAng) * baseRad;
+
+          for (let s = 0; s < stoneCount; s++) {
+            const wx = bx + (pseudoRand(seed + s, 24) - 0.5) * 0.16;
+            const wz = bz + (pseudoRand(seed + s, 25) - 0.5) * 0.16;
+            if (
+              this.riverSegments.length > 0 &&
+              this.sampleDistanceToSegments(wx, wz, this.riverSegments) < 0.34
+            ) {
+              continue;
+            }
+            if (
+              this.roadSegments.length > 0 &&
+              this.sampleDistanceToSegments(wx, wz, this.roadSegments) < 0.22
+            ) {
+              continue;
+            }
+            const wy = this.sampleElevationAtWorld(wx, wz);
+            const cHex = stonePalette[Math.floor(pseudoRand(seed + s, 26) * stonePalette.length)];
+            stonePlacements.push({
+              x: wx,
+              y: wy + 0.012,
+              z: wz,
+              rotX: (pseudoRand(seed + s, 27) - 0.5) * 0.5,
+              rotY: pseudoRand(seed + s, 28) * Math.PI * 2,
+              rotZ: (pseudoRand(seed + s, 29) - 0.5) * 0.5,
+              sx: 0.7 + pseudoRand(seed + s, 30) * 0.7,
+              sy: 0.42 + pseudoRand(seed + s, 31) * 0.32,
+              sz: 0.7 + pseudoRand(seed + s, 32) * 0.7,
+              color: new THREE.Color(cHex),
+            });
+          }
+        }
+      }
+    }
+
+    const dummy = new THREE.Object3D();
+
+    if (meadowPlacements.length > 0) {
+      const meadowGeo = buildOverviewMeadowClusterGeometry();
+      const atlasOffsets = new Float32Array(meadowPlacements.length);
+      const meadowMesh = new THREE.InstancedMesh(
+        meadowGeo,
+        getOverviewMeadowMaterial(),
+        meadowPlacements.length
+      );
+      meadowMesh.name = 'OverviewMeadowInstanced';
+      meadowMesh.castShadow = false;
+      meadowMesh.receiveShadow = true;
+
+      for (let i = 0; i < meadowPlacements.length; i++) {
+        const p = meadowPlacements[i];
+        dummy.position.set(p.x, p.y, p.z);
+        dummy.rotation.set(0, p.rotY, 0);
+        dummy.scale.set(p.scaleXZ, p.scaleY, p.scaleXZ);
+        dummy.updateMatrix();
+        meadowMesh.setMatrixAt(i, dummy.matrix);
+        meadowMesh.setColorAt(i, p.color);
+        atlasOffsets[i] = p.atlasOffset;
+      }
+      meadowGeo.setAttribute(
+        'aAtlasOffset',
+        new THREE.InstancedBufferAttribute(atlasOffsets, 1)
+      );
+      meadowMesh.instanceMatrix.needsUpdate = true;
+      if (meadowMesh.instanceColor) meadowMesh.instanceColor.needsUpdate = true;
+      this.meadowDecorGroup.add(meadowMesh);
+      this.meadowInstancedCount = meadowPlacements.length;
+    }
+
+    if (stonePlacements.length > 0) {
+      const stoneGeo = new THREE.DodecahedronGeometry(0.055, 0);
+      const stoneMesh = new THREE.InstancedMesh(
+        stoneGeo,
+        getOverviewFieldstoneMaterial(),
+        stonePlacements.length
+      );
+      stoneMesh.name = 'OverviewFieldstonesInstanced';
+      stoneMesh.castShadow = false;
+      stoneMesh.receiveShadow = true;
+
+      for (let i = 0; i < stonePlacements.length; i++) {
+        const s = stonePlacements[i];
+        dummy.position.set(s.x, s.y, s.z);
+        dummy.rotation.set(s.rotX, s.rotY, s.rotZ);
+        dummy.scale.set(s.sx, s.sy, s.sz);
+        dummy.updateMatrix();
+        stoneMesh.setMatrixAt(i, dummy.matrix);
+        stoneMesh.setColorAt(i, s.color);
+      }
+      stoneMesh.instanceMatrix.needsUpdate = true;
+      if (stoneMesh.instanceColor) stoneMesh.instanceColor.needsUpdate = true;
+      this.meadowDecorGroup.add(stoneMesh);
+      this.fieldstoneInstancedCount = stonePlacements.length;
+    }
   }
 
   private rebuildTrees(): void {
@@ -1814,9 +2065,6 @@ export class OverviewBoard3D {
     this.disposeGroupChildren(this.hoveredRegionBordersGroup);
     if (!regionId) return;
 
-    const borderMat = new THREE.MeshBasicMaterial({ color: 0x8b0000 });
-    const borderGeo = new THREE.BoxGeometry(this.hexRadius * 1.02, 0.055, 0.085);
-
     const oddOffsets: ReadonlyArray<[number, number]> = [
       [1, 0],
       [1, -1],
@@ -1834,13 +2082,28 @@ export class OverviewBoard3D {
       [0, 1],
     ];
 
+    interface Edge2D {
+      ax: number;
+      az: number;
+      bx: number;
+      bz: number;
+      startKey: string;
+      endKey: string;
+      used: boolean;
+    }
+
+    const ptKey = (px: number, pz: number) =>
+      `${Math.round(px * 1000)},${Math.round(pz * 1000)}`;
+
+    const edges: Edge2D[] = [];
+    const byStart = new Map<string, Edge2D[]>();
+
     for (let x = 0; x < this.mapWidth; x++) {
       for (let y = 0; y < this.mapHeight; y++) {
         const hex = this.campaign.hexes[x][y];
         if (hex.regionId !== regionId) continue;
 
         const pos = this.hexToWorld(x, y);
-        const surfaceY = this.getSurfaceY(hex);
         const offsets = Math.abs(y) % 2 === 1 ? oddOffsets : evenOffsets;
 
         for (const [dx, dy] of offsets) {
@@ -1850,19 +2113,143 @@ export class OverviewBoard3D {
           if (neighbor && neighbor.regionId === regionId) continue;
 
           const nPos = this.hexToWorld(nx, ny);
-          const dirX = nPos.x - pos.x;
-          const dirZ = nPos.z - pos.z;
-          const midX = pos.x + dirX * 0.5;
-          const midZ = pos.z + dirZ * 0.5;
-          const neighborY = neighbor ? this.getSurfaceY(neighbor) : surfaceY;
+          const theta = Math.atan2(nPos.z - pos.z, nPos.x - pos.x);
+          // Pointy-top hex edge endpoints (oriented CCW around hex center)
+          const a0 = theta - Math.PI / 6;
+          const a1 = theta + Math.PI / 6;
+          const ax = pos.x + Math.cos(a0) * this.hexRadius;
+          const az = pos.z + Math.sin(a0) * this.hexRadius;
+          const bx = pos.x + Math.cos(a1) * this.hexRadius;
+          const bz = pos.z + Math.sin(a1) * this.hexRadius;
 
-          const bar = new THREE.Mesh(borderGeo, borderMat);
-          bar.position.set(midX, Math.max(surfaceY, neighborY) + 0.03, midZ);
-          // Edge runs perpendicular to (dirX, dirZ): (-dirZ, dirX)
-          bar.rotation.y = -Math.atan2(dirX, -dirZ);
-          this.hoveredRegionBordersGroup.add(bar);
+          const edge: Edge2D = {
+            ax,
+            az,
+            bx,
+            bz,
+            startKey: ptKey(ax, az),
+            endKey: ptKey(bx, bz),
+            used: false,
+          };
+          edges.push(edge);
+          const list = byStart.get(edge.startKey) ?? [];
+          list.push(edge);
+          byStart.set(edge.startKey, list);
         }
       }
+    }
+
+    if (edges.length === 0) return;
+
+    // Stitch directed edges into continuous closed boundary loops
+    const loops: Array<Array<{ x: number; z: number }>> = [];
+    for (const startEdge of edges) {
+      if (startEdge.used) continue;
+      const loop: Array<{ x: number; z: number }> = [];
+      let curr: Edge2D | undefined = startEdge;
+      let guard = 0;
+      while (curr && !curr.used && guard <= edges.length) {
+        guard++;
+        curr.used = true;
+        loop.push({ x: curr.ax, z: curr.az });
+        const candidates = byStart.get(curr.endKey);
+        curr = candidates?.find((e) => !e.used);
+      }
+      if (loop.length >= 3) {
+        loops.push(loop);
+      }
+    }
+
+    const borderMat = new THREE.MeshBasicMaterial({
+      color: 0xa81212,
+      side: THREE.DoubleSide,
+    });
+
+    const halfWidth = 0.055;
+    const heightOffset = 0.045;
+
+    for (const rawLoop of loops) {
+      // Smooth sharp 120-deg hex corners with 2 passes of Chaikin corner-cutting
+      let smoothed = rawLoop;
+      for (let pass = 0; pass < 2; pass++) {
+        const nextLoop: Array<{ x: number; z: number }> = [];
+        const n = smoothed.length;
+        for (let i = 0; i < n; i++) {
+          const p0 = smoothed[i];
+          const p1 = smoothed[(i + 1) % n];
+          nextLoop.push({
+            x: p0.x * 0.75 + p1.x * 0.25,
+            z: p0.z * 0.75 + p1.z * 0.25,
+          });
+          nextLoop.push({
+            x: p0.x * 0.25 + p1.x * 0.75,
+            z: p0.z * 0.25 + p1.z * 0.75,
+          });
+        }
+        smoothed = nextLoop;
+      }
+
+      // Subdivide long segments so the border hugs terrain elevation continuously
+      const denseLoop: Array<{ x: number; z: number }> = [];
+      const m = smoothed.length;
+      for (let i = 0; i < m; i++) {
+        const p0 = smoothed[i];
+        const p1 = smoothed[(i + 1) % m];
+        const dist = Math.hypot(p1.x - p0.x, p1.z - p0.z);
+        const steps = Math.max(1, Math.ceil(dist / 0.14));
+        for (let s = 0; s < steps; s++) {
+          const t = s / steps;
+          denseLoop.push({
+            x: p0.x + (p1.x - p0.x) * t,
+            z: p0.z + (p1.z - p0.z) * t,
+          });
+        }
+      }
+
+      const count = denseLoop.length;
+      if (count < 3) continue;
+
+      const positions: number[] = [];
+      const indices: number[] = [];
+
+      for (let i = 0; i <= count; i++) {
+        const pPrev = denseLoop[(i - 1 + count) % count];
+        const pCurr = denseLoop[i % count];
+        const pNext = denseLoop[(i + 1) % count];
+
+        const tx = pNext.x - pPrev.x;
+        const tz = pNext.z - pPrev.z;
+        const len = Math.max(1e-5, Math.hypot(tx, tz));
+        const nx = -tz / len;
+        const nz = tx / len;
+
+        for (const side of [-1, 1]) {
+          const wx = pCurr.x + nx * side * halfWidth;
+          const wz = pCurr.z + nz * side * halfWidth;
+          const wy =
+            Math.max(WATER_SURFACE_Y, this.sampleElevationAtWorld(wx, wz)) +
+            heightOffset;
+          positions.push(wx, wy, wz);
+        }
+      }
+
+      for (let i = 0; i < count; i++) {
+        const i0 = i * 2;
+        const i1 = i0 + 1;
+        const i2 = i0 + 2;
+        const i3 = i2 + 1;
+        indices.push(i0, i1, i2, i1, i3, i2);
+      }
+
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geo.setIndex(indices);
+      geo.computeVertexNormals();
+
+      const borderMesh = new THREE.Mesh(geo, borderMat);
+      borderMesh.name = `RegionBorder_${regionId}`;
+      borderMesh.renderOrder = 5;
+      this.hoveredRegionBordersGroup.add(borderMesh);
     }
   }
 
@@ -1977,6 +2364,7 @@ export class OverviewBoard3D {
     this.disposeGroupChildren(this.armiesGroup);
     this.disposeGroupChildren(this.landmarksGroup);
     this.disposeGroupChildren(this.coordsGroup);
+    this.disposeGroupChildren(this.meadowDecorGroup);
     this.disposeGroupChildren(this.treesGroup);
     this.disposeGroupChildren(this.gridBordersGroup);
     this.disposeGroupChildren(this.tilesGroup);

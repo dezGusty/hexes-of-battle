@@ -46,6 +46,7 @@ export interface BattleHud2DEvents {
   onAnimationSpeedChange?: (speed: number) => void;
   onToggleAutoBattle?: (enabled: boolean) => void;
   onAutoBattlePersonalityChange?: (personality: CPUPersonalityType) => void;
+  onExitReplay?: () => void;
   onWeatherChange?: (weather: WeatherType) => void;
   onToggleRimLighting?: (enabled: boolean) => void;
   onToggleTiltShift?: (enabled: boolean) => void;
@@ -386,6 +387,10 @@ export class BattleHud2D {
     this.commonControls.autoBattleButton?.onPress.connect(() => {
       const enabled = this.toggleAutoBattle();
       events.onToggleAutoBattle?.(enabled);
+    });
+
+    this.commonControls.exitReplayButton?.onPress.connect(() => {
+      events.onExitReplay?.();
     });
 
     if (this.commonControls.autoBattlePersonalityDropdown) {
@@ -872,6 +877,10 @@ export class BattleHud2D {
     }
   }
 
+  public setReplayMode(replayMode: boolean): void {
+    this.commonControls?.setReplayMode(replayMode);
+  }
+
   public isPointerOverUI(stageX: number, stageY: number): boolean {
     if (this.isMenuBlockingInput()) return true;
 
@@ -917,8 +926,22 @@ export class BattleHud2D {
         return true;
       }
     }
-    if (this.commonControls?.autoBattlePersonalityDropdown?.containsStagePoint(stageX, stageY)) {
+    if (
+      this.commonControls?.autoBattlePersonalityDropdown?.visible &&
+      this.commonControls.autoBattlePersonalityDropdown.containsStagePoint(stageX, stageY)
+    ) {
       return true;
+    }
+    if (this.commonControls?.exitReplayButton?.visible) {
+      const erBounds = CommonControls.EXIT_REPLAY_BUTTON_BOUNDS;
+      if (
+        stageX >= erBounds.x &&
+        stageX <= erBounds.x + erBounds.width &&
+        stageY >= erBounds.y &&
+        stageY <= erBounds.y + erBounds.height
+      ) {
+        return true;
+      }
     }
 
     // Left sidebar controls (Menu at top)
