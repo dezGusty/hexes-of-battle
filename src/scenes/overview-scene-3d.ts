@@ -104,7 +104,8 @@ export class OverviewScene3D implements Scene {
             Boolean(
               this.hud?.menuPanel?.isVisible() ||
               this.hud?.battlePromptPanel?.isVisible() ||
-              this.hud?.armyExchangePanel?.isVisible()
+              this.hud?.armyExchangePanel?.isVisible() ||
+              this.hud?.modelExplorerPanel?.isVisible()
             ),
         },
         sharedRendererHost,

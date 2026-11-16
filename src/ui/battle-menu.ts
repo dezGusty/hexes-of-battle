@@ -89,6 +89,7 @@ export class BattleMenuPanel {
     public internalResolutionScalingLabel?: Text;
     public internalResolutionScalingSlider?: Slider;
     public internalResolutionScalingValueText?: Text;
+    public openModelExplorerButton?: FancyButton;
     public versionText?: Text;
 
     private hardwareCursorText?: Text;
@@ -138,6 +139,7 @@ export class BattleMenuPanel {
     public onToggleTiltShift?: (enabled: boolean) => void;
     public onToggleSimpleTrees?: (enabled: boolean) => void;
     public onInternalResolutionScalingChange?: (scaling: number) => void;
+    public onOpenModelExplorer?: () => void;
 
     private readonly mode: 'battle' | 'overview';
 
@@ -833,6 +835,15 @@ export class BattleMenuPanel {
         addOptionLabel(debugTab, contentTextX, startY + 1 * (rowStep + 16), 'Toggle 3D Scene Inspector', '(Same effect as pressing F2)');
         debugTab.addChild(this.toggleSceneInspectorButton);
 
+        if (this.mode === 'overview') {
+            this.openModelExplorerButton = createIconButton('glyph_toggle_perf_stats.png', contentBtnX, startY + 2 * (rowStep + 16));
+            addOptionLabel(debugTab, contentTextX, startY + 2 * (rowStep + 16), '3D Model Explorer', 'Inspect all available 3D meshes with orbit & zoom.');
+            this.openModelExplorerButton.onPress.connect(() => {
+                this.onOpenModelExplorer?.();
+            });
+            debugTab.addChild(this.openModelExplorerButton);
+        }
+
         // ============================================================
         // CLOSE BUTTON
         // ============================================================
@@ -851,6 +862,7 @@ export class BattleMenuPanel {
         bindButtonUISound(this.toggleGridButton);
         bindButtonUISound(this.showHealthbarsButton);
         bindButtonUISound(this.toggleSceneInspectorButton);
+        if (this.openModelExplorerButton) bindButtonUISound(this.openModelExplorerButton);
         bindButtonUISound(this.toggleFpsButton);
         bindButtonUISound(this.toggleDamageIndicatorsButton);
         if (this.weatherButton) bindButtonUISound(this.weatherButton);

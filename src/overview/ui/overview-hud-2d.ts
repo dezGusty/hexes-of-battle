@@ -9,6 +9,7 @@ import { BattleMenuPanel } from '../../ui/battle-menu';
 import { OverviewCampaign } from '../overview-campaign';
 import { OverviewSaveEntry, OverviewSaveManager } from '../overview-save-manager';
 import { MerchantTradePanel } from './merchant-trade-panel';
+import { ModelExplorerPanel } from './model-explorer-panel';
 import { OverviewArmyExchangePanel } from './overview-army-exchange-panel';
 import {
   BattlePromptCallbacks,
@@ -57,6 +58,7 @@ export class OverviewHud2D {
   public readonly selectionPanel: OverviewSelectionPanel;
   public readonly battlePromptPanel: OverviewBattlePromptPanel;
   public readonly armyExchangePanel: OverviewArmyExchangePanel;
+  public readonly modelExplorerPanel: ModelExplorerPanel;
   public readonly merchantButton: OverviewUiButton;
   public readonly endTurnButton: OverviewUiButton;
   public readonly manageSettlementButton: OverviewUiButton;
@@ -241,6 +243,14 @@ export class OverviewHud2D {
     this.victoryText.position.set(310, 80);
     this.victoryBanner.addChild(victoryBg, this.victoryText);
     this.container.addChild(this.victoryBanner);
+    this.modelExplorerPanel = new ModelExplorerPanel(undefined, {
+      cursorTexture: options.assets?.softCursorTextures?.['default'],
+      onVisibilityChange: (visible) => {
+        if (this.softCursorSprite) {
+          this.softCursorSprite.visible = !visible;
+        }
+      },
+    });
 
     this.container.addChild(this.uiPlusRenderGroup);
     this.container.addChild(this.uiCursorRenderGroup);
@@ -332,6 +342,11 @@ export class OverviewHud2D {
 
       panel.onToggleSceneInspector = () => {
         options.onToggleSceneInspector?.();
+      };
+
+      panel.onOpenModelExplorer = () => {
+        panel.hide();
+        this.modelExplorerPanel.show();
       };
 
       panel.toggleGridButton?.onPress.connect(() => {
@@ -451,6 +466,7 @@ export class OverviewHud2D {
     this.resourceTooltip.destroy();
     this.battlePromptPanel.destroy();
     this.armyExchangePanel.destroy();
+    this.modelExplorerPanel.dispose();
     this.menuPanel?.destroy();
     this.selectionPanel.destroy();
     this.merchantPanel.destroy();

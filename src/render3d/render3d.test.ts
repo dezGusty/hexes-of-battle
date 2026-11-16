@@ -4775,8 +4775,14 @@ describe('3D Graphics Engine & Rendering Systems', () => {
           expect(menu.versionText?.text).toMatch(/^Hexes Of Battle v\.\d+\.\d+\.\d+/);
           expect(menu.versionText?.x).toBeGreaterThan(900);
           expect(menu.versionText?.y).toBeLessThan(60);
+          expect(menu.openModelExplorerButton).toBeDefined();
+          const onOpenExplorer = vi.fn();
+          menu.onOpenModelExplorer = onOpenExplorer;
+          menu.openModelExplorerButton!.onPress.emit();
+          expect(onOpenExplorer).toHaveBeenCalledTimes(1);
         } else {
           expect(menu.versionText).toBeUndefined();
+          expect(menu.openModelExplorerButton).toBeUndefined();
         }
       }
 
@@ -4793,6 +4799,44 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       overviewHud.menuPanel!.internalResolutionScalingSlider!.value = 300;
       expect(settings.internalResolutionScaling).toBe(300);
       expect(onOverviewScaling).toHaveBeenCalledWith(300);
+    });
+
+    it('should open ModelExplorerPanel with full model catalog, mouse orbit/zoom controls, and close button', async () => {
+      const { ModelExplorerPanel } = await import('../overview/ui/model-explorer-panel');
+      const { Texture } = await import('pixi.js');
+      const explorer = new ModelExplorerPanel(undefined, { cursorTexture: Texture.EMPTY });
+      expect(explorer.getModelEntries().length).toBeGreaterThan(30);
+      expect(explorer.isVisible()).toBe(false);
+
+      explorer.show();
+      expect(explorer.isVisible()).toBe(true);
+      expect(explorer.getSelectedModelId()).toBe(explorer.getModelEntries()[0].id);
+
+      const cursorEl = explorer.getCursorElement();
+      expect(cursorEl).toBeTruthy();
+      expect(Number(cursorEl?.style.zIndex)).toBeGreaterThan(200);
+      expect(cursorEl?.style.pointerEvents).toBe('none');
+
+      explorer.selectModel('unit_swordsman');
+      expect(explorer.getSelectedModelId()).toBe('unit_swordsman');
+
+      const orbit0 = explorer.getCameraOrbitState();
+      explorer.orbitBy(50, 20);
+      explorer.zoomBy(-120);
+      const orbit1 = explorer.getCameraOrbitState();
+      expect(orbit1.yaw).not.toBe(orbit0.yaw);
+      expect(orbit1.pitch).not.toBe(orbit0.pitch);
+      expect(orbit1.distance).toBeLessThan(orbit0.distance);
+
+      const closeBtn = explorer.getCloseButton();
+      expect(closeBtn).toBeTruthy();
+      if (typeof closeBtn?.click === 'function') {
+        closeBtn.click();
+      } else {
+        explorer.hide();
+      }
+      expect(explorer.isVisible()).toBe(false);
+      explorer.dispose();
     });
   });
 });
