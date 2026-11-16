@@ -187,3 +187,102 @@ export function createEadorWaterMaterial(
   mat.userData.isSharedAsset = true;
   return mat;
 }
+
+const RIVER_FRAGMENT_SHADER = `
+  uniform float uTime;
+  uniform sampler2D uNormalMapA;
+  uniform sampler2D uNormalMapB;
+  uniform vec3 uSunDir;
+  uniform vec3 uCameraPos;
+  uniform vec3 uShallowColor;
+  uniform vec3 uDeepColor;
+  uniform vec3 uFoamColor;
+
+  varying vec3 vWorldPos;
+  varying vec2 vUv;
+  varying float vShoreDist;
+
+  float hash21(vec2 p) {
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
+  }
+
+  float valueNoise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = hash21(i);
+    float b = hash21(i + vec2(1.0, 0.0));
+    float c = hash21(i + vec2(0.0, 1.0));
+    float d = hash21(i + vec2(1.0, 1.0));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+  }
+
+  void main() {
+    // Downstream-scrolling normal maps (vUv.y increases downstream)
+    vec2 uvA = vec2(vUv.x * 2.2, vUv.y * 2.8 - uTime * 1.15);
+    vec2 uvB = vec2(vUv.x * 3.1 + 0.35, vUv.y * 4.2 - uTime * 1.65);
+
+    vec3 nA = texture2D(uNormalMapA, uvA).xyz * 2.0 - 1.0;
+    vec3 nB = texture2D(uNormalMapB, uvB).xyz * 2.0 - 1.0;
+    vec3 N = normalize(vec3((nA.x + nB.x) * 0.55, 1.0, (nA.y + nB.y) * 0.55));
+
+    vec3 V = normalize(uCameraPos - vWorldPos);
+    vec3 L = normalize(uSunDir);
+    vec3 H = normalize(L + V);
+
+    // Bank-to-center gradient (vUv.x = 0.5 at channel center, 0 or 1 at banks)
+    float edgeDist = abs(vUv.x - 0.5) * 2.0;
+    float centerDepth = clamp(1.0 - edgeDist * edgeDist, 0.0, 1.0);
+    vec3 waterCol = mix(uShallowColor, uDeepColor, smoothstep(0.0, 0.85, centerDepth));
+
+    // Sky Fresnel reflection
+    float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.0);
+    waterCol = mix(waterCol, vec3(0.36, 0.72, 0.88), fresnel * 0.38);
+
+    // Directional diffuse + fast-moving river sparkles
+    float diffuse = max(dot(N, L), 0.0) * 0.35 + 0.65;
+    waterCol *= diffuse;
+    float specBroad = pow(max(dot(N, H), 0.0), 64.0) * 0.75;
+    float specSparkle = pow(max(dot(N, H), 0.0), 220.0) * 2.2;
+    waterCol += vec3(1.0, 0.97, 0.86) * (specBroad + specSparkle);
+
+    // Downstream current streaks & bank froth
+    float streakNoise = valueNoise(vec2(vUv.x * 8.0, vUv.y * 2.4 - uTime * 1.9));
+    float fineStreak = valueNoise(vec2(vUv.x * 14.0 + 3.1, vUv.y * 3.6 - uTime * 2.4));
+    float currentFoam = smoothstep(0.66, 0.92, streakNoise * 0.65 + fineStreak * 0.35) * centerDepth * 0.55;
+    float bankFoam = smoothstep(0.62, 0.94, edgeDist + (streakNoise - 0.5) * 0.18) * 0.65;
+
+    float totalFoam = clamp(currentFoam + bankFoam, 0.0, 1.0);
+    vec3 finalCol = mix(waterCol, uFoamColor, totalFoam * 0.85);
+
+    // Soft alpha fade at outer riverbanks so it blends smoothly with surrounding terrain
+    float bankAlpha = smoothstep(1.0, 0.78, edgeDist);
+    gl_FragColor = vec4(finalCol, bankAlpha * 0.94);
+  }
+`;
+
+export function createEadorRiverMaterial(
+  normalMapA: THREE.Texture,
+  normalMapB: THREE.Texture
+): THREE.ShaderMaterial {
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uNormalMapA: { value: normalMapA },
+      uNormalMapB: { value: normalMapB },
+      uSunDir: { value: new THREE.Vector3(0.45, 0.8, 0.35).normalize() },
+      uCameraPos: { value: new THREE.Vector3(0, 14, 14) },
+      uShallowColor: { value: new THREE.Color(0x2ea6b8) },
+      uDeepColor: { value: new THREE.Color(0x145d80) },
+      uFoamColor: { value: new THREE.Color(0xeef8ff) },
+    },
+    vertexShader: WATER_VERTEX_SHADER,
+    fragmentShader: RIVER_FRAGMENT_SHADER,
+    transparent: true,
+    depthWrite: false,
+  });
+  mat.userData.isSharedAsset = true;
+  return mat;
+}

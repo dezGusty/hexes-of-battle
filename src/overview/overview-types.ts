@@ -11,7 +11,7 @@ export type OverviewTerrainType =
   | 'water';
 
 export function isOverviewTerrainPassable(terrain: OverviewTerrainType): boolean {
-  return terrain !== 'mountain' && terrain !== 'deep_forest' && terrain !== 'water';
+  return terrain !== 'mountain' && terrain !== 'deep_forest';
 }
 
 export type SettlementTier = 'village' | 'town' | 'city';
@@ -58,11 +58,18 @@ export interface OverviewHex {
   coords: Coords;
   regionId: string;
   terrain: OverviewTerrainType;
+  elevation?: number;
   isSettlement?: boolean;
   resourceBuilding?: ResourceBuildingType;
   isAgriculturalPlot?: boolean;
   agricultureOption?: AgricultureOption;
   isDefenseHex?: boolean;
+  hasRiver?: boolean;
+  riverConnections?: Coords[];
+  isLake?: boolean;
+  hasRoad?: boolean;
+  roadConnections?: Coords[];
+  hasBridge?: boolean;
   assignedWorkers: number;
 }
 

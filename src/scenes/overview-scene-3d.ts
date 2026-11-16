@@ -51,7 +51,7 @@ export class OverviewScene3D implements Scene {
     }
 
     if (!this.campaign) {
-      this.campaign = new OverviewCampaign(createStarterOverviewMap(12345));
+      this.campaign = new OverviewCampaign(createStarterOverviewMap(321345));
     }
 
     if (params?.battleResult && this.pendingBattle) {
@@ -103,8 +103,8 @@ export class OverviewScene3D implements Scene {
           isMenuBlockingInput: () =>
             Boolean(
               this.hud?.menuPanel?.isVisible() ||
-                this.hud?.battlePromptPanel?.isVisible() ||
-                this.hud?.armyExchangePanel?.isVisible()
+              this.hud?.battlePromptPanel?.isVisible() ||
+              this.hud?.armyExchangePanel?.isVisible()
             ),
         },
         sharedRendererHost,

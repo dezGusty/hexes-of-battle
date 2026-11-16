@@ -11,6 +11,7 @@ import {
 } from '../units/unit-mesh-builder';
 import {
   createOverviewAgricultureModel,
+  createOverviewBridgeModel,
   createOverviewCombinedArmyVisual,
   createOverviewDefenseModel,
   createOverviewResourceBuildingModel,
@@ -26,6 +27,7 @@ import {
   createFogMaskTexture,
 } from './overview-fog-shader';
 import {
+  createEadorRiverMaterial,
   createEadorWaterMaterial,
   createProceduralWaterNormalTexture,
 } from './overview-water-shader';
@@ -45,7 +47,7 @@ import {
 
 export { OVERVIEW_TERRAIN_TEXTURE_CONFIG };
 
-const WATER_SURFACE_Y = 0.08;
+const WATER_SURFACE_Y = -0.02;
 
 export function getTerrainHeight(terrain: OverviewTerrainType): number {
   switch (terrain) {
@@ -104,6 +106,20 @@ export class OverviewBoard3D {
   private readonly tileMeshMap = new Map<string, THREE.Mesh>();
   private terrainMesh: THREE.Mesh | null = null;
   private waterMesh: THREE.Mesh | null = null;
+  private riverMesh: THREE.Mesh | null = null;
+  private roadMesh: THREE.Mesh | null = null;
+  private roadTexture: THREE.DataTexture | null = null;
+  private roadMaterial: THREE.MeshStandardMaterial | null = null;
+  private readonly riverSegments: Array<{ ax: number; az: number; bx: number; bz: number }> = [];
+  private readonly riverCenters: Array<{ x: number; z: number }> = [];
+  private readonly roadSegments: Array<{
+    ax: number;
+    az: number;
+    bx: number;
+    bz: number;
+    skipBridge?: boolean;
+  }> = [];
+  private readonly roadCenters: Array<{ x: number; z: number; hasBridge: boolean }> = [];
   private readonly armyGroups: Map<string, THREE.Group> = new Map();
   private readonly terrainMaterials = new Map<
     OverviewTerrainType,
@@ -115,6 +131,7 @@ export class OverviewBoard3D {
   private landTerrainMaterial: THREE.MeshStandardMaterial | null = null;
   private readonly terrainTextures = new Map<string, THREE.Texture>();
   private waterMaterial: THREE.ShaderMaterial | null = null;
+  private riverMaterial: THREE.ShaderMaterial | null = null;
   private waterNormalA: THREE.DataTexture | null = null;
   private waterNormalB: THREE.DataTexture | null = null;
   private readonly waterShoreSteps = new Map<string, number>();
@@ -247,7 +264,29 @@ export class OverviewBoard3D {
     return value;
   }
 
-  public sampleElevationAtWorld(wx: number, wz: number): number {
+  private sampleDistanceToSegments(
+    wx: number,
+    wz: number,
+    segments: ReadonlyArray<{ ax: number; az: number; bx: number; bz: number }>
+  ): number {
+    let minDist = Infinity;
+    for (let i = 0; i < segments.length; i++) {
+      const s = segments[i];
+      const vx = s.bx - s.ax;
+      const vz = s.bz - s.az;
+      const lenSq = vx * vx + vz * vz;
+      if (lenSq < 1e-6) continue;
+      let t = ((wx - s.ax) * vx + (wz - s.az) * vz) / lenSq;
+      t = Math.max(0, Math.min(1, t));
+      const px = s.ax + t * vx;
+      const pz = s.az + t * vz;
+      const d = Math.hypot(wx - px, wz - pz);
+      if (d < minDist) minDist = d;
+    }
+    return minDist;
+  }
+
+  public sampleBaseElevationAtWorld(wx: number, wz: number): number {
     const centerCoords = this.worldToNearestHexUnclamped(wx, wz);
     const nearestHex = this.campaign.hexes[centerCoords.x][centerCoords.y];
     const nearestCenter = this.hexToWorld(centerCoords.x, centerCoords.y);
@@ -310,6 +349,23 @@ export class OverviewBoard3D {
       const padMask = t * t * (3 - 2 * t);
       const centerBaseY = getTerrainHeight(nearestHex.terrain);
       elevation = centerBaseY * (1 - padMask) + elevation * padMask;
+    }
+
+    return elevation;
+  }
+
+  public sampleElevationAtWorld(wx: number, wz: number): number {
+    let elevation = this.sampleBaseElevationAtWorld(wx, wz);
+
+    // Carve smooth riverbeds along center-to-center river channels
+    if (this.riverSegments.length > 0 && elevation > -0.15) {
+      const riverDist = this.sampleDistanceToSegments(wx, wz, this.riverSegments);
+      const channelRadius = 0.36;
+      if (riverDist < channelRadius) {
+        const u = riverDist / channelRadius;
+        const smooth = 1 - u * u * (3 - 2 * u);
+        elevation -= smooth * 0.16;
+      }
     }
 
     return elevation;
@@ -515,7 +571,403 @@ export class OverviewBoard3D {
     return geo;
   }
 
+  private collectRiverAndRoadSegments(): void {
+    this.riverSegments.length = 0;
+    this.riverCenters.length = 0;
+    this.roadSegments.length = 0;
+    this.roadCenters.length = 0;
+
+    const seenRiver = new Set<string>();
+    const seenRoad = new Set<string>();
+
+    for (let x = 0; x < this.mapWidth; x++) {
+      for (let y = 0; y < this.mapHeight; y++) {
+        const hex = this.campaign.hexes[x][y];
+        const posA = this.hexToWorld(x, y);
+
+        if (hex.hasRiver && !hex.isLake) {
+          this.riverCenters.push({ x: posA.x, z: posA.z });
+        }
+        if (hex.riverConnections) {
+          for (const nb of hex.riverConnections) {
+            const key =
+              x < nb.x || (x === nb.x && y < nb.y)
+                ? `${x},${y}-${nb.x},${nb.y}`
+                : `${nb.x},${nb.y}-${x},${y}`;
+            if (seenRiver.has(key)) continue;
+            seenRiver.add(key);
+            const posB = this.hexToWorld(nb.x, nb.y);
+            this.riverSegments.push({
+              ax: posA.x,
+              az: posA.z,
+              bx: posB.x,
+              bz: posB.z,
+            });
+          }
+        }
+
+        if (hex.hasRoad) {
+          this.roadCenters.push({
+            x: posA.x,
+            z: posA.z,
+            hasBridge: Boolean(hex.hasBridge),
+          });
+        }
+        if (hex.roadConnections) {
+          for (const nb of hex.roadConnections) {
+            const key =
+              x < nb.x || (x === nb.x && y < nb.y)
+                ? `${x},${y}-${nb.x},${nb.y}`
+                : `${nb.x},${nb.y}-${x},${y}`;
+            if (seenRoad.has(key)) continue;
+            seenRoad.add(key);
+            const posB = this.hexToWorld(nb.x, nb.y);
+            this.roadSegments.push({
+              ax: posA.x,
+              az: posA.z,
+              bx: posB.x,
+              bz: posB.z,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  public getRiverMesh(): THREE.Mesh | null {
+    return this.riverMesh;
+  }
+
+  public getRoadMesh(): THREE.Mesh | null {
+    return this.roadMesh;
+  }
+
+  private buildRiverWaterGeometry(): THREE.BufferGeometry | null {
+    const positions: number[] = [];
+    const uvs: number[] = [];
+    const shoreDists: number[] = [];
+    const indices: number[] = [];
+
+    const halfWidth = 0.24; // Narrower river (~0.48 total width)
+    const segsAcross = 4;
+
+    const appendCurvedRiver = (
+      p0x: number,
+      p0z: number,
+      cpx: number,
+      cpz: number,
+      p1x: number,
+      p1z: number,
+      segsAlong: number,
+      vStart: number,
+      vEnd: number
+    ) => {
+      const baseIdx = positions.length / 3;
+      for (let ia = 0; ia <= segsAlong; ia++) {
+        const t = ia / segsAlong;
+        const invT = 1 - t;
+        const cx = invT * invT * p0x + 2 * invT * t * cpx + t * t * p1x;
+        const cz = invT * invT * p0z + 2 * invT * t * cpz + t * t * p1z;
+        let tx = 2 * invT * (cpx - p0x) + 2 * t * (p1x - cpx);
+        let tz = 2 * invT * (cpz - p0z) + 2 * t * (p1z - cpz);
+        if (Math.hypot(tx, tz) < 1e-5) {
+          tx = p1x - p0x;
+          tz = p1z - p0z;
+        }
+        const nLen = Math.max(1e-5, Math.hypot(tx, tz));
+        const nx = -tz / nLen;
+        const nz = tx / nLen;
+        const flowV = vStart + (vEnd - vStart) * t;
+
+        for (let ic = 0; ic <= segsAcross; ic++) {
+          const tc = ic / segsAcross; // 0..1 across river
+          const across = (tc - 0.5) * 2; // -1..1
+          const wx = cx + nx * across * halfWidth;
+          const wz = cz + nz * across * halfWidth;
+          const bankY = this.sampleBaseElevationAtWorld(wx, wz);
+          const waterY = Math.max(WATER_SURFACE_Y, bankY - 0.065);
+
+          positions.push(wx, waterY, wz);
+          uvs.push(tc, flowV);
+          shoreDists.push((1 - Math.abs(across)) * 0.45);
+        }
+      }
+
+      const stride = segsAcross + 1;
+      for (let ia = 0; ia < segsAlong; ia++) {
+        for (let ic = 0; ic < segsAcross; ic++) {
+          const i0 = baseIdx + ia * stride + ic;
+          const i1 = i0 + 1;
+          const i2 = i0 + stride;
+          const i3 = i2 + 1;
+          indices.push(i0, i1, i2, i1, i3, i2);
+        }
+      }
+    };
+
+    const mergeHubCenters: Array<{ x: number; z: number }> = [];
+
+    for (let x = 0; x < this.mapWidth; x++) {
+      for (let y = 0; y < this.mapHeight; y++) {
+        const hex = this.campaign.hexes[x][y];
+        if (!hex.hasRiver || hex.isLake || !hex.riverConnections || hex.riverConnections.length === 0) {
+          continue;
+        }
+        const center = this.hexToWorld(x, y);
+        const selfElev = hex.elevation ?? 0;
+        const upstream: Coords[] = [];
+        const downstream: Coords[] = [];
+
+        for (const nb of hex.riverConnections) {
+          const nbHex = this.campaign.getHex(nb);
+          const nbElev = nbHex?.elevation ?? 0;
+          if (!nbHex?.isLake && nbElev >= selfElev) {
+            upstream.push(nb);
+          } else {
+            downstream.push(nb);
+          }
+        }
+
+        if (upstream.length === 1 && downstream.length === 1) {
+          const posUp = this.hexToWorld(upstream[0].x, upstream[0].y);
+          const posDown = this.hexToWorld(downstream[0].x, downstream[0].y);
+          const midUx = (posUp.x + center.x) * 0.5;
+          const midUz = (posUp.z + center.z) * 0.5;
+          const midDx = (center.x + posDown.x) * 0.5;
+          const midDz = (center.z + posDown.z) * 0.5;
+          appendCurvedRiver(midUx, midUz, center.x, center.z, midDx, midDz, 12, 0.0, 2.0);
+        } else {
+          for (const u of upstream) {
+            const posU = this.hexToWorld(u.x, u.y);
+            const midUx = (posU.x + center.x) * 0.5;
+            const midUz = (posU.z + center.z) * 0.5;
+            appendCurvedRiver(
+              midUx,
+              midUz,
+              (midUx + center.x) * 0.5,
+              (midUz + center.z) * 0.5,
+              center.x,
+              center.z,
+              6,
+              0.0,
+              1.0
+            );
+          }
+          for (const d of downstream) {
+            const posD = this.hexToWorld(d.x, d.y);
+            const midDx = (center.x + posD.x) * 0.5;
+            const midDz = (center.z + posD.z) * 0.5;
+            appendCurvedRiver(
+              center.x,
+              center.z,
+              (center.x + midDx) * 0.5,
+              (center.z + midDz) * 0.5,
+              midDx,
+              midDz,
+              6,
+              1.0,
+              2.0
+            );
+          }
+          mergeHubCenters.push({ x: center.x, z: center.z });
+        }
+      }
+    }
+
+    if (positions.length === 0) return null;
+
+    // Hub discs at river sources, merges, and mouths
+    const radialSegs = 12;
+    for (const c of mergeHubCenters) {
+      const centerIdx = positions.length / 3;
+      const bankY = this.sampleBaseElevationAtWorld(c.x, c.z);
+      const centerWaterY = Math.max(WATER_SURFACE_Y, bankY - 0.065);
+      positions.push(c.x, centerWaterY, c.z);
+      uvs.push(0.5, 0.5);
+      shoreDists.push(0.45);
+
+      for (let r = 0; r < radialSegs; r++) {
+        const ang = (r / radialSegs) * Math.PI * 2;
+        const wx = c.x + Math.cos(ang) * halfWidth;
+        const wz = c.z + Math.sin(ang) * halfWidth;
+        const rBankY = this.sampleBaseElevationAtWorld(wx, wz);
+        positions.push(wx, Math.max(WATER_SURFACE_Y, rBankY - 0.065), wz);
+        uvs.push(0.0, 0.5);
+        shoreDists.push(0.0);
+      }
+
+      for (let r = 0; r < radialSegs; r++) {
+        const next = (r + 1) % radialSegs;
+        indices.push(centerIdx, centerIdx + 1 + next, centerIdx + 1 + r);
+      }
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geo.setAttribute('aShoreDist', new THREE.Float32BufferAttribute(shoreDists, 1));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+    return geo;
+  }
+
+  private createOverviewRoadTexture(): THREE.DataTexture {
+    const size = 128;
+    const data = new Uint8Array(size * size * 4);
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const u = x / size;
+        const edgeDist = Math.abs(u - 0.5) * 2; // 0 at center, 1 at edge
+        const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+        const grain = ((n - Math.floor(n)) - 0.5) * 24;
+        const cobble = Math.sin(x * 0.55) * Math.cos(y * 0.45) * 12;
+        const idx = (y * size + x) * 4;
+        data[idx] = Math.max(55, Math.min(185, 134 - edgeDist * 26 + cobble + grain));
+        data[idx + 1] = Math.max(45, Math.min(165, 114 - edgeDist * 22 + cobble + grain * 0.85));
+        data[idx + 2] = Math.max(35, Math.min(140, 88 - edgeDist * 18 + cobble * 0.8 + grain * 0.7));
+        data[idx + 3] = edgeDist > 0.88 ? Math.round((1 - (edgeDist - 0.88) / 0.12) * 255) : 255;
+      }
+    }
+    const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = THREE.ClampToEdgeWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.magFilter = THREE.LinearFilter;
+    tex.minFilter = THREE.LinearFilter;
+    tex.needsUpdate = true;
+    return tex;
+  }
+
+  private buildRoadNetworkGeometry(): THREE.BufferGeometry | null {
+    const positions: number[] = [];
+    const uvs: number[] = [];
+    const indices: number[] = [];
+    const halfWidth = 0.13;
+
+    const appendCurvedStrip = (
+      p0x: number,
+      p0z: number,
+      cpx: number,
+      cpz: number,
+      p1x: number,
+      p1z: number,
+      segs: number
+    ) => {
+      const baseIdx = positions.length / 3;
+      for (let i = 0; i <= segs; i++) {
+        const t = i / segs;
+        const invT = 1 - t;
+        // Quadratic Bezier point B(t)
+        const cx = invT * invT * p0x + 2 * invT * t * cpx + t * t * p1x;
+        const cz = invT * invT * p0z + 2 * invT * t * cpz + t * t * p1z;
+        // Derivative B'(t) for tangent
+        let tx = 2 * invT * (cpx - p0x) + 2 * t * (p1x - cpx);
+        let tz = 2 * invT * (cpz - p0z) + 2 * t * (p1z - cpz);
+        const len = Math.hypot(tx, tz);
+        if (len < 1e-5) {
+          tx = p1x - p0x;
+          tz = p1z - p0z;
+        }
+        const nLen = Math.max(1e-5, Math.hypot(tx, tz));
+        const nx = -tz / nLen;
+        const nz = tx / nLen;
+
+        for (let ic = 0; ic <= 1; ic++) {
+          const across = ic === 0 ? -1 : 1;
+          const wx = cx + nx * across * halfWidth;
+          const wz = cz + nz * across * halfWidth;
+          const groundY = this.sampleElevationAtWorld(wx, wz);
+          positions.push(wx, groundY + 0.022, wz);
+          uvs.push(ic, t * 2.0);
+        }
+      }
+
+      for (let i = 0; i < segs; i++) {
+        const i0 = baseIdx + i * 2;
+        const i1 = i0 + 1;
+        const i2 = i0 + 2;
+        const i3 = i2 + 1;
+        // +Y upward normal winding
+        indices.push(i0, i1, i2, i1, i3, i2);
+      }
+    };
+
+    const junctionCenters: Array<{ x: number; z: number }> = [];
+
+    for (let x = 0; x < this.mapWidth; x++) {
+      for (let y = 0; y < this.mapHeight; y++) {
+        const hex = this.campaign.hexes[x][y];
+        if (!hex.hasRoad || !hex.roadConnections || hex.roadConnections.length === 0) {
+          continue;
+        }
+        const center = this.hexToWorld(x, y);
+        const conns = hex.roadConnections;
+
+        if (conns.length === 2) {
+          // Smooth C1 Quadratic Bezier curve from edge midpoint A -> hex center -> edge midpoint B
+          const posA = this.hexToWorld(conns[0].x, conns[0].y);
+          const posB = this.hexToWorld(conns[1].x, conns[1].y);
+          const midAx = (posA.x + center.x) * 0.5;
+          const midAz = (posA.z + center.z) * 0.5;
+          const midBx = (center.x + posB.x) * 0.5;
+          const midBz = (center.z + posB.z) * 0.5;
+          appendCurvedStrip(midAx, midAz, center.x, center.z, midBx, midBz, 12);
+        } else {
+          // Endpoint (1 connection) or 3+ way junction: connect each edge midpoint smoothly to hex center
+          for (const nb of conns) {
+            const posN = this.hexToWorld(nb.x, nb.y);
+            const midX = (posN.x + center.x) * 0.5;
+            const midZ = (posN.z + center.z) * 0.5;
+            appendCurvedStrip(
+              midX,
+              midZ,
+              (midX + center.x) * 0.5,
+              (midZ + center.z) * 0.5,
+              center.x,
+              center.z,
+              6
+            );
+          }
+          if (!hex.hasBridge) {
+            junctionCenters.push({ x: center.x, z: center.z });
+          }
+        }
+      }
+    }
+
+    if (positions.length === 0) return null;
+
+    const radialSegs = 12;
+    for (const c of junctionCenters) {
+      const centerIdx = positions.length / 3;
+      const cy = this.sampleElevationAtWorld(c.x, c.z) + 0.022;
+      positions.push(c.x, cy, c.z);
+      uvs.push(0.5, 0.5);
+
+      for (let r = 0; r < radialSegs; r++) {
+        const ang = (r / radialSegs) * Math.PI * 2;
+        const wx = c.x + Math.cos(ang) * halfWidth;
+        const wz = c.z + Math.sin(ang) * halfWidth;
+        positions.push(wx, this.sampleElevationAtWorld(wx, wz) + 0.022, wz);
+        uvs.push(0.5 + Math.cos(ang) * 0.4, 0.5 + Math.sin(ang) * 0.4);
+      }
+
+      for (let r = 0; r < radialSegs; r++) {
+        const next = (r + 1) % radialSegs;
+        indices.push(centerIdx, centerIdx + 1 + next, centerIdx + 1 + r);
+      }
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+    return geo;
+  }
+
   private buildTiles(): void {
+    this.collectRiverAndRoadSegments();
     this.computeWaterShoreSteps();
     this.waterHexHeights.length = 0;
     this.tileMeshMap.clear();
@@ -572,6 +1024,10 @@ export class OverviewBoard3D {
       this.waterNormalA,
       this.waterNormalB
     );
+    this.riverMaterial = createEadorRiverMaterial(
+      this.waterNormalA,
+      this.waterNormalB
+    );
 
     const terrainGeo = this.buildTerrainHeightfieldGeometry();
     const terrainMesh = new THREE.Mesh(terrainGeo, this.landTerrainMaterial);
@@ -592,6 +1048,33 @@ export class OverviewBoard3D {
     this.waterMesh = waterMesh;
     this.tilesGroup.add(waterMesh);
     this.tileMeshes.push(waterMesh);
+
+    const riverGeo = this.buildRiverWaterGeometry();
+    if (riverGeo && this.riverMaterial) {
+      const riverMesh = new THREE.Mesh(riverGeo, this.riverMaterial);
+      riverMesh.name = 'OverviewRiverWater';
+      riverMesh.receiveShadow = true;
+      riverMesh.userData = { isOverviewRiverWater: true };
+      this.riverMesh = riverMesh;
+      this.tilesGroup.add(riverMesh);
+    }
+
+    const roadGeo = this.buildRoadNetworkGeometry();
+    if (roadGeo) {
+      this.roadTexture = this.createOverviewRoadTexture();
+      this.roadMaterial = new THREE.MeshStandardMaterial({
+        map: this.roadTexture,
+        transparent: true,
+        alphaTest: 0.25,
+        roughness: 0.92,
+        metalness: 0.02,
+      });
+      const roadMesh = new THREE.Mesh(roadGeo, this.roadMaterial);
+      roadMesh.name = 'OverviewRoadNetwork';
+      roadMesh.receiveShadow = true;
+      this.roadMesh = roadMesh;
+      this.tilesGroup.add(roadMesh);
+    }
   }
 
   public updateHexTerrain(x: number, y: number): void {
@@ -737,6 +1220,12 @@ export class OverviewBoard3D {
       this.waterMaterial.uniforms.uTime.value += dt;
       if (cameraPos) {
         this.waterMaterial.uniforms.uCameraPos.value.copy(cameraPos);
+      }
+    }
+    if (this.riverMaterial) {
+      this.riverMaterial.uniforms.uTime.value += dt;
+      if (cameraPos) {
+        this.riverMaterial.uniforms.uCameraPos.value.copy(cameraPos);
       }
     }
 
@@ -1058,6 +1547,32 @@ export class OverviewBoard3D {
           const model = createOverviewDefenseModel(region.defenseTier);
           model.position.set(pos.x, surfaceY, pos.z);
           this.landmarksGroup.add(model);
+        }
+
+        if (hex.hasBridge) {
+          const bridge = createOverviewBridgeModel();
+          const bankY = this.sampleBaseElevationAtWorld(pos.x, pos.z);
+          const waterY = Math.max(WATER_SURFACE_Y, bankY - 0.085);
+          bridge.position.set(pos.x, waterY, pos.z);
+
+          if (hex.roadConnections && hex.roadConnections.length > 0) {
+            const firstPos = this.hexToWorld(
+              hex.roadConnections[0].x,
+              hex.roadConnections[0].y
+            );
+            let dirX = firstPos.x - pos.x;
+            let dirZ = firstPos.z - pos.z;
+            if (hex.roadConnections.length >= 2) {
+              const secondPos = this.hexToWorld(
+                hex.roadConnections[1].x,
+                hex.roadConnections[1].y
+              );
+              dirX = secondPos.x - firstPos.x;
+              dirZ = secondPos.z - firstPos.z;
+            }
+            bridge.rotation.y = Math.atan2(-dirZ, dirX);
+          }
+          this.landmarksGroup.add(bridge);
         }
       }
     }
@@ -1485,6 +2000,12 @@ export class OverviewBoard3D {
     this.highlightGridTex = null;
     this.terrainMesh = null;
     this.waterMesh = null;
+    this.riverMesh = null;
+    this.roadMesh = null;
+    this.roadMaterial?.dispose();
+    this.roadMaterial = null;
+    this.roadTexture?.dispose();
+    this.roadTexture = null;
     this.tileMeshMap.clear();
     for (const tex of this.terrainTextures.values()) {
       tex.dispose();
@@ -1498,6 +2019,8 @@ export class OverviewBoard3D {
       this.waterMaterial.dispose();
       this.waterMaterial = null;
     }
+    this.riverMaterial?.dispose();
+    this.riverMaterial = null;
     this.waterNormalA?.dispose();
     this.waterNormalA = null;
     this.waterNormalB?.dispose();

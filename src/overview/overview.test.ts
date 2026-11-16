@@ -1927,4 +1927,115 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
     expect(wheatMat.userData.uMediumWindThreshold.value).toBeCloseTo(1.1, 5);
     expect(wheatMat.userData.uStrongWindThreshold.value).toBeCloseTo(1.5, 5);
   });
+
+  it('generates rivers ending in lakes, roads connecting settlements without sharing river edges, bridges, and expected move costs', async () => {
+    const {
+      hexesConnectedByRiver,
+      hexesConnectedByRoad,
+    } = await import('./overview-map-generator');
+    const {
+      getOverviewTerrainMoveCost,
+      getOverviewStepMoveCost,
+    } = await import('./overview-campaign');
+    const { createOverviewBridgeModel } = await import(
+      '../render3d/overview/overview-models-3d'
+    );
+
+    // 1. Movement costs: road = 1, grassland = 1.5, hill = 2, water = 4
+    expect(getOverviewTerrainMoveCost('grassland')).toBe(1.5);
+    expect(getOverviewTerrainMoveCost('hill')).toBe(2);
+    expect(getOverviewTerrainMoveCost('water')).toBe(4);
+    expect(isOverviewTerrainPassable('water')).toBe(true);
+    expect(isOverviewTerrainPassable('mountain')).toBe(false);
+
+    const hexA = {
+      coords: { x: 0, y: 0 },
+      regionId: 'r0',
+      terrain: 'hill' as const,
+      hasRoad: true,
+      roadConnections: [{ x: 1, y: 0 }],
+      assignedWorkers: 0,
+    };
+    const hexB = {
+      coords: { x: 1, y: 0 },
+      regionId: 'r0',
+      terrain: 'hill' as const,
+      hasRoad: true,
+      roadConnections: [{ x: 0, y: 0 }],
+      assignedWorkers: 0,
+    };
+    expect(getOverviewStepMoveCost(hexA, hexB)).toBe(1);
+
+    // 2. Verify rivers/lakes, roads, and mutual exclusion across multiple seeds
+    let centerCount = 0;
+    let secondRingCount = 0;
+    let totalSettlements = 0;
+    let sawRiver = false;
+    let sawRoad = false;
+
+    for (let s = 1; s <= 15; s++) {
+      const gen = createStarterOverviewMap(s * 17);
+
+      // Settlement distribution tracking
+      for (const reg of gen.regions) {
+        if (!reg.settlementCoords) continue;
+        totalSettlements++;
+        const dx = reg.settlementCoords.x - reg.gridCoords.x * REGION_SIZE;
+        const dy = reg.settlementCoords.y - reg.gridCoords.y * REGION_SIZE;
+        if (dx >= 2 && dx <= 3 && dy >= 2 && dy <= 3) centerCount++;
+        else if (dx >= 1 && dx <= 4 && dy >= 1 && dy <= 4) secondRingCount++;
+      }
+
+      // River & road edge mutual exclusion
+      for (let x = 0; x < gen.mapWidth; x++) {
+        for (let y = 0; y < gen.mapHeight; y++) {
+          const h = gen.hexes[x][y];
+          if (h.hasRiver) sawRiver = true;
+          if (h.hasRoad) sawRoad = true;
+          for (const rc of h.roadConnections ?? []) {
+            const nb = gen.hexes[rc.x][rc.y];
+            expect(hexesConnectedByRiver(h, nb)).toBe(false);
+            expect(hexesConnectedByRoad(h, nb)).toBe(true);
+          }
+        }
+      }
+
+      // All region settlements connected by road network
+      const start = gen.regions[0].settlementCoords!;
+      const roadVisited = new Set<string>([`${start.x},${start.y}`]);
+      const q = [start];
+      while (q.length > 0) {
+        const cur = q.shift()!;
+        for (const rc of gen.hexes[cur.x][cur.y].roadConnections ?? []) {
+          const k = `${rc.x},${rc.y}`;
+          if (!roadVisited.has(k)) {
+            roadVisited.add(k);
+            q.push(rc);
+          }
+        }
+      }
+      for (const reg of gen.regions) {
+        if (reg.settlementCoords) {
+          expect(roadVisited.has(`${reg.settlementCoords.x},${reg.settlementCoords.y}`)).toBe(
+            true
+          );
+        }
+      }
+    }
+
+    expect(sawRiver).toBe(true);
+    expect(sawRoad).toBe(true);
+    expect(centerCount / totalSettlements).toBeGreaterThan(0.4);
+    expect((centerCount + secondRingCount) / totalSettlements).toBeGreaterThan(0.8);
+
+    // 3. Bridge mesh & 3D board river/road meshes
+    const bridge = createOverviewBridgeModel();
+    expect(bridge.name).toBe('OverviewBridge');
+    expect(bridge.children.length).toBeGreaterThan(4);
+
+    const campaign = new OverviewCampaign(createStarterOverviewMap(12345));
+    const board = new OverviewBoard3D(campaign);
+    expect(board.getRoadMesh()).not.toBeNull();
+    board.dispose();
+  });
 });

@@ -40,14 +40,28 @@ export interface MoveArmyOutcome {
 export function getOverviewTerrainMoveCost(terrain: OverviewTerrainType): number {
   if (!isOverviewTerrainPassable(terrain)) return Infinity;
   switch (terrain) {
-    case 'forest':
+    case 'water':
+      return 4;
     case 'swamp':
-      return 2;
+      return 2.5;
+    case 'forest':
     case 'hill':
+      return 2;
     case 'grassland':
     default:
-      return 1;
+      return 1.5;
   }
+}
+
+export function getOverviewStepMoveCost(fromHex: OverviewHex, toHex: OverviewHex): number {
+  const connectedByRoad =
+    fromHex.roadConnections?.some(
+      (c) => c.x === toHex.coords.x && c.y === toHex.coords.y
+    ) ?? false;
+  if (connectedByRoad) {
+    return 1;
+  }
+  return getOverviewTerrainMoveCost(toHex.terrain);
 }
 
 export class OverviewCampaign {
@@ -179,13 +193,15 @@ export class OverviewCampaign {
         this.mapHeight
       );
 
+      const currentHex = this.getHex(current.coords);
+      if (!currentHex) continue;
       for (const n of neighbors) {
         const hex = this.getHex(n);
         if (!hex) continue;
-        const stepCost = getOverviewTerrainMoveCost(hex.terrain);
+        const stepCost = getOverviewStepMoveCost(currentHex, hex);
         if (!Number.isFinite(stepCost)) continue;
 
-        const nextCost = current.cost + stepCost;
+        const nextCost = Math.round((current.cost + stepCost) * 100) / 100;
         if (nextCost > army.movementPoints) continue;
 
         const occupant = this.getArmyAt(n, army.id);
@@ -255,7 +271,7 @@ export class OverviewCampaign {
   public consumeMovementPoints(armyId: string, cost: number): void {
     const army = this.getArmyById(armyId);
     if (!army) return;
-    army.movementPoints = Math.max(0, army.movementPoints - cost);
+    army.movementPoints = Math.max(0, Math.round((army.movementPoints - cost) * 100) / 100);
   }
 
   public moveArmy(
@@ -276,7 +292,7 @@ export class OverviewCampaign {
     const targetRegion = this.getRegionAt(targetCoords);
 
     if (occupant && occupant.ownerPlayerId !== army.ownerPlayerId) {
-      army.movementPoints = Math.max(0, army.movementPoints - cost);
+      army.movementPoints = Math.max(0, Math.round((army.movementPoints - cost) * 100) / 100);
       const battleConfig = creatureRepository
         ? this.buildBattleConfigForEngagement(army, occupant, targetRegion, creatureRepository)
         : undefined;
@@ -312,7 +328,7 @@ export class OverviewCampaign {
           ? 0
           : reachable.get(`${adjacentCoords.x},${adjacentCoords.y}`) ?? 0;
       army.coords = { ...adjacentCoords };
-      army.movementPoints = Math.max(0, army.movementPoints - adjCost);
+      army.movementPoints = Math.max(0, Math.round((army.movementPoints - adjCost) * 100) / 100);
       army.isGarrison = Boolean(this.getHex(adjacentCoords)?.isSettlement);
       this.recomputeFogOfWar();
       return {
@@ -323,7 +339,7 @@ export class OverviewCampaign {
     }
 
     army.coords = { ...targetCoords };
-    army.movementPoints = Math.max(0, army.movementPoints - cost);
+    army.movementPoints = Math.max(0, Math.round((army.movementPoints - cost) * 100) / 100);
     army.isGarrison = Boolean(this.getHex(targetCoords)?.isSettlement);
 
     let capturedRegionId: string | undefined;

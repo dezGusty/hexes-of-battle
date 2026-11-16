@@ -304,6 +304,62 @@ export function createOverviewAgricultureModel(
   return group;
 }
 
+export function createOverviewBridgeModel(): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'OverviewBridge';
+
+  const stoneMat = makeMat(0x7c7870, 0.92);
+  const woodMat = makeMat(0x825a34, 0.88);
+  const darkWoodMat = makeMat(0x52371e, 0.9);
+
+  // Stone abutments on each bank (spanning local X = -0.52 to +0.52)
+  for (const side of [-1, 1]) {
+    const abutment = new THREE.Mesh(
+      new THREE.BoxGeometry(0.18, 0.14, 0.42),
+      stoneMat
+    );
+    abutment.position.set(side * 0.46, 0.03, 0);
+    abutment.castShadow = true;
+    abutment.receiveShadow = true;
+    group.add(abutment);
+  }
+
+  // Wide arched timber/cobble deck segments
+  const deckSegs = 7;
+  const span = 0.96;
+  const deckWidth = 0.36;
+  for (let i = 0; i < deckSegs; i++) {
+    const t = (i + 0.5) / deckSegs - 0.5; // -0.5..0.5
+    const x = t * span;
+    const archY = 0.08 + Math.cos(t * Math.PI) * 0.065;
+    const slopeAngle = -Math.sin(t * Math.PI) * 0.18;
+
+    const plank = new THREE.Mesh(
+      new THREE.BoxGeometry(span / deckSegs + 0.015, 0.032, deckWidth),
+      i % 2 === 0 ? woodMat : darkWoodMat
+    );
+    plank.position.set(x, archY, 0);
+    plank.rotation.z = slopeAngle;
+    plank.castShadow = true;
+    plank.receiveShadow = true;
+    group.add(plank);
+  }
+
+  // Low stone/timber side parapets
+  for (const zSide of [-1, 1]) {
+    const rail = new THREE.Mesh(
+      new THREE.BoxGeometry(0.98, 0.045, 0.035),
+      stoneMat
+    );
+    rail.position.set(0, 0.145, zSide * (deckWidth * 0.5 - 0.015));
+    rail.castShadow = true;
+    rail.receiveShadow = true;
+    group.add(rail);
+  }
+
+  return group;
+}
+
 export function createOverviewDefenseModel(tier: DefenseStructureTier): THREE.Group {
   const group = new THREE.Group();
   group.name = `OverviewDefense_${tier}`;
