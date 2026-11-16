@@ -263,7 +263,7 @@ export function createOverviewAgricultureModel(
     group.add(fenceGroup);
 
     const cowConfigs: Array<[number, number, number]> = [
-      [-0.24, -0.12, 0.55 - Math.PI / 4],
+      [-0.24, -0.12, 0.55 - Math.PI / 4 + Math.PI / 6],
       [0.24, -0.1, -0.75 + Math.PI / 6],
       [0.0, 0.18, 2.65],
     ];

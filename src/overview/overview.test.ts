@@ -67,7 +67,7 @@ describe('Overview Map Phase 1: Regions, Economy & Campaign Loop', () => {
     }
 
     for (const region of generated.regions) {
-      expect(region.hexCoords.length).toBe(25);
+      expect(region.hexCoords.length).toBe(REGION_SIZE * REGION_SIZE);
       const regionHexes = region.hexCoords.map((c) => generated.hexes[c.x][c.y]);
       const agriHexes = regionHexes.filter((h) => h.isAgriculturalPlot);
       expect(agriHexes.length).toBeGreaterThanOrEqual(4);

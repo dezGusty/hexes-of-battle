@@ -17,7 +17,7 @@ import {
   SettlementTier,
 } from './overview-types';
 
-export const REGION_SIZE = 5;
+export const REGION_SIZE = 6;
 
 export interface RegionGenerationSpec {
   id: string;
