@@ -14,9 +14,15 @@ import {
   EadorPostProcessingPipeline,
 } from './post-processing';
 import { ThreeRendererHost } from './three-renderer-host';
+import {
+  clampInternalResolutionScaling,
+  DEFAULT_INTERNAL_RESOLUTION_SCALING,
+  getScaledInternalResolution,
+} from '../battle/settings';
 
 export interface ThreeSceneManagerOptions {
   enableWeather?: boolean;
+  internalResolutionScaling?: number;
 }
 
 export class ThreeSceneManager {
@@ -60,6 +66,11 @@ export class ThreeSceneManager {
   private hasRealWebGL: boolean = false;
   private tiltShiftEnabled: boolean = true;
 
+  // Display & internal resolution scaling
+  private displayWidth: number = 1920;
+  private displayHeight: number = 1080;
+  private internalResolutionScaling: number = DEFAULT_INTERNAL_RESOLUTION_SCALING;
+
   // Raycasting
   private raycaster: THREE.Raycaster = new THREE.Raycaster();
   private mouseVec: THREE.Vector2 = new THREE.Vector2();
@@ -84,6 +95,16 @@ export class ThreeSceneManager {
 
     const width = this.containerElement.clientWidth || 1920;
     const height = this.containerElement.clientHeight || 1080;
+    this.displayWidth = width;
+    this.displayHeight = height;
+    this.internalResolutionScaling = clampInternalResolutionScaling(
+      options.internalResolutionScaling ?? DEFAULT_INTERNAL_RESOLUTION_SCALING
+    );
+    const scaled = getScaledInternalResolution(
+      width,
+      height,
+      this.internalResolutionScaling
+    );
 
     this.camera = new THREE.PerspectiveCamera(
       this.cameraConfig.fov,
@@ -91,6 +112,8 @@ export class ThreeSceneManager {
       this.cameraConfig.near,
       this.cameraConfig.far
     );
+
+    this.renderer.setSize(scaled.width, scaled.height, false);
 
     this.setupLighting();
     this.setupSkyBackground();
@@ -104,8 +127,8 @@ export class ThreeSceneManager {
           this.renderer,
           this.scene,
           this.camera,
-          width,
-          height
+          scaled.width,
+          scaled.height
         );
       } catch {
         this.postProcessing = null;
@@ -408,11 +431,47 @@ export class ThreeSceneManager {
     };
   }
 
-  public resize(width: number, height: number): void {
-    this.camera.aspect = width / Math.max(1, height);
+  public getInternalResolutionScaling(): number {
+    return this.internalResolutionScaling;
+  }
+
+  public getInternalRenderSize(): { width: number; height: number } {
+    return getScaledInternalResolution(
+      this.displayWidth,
+      this.displayHeight,
+      this.internalResolutionScaling
+    );
+  }
+
+  public setInternalResolutionScaling(scaling: number): void {
+    const clamped = clampInternalResolutionScaling(scaling);
+    if (this.internalResolutionScaling === clamped) {
+      return;
+    }
+    this.internalResolutionScaling = clamped;
+    if (this.containerElement.clientWidth > 0 && this.containerElement.clientHeight > 0) {
+      this.displayWidth = this.containerElement.clientWidth;
+      this.displayHeight = this.containerElement.clientHeight;
+    }
+    this.applyResolutionScaling();
+  }
+
+  private applyResolutionScaling(): void {
+    const scaled = getScaledInternalResolution(
+      this.displayWidth,
+      this.displayHeight,
+      this.internalResolutionScaling
+    );
+    this.camera.aspect = this.displayWidth / Math.max(1, this.displayHeight);
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(width, height, false);
-    this.postProcessing?.resize(width, height);
+    this.renderer.setSize(scaled.width, scaled.height, false);
+    this.postProcessing?.resize(scaled.width, scaled.height);
+  }
+
+  public resize(width: number, height: number): void {
+    this.displayWidth = Math.max(1, width);
+    this.displayHeight = Math.max(1, height);
+    this.applyResolutionScaling();
   }
 
   public render(): void {

@@ -140,6 +140,32 @@ export function createOverviewTerrainAtlas(): OverviewTerrainAtlasHandle {
           ctx.fillRect(col * cellSize, row * cellSize, cellSize, cellSize);
         }
       });
+
+      // Row 7: Dark brown tilled soil texture for grain/wheat fields (4 variations)
+      const soilRow = 7;
+      for (let col = 0; col < cols; col++) {
+        const imgData = ctx.createImageData(cellSize, cellSize);
+        const d = imgData.data;
+        const angle = (col * 0.45 + 0.25);
+        const cosA = Math.cos(angle);
+        const sinA = Math.sin(angle);
+        for (let py = 0; py < cellSize; py++) {
+          for (let px = 0; px < cellSize; px++) {
+            const u = px / cellSize;
+            const v = py / cellSize;
+            const rotU = u * cosA - v * sinA;
+            const furrow = Math.sin(rotU * Math.PI * 22.0) * 0.5 + 0.5;
+            const n = Math.sin((px + col * 37) * 12.9898 + py * 78.233) * 43758.5453;
+            const speck = ((n - Math.floor(n)) - 0.5) * 18;
+            const idx = (py * cellSize + px) * 4;
+            d[idx] = Math.max(22, Math.min(115, 58 + furrow * 22 + speck));
+            d[idx + 1] = Math.max(15, Math.min(85, 39 + furrow * 15 + speck * 0.8));
+            d[idx + 2] = Math.max(9, Math.min(58, 22 + furrow * 9 + speck * 0.6));
+            d[idx + 3] = 255;
+          }
+        }
+        ctx.putImageData(imgData, col * cellSize, soilRow * cellSize);
+      }
     }
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
@@ -184,6 +210,14 @@ export function createOverviewTerrainAtlas(): OverviewTerrainAtlasHandle {
       data[idx + 3] = 255;
     }
   });
+  // Row 7 fallback: dark brown tilled soil for grain fields
+  for (let col = 0; col < cols; col++) {
+    const idx = (7 * cols + col) * 4;
+    data[idx] = 66;
+    data[idx + 1] = 44;
+    data[idx + 2] = 25;
+    data[idx + 3] = 255;
+  }
   const texture = new THREE.DataTexture(data, cols, rows, THREE.RGBAFormat);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.magFilter = THREE.LinearFilter;
@@ -228,7 +262,8 @@ export function updateOverviewTerrainGridCell(
   x: number,
   y: number,
   terrain: OverviewTerrainType,
-  variation: number
+  variation: number,
+  isGrainSoil: boolean = false
 ): void {
   const width = gridTex.image.width;
   const height = gridTex.image.height;
@@ -237,7 +272,7 @@ export function updateOverviewTerrainGridCell(
   const idx = (y * width + x) * 4;
   data[idx] = OVERVIEW_TERRAIN_TYPE_IDS[terrain] ?? 0;
   data[idx + 1] = Math.max(0, Math.min(OVERVIEW_TERRAIN_VARIATION_COUNT - 1, variation));
-  data[idx + 2] = 0;
+  data[idx + 2] = isGrainSoil ? 255 : 0;
   data[idx + 3] = 255;
 }
 
@@ -286,7 +321,7 @@ export function createOverviewBlendedTerrainMaterial(
     uHighlightGridTex: highlightTex,
   };
 
-  mat.customProgramCacheKey = () => 'OverviewSeamlessHexTerrain_v2';
+  mat.customProgramCacheKey = () => 'OverviewSeamlessHexTerrain_v3';
 
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTerrainAtlas = { value: atlasTexture };
@@ -355,7 +390,7 @@ vec4 sampleAtlasTerrain(float terrainId, float variationId, vec2 worldUv) {
   vec2 cellUv = clamp(fract(worldUv), vec2(0.006), vec2(0.994));
   // CanvasTexture has flipY = true, so row 0 is at the top (v near 1.0)
   float col = clamp(variationId, 0.0, uAtlasGrid.x - 1.0);
-  float row = clamp(terrainId, 0.0, 5.0);
+  float row = clamp(terrainId, 0.0, 7.0);
   float u = (col + cellUv.x) / uAtlasGrid.x;
   float v = 1.0 - (row + cellUv.y) / uAtlasGrid.y;
   return texture2D(uTerrainAtlas, vec2(u, v));
@@ -364,7 +399,8 @@ vec4 sampleAtlasTerrain(float terrainId, float variationId, vec2 worldUv) {
 vec2 fetchGridCell(vec2 coord) {
   vec2 uv = (coord + 0.5) / uGridSize;
   vec4 texel = texture2D(uTerrainGridTex, uv);
-  return vec2(floor(texel.r * 255.0 + 0.5), floor(texel.g * 255.0 + 0.5));
+  float terrainId = (texel.b > 0.5) ? 7.0 : floor(texel.r * 255.0 + 0.5);
+  return vec2(terrainId, floor(texel.g * 255.0 + 0.5));
 }
 
 vec4 fetchHighlightCell(vec2 coord) {
@@ -421,7 +457,7 @@ vec2 worldXZToHexCoord(vec2 worldXZ) {
   float ownVar = ownCell.y;
 
   vec2 worldUv = vTerrainWorldPos.xz * 0.42;
-  vec4 accColor = (ownType > 5.5)
+  vec4 accColor = (abs(ownType - 6.0) < 0.5)
     ? vec4(0.46, 0.42, 0.31, 1.0)
     : sampleAtlasTerrain(ownType, ownVar, worldUv);
   float totalWeight = 1.0;
@@ -462,7 +498,7 @@ vec2 worldXZToHexCoord(vec2 worldXZ) {
         float s = clamp(smoothstep(0.58, 1.42, proj + edgeNoise), 0.0, 0.96);
         if (s > 0.001) {
           float w = s / (1.0 - s);
-          vec4 nColor = (nType > 5.5)
+          vec4 nColor = (abs(nType - 6.0) < 0.5)
             ? vec4(0.46, 0.42, 0.31, 1.0)
             : sampleAtlasTerrain(nType, nVar, worldUv);
           accColor += nColor * w;

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { getWindThresholds } from './wind-system';
 
 export enum GrassModelType {
   STANDARD = 0, // 2 crossed perpendicular quads (4 triangles, 8 vertices)
@@ -167,17 +168,22 @@ export class GrassFieldSystem {
     uWindTime: { value: number };
     uWindDir: { value: THREE.Vector2 };
     uWindStrength: { value: number };
+    uMediumWindThreshold: { value: number };
+    uStrongWindThreshold: { value: number };
   };
 
   private totalCount: number = 0;
 
   constructor() {
     this.group.name = 'GrassFieldSystem';
+    const thresholds = getWindThresholds();
 
     this.uniforms = {
       uWindTime: { value: 0 },
       uWindDir: { value: new THREE.Vector2(Math.cos(this.windAngleRad), Math.sin(this.windAngleRad)) },
       uWindStrength: { value: this.windStrength },
+      uMediumWindThreshold: { value: thresholds.mediumStrengthThreshold },
+      uStrongWindThreshold: { value: thresholds.strongStrengthThreshold },
     };
 
     // Initialize 3 distinct low-poly geometries and 3 distinct 128x128 textures
@@ -205,6 +211,8 @@ export class GrassFieldSystem {
         shader.uniforms.uWindTime = this.uniforms.uWindTime;
         shader.uniforms.uWindDir = this.uniforms.uWindDir;
         shader.uniforms.uWindStrength = this.uniforms.uWindStrength;
+        shader.uniforms.uMediumWindThreshold = this.uniforms.uMediumWindThreshold;
+        shader.uniforms.uStrongWindThreshold = this.uniforms.uStrongWindThreshold;
 
         shader.vertexShader = shader.vertexShader.replace(
           '#include <common>',
@@ -212,6 +220,8 @@ export class GrassFieldSystem {
 uniform float uWindTime;
 uniform vec2 uWindDir;
 uniform float uWindStrength;
+uniform float uMediumWindThreshold;
+uniform float uStrongWindThreshold;
 `
         );
 
@@ -226,10 +236,18 @@ float bendFactor = heightFactor * heightFactor;
 vec4 worldInstancePos = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
 float clumpPhase = worldInstancePos.x * 1.8 + worldInstancePos.z * 1.3;
 
-// Wind wave oscillating sway + gust displacement (doubled frequency)
-float swayCycle = sin(uWindTime * (5.6 + uWindStrength * 2.4) + clumpPhase);
+// Cap oscillation speed at strong wind threshold; beyond it, sustain downwind lean instead of returning upright
+float freqStrength = min(uWindStrength, uStrongWindThreshold);
+float strongT = smoothstep(uMediumWindThreshold, uStrongWindThreshold, uWindStrength);
+float overStrong = max(0.0, uWindStrength - uStrongWindThreshold);
+
+float swayCycle = sin(uWindTime * (5.6 + freqStrength * 2.4) + clumpPhase);
 float gustWave = sin(uWindTime * 2.4 + worldInstancePos.x * 0.8 + worldInstancePos.z * 0.8);
-float swayAmt = (0.05 + 0.07 * uWindStrength) * bendFactor * (0.65 + 0.35 * swayCycle) + (0.03 * uWindStrength * gustWave * bendFactor);
+float steadyLean = mix(0.28, 0.92, strongT) + overStrong * 0.42;
+float oscAmp = mix(0.72, 0.25, strongT);
+float baseSway = (0.05 + 0.07 * uWindStrength) * bendFactor;
+float swayAmt = baseSway * (steadyLean + oscAmp * (0.5 + 0.5 * swayCycle))
+  + (0.03 * freqStrength * gustWave * bendFactor * oscAmp);
 
 transformed.x += uWindDir.x * swayAmt;
 transformed.z += uWindDir.y * swayAmt;
@@ -434,6 +452,9 @@ transformed.y -= abs(swayAmt) * 0.22;
 
     this.uniforms.uWindDir.value.set(Math.cos(windAngleRad), Math.sin(windAngleRad));
     this.uniforms.uWindStrength.value = this.windStrength;
+    const thresholds = getWindThresholds();
+    this.uniforms.uMediumWindThreshold.value = thresholds.mediumStrengthThreshold;
+    this.uniforms.uStrongWindThreshold.value = thresholds.strongStrengthThreshold;
   }
 
   public getWindState(): { angleRad: number; strength: number } {

@@ -7,6 +7,43 @@ export const DEFAULT_ANIMATION_SPEED = 8;
 export const MIN_ANIMATION_SPEED_MULTIPLIER = 0.25;
 export const MAX_ANIMATION_SPEED_MULTIPLIER = 1.0;
 
+export const MIN_INTERNAL_RESOLUTION_SCALING = 100;
+export const MAX_INTERNAL_RESOLUTION_SCALING = 300;
+export const DEFAULT_INTERNAL_RESOLUTION_SCALING = 100;
+export const INTERNAL_RESOLUTION_SCALING_STEP = 5;
+
+/**
+ * Clamps internal resolution scaling percentage to an integer within [100, 300].
+ */
+export function clampInternalResolutionScaling(scaling: number): number {
+  if (!Number.isFinite(scaling)) {
+    return DEFAULT_INTERNAL_RESOLUTION_SCALING;
+  }
+  return Math.max(
+    MIN_INTERNAL_RESOLUTION_SCALING,
+    Math.min(MAX_INTERNAL_RESOLUTION_SCALING, Math.round(scaling))
+  );
+}
+
+/**
+ * Computes scaled internal 3D render dimensions from display dimensions and scaling percentage.
+ * - 100% -> 1/1 (native display resolution)
+ * - 200% -> 1/2 width, 1/2 height
+ * - 300% -> 1/3 width, 1/3 height
+ */
+export function getScaledInternalResolution(
+  displayWidth: number,
+  displayHeight: number,
+  scalingPercent: number
+): { width: number; height: number } {
+  const clamped = clampInternalResolutionScaling(scalingPercent);
+  const divisor = clamped / 100;
+  return {
+    width: Math.max(1, Math.round(Math.max(1, displayWidth) / divisor)),
+    height: Math.max(1, Math.round(Math.max(1, displayHeight) / divisor)),
+  };
+}
+
 /**
  * Clamps a numeric animation speed setting to an integer within [1, 8].
  */
@@ -93,6 +130,11 @@ export class BattleSettings {
   public unitRimLighting: boolean = true;
   public tiltShift: boolean = true;
   public simpleTrees: boolean = false;
+  public internalResolutionScaling: number = DEFAULT_INTERNAL_RESOLUTION_SCALING;
+
+  public setInternalResolutionScaling(scaling: number): void {
+    this.internalResolutionScaling = clampInternalResolutionScaling(scaling);
+  }
 
   public setAnimationSpeed(speed: number): void {
     this.animationSpeed = clampAnimationSpeed(speed);
@@ -202,6 +244,14 @@ export class BattleSettings {
       this.simpleTrees = simpleTrees === 'true';
     }
 
+    const internalResolutionScaling = localStorage.getItem('hob.internalResolutionScaling');
+    if (internalResolutionScaling !== null) {
+      const parsed = Number(internalResolutionScaling);
+      if (Number.isFinite(parsed)) {
+        this.internalResolutionScaling = clampInternalResolutionScaling(parsed);
+      }
+    }
+
     const hotkeys = localStorage.getItem('hob.hotkeys');
     if (hotkeys) {
       try {
@@ -235,6 +285,10 @@ export class BattleSettings {
     localStorage.setItem('hob.unitRimLighting', String(this.unitRimLighting));
     localStorage.setItem('hob.tiltShift', String(this.tiltShift));
     localStorage.setItem('hob.simpleTrees', String(this.simpleTrees));
+    localStorage.setItem(
+      'hob.internalResolutionScaling',
+      String(clampInternalResolutionScaling(this.internalResolutionScaling))
+    );
     // Save the hotkeys settings to the browser's local storage
     localStorage.setItem('hob.hotkeys', JSON.stringify(this.hotkeys));
   }

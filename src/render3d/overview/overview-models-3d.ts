@@ -189,10 +189,11 @@ export function createOverviewResourceBuildingModel(type: ResourceBuildingType):
 
 export function createOverviewAgricultureModel(
   option: AgricultureOption,
-  seed: number = 1
+  seed: number = 1,
+  options?: { includeSoilBase?: boolean }
 ): THREE.Group {
   if (option === 'wheat') {
-    return createOverviewWheatFieldModel(seed);
+    return createOverviewWheatFieldModel(seed, options);
   }
 
   const group = new THREE.Group();
@@ -262,8 +263,8 @@ export function createOverviewAgricultureModel(
     group.add(fenceGroup);
 
     const cowConfigs: Array<[number, number, number]> = [
-      [-0.24, -0.12, 0.55],
-      [0.24, -0.1, -0.75],
+      [-0.24, -0.12, 0.55 - Math.PI / 4],
+      [0.24, -0.1, -0.75 + Math.PI / 6],
       [0.0, 0.18, 2.65],
     ];
     for (let i = 0; i < cowConfigs.length; i++) {

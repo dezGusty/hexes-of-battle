@@ -55,6 +55,7 @@ export class OverviewView3D {
     this.settings = settings ?? new BattleSettings();
     this.sceneManager = new ThreeSceneManager(container, sharedRendererHost, {
       enableWeather: false,
+      internalResolutionScaling: this.settings.internalResolutionScaling,
     });
     this.board = new OverviewBoard3D(campaign);
     this.sceneManager.scene.add(this.board.group);
@@ -276,6 +277,12 @@ export class OverviewView3D {
     this.settings.tiltShift = enabled;
     this.settings.save();
     this.sceneManager.setTiltShiftEnabled(enabled);
+  }
+
+  public setInternalResolutionScaling(scaling: number): void {
+    this.settings.setInternalResolutionScaling(scaling);
+    this.settings.save();
+    this.sceneManager.setInternalResolutionScaling(this.settings.internalResolutionScaling);
   }
 
   public isTiltShiftEnabled(): boolean {

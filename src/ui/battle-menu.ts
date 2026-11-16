@@ -4,9 +4,14 @@ import { BattleSaveEntry, SaveManager } from "../battle/save-manager";
 import { Battle } from "../battle";
 import {
     clampAnimationSpeed,
+    clampInternalResolutionScaling,
     DEFAULT_ANIMATION_SPEED,
+    DEFAULT_INTERNAL_RESOLUTION_SCALING,
+    INTERNAL_RESOLUTION_SCALING_STEP,
     MAX_ANIMATION_SPEED,
+    MAX_INTERNAL_RESOLUTION_SCALING,
     MIN_ANIMATION_SPEED,
+    MIN_INTERNAL_RESOLUTION_SCALING,
 } from "../battle/settings";
 import { bindButtonUISound, bindSliderUISound } from "../battle/ui-sounds";
 import { WeatherDropdown, WeatherType } from "./weather-dropdown";
@@ -80,6 +85,9 @@ export class BattleMenuPanel {
     public toggleRimLightingButton?: FancyButton;
     public toggleTiltShiftButton?: FancyButton;
     public toggleSimpleTreesButton?: FancyButton;
+    public internalResolutionScalingLabel?: Text;
+    public internalResolutionScalingSlider?: Slider;
+    public internalResolutionScalingValueText?: Text;
 
     private hardwareCursorText?: Text;
     private rimLightingText?: Text;
@@ -90,6 +98,8 @@ export class BattleMenuPanel {
     private isSimpleTreesEnabled: boolean = false;
     private isHardwareCursorHidden: boolean = false;
     private isUpdatingAnimationSpeed: boolean = false;
+    private isUpdatingInternalResolutionScaling: boolean = false;
+    private lastAppliedResolutionScaling: number = DEFAULT_INTERNAL_RESOLUTION_SCALING;
     private isUpdatingSoundValues: boolean = false;
 
     private closeButton: FancyButton = new FancyButton({
@@ -125,6 +135,7 @@ export class BattleMenuPanel {
     public onToggleRimLighting?: (enabled: boolean) => void;
     public onToggleTiltShift?: (enabled: boolean) => void;
     public onToggleSimpleTrees?: (enabled: boolean) => void;
+    public onInternalResolutionScalingChange?: (scaling: number) => void;
 
     private readonly mode: 'battle' | 'overview';
 
@@ -270,6 +281,29 @@ export class BattleMenuPanel {
             return clampAnimationSpeed(this.animationSpeedSlider.value);
         }
         return DEFAULT_ANIMATION_SPEED;
+    }
+
+    public setInternalResolutionScaling(scaling: number): void {
+        const clamped = clampInternalResolutionScaling(scaling);
+        this.lastAppliedResolutionScaling = clamped;
+        this.isUpdatingInternalResolutionScaling = true;
+        try {
+            if (this.internalResolutionScalingSlider) {
+                this.internalResolutionScalingSlider.value = clamped;
+            }
+            if (this.internalResolutionScalingValueText) {
+                this.internalResolutionScalingValueText.text = `${clamped}%`;
+            }
+        } finally {
+            this.isUpdatingInternalResolutionScaling = false;
+        }
+    }
+
+    public getInternalResolutionScaling(): number {
+        if (this.internalResolutionScalingSlider) {
+            return clampInternalResolutionScaling(this.internalResolutionScalingSlider.value);
+        }
+        return DEFAULT_INTERNAL_RESOLUTION_SCALING;
     }
 
     public setWeather(weather: WeatherType): void {
@@ -613,6 +647,56 @@ export class BattleMenuPanel {
             this.toggleRimLightingButton,
             this.toggleSimpleTreesButton
         );
+
+        const resRowY = toggleRow2Y + 94;
+        this.internalResolutionScalingLabel = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: 'Internal Resolution Scaling',
+            style: { fill: '#ffffff', fontSize: 22, fontWeight: 'bold' },
+        });
+        this.internalResolutionScalingLabel.position.set(contentBtnX, resRowY);
+
+        const resSubLabel = new Text({
+            ...BattleMenuPanel.SUB_FONT_STYLE,
+            text: 'Lower internal 3D resolution and upscale (100% = native, 300% = 1/3).',
+        });
+        resSubLabel.position.set(contentBtnX, resRowY + 28);
+
+        this.internalResolutionScalingSlider = createMobileSlider(
+            MIN_INTERNAL_RESOLUTION_SCALING,
+            MAX_INTERNAL_RESOLUTION_SCALING,
+            INTERNAL_RESOLUTION_SCALING_STEP,
+            DEFAULT_INTERNAL_RESOLUTION_SCALING,
+            480,
+            26
+        );
+        this.internalResolutionScalingSlider.position.set(contentBtnX, resRowY + 60);
+
+        this.internalResolutionScalingValueText = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: `${DEFAULT_INTERNAL_RESOLUTION_SCALING}%`,
+            style: { fontSize: 22, fill: '#AACCFF', fontWeight: 'bold' },
+        });
+        this.internalResolutionScalingValueText.position.set(contentBtnX + 500, resRowY + 56);
+
+        this.internalResolutionScalingSlider.onUpdate.connect((val) => {
+            const scaling = clampInternalResolutionScaling(val);
+            if (this.internalResolutionScalingValueText) {
+                this.internalResolutionScalingValueText.text = `${scaling}%`;
+            }
+            if (!this.isUpdatingInternalResolutionScaling && scaling !== this.lastAppliedResolutionScaling) {
+                this.lastAppliedResolutionScaling = scaling;
+                this.onInternalResolutionScalingChange?.(scaling);
+            }
+        });
+
+        graphicsTab.addChild(
+            this.internalResolutionScalingLabel,
+            resSubLabel,
+            this.internalResolutionScalingSlider,
+            this.internalResolutionScalingValueText
+        );
+
         if (this.weatherDropdown) {
             graphicsTab.addChild(this.weatherDropdown);
         }
@@ -773,6 +857,7 @@ export class BattleMenuPanel {
             bindSliderUISound(this.ambientVolumeSlider, () => this.isUpdatingSoundValues);
         }
         bindSliderUISound(this.animationSpeedSlider, () => this.isUpdatingAnimationSpeed);
+        bindSliderUISound(this.internalResolutionScalingSlider, () => this.isUpdatingInternalResolutionScaling);
 
         this.selectTab('general');
         this.connectMainEventHandlers();

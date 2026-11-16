@@ -36,6 +36,7 @@ export interface OverviewHud2DOptions {
   onToggleRimLighting?: (enabled: boolean) => void;
   onToggleTiltShift?: (enabled: boolean) => void;
   onToggleSimpleTrees?: (enabled: boolean) => void;
+  onInternalResolutionScalingChange?: (scaling: number) => void;
   onOverviewAnimationSpeedChange?: (speed: number) => void;
   onLoadCampaign?: (campaign: OverviewCampaign) => void;
   battlePromptCallbacks?: BattlePromptCallbacks;
@@ -258,6 +259,7 @@ export class OverviewHud2D {
       panel.setRimLightingEnabled(this.settings.unitRimLighting);
       panel.setTiltShiftEnabled(this.settings.tiltShift);
       panel.setSimpleTreesEnabled(this.settings.simpleTrees);
+      panel.setInternalResolutionScaling(this.settings.internalResolutionScaling);
 
       panel.musicVolumeSlider?.onUpdate.connect((val) => {
         const vol = Math.max(0, Math.min(1, val / 100));
@@ -305,6 +307,12 @@ export class OverviewHud2D {
         this.settings.simpleTrees = enabled;
         this.settings.save();
         options.onToggleSimpleTrees?.(enabled);
+      };
+
+      panel.onInternalResolutionScalingChange = (scaling) => {
+        this.settings.setInternalResolutionScaling(scaling);
+        this.settings.save();
+        options.onInternalResolutionScalingChange?.(this.settings.internalResolutionScaling);
       };
 
       panel.onToggleFps = (showFps) => {

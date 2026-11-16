@@ -249,6 +249,9 @@ export class BattleScene3D implements Scene {
       onToggleTiltShift: (enabled) => {
         this.view.setTiltShiftEnabled(enabled);
       },
+      onInternalResolutionScalingChange: (scaling) => {
+        this.view.setInternalResolutionScaling(scaling);
+      },
       onToggleSimpleTrees: (enabled) => {
         this.view.setSimpleTreesEnabled(enabled);
       },

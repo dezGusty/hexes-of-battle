@@ -134,6 +134,7 @@ export class OverviewScene3D implements Scene {
         onToggleRimLighting: (enabled) => this.view?.setRimLightingEnabled(enabled),
         onToggleTiltShift: (enabled) => this.view?.setTiltShiftEnabled(enabled),
         onToggleSimpleTrees: (enabled) => this.view?.setSimpleTreesEnabled(enabled),
+        onInternalResolutionScalingChange: (scaling) => this.view?.setInternalResolutionScaling(scaling),
         onOverviewAnimationSpeedChange: (speed) => this.view?.setOverviewAnimationSpeed(speed),
         onLoadCampaign: (loaded) => {
           this.campaign = loaded;

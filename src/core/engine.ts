@@ -16,6 +16,7 @@ import { parseTraitsConfig } from '../battle/trait-system';
 import { validateMoraleBreakpoints } from '../battle/combat-rules';
 import { configurePlayerColors } from '../render3d/units/unit-mesh-builder';
 import { configurePlayerBanners } from '../render3d/decorations/retreat-flag-3d';
+import { configureWindThresholds } from '../render3d/decorations/wind-system';
 
 export const GAME_VERSION: string = pkg.version;
 
@@ -172,6 +173,9 @@ export class HexesEngine {
       }
       if ((this.templates.combatConfig as any)?.soundGroups) {
         this.soundSystem.configureSoundGroups((this.templates.combatConfig as any).soundGroups);
+      }
+      if ((this.templates.combatConfig as any)?.wind) {
+        configureWindThresholds((this.templates.combatConfig as any).wind);
       }
     } catch {
       // Use defaults if not found

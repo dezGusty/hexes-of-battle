@@ -19,7 +19,16 @@ import { drawMoraleVector } from './units/squad-visual-3d';
 import { ProjectileSystem3D } from './projectiles/projectile-system-3d';
 import { BattleHud2D } from './battle-hud-2d';
 import { ArmyControlType, Battle, InputState } from '../battle';
-import { BattleSettings } from '../battle/settings';
+import {
+  BattleSettings,
+  clampInternalResolutionScaling,
+  DEFAULT_INTERNAL_RESOLUTION_SCALING,
+  getScaledInternalResolution,
+  MAX_INTERNAL_RESOLUTION_SCALING,
+  MIN_INTERNAL_RESOLUTION_SCALING,
+} from '../battle/settings';
+import { BattleMenuPanel } from '../ui/battle-menu';
+import { OverviewHud2D } from '../overview/ui/overview-hud-2d';
 import { UnitStatsPanel } from '../ui/unit-stats-panel';
 import { EnemyStatsPanel } from '../ui/enemy-stats-panel';
 import { BattleView3D } from './battle-view-3d';
@@ -4641,6 +4650,122 @@ describe('3D Graphics Engine & Rendering Systems', () => {
 
       const tunic = samplePixel(clothData, 80, 180);
       expect(tunic.r).toBeGreaterThan(tunic.b + 30); // earthy brown wool
+    });
+
+    it('should default internalResolutionScaling to 100% and clamp/scale 4K resolution down to 1/3 at 300%', () => {
+      const settings = new BattleSettings();
+      expect(settings.internalResolutionScaling).toBe(DEFAULT_INTERNAL_RESOLUTION_SCALING);
+      expect(settings.internalResolutionScaling).toBe(100);
+      expect(MIN_INTERNAL_RESOLUTION_SCALING).toBe(100);
+      expect(MAX_INTERNAL_RESOLUTION_SCALING).toBe(300);
+
+      expect(clampInternalResolutionScaling(50)).toBe(100);
+      expect(clampInternalResolutionScaling(450)).toBe(300);
+      expect(clampInternalResolutionScaling(150)).toBe(150);
+
+      // 4K (3840x2160) at 100% -> 3840x2160, at 200% -> 1920x1080, at 300% -> 1280x720
+      expect(getScaledInternalResolution(3840, 2160, 100)).toEqual({ width: 3840, height: 2160 });
+      expect(getScaledInternalResolution(3840, 2160, 200)).toEqual({ width: 1920, height: 1080 });
+      expect(getScaledInternalResolution(3840, 2160, 300)).toEqual({ width: 1280, height: 720 });
+
+      const store: Record<string, string> = {};
+      vi.stubGlobal('localStorage', {
+        getItem: (k: string) => store[k] ?? null,
+        setItem: (k: string, v: string) => {
+          store[k] = String(v);
+        },
+        removeItem: (k: string) => {
+          delete store[k];
+        },
+        clear: () => {
+          for (const k of Object.keys(store)) delete store[k];
+        },
+      });
+      try {
+        settings.setInternalResolutionScaling(250);
+        expect(settings.internalResolutionScaling).toBe(250);
+        settings.save();
+
+        const reloaded = new BattleSettings();
+        reloaded.load();
+        expect(reloaded.internalResolutionScaling).toBe(250);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('should dynamically resize ThreeSceneManager internal render resolution while preserving display aspect ratio', () => {
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const sceneManager = new ThreeSceneManager(container, undefined, {
+        internalResolutionScaling: 100,
+      });
+      const setSizeSpy = vi.spyOn(sceneManager.renderer, 'setSize');
+
+      sceneManager.resize(3840, 2160);
+      expect(sceneManager.getInternalRenderSize()).toEqual({ width: 3840, height: 2160 });
+      expect(setSizeSpy).toHaveBeenLastCalledWith(3840, 2160, false);
+      expect(sceneManager.camera.aspect).toBeCloseTo(3840 / 2160, 5);
+
+      sceneManager.setInternalResolutionScaling(200);
+      expect(sceneManager.getInternalRenderSize()).toEqual({ width: 1920, height: 1080 });
+      expect(setSizeSpy).toHaveBeenLastCalledWith(1920, 1080, false);
+      expect(sceneManager.camera.aspect).toBeCloseTo(3840 / 2160, 5);
+
+      sceneManager.setInternalResolutionScaling(300);
+      expect(sceneManager.getInternalRenderSize()).toEqual({ width: 1280, height: 720 });
+      expect(setSizeSpy).toHaveBeenLastCalledWith(1280, 720, false);
+      expect(sceneManager.camera.aspect).toBeCloseTo(3840 / 2160, 5);
+
+      sceneManager.dispose();
+      document.body.removeChild(container);
+    });
+
+    it('should expose Internal Resolution Scaling slider (100%..300%) in Graphics tab for both Battle and Overview menus', () => {
+      const mockUiSheet = {
+        textures: {
+          'panel.png': PixiTexture.EMPTY,
+          'btn_simple.png': PixiTexture.EMPTY,
+          'btn_simple_hover.png': PixiTexture.EMPTY,
+          'btn_simple_click.png': PixiTexture.EMPTY,
+          'thin_button_2_normal.png': PixiTexture.EMPTY,
+          'thin_button_2_hover.png': PixiTexture.EMPTY,
+        },
+      } as any;
+
+      for (const mode of ['battle', 'overview'] as const) {
+        const menu = new BattleMenuPanel(new PixiContainer(), mockUiSheet, mode);
+        expect(menu.internalResolutionScalingLabel?.text).toBe('Internal Resolution Scaling');
+        expect(menu.internalResolutionScalingSlider).toBeDefined();
+        expect(menu.internalResolutionScalingSlider?.min).toBe(100);
+        expect(menu.internalResolutionScalingSlider?.max).toBe(300);
+        expect(menu.getInternalResolutionScaling()).toBe(100);
+        expect(menu.internalResolutionScalingValueText?.text).toBe('100%');
+
+        const onChange = vi.fn();
+        menu.onInternalResolutionScalingChange = onChange;
+        menu.internalResolutionScalingSlider!.value = 200;
+        expect(menu.internalResolutionScalingValueText?.text).toBe('200%');
+        expect(onChange).toHaveBeenCalledWith(200);
+
+        menu.setInternalResolutionScaling(300);
+        expect(menu.getInternalResolutionScaling()).toBe(300);
+        expect(menu.internalResolutionScalingValueText?.text).toBe('300%');
+      }
+
+      // Verify OverviewHud2D wires internalResolutionScaling to settings and callback
+      const settings = new BattleSettings();
+      settings.internalResolutionScaling = 150;
+      const onOverviewScaling = vi.fn();
+      const overviewHud = new OverviewHud2D(new PixiContainer(), () => {}, {
+        assets: { uiSheet: mockUiSheet } as any,
+        settings,
+        onInternalResolutionScalingChange: onOverviewScaling,
+      });
+      expect(overviewHud.menuPanel?.getInternalResolutionScaling()).toBe(150);
+      overviewHud.menuPanel!.internalResolutionScalingSlider!.value = 300;
+      expect(settings.internalResolutionScaling).toBe(300);
+      expect(onOverviewScaling).toHaveBeenCalledWith(300);
     });
   });
 });

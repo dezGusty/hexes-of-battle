@@ -47,12 +47,12 @@ export { OVERVIEW_TERRAIN_TEXTURE_CONFIG };
 
 const WATER_SURFACE_Y = 0.08;
 
-function getTerrainHeight(terrain: OverviewTerrainType): number {
+export function getTerrainHeight(terrain: OverviewTerrainType): number {
   switch (terrain) {
     case 'mountain':
-      return 1.05;
+      return 1.575; // +50% max elevation (was 1.05)
     case 'hill':
-      return 0.54;
+      return 0.918; // +70% hill height (was 0.54)
     case 'deep_forest':
       return 0.26;
     case 'forest':
@@ -60,28 +60,28 @@ function getTerrainHeight(terrain: OverviewTerrainType): number {
     case 'swamp':
       return 0.15;
     case 'water':
-      return -0.24;
+      return -0.36; // +50% deeper min elevation (was -0.24)
     default:
       return 0.22;
   }
 }
 
-function getTerrainNoiseAmp(terrain: OverviewTerrainType): number {
+export function getTerrainNoiseAmp(terrain: OverviewTerrainType): number {
   switch (terrain) {
     case 'mountain':
-      return 0.18;
+      return 0.27;
     case 'hill':
-      return 0.095;
+      return 0.1425;
     case 'deep_forest':
-      return 0.055;
+      return 0.0825;
     case 'forest':
-      return 0.045;
+      return 0.0675;
     case 'swamp':
-      return 0.025;
+      return 0.0375;
     case 'water':
-      return 0.015;
+      return 0.0225;
     default:
-      return 0.04;
+      return 0.06;
   }
 }
 
@@ -550,7 +550,8 @@ export class OverviewBoard3D {
           x,
           y,
           hex.terrain,
-          getTerrainVariationIndex(x, y)
+          getTerrainVariationIndex(x, y),
+          Boolean(hex.isAgriculturalPlot && hex.agricultureOption === 'wheat')
         );
       }
     }
@@ -602,7 +603,8 @@ export class OverviewBoard3D {
         x,
         y,
         hex.terrain,
-        getTerrainVariationIndex(x, y)
+        getTerrainVariationIndex(x, y),
+        Boolean(hex.isAgriculturalPlot && hex.agricultureOption === 'wheat')
       );
       this.terrainGridTex.needsUpdate = true;
     }
@@ -1010,9 +1012,11 @@ export class OverviewBoard3D {
         } else if (hex.isAgriculturalPlot) {
           const model = createOverviewAgricultureModel(
             hex.agricultureOption ?? 'none',
-            x * 97 + y * 31 + 1
+            x * 97 + y * 31 + 1,
+            { includeSoilBase: false }
           );
           model.position.set(pos.x, surfaceY, pos.z);
+          const instMat = new THREE.Matrix4();
           model.traverse((child) => {
             if (child.userData?.isOverviewCow) {
               const cowWorldY = this.sampleElevationAtWorld(
@@ -1029,19 +1033,24 @@ export class OverviewBoard3D {
               child.position.y = fenceWorldY - surfaceY + baseLocalY;
             } else if (
               child.userData?.isOverviewWheatMesh &&
-              child instanceof THREE.Mesh
+              child instanceof THREE.InstancedMesh
             ) {
-              const wPos = child.geometry.getAttribute(
-                'position'
-              ) as THREE.BufferAttribute;
-              for (let vi = 0; vi < wPos.count; vi++) {
-                const vx = wPos.getX(vi);
-                const vz = wPos.getZ(vi);
+              for (let i = 0; i < child.count; i++) {
+                child.getMatrixAt(i, instMat);
+                const ix = instMat.elements[12];
+                const iz = instMat.elements[14];
                 const groundDelta =
-                  this.sampleElevationAtWorld(pos.x + vx, pos.z + vz) - surfaceY;
-                wPos.setY(vi, wPos.getY(vi) + groundDelta);
+                  this.sampleElevationAtWorld(pos.x + ix, pos.z + iz) - surfaceY;
+                instMat.elements[13] = groundDelta;
+                child.setMatrixAt(i, instMat);
               }
-              wPos.needsUpdate = true;
+              child.instanceMatrix.needsUpdate = true;
+            } else if (child.name === 'WheatHayBale') {
+              const hayWorldY = this.sampleElevationAtWorld(
+                pos.x + child.position.x,
+                pos.z + child.position.z
+              );
+              child.position.y = hayWorldY - surfaceY + 0.036;
             }
           });
           this.landmarksGroup.add(model);

@@ -102,7 +102,9 @@ export class BattleView3D {
     this.settings = settings;
     this.container = container;
 
-    this.sceneManager = new ThreeSceneManager(container, sharedRendererHost);
+    this.sceneManager = new ThreeSceneManager(container, sharedRendererHost, {
+      internalResolutionScaling: this.settings.internalResolutionScaling,
+    });
     this.sceneManager.setSkyboxTheme(this.battle.getMajorTerrainType());
     this.sceneManager.setWeather(this.settings.weather ?? WeatherType.NONE);
     this.sceneManager.setTiltShiftEnabled(this.settings.tiltShift ?? true);
@@ -198,6 +200,15 @@ export class BattleView3D {
     this.sceneManager.setTiltShiftEnabled(enabled);
     if (this.hud?.battleMenuPanel) {
       this.hud.battleMenuPanel.setTiltShiftEnabled(enabled);
+    }
+  }
+
+  public setInternalResolutionScaling(scaling: number): void {
+    this.settings.setInternalResolutionScaling(scaling);
+    this.settings.save();
+    this.sceneManager.setInternalResolutionScaling(this.settings.internalResolutionScaling);
+    if (this.hud?.battleMenuPanel) {
+      this.hud.battleMenuPanel.setInternalResolutionScaling(this.settings.internalResolutionScaling);
     }
   }
 

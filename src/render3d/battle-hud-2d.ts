@@ -50,6 +50,7 @@ export interface BattleHud2DEvents {
   onToggleRimLighting?: (enabled: boolean) => void;
   onToggleTiltShift?: (enabled: boolean) => void;
   onToggleSimpleTrees?: (enabled: boolean) => void;
+  onInternalResolutionScalingChange?: (scaling: number) => void;
   onSaveBattle?: (name: string) => boolean;
   onLoadSave?: (entry: BattleSaveEntry) => void;
 }
@@ -348,6 +349,12 @@ export class BattleHud2D {
         this.settings.simpleTrees = enabled;
         this.settings.save();
         events.onToggleSimpleTrees?.(enabled);
+      };
+      this.battleMenuPanel.setInternalResolutionScaling(this.settings.internalResolutionScaling);
+      this.battleMenuPanel.onInternalResolutionScalingChange = (scaling) => {
+        this.settings.setInternalResolutionScaling(scaling);
+        this.settings.save();
+        events.onInternalResolutionScalingChange?.(this.settings.internalResolutionScaling);
       };
       this.battleMenuPanel.onSaveBattle = (name) => {
         if (events.onSaveBattle) {

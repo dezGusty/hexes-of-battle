@@ -19,6 +19,17 @@ export interface WindConfig {
   /** Initial wind strength (default 1.0) */
   initialStrength?: number;
   initial_strength?: number;
+  /** Wind strength threshold where medium wind transitions toward strong wind (default 1.15) */
+  mediumStrengthThreshold?: number;
+  medium_strength_threshold?: number;
+  /** Wind strength threshold beyond which objects stay bent downwind without returning to rest (default 1.45) */
+  strongStrengthThreshold?: number;
+  strong_strength_threshold?: number;
+}
+
+export interface WindThresholds {
+  mediumStrengthThreshold: number;
+  strongStrengthThreshold: number;
 }
 
 export interface WindState {
@@ -30,17 +41,56 @@ export interface WindState {
   strength: number;
 }
 
-export const DEFAULT_WIND_CONFIG: Required<Omit<WindConfig, 'min_strength' | 'max_strength' | 'min_angle_change_deg' | 'max_angle_change_deg' | 'initial_angle_deg' | 'initial_strength'>> = {
+type NormalizedWindConfig = {
+  minStrength: number;
+  maxStrength: number;
+  minAngleChangeDeg: number;
+  maxAngleChangeDeg: number;
+  initialAngleDeg: number;
+  initialStrength: number;
+  mediumStrengthThreshold: number;
+  strongStrengthThreshold: number;
+};
+
+export const DEFAULT_WIND_CONFIG: NormalizedWindConfig = {
   minStrength: 0.5,
   maxStrength: 1.8,
   minAngleChangeDeg: -45,
   maxAngleChangeDeg: 45,
   initialAngleDeg: 45, // Default 45 deg (South-West to North-East)
   initialStrength: 1.0,
+  mediumStrengthThreshold: 1.15,
+  strongStrengthThreshold: 1.45,
 };
 
+const globalWindThresholds: WindThresholds = {
+  mediumStrengthThreshold: DEFAULT_WIND_CONFIG.mediumStrengthThreshold,
+  strongStrengthThreshold: DEFAULT_WIND_CONFIG.strongStrengthThreshold,
+};
+
+export function configureWindThresholds(config?: WindConfig): WindThresholds {
+  if (config) {
+    const med = config.mediumStrengthThreshold ?? config.medium_strength_threshold;
+    const strong = config.strongStrengthThreshold ?? config.strong_strength_threshold;
+    if (med !== undefined && Number.isFinite(med)) {
+      globalWindThresholds.mediumStrengthThreshold = Math.max(0.1, med);
+    }
+    if (strong !== undefined && Number.isFinite(strong)) {
+      globalWindThresholds.strongStrengthThreshold = Math.max(
+        globalWindThresholds.mediumStrengthThreshold + 0.05,
+        strong
+      );
+    }
+  }
+  return { ...globalWindThresholds };
+}
+
+export function getWindThresholds(): WindThresholds {
+  return { ...globalWindThresholds };
+}
+
 export class WindSystem {
-  public config: Required<Omit<WindConfig, 'min_strength' | 'max_strength' | 'min_angle_change_deg' | 'max_angle_change_deg' | 'initial_angle_deg' | 'initial_strength'>>;
+  public config: NormalizedWindConfig;
   private _angleDeg: number;
   private _strength: number;
 
@@ -52,9 +102,18 @@ export class WindSystem {
       maxAngleChangeDeg: config?.maxAngleChangeDeg ?? config?.max_angle_change_deg ?? DEFAULT_WIND_CONFIG.maxAngleChangeDeg,
       initialAngleDeg: config?.initialAngleDeg ?? config?.initial_angle_deg ?? DEFAULT_WIND_CONFIG.initialAngleDeg,
       initialStrength: config?.initialStrength ?? config?.initial_strength ?? DEFAULT_WIND_CONFIG.initialStrength,
+      mediumStrengthThreshold:
+        config?.mediumStrengthThreshold ??
+        config?.medium_strength_threshold ??
+        DEFAULT_WIND_CONFIG.mediumStrengthThreshold,
+      strongStrengthThreshold:
+        config?.strongStrengthThreshold ??
+        config?.strong_strength_threshold ??
+        DEFAULT_WIND_CONFIG.strongStrengthThreshold,
     };
     this._angleDeg = this.config.initialAngleDeg;
     this._strength = Math.max(this.config.minStrength, Math.min(this.config.maxStrength, this.config.initialStrength));
+    configureWindThresholds(this.config);
   }
 
   public setConfig(config?: WindConfig): void {
@@ -77,7 +136,16 @@ export class WindSystem {
     if (config.initialStrength !== undefined || config.initial_strength !== undefined) {
       this.config.initialStrength = config.initialStrength ?? config.initial_strength!;
     }
+    if (config.mediumStrengthThreshold !== undefined || config.medium_strength_threshold !== undefined) {
+      this.config.mediumStrengthThreshold =
+        config.mediumStrengthThreshold ?? config.medium_strength_threshold!;
+    }
+    if (config.strongStrengthThreshold !== undefined || config.strong_strength_threshold !== undefined) {
+      this.config.strongStrengthThreshold =
+        config.strongStrengthThreshold ?? config.strong_strength_threshold!;
+    }
     this._strength = Math.max(this.config.minStrength, Math.min(this.config.maxStrength, this._strength));
+    configureWindThresholds(this.config);
   }
 
   public setRng(rng: SeedableRNG): void {

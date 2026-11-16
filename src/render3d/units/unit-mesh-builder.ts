@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { applyUnitRimLighting } from './unit-rim-lighting';
+import { getWindThresholds } from '../decorations/wind-system';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { CreatureType } from '../../battle/creature';
 import {
@@ -2524,12 +2525,16 @@ export interface TreeWindUniforms {
   uWindTime: { value: number };
   uWindDir: { value: THREE.Vector2 };
   uWindStrength: { value: number };
+  uMediumWindThreshold: { value: number };
+  uStrongWindThreshold: { value: number };
 }
 
 export const sharedTreeWindUniforms: TreeWindUniforms = {
   uWindTime: { value: 0 },
   uWindDir: { value: new THREE.Vector2(Math.cos(Math.PI * 0.25), Math.sin(Math.PI * 0.25)) },
   uWindStrength: { value: 1.0 },
+  uMediumWindThreshold: { value: 1.15 },
+  uStrongWindThreshold: { value: 1.45 },
 };
 
 export function updateTreeWindState(
@@ -2542,6 +2547,9 @@ export function updateTreeWindState(
   }
   sharedTreeWindUniforms.uWindDir.value.set(Math.cos(windAngleRad), Math.sin(windAngleRad));
   sharedTreeWindUniforms.uWindStrength.value = Math.max(0.1, windStrength);
+  const thresholds = getWindThresholds();
+  sharedTreeWindUniforms.uMediumWindThreshold.value = thresholds.mediumStrengthThreshold;
+  sharedTreeWindUniforms.uStrongWindThreshold.value = thresholds.strongStrengthThreshold;
 }
 
 let sharedTreeTrunkMaterial: THREE.MeshStandardMaterial | null = null;
@@ -2556,6 +2564,8 @@ function injectFoliageWindShader(material: THREE.Material, cacheKey: string): vo
     shader.uniforms.uWindTime = sharedTreeWindUniforms.uWindTime;
     shader.uniforms.uWindDir = sharedTreeWindUniforms.uWindDir;
     shader.uniforms.uWindStrength = sharedTreeWindUniforms.uWindStrength;
+    shader.uniforms.uMediumWindThreshold = sharedTreeWindUniforms.uMediumWindThreshold;
+    shader.uniforms.uStrongWindThreshold = sharedTreeWindUniforms.uStrongWindThreshold;
 
     shader.vertexShader = shader.vertexShader.replace(
       '#include <common>',
@@ -2563,6 +2573,8 @@ function injectFoliageWindShader(material: THREE.Material, cacheKey: string): vo
 uniform float uWindTime;
 uniform vec2 uWindDir;
 uniform float uWindStrength;
+uniform float uMediumWindThreshold;
+uniform float uStrongWindThreshold;
 `
     );
 
@@ -2575,17 +2587,23 @@ float bendFactor = heightFactor * heightFactor;
 vec4 worldPos = modelMatrix * vec4(0.0, 0.0, 0.0, 1.0);
 float treePhase = worldPos.x * 1.4 + worldPos.z * 1.1;
 
-// Branch & canopy sway (speed reduced to 50%)
-float swayCycle = sin(uWindTime * (1.1 + uWindStrength * 0.5) + treePhase);
-float gustCycle = sin(uWindTime * 0.6 + worldPos.x * 0.4 + worldPos.z * 0.4);
-float swayAmt = (0.04 + 0.05 * uWindStrength) * bendFactor * (0.65 + 0.35 * swayCycle) + (0.025 * uWindStrength * gustCycle * bendFactor);
+// Cap oscillation speed at strong wind threshold; beyond it, sustain downwind lean instead of faster cycling
+float freqStrength = min(uWindStrength, uStrongWindThreshold);
+float strongT = smoothstep(uMediumWindThreshold, uStrongWindThreshold, uWindStrength);
+float overStrong = max(0.0, uWindStrength - uStrongWindThreshold);
 
-// High-frequency leaves rustling:
-// Speed reduced to 50% of previous value (4.25 + 2.25 * strength vs 8.5 + 4.5 * strength)
-float rustleFreq = uWindTime * (4.25 + uWindStrength * 2.25);
+float swayCycle = sin(uWindTime * (1.1 + freqStrength * 0.5) + treePhase);
+float gustCycle = sin(uWindTime * 0.6 + worldPos.x * 0.4 + worldPos.z * 0.4);
+float steadyLean = mix(0.28, 0.92, strongT) + overStrong * 0.40;
+float oscAmp = mix(0.72, 0.25, strongT);
+float baseSway = (0.04 + 0.05 * uWindStrength) * bendFactor;
+float swayAmt = baseSway * (steadyLean + oscAmp * (0.5 + 0.5 * swayCycle))
+  + (0.025 * freqStrength * gustCycle * bendFactor * oscAmp);
+
+// High-frequency leaves rustling (speed capped at strong threshold)
+float rustleFreq = uWindTime * (4.25 + freqStrength * 2.25);
 float rustle = sin(rustleFreq + position.x * 14.0 + position.z * 12.0) * cos(rustleFreq * 0.75 + position.y * 13.0);
-// Intensity reduced to 25% of previous value (0.0035 + 0.0045 * strength vs 0.014 + 0.018 * strength)
-float rustleAmt = rustle * (0.0035 + 0.0045 * uWindStrength) * heightFactor;
+float rustleAmt = rustle * (0.0035 + 0.0045 * freqStrength) * heightFactor;
 
 transformed.x += (uWindDir.x * swayAmt) + rustleAmt * (0.8 + uWindDir.x * 0.4);
 transformed.z += (uWindDir.y * swayAmt) + rustleAmt * (0.8 + uWindDir.y * 0.4);
@@ -2618,6 +2636,8 @@ export function getSharedTreeMaterials(): {
       shader.uniforms.uWindTime = sharedTreeWindUniforms.uWindTime;
       shader.uniforms.uWindDir = sharedTreeWindUniforms.uWindDir;
       shader.uniforms.uWindStrength = sharedTreeWindUniforms.uWindStrength;
+      shader.uniforms.uMediumWindThreshold = sharedTreeWindUniforms.uMediumWindThreshold;
+      shader.uniforms.uStrongWindThreshold = sharedTreeWindUniforms.uStrongWindThreshold;
 
       shader.vertexShader = shader.vertexShader.replace(
         '#include <common>',
@@ -2625,6 +2645,8 @@ export function getSharedTreeMaterials(): {
 uniform float uWindTime;
 uniform vec2 uWindDir;
 uniform float uWindStrength;
+uniform float uMediumWindThreshold;
+uniform float uStrongWindThreshold;
 `
       );
 
@@ -2638,10 +2660,18 @@ float bendFactor = heightFactor * heightFactor;
 vec4 worldPos = modelMatrix * vec4(0.0, 0.0, 0.0, 1.0);
 float treePhase = worldPos.x * 1.4 + worldPos.z * 1.1;
 
-// Wind sway oscillation (speed reduced to 50%)
-float swayCycle = sin(uWindTime * (1.1 + uWindStrength * 0.5) + treePhase);
+// Cap oscillation speed at strong wind threshold; beyond it, sustain downwind lean instead of faster cycling
+float freqStrength = min(uWindStrength, uStrongWindThreshold);
+float strongT = smoothstep(uMediumWindThreshold, uStrongWindThreshold, uWindStrength);
+float overStrong = max(0.0, uWindStrength - uStrongWindThreshold);
+
+float swayCycle = sin(uWindTime * (1.1 + freqStrength * 0.5) + treePhase);
 float gustCycle = sin(uWindTime * 0.6 + worldPos.x * 0.4 + worldPos.z * 0.4);
-float swayAmt = (0.025 + 0.035 * uWindStrength) * bendFactor * (0.7 + 0.3 * swayCycle) + (0.015 * uWindStrength * gustCycle * bendFactor);
+float steadyLean = mix(0.30, 0.92, strongT) + overStrong * 0.40;
+float oscAmp = mix(0.70, 0.25, strongT);
+float baseSway = (0.025 + 0.035 * uWindStrength) * bendFactor;
+float swayAmt = baseSway * (steadyLean + oscAmp * (0.5 + 0.5 * swayCycle))
+  + (0.015 * freqStrength * gustCycle * bendFactor * oscAmp);
 
 transformed.x += uWindDir.x * swayAmt;
 transformed.z += uWindDir.y * swayAmt;

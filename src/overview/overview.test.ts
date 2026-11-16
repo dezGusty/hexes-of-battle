@@ -1382,7 +1382,7 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
     board.dispose();
   });
 
-  it('uses 4 unique overview texture variations per land terrain and updates seamless blending grid via updateHexTerrain', () => {
+  it('uses 4 unique overview texture variations per land terrain and updates seamless blending grid via updateHexTerrain', async () => {
     const battleTextures = new Set(['grass.jpg', 'forest.jpg', 'swamp.jpg', 'dirt.jpg', 'mountain.jpg', 'water.jpg']);
     const landTerrains = ['grassland', 'forest', 'deep_forest', 'swamp', 'hill', 'mountain'] as const;
     for (const terrain of landTerrains) {
@@ -1405,6 +1405,11 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
     expect(gridTex).not.toBeNull();
 
     // Verify continuous heightfield mesh carries aHexCoord, aTileCenter, and intra-hex elevation variation
+    const { getTerrainHeight } = await import('../render3d/overview/overview-board-3d');
+    expect(getTerrainHeight('mountain')).toBeCloseTo(1.575, 5);
+    expect(getTerrainHeight('hill')).toBeCloseTo(0.918, 5);
+    expect(getTerrainHeight('water')).toBeCloseTo(-0.36, 5);
+
     const terrainMesh = board.getTerrainMesh()!;
     expect(terrainMesh).not.toBeNull();
     expect(terrainMesh.geometry.getAttribute('aHexCoord')).toBeDefined();
@@ -1870,16 +1875,32 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
     expect(cattleFence).toBeDefined();
     expect(countGroupTriangles(cattleFence!)).toBeLessThan(350);
 
-    // Wheat field has <=256x256 textures and wind-reactive shader uniforms
+    // Wheat field has <=256x256 textures, InstancedMesh clusters, 3-5 Voronoi sub-plots, and wind-reactive shader uniforms
     const {
       getWheatStalkTexture,
       getWheatSoilTexture,
       getOverviewWheatMaterial,
       updateOverviewWheatWind,
+      generateGrainSubPlots,
+      GRAIN_HEX_RADIUS,
     } = await import('../render3d/overview/overview-wheat-field-3d');
+    expect(GRAIN_HEX_RADIUS).toBe(1.0);
+    const plots = generateGrainSubPlots(3);
+    expect(plots.length).toBeGreaterThanOrEqual(3);
+    expect(plots.length).toBeLessThanOrEqual(5);
+
+    // Default global-map wheat model omits flat WheatSoilBed so it conforms to blended sloped terrain
     const wheatField = createOverviewAgricultureModel('wheat', 3);
-    expect(wheatField.getObjectByName('WheatSoilBed')).toBeDefined();
-    expect(wheatField.getObjectByName('WheatStalks')).toBeDefined();
+    expect(wheatField.getObjectByName('WheatSoilBed')).toBeUndefined();
+    const wheatFieldWithBase = createOverviewAgricultureModel('wheat', 3, { includeSoilBase: true });
+    const soilBed = wheatFieldWithBase.getObjectByName('WheatSoilBed') as THREE.Mesh;
+    const wheatStalks = wheatField.getObjectByName('WheatStalks') as THREE.InstancedMesh;
+    expect(soilBed).toBeDefined();
+    expect(soilBed.geometry.getAttribute('color')).toBeDefined();
+    expect(wheatStalks).toBeDefined();
+    expect(wheatStalks.isInstancedMesh).toBe(true);
+    expect(wheatStalks.count).toBeGreaterThan(500);
+    expect(wheatStalks.instanceColor).not.toBeNull();
     expect(wheatField.getObjectByName('WheatHayBale')).toBeDefined();
     expect(getWheatStalkTexture().image.width).toBeLessThanOrEqual(256);
     expect(getWheatStalkTexture().image.height).toBeLessThanOrEqual(256);
@@ -1887,9 +1908,23 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
     expect(getWheatSoilTexture().image.height).toBeLessThanOrEqual(256);
 
     const wheatMat = getOverviewWheatMaterial();
+    const { configureWindThresholds, getWindThresholds } = await import(
+      '../render3d/decorations/wind-system'
+    );
+    configureWindThresholds({
+      medium_strength_threshold: 1.1,
+      strong_strength_threshold: 1.5,
+    });
+    expect(getWindThresholds()).toEqual({
+      mediumStrengthThreshold: 1.1,
+      strongStrengthThreshold: 1.5,
+    });
+
     updateOverviewWheatWind(2.5, Math.PI * 0.5, 0.42);
     expect(wheatMat.userData.uWindTime.value).toBeCloseTo(2.5, 5);
     expect(wheatMat.userData.uWindStrength.value).toBeCloseTo(0.42, 5);
     expect(wheatMat.userData.uWindDir.value.y).toBeCloseTo(1, 4);
+    expect(wheatMat.userData.uMediumWindThreshold.value).toBeCloseTo(1.1, 5);
+    expect(wheatMat.userData.uStrongWindThreshold.value).toBeCloseTo(1.5, 5);
   });
 });
