@@ -1,11 +1,24 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { Texture } from 'pixi.js';
 import { CreatureType } from '../../battle/creature';
 import {
+  UNIT_GLB_PATHS,
   buildArticulatedUnit3DMesh,
   buildLowPolyForestTreeMesh,
   ForestTreeVariant,
+  instantiateGlbUnitTemplate,
 } from '../../render3d/units/unit-mesh-builder';
+import {
+  buildCropFieldMesh,
+  buildFarmFenceMesh,
+  buildFarmhouseMesh,
+  buildForestLogMesh,
+  buildForestRockMesh,
+  buildHaystackMesh,
+  buildWindmillMesh,
+} from '../../render3d/decorations/battle-environment-3d';
+import { createRetreatFlagMesh } from '../../render3d/decorations/retreat-flag-3d';
 import {
   createOverviewAgricultureModel,
   createOverviewBridgeModel,
@@ -14,13 +27,136 @@ import {
   createOverviewSettlementModel,
 } from '../../render3d/overview/overview-models-3d';
 import { createOverviewCowModel } from '../../render3d/overview/overview-cow-3d';
+import { createOverviewPeasantModel } from '../../render3d/overview/overview-peasant-3d';
 import { createOverviewWheatFieldModel } from '../../render3d/overview/overview-wheat-field-3d';
+
+export type ModelExplorerCategory =
+  | 'Settlements & Defenses'
+  | 'Buildings & Agriculture'
+  | 'Trees & Foliage'
+  | 'Units'
+  | 'Battle Scene: Units'
+  | 'Battle Scene: Terrain & Props';
+
+export interface ModelAnimationController {
+  names: string[];
+  play: (name: string) => void;
+  stop: () => void;
+  update: (dt: number) => void;
+}
 
 export interface ModelExplorerEntry {
   id: string;
   label: string;
-  category: 'Settlements & Defenses' | 'Buildings & Agriculture' | 'Trees & Foliage' | 'Units';
-  create: () => THREE.Object3D;
+  category: ModelExplorerCategory;
+  lazyLoad?: boolean;
+  create: () => THREE.Object3D | Promise<THREE.Object3D>;
+}
+
+function attachClipAnimationController(
+  target: THREE.Object3D,
+  clips: THREE.AnimationClip[]
+): void {
+  if (!clips || clips.length === 0) return;
+  const mixer = new THREE.AnimationMixer(target);
+  const actions: Record<string, THREE.AnimationAction> = {};
+  const names: string[] = [];
+  for (let i = 0; i < clips.length; i++) {
+    const clip = clips[i];
+    const name = clip.name || `animation_${i + 1}`;
+    names.push(name);
+    actions[name] = mixer.clipAction(clip);
+  }
+  let active: THREE.AnimationAction | null = null;
+  const controller: ModelAnimationController = {
+    names,
+    play: (name: string) => {
+      const next = actions[name];
+      if (!next) return;
+      next.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).play();
+      if (active && active !== next) {
+        active.crossFadeTo(next, 0.25, false);
+      }
+      active = next;
+    },
+    stop: () => {
+      mixer.stopAllAction();
+      active = null;
+    },
+    update: (dt: number) => {
+      mixer.update(dt);
+    },
+  };
+  target.userData.animationController = controller;
+}
+
+function resolveAnimationController(model: THREE.Object3D): ModelAnimationController | null {
+  if (model.userData?.animationController) {
+    return model.userData.animationController as ModelAnimationController;
+  }
+  const peasant = model.userData?.peasantController as
+    | {
+        actions: Record<string, THREE.AnimationAction>;
+        mixer: THREE.AnimationMixer;
+        playAnimation: (name: string, fade?: number) => unknown;
+        update: (dt: number) => void;
+        mesh?: THREE.SkinnedMesh;
+      }
+    | undefined;
+  if (peasant) {
+    return {
+      names: Object.keys(peasant.actions),
+      play: (name: string) => {
+        peasant.playAnimation(name, 0.25);
+      },
+      stop: () => {
+        peasant.mixer.stopAllAction();
+        peasant.mesh?.skeleton?.pose();
+      },
+      update: (dt: number) => {
+        peasant.update(dt);
+      },
+    };
+  }
+  return null;
+}
+
+function formatUnitDisplayName(unitKey: string): string {
+  return unitKey
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+async function loadBattleUnitGlbModel(unitKey: string, glbPath: string): Promise<THREE.Object3D> {
+  const loader = new GLTFLoader();
+  const gltf = await loader.loadAsync(glbPath);
+  const instance = instantiateGlbUnitTemplate(gltf.scene, unitKey, 0, false);
+  attachClipAnimationController(instance, gltf.animations);
+  // Dispose intermediate template geometries/materials immediately (textures remain referenced by instance until unload)
+  gltf.scene.traverse((child) => {
+    if (child instanceof THREE.Mesh) {
+      child.geometry?.dispose();
+      const mats = Array.isArray(child.material) ? child.material : [child.material];
+      for (const m of mats) {
+        m?.dispose();
+      }
+    }
+  });
+  return instance;
+}
+
+async function loadBattleTreeGlbModel(glbPath: string): Promise<THREE.Object3D> {
+  const loader = new GLTFLoader();
+  const gltf = await loader.loadAsync(glbPath);
+  gltf.scene.traverse((child) => {
+    if (child instanceof THREE.Mesh) {
+      child.castShadow = true;
+      child.receiveShadow = true;
+    }
+  });
+  attachClipAnimationController(gltf.scene, gltf.animations);
+  return gltf.scene;
 }
 
 export function getModelExplorerCatalog(): ModelExplorerEntry[] {
@@ -161,8 +297,103 @@ export function getModelExplorerCatalog(): ModelExplorerEntry[] {
       id: `unit_${CreatureType[ut.type].toLowerCase()}`,
       label: ut.label,
       category: 'Units' as const,
-      create: () => buildArticulatedUnit3DMesh(ut.type, 0, Boolean(ut.isHero)),
+      create: () =>
+        ut.type === CreatureType.PEASANT
+          ? createOverviewPeasantModel(707)
+          : buildArticulatedUnit3DMesh(ut.type, 0, Boolean(ut.isHero)),
     })),
+    // Battle-scene-only models (lazy loaded on click, unloaded on switch)
+    {
+      id: 'battle_unit_peasant_rigged',
+      label: 'Battle Unit: Peasant (Rigged GLB) - lazy load',
+      category: 'Battle Scene: Units' as const,
+      lazyLoad: true,
+      create: () => loadBattleTreeGlbModel('models/units/peasant_rigged.glb'),
+    },
+    ...Object.entries(UNIT_GLB_PATHS).map(([unitKey, glbPath]) => ({
+      id: `battle_unit_${unitKey}`,
+      label: `Battle Unit: ${formatUnitDisplayName(unitKey)} - lazy load`,
+      category: 'Battle Scene: Units' as const,
+      lazyLoad: true,
+      create: () => loadBattleUnitGlbModel(unitKey, glbPath),
+    })),
+    {
+      id: 'battle_tree_oak',
+      label: 'Battle Tree: Forest Oak (GLB) - lazy load',
+      category: 'Battle Scene: Terrain & Props' as const,
+      lazyLoad: true,
+      create: () => loadBattleTreeGlbModel('models/terrain/forest_oak.glb'),
+    },
+    {
+      id: 'battle_tree_pine',
+      label: 'Battle Tree: Forest Pine (GLB) - lazy load',
+      category: 'Battle Scene: Terrain & Props' as const,
+      lazyLoad: true,
+      create: () => loadBattleTreeGlbModel('models/terrain/forest_pine.glb'),
+    },
+    {
+      id: 'battle_prop_forest_rock',
+      label: 'Battle Prop: Forest Rock - lazy load',
+      category: 'Battle Scene: Terrain & Props' as const,
+      lazyLoad: true,
+      create: () => buildForestRockMesh(1.0, 1),
+    },
+    {
+      id: 'battle_prop_forest_log',
+      label: 'Battle Prop: Forest Log - lazy load',
+      category: 'Battle Scene: Terrain & Props' as const,
+      lazyLoad: true,
+      create: () => buildForestLogMesh(1.0),
+    },
+    {
+      id: 'battle_prop_farmhouse',
+      label: 'Battle Prop: Farmhouse - lazy load',
+      category: 'Battle Scene: Terrain & Props' as const,
+      lazyLoad: true,
+      create: () => buildFarmhouseMesh(1.0, false),
+    },
+    {
+      id: 'battle_prop_barn',
+      label: 'Battle Prop: Barn - lazy load',
+      category: 'Battle Scene: Terrain & Props' as const,
+      lazyLoad: true,
+      create: () => buildFarmhouseMesh(1.0, true),
+    },
+    {
+      id: 'battle_prop_windmill',
+      label: 'Battle Prop: Windmill - lazy load',
+      category: 'Battle Scene: Terrain & Props' as const,
+      lazyLoad: true,
+      create: () => buildWindmillMesh(1.0),
+    },
+    {
+      id: 'battle_prop_haystack',
+      label: 'Battle Prop: Haystack - lazy load',
+      category: 'Battle Scene: Terrain & Props' as const,
+      lazyLoad: true,
+      create: () => buildHaystackMesh(1.0),
+    },
+    {
+      id: 'battle_prop_crop_field',
+      label: 'Battle Prop: Crop Field - lazy load',
+      category: 'Battle Scene: Terrain & Props' as const,
+      lazyLoad: true,
+      create: () => buildCropFieldMesh(1.8, 1.4),
+    },
+    {
+      id: 'battle_prop_farm_fence',
+      label: 'Battle Prop: Farm Fence - lazy load',
+      category: 'Battle Scene: Terrain & Props' as const,
+      lazyLoad: true,
+      create: () => buildFarmFenceMesh(1.6),
+    },
+    {
+      id: 'battle_prop_retreat_flag',
+      label: 'Battle Prop: Retreat Flag - lazy load',
+      category: 'Battle Scene: Terrain & Props' as const,
+      lazyLoad: true,
+      create: () => createRetreatFlagMesh(0, 0, 0),
+    },
   ];
 }
 
@@ -193,13 +424,21 @@ export class ModelExplorerPanel {
   private viewportElement: HTMLElement | null = null;
   private statsElement: HTMLElement | null = null;
   private listButtons = new Map<string, HTMLButtonElement>();
+  private animListElement: HTMLElement | null = null;
+  private animButtons = new Map<string, HTMLButtonElement>();
+  private wireframeButton: HTMLButtonElement | null = null;
   private closeButton: HTMLButtonElement | null = null;
+  private wireframeEnabled: boolean = false;
 
   private scene: THREE.Scene | null = null;
   private camera: THREE.PerspectiveCamera | null = null;
   private renderer: THREE.WebGLRenderer | null = null;
   private currentModel: THREE.Object3D | null = null;
+  private activeAnimController: ModelAnimationController | null = null;
+  private selectedAnimation: string = 'none';
+  private randomAnimTimer: number = 0;
   private selectedId: string | null = null;
+  private loadRequestSeq: number = 0;
   private visible: boolean = false;
   private rafId: number | null = null;
 
@@ -247,6 +486,90 @@ export class ModelExplorerPanel {
     return this.selectedId;
   }
 
+  public getAvailableAnimations(): string[] {
+    const modelAnims = this.activeAnimController?.names ?? [];
+    return ['none', 'random', ...modelAnims];
+  }
+
+  public getSelectedAnimation(): string {
+    return this.selectedAnimation;
+  }
+
+  public selectAnimation(name: string): void {
+    const available = this.getAvailableAnimations();
+    if (!available.includes(name)) return;
+    this.selectedAnimation = name;
+    this.updateAnimationButtonsHighlight();
+
+    if (!this.activeAnimController) return;
+    if (name === 'none') {
+      this.activeAnimController.stop();
+      this.renderFrame();
+    } else if (name === 'random') {
+      this.playRandomAnimation();
+    } else {
+      this.activeAnimController.play(name);
+      this.activeAnimController.update(0);
+      this.renderFrame();
+    }
+  }
+
+  private playRandomAnimation(): void {
+    const names = this.activeAnimController?.names ?? [];
+    if (!this.activeAnimController || names.length === 0) return;
+    const picked = names[Math.floor(Math.random() * names.length)];
+    this.activeAnimController.play(picked);
+    this.randomAnimTimer = 2.6;
+  }
+
+  private updateAnimationButtonsHighlight(): void {
+    for (const [animName, btn] of this.animButtons.entries()) {
+      const active = animName === this.selectedAnimation;
+      btn.style.background = active ? 'rgba(218, 176, 86, 0.28)' : 'rgba(20, 28, 38, 0.72)';
+      btn.style.borderColor = active ? '#e4be66' : '#3d4c5d';
+      btn.style.color = active ? '#ffebaa' : '#dce6f2';
+    }
+  }
+
+  private rebuildAnimationPanel(): void {
+    const container = this.animListElement;
+    if (!container) return;
+    container.innerHTML = '';
+    this.animButtons.clear();
+
+    const options = this.getAvailableAnimations();
+    for (const animName of options) {
+      const btn = document.createElement('button');
+      btn.textContent = animName;
+      btn.style.display = 'block';
+      btn.style.width = '100%';
+      btn.style.textAlign = 'left';
+      btn.style.padding = '7px 10px';
+      btn.style.marginBottom = '4px';
+      btn.style.background = 'rgba(20, 28, 38, 0.72)';
+      btn.style.color = '#dce6f2';
+      btn.style.border = '1px solid #3d4c5d';
+      btn.style.borderRadius = '4px';
+      btn.style.cursor = 'pointer';
+      btn.style.fontSize = '13px';
+      btn.addEventListener('click', () => this.selectAnimation(animName));
+      this.animButtons.set(animName, btn);
+      container.appendChild(btn);
+    }
+
+    if ((this.activeAnimController?.names.length ?? 0) === 0) {
+      const emptyNote = document.createElement('div');
+      emptyNote.textContent = 'No skeletal clips on this model.';
+      emptyNote.style.fontSize = '11px';
+      emptyNote.style.color = '#7e93aa';
+      emptyNote.style.marginTop = '8px';
+      emptyNote.style.padding = '0 4px';
+      container.appendChild(emptyNote);
+    }
+
+    this.updateAnimationButtonsHighlight();
+  }
+
   public isVisible(): boolean {
     return this.visible;
   }
@@ -261,6 +584,49 @@ export class ModelExplorerPanel {
 
   public getCloseButton(): HTMLButtonElement | null {
     return this.closeButton;
+  }
+
+  public getWireframeButton(): HTMLButtonElement | null {
+    return this.wireframeButton;
+  }
+
+  public isWireframeEnabled(): boolean {
+    return this.wireframeEnabled;
+  }
+
+  public toggleWireframe(): boolean {
+    this.setWireframe(!this.wireframeEnabled);
+    return this.wireframeEnabled;
+  }
+
+  public setWireframe(enabled: boolean): void {
+    this.wireframeEnabled = enabled;
+    if (this.wireframeButton) {
+      this.wireframeButton.textContent = enabled ? 'Wireframe: On' : 'Wireframe: Off';
+      this.wireframeButton.style.background = enabled
+        ? 'rgba(218, 176, 86, 0.28)'
+        : 'rgba(28, 38, 52, 0.9)';
+      this.wireframeButton.style.borderColor = enabled ? '#e4be66' : '#4f6278';
+      this.wireframeButton.style.color = enabled ? '#ffebaa' : '#dce6f2';
+    }
+    if (this.currentModel) {
+      this.applyWireframeToModel(this.currentModel, enabled);
+      this.renderFrame();
+    }
+  }
+
+  private applyWireframeToModel(obj: THREE.Object3D, enabled: boolean): void {
+    obj.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.material) {
+        const mats = Array.isArray(child.material) ? child.material : [child.material];
+        for (const mat of mats) {
+          if ('wireframe' in mat) {
+            (mat as THREE.MeshStandardMaterial).wireframe = enabled;
+            mat.needsUpdate = true;
+          }
+        }
+      }
+    });
   }
 
   public getCursorElement(): HTMLCanvasElement | null {
@@ -304,9 +670,23 @@ export class ModelExplorerPanel {
     this.options.onVisibilityChange?.(false);
   }
 
-  public selectModel(id: string): void {
+  private unloadCurrentModel(): void {
+    this.activeAnimController?.stop();
+    this.activeAnimController = null;
+    if (this.currentModel) {
+      if (this.wireframeEnabled) {
+        this.applyWireframeToModel(this.currentModel, false);
+      }
+      this.scene?.remove(this.currentModel);
+      this.disposeModel(this.currentModel);
+      this.currentModel = null;
+    }
+  }
+
+  public async selectModel(id: string): Promise<void> {
     const entry = this.entries.find((e) => e.id === id);
     if (!entry) return;
+    const reqSeq = ++this.loadRequestSeq;
     this.selectedId = entry.id;
 
     for (const [btnId, btn] of this.listButtons.entries()) {
@@ -316,14 +696,36 @@ export class ModelExplorerPanel {
       btn.style.color = active ? '#ffebaa' : '#dce6f2';
     }
 
-    if (this.scene && this.currentModel) {
-      this.scene.remove(this.currentModel);
-      this.disposeModel(this.currentModel);
-      this.currentModel = null;
+    // Unload any previously displayed model before loading the next one
+    this.unloadCurrentModel();
+
+    if (entry.lazyLoad && this.statsElement) {
+      this.statsElement.textContent = `Loading ${entry.label}...`;
+      this.renderFrame();
     }
 
-    const model = entry.create();
+    let model: THREE.Object3D;
+    try {
+      const created = entry.create();
+      model = created instanceof Promise ? await created : created;
+    } catch (err) {
+      if (reqSeq === this.loadRequestSeq && this.statsElement) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.statsElement.textContent = `Failed to load ${entry.label}: ${msg}`;
+      }
+      return;
+    }
+
+    // If user clicked another model or closed/disposed the panel while loading, unload immediately
+    if (reqSeq !== this.loadRequestSeq || !this.scene) {
+      this.disposeModel(model);
+      return;
+    }
+
     this.currentModel = model;
+    if (this.wireframeEnabled) {
+      this.applyWireframeToModel(model, true);
+    }
 
     // Frame model automatically from bounding box
     const box = new THREE.Box3().setFromObject(model);
@@ -346,8 +748,17 @@ export class ModelExplorerPanel {
       this.orbitDistance = 2.4;
     }
 
-    this.scene?.add(model);
+    this.scene.add(model);
     this.updateCameraTransform();
+
+    this.activeAnimController = resolveAnimationController(model);
+    if (this.activeAnimController && this.activeAnimController.names.length > 0) {
+      this.selectedAnimation = this.activeAnimController.names[0];
+      this.activeAnimController.play(this.selectedAnimation);
+    } else {
+      this.selectedAnimation = 'none';
+    }
+    this.rebuildAnimationPanel();
 
     if (this.statsElement) {
       const tris = countObjectTriangles(model);
@@ -433,6 +844,25 @@ export class ModelExplorerPanel {
     titleWrap.appendChild(title);
     titleWrap.appendChild(stats);
 
+    const headerActions = document.createElement('div');
+    headerActions.style.display = 'flex';
+    headerActions.style.alignItems = 'center';
+    headerActions.style.gap = '8px';
+
+    const wireframeBtn = document.createElement('button');
+    wireframeBtn.textContent = this.wireframeEnabled ? 'Wireframe: On' : 'Wireframe: Off';
+    wireframeBtn.style.padding = '6px 12px';
+    wireframeBtn.style.background = this.wireframeEnabled
+      ? 'rgba(218, 176, 86, 0.28)'
+      : 'rgba(28, 38, 52, 0.9)';
+    wireframeBtn.style.color = this.wireframeEnabled ? '#ffebaa' : '#dce6f2';
+    wireframeBtn.style.border = this.wireframeEnabled ? '1px solid #e4be66' : '1px solid #4f6278';
+    wireframeBtn.style.borderRadius = '4px';
+    wireframeBtn.style.cursor = 'pointer';
+    wireframeBtn.style.fontWeight = 'bold';
+    wireframeBtn.addEventListener('click', () => this.toggleWireframe());
+    this.wireframeButton = wireframeBtn;
+
     const closeBtn = document.createElement('button');
     closeBtn.textContent = 'Close';
     closeBtn.style.padding = '6px 16px';
@@ -445,8 +875,10 @@ export class ModelExplorerPanel {
     closeBtn.addEventListener('click', () => this.hide());
     this.closeButton = closeBtn;
 
+    headerActions.appendChild(wireframeBtn);
+    headerActions.appendChild(closeBtn);
     header.appendChild(titleWrap);
-    header.appendChild(closeBtn);
+    header.appendChild(headerActions);
 
     // Body: Left catalog list + Right 3D viewport
     const body = document.createElement('div');
@@ -535,8 +967,31 @@ export class ModelExplorerPanel {
       { passive: false }
     );
 
+    // Right-side Animation selector panel
+    const animSidebar = document.createElement('div');
+    animSidebar.style.width = '230px';
+    animSidebar.style.overflowY = 'auto';
+    animSidebar.style.padding = '10px';
+    animSidebar.style.borderLeft = '1px solid #354252';
+    animSidebar.style.background = 'rgba(10, 14, 20, 0.85)';
+
+    const animHeader = document.createElement('div');
+    animHeader.textContent = 'Animations';
+    animHeader.style.fontSize = '11px';
+    animHeader.style.textTransform = 'uppercase';
+    animHeader.style.letterSpacing = '0.08em';
+    animHeader.style.color = '#d8b467';
+    animHeader.style.margin = '4px 4px 8px';
+    animSidebar.appendChild(animHeader);
+
+    const animList = document.createElement('div');
+    this.animListElement = animList;
+    animSidebar.appendChild(animList);
+    this.rebuildAnimationPanel();
+
     body.appendChild(sidebar);
     body.appendChild(viewport);
+    body.appendChild(animSidebar);
     root.appendChild(header);
     root.appendChild(body);
     parent.appendChild(root);
@@ -652,10 +1107,30 @@ export class ModelExplorerPanel {
 
   private startRenderLoop(): void {
     if (this.rafId !== null || typeof requestAnimationFrame === 'undefined') return;
-    const tick = () => {
+    let lastTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const tick = (now?: number) => {
       if (!this.visible) {
         this.rafId = null;
         return;
+      }
+      const curr = typeof now === 'number' ? now : Date.now();
+      const dt = Math.min(0.1, Math.max(0, (curr - lastTime) / 1000));
+      lastTime = curr;
+      if (this.selectedAnimation !== 'none') {
+        if (this.activeAnimController) {
+          if (this.selectedAnimation === 'random') {
+            this.randomAnimTimer -= dt;
+            if (this.randomAnimTimer <= 0) {
+              this.playRandomAnimation();
+            }
+          }
+          this.activeAnimController.update(dt);
+        } else if (
+          this.currentModel &&
+          typeof this.currentModel.userData.updateAnimation === 'function'
+        ) {
+          (this.currentModel.userData.updateAnimation as (delta: number) => void)(dt);
+        }
       }
       this.renderFrame();
       this.rafId = requestAnimationFrame(tick);
@@ -679,6 +1154,23 @@ export class ModelExplorerPanel {
         const mats = Array.isArray(child.material) ? child.material : [child.material];
         for (const m of mats) {
           if (m && !m.userData?.isSharedAsset && !m.userData?.isOverviewWheatMaterial) {
+            const texKeys = [
+              'map',
+              'bumpMap',
+              'roughnessMap',
+              'normalMap',
+              'emissiveMap',
+              'alphaMap',
+              'aoMap',
+              'metalnessMap',
+              'specularMap',
+            ] as const;
+            for (const key of texKeys) {
+              const tex = (m as any)[key] as THREE.Texture | null | undefined;
+              if (tex && !tex.userData?.isSharedAsset) {
+                tex.dispose();
+              }
+            }
             m.dispose();
           }
         }
@@ -687,6 +1179,7 @@ export class ModelExplorerPanel {
   }
 
   public dispose(): void {
+    this.loadRequestSeq++;
     this.hide();
     if (this.boundKeyDown) {
       window.removeEventListener('keydown', this.boundKeyDown);
@@ -700,17 +1193,15 @@ export class ModelExplorerPanel {
       window.removeEventListener('pointermove', this.boundTrackPointer);
       this.boundTrackPointer = undefined;
     }
-    if (this.currentModel && this.scene) {
-      this.scene.remove(this.currentModel);
-      this.disposeModel(this.currentModel);
-      this.currentModel = null;
-    }
+    this.unloadCurrentModel();
     this.renderer?.dispose();
     this.renderer = null;
     this.scene?.clear();
     this.scene = null;
     this.camera = null;
     this.listButtons.clear();
+    this.animButtons.clear();
+    this.animListElement = null;
     if (this.cursorElement?.parentElement) {
       this.cursorElement.parentElement.removeChild(this.cursorElement);
     }

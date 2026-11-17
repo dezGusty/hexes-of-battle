@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { applyUnitRimLighting } from './unit-rim-lighting';
 import { getWindThresholds } from '../decorations/wind-system';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { CreatureType } from '../../battle/creature';
 import {
   BARBARIAN_TEXTURE_SIZE,
@@ -161,7 +162,7 @@ export function isUnit3DModelSupported(type: CreatureType | string | number): bo
 }
 
 export const UNIT_GLB_PATHS: Record<string, string> = {
-  peasant: 'models/units/peasant.glb',
+  peasant: 'models/units/peasant_rigged.glb',
   peasant_archer: 'models/units/peasant_archer.glb',
   swordsman: 'models/units/swordsman.glb',
   spearman: 'models/units/spearman.glb',
@@ -1342,6 +1343,63 @@ export function instantiateGlbUnitTemplate(
     return cloneCompactedUnitTemplate(cached);
   }
 
+  let hasSkinnedMesh = false;
+  templateScene.traverse((node) => {
+    if ((node as THREE.SkinnedMesh).isSkinnedMesh) {
+      hasSkinnedMesh = true;
+    }
+  });
+
+  if (hasSkinnedMesh) {
+    const clonedSkinned = SkeletonUtils.clone(templateScene);
+    const whiteMap = getSharedWhiteTexture();
+    clonedSkinned.traverse((node) => {
+      if ((node as THREE.Mesh).isMesh) {
+        const mesh = node as THREE.Mesh;
+        mesh.castShadow = true;
+        mesh.receiveShadow = false;
+        if (mesh.material) {
+          const origMats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          const clonedMats = origMats.map((origMat) => {
+            const matClone = origMat.clone() as THREE.MeshStandardMaterial;
+            matClone.transparent = false;
+            matClone.opacity = 1.0;
+            applyUnitRimLighting(matClone);
+            if (!matClone.map) {
+              matClone.map = whiteMap;
+            }
+            return matClone;
+          });
+          mesh.material = Array.isArray(mesh.material) ? clonedMats : clonedMats[0];
+        }
+      }
+    });
+
+    if (unitKey === 'peasant') {
+      clonedSkinned.scale.setScalar(1.85);
+    }
+
+    const glbAnimations = templateScene.userData?.glbAnimations as THREE.AnimationClip[] | undefined;
+    if (glbAnimations && glbAnimations.length > 0) {
+      const idleClip = glbAnimations.find((c) => c.name === 'idle_stance') ?? glbAnimations[0];
+      const mixer = new THREE.AnimationMixer(clonedSkinned);
+      const action = mixer.clipAction(idleClip);
+      action.play();
+      mixer.update(0);
+      clonedSkinned.userData.glbMixer = mixer;
+      clonedSkinned.userData.glbAnimations = glbAnimations;
+    }
+
+    clonedSkinned.userData = {
+      ...clonedSkinned.userData,
+      unitKey,
+      source: 'blender_glb',
+      height: AVERAGE_UNIT_3D_HEIGHT,
+      isRiggedGlb: true,
+    };
+    return clonedSkinned as unknown as THREE.Mesh;
+  }
+
   const cloned = templateScene.clone(true);
   const teamHex = getTeamColorHex(armyAlignment, isHero);
   const whiteMap = getSharedWhiteTexture();
@@ -1474,6 +1532,7 @@ export async function loadBlenderUnitGlbTemplates(
           loader.load(url, resolve, undefined, reject);
         });
         if (gltf?.scene) {
+          gltf.scene.userData.glbAnimations = gltf.animations ?? [];
           templates.set(unitKey, gltf.scene);
         }
       } catch {

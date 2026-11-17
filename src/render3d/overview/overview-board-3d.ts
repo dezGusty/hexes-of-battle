@@ -33,6 +33,7 @@ import {
   createProceduralWaterNormalTexture,
 } from './overview-water-shader';
 import { updateOverviewCowAnimation } from './overview-cow-3d';
+import { preloadOverviewPeasantGlb } from './overview-peasant-3d';
 import { updateOverviewWheatWind } from './overview-wheat-field-3d';
 import {
   buildOverviewMeadowClusterGeometry,
@@ -172,6 +173,7 @@ export class OverviewBoard3D {
   private readonly mapHeight: number;
 
   constructor(private readonly campaign: OverviewCampaign) {
+    void preloadOverviewPeasantGlb();
     this.mapWidth = campaign.mapWidth;
     this.mapHeight = campaign.mapHeight;
     this.group.name = 'OverviewBoard3D';
@@ -1249,8 +1251,12 @@ export class OverviewBoard3D {
     // Animate army & settlement flags reacting to wind direction and strength
     this.updateFlagWindMeshes();
 
-    // Subtle idle breathing/bobbing/sway for overview units (matching battle map idle feel)
+    // Subtle idle breathing/bobbing/sway for overview units (or skeletal mixer if rigged)
     for (const unit of this.animatedUnits) {
+      if (typeof unit.userData.updateAnimation === 'function') {
+        (unit.userData.updateAnimation as (delta: number) => void)(dt);
+        continue;
+      }
       const baseScale = (unit.userData.baseScale as number) || 0.38;
       const phase = (unit.userData.idlePhase as number) || 0;
       const breath = Math.sin(this.windTime * 2.2 + phase);

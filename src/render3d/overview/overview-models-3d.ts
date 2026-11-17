@@ -6,10 +6,13 @@ import {
   ResourceBuildingType,
   SettlementTier,
 } from '../../overview/overview-types';
+import { CreatureType } from '../../battle/creature';
 import { buildArticulatedUnit3DMesh } from '../units/unit-mesh-builder';
 import { createOverviewCowModel } from './overview-cow-3d';
+import { createCastleSettlementHex } from './overview-castle-town-3d';
 import { createOverviewIronMineModel } from './overview-iron-mine-3d';
 import { createOverviewLumberMillModel } from './overview-lumber-mill-3d';
+import { createOverviewPeasantModel } from './overview-peasant-3d';
 import { createOverviewWheatFieldModel } from './overview-wheat-field-3d';
 
 function makeMat(color: number, roughness = 0.8, metalness = 0.1): THREE.MeshStandardMaterial {
@@ -67,11 +70,15 @@ export function createOverviewSettlementModel(
   tier: SettlementTier,
   ownerColorHex: string = '#8c929a'
 ): THREE.Group {
+  if (tier === 'town') {
+    return createCastleSettlementHex({ bannerColor: ownerColorHex });
+  }
+
   const group = new THREE.Group();
   group.name = `OverviewSettlement_${tier}`;
 
   const wallMat = makeMat(0xd9ccb4, 0.85);
-  const roofMat = makeMat(tier === 'city' ? 0x8e3b2e : tier === 'town' ? 0xa34b32 : 0xb5894c, 0.78);
+  const roofMat = makeMat(tier === 'city' ? 0x8e3b2e : 0xb5894c, 0.78);
   const stoneMat = makeMat(0x7c828a, 0.9);
 
   const addHouse = (x: number, z: number, w: number, h: number, d: number, rotY = 0) => {
@@ -96,19 +103,6 @@ export function createOverviewSettlementModel(
     addHouse(-0.22, -0.12, 0.22, 0.16, 0.18, 0.2);
     addHouse(0.2, 0.14, 0.2, 0.14, 0.18, -0.4);
     addHouse(-0.1, 0.24, 0.18, 0.13, 0.16, 0.6);
-  } else if (tier === 'town') {
-    addHouse(-0.28, -0.2, 0.22, 0.2, 0.2, 0.1);
-    addHouse(0.26, -0.18, 0.22, 0.18, 0.2, -0.3);
-    addHouse(-0.22, 0.24, 0.2, 0.18, 0.18, 0.4);
-    addHouse(0.24, 0.22, 0.22, 0.17, 0.2, -0.2);
-    // Central town hall
-    const hall = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.3, 0.26), stoneMat);
-    hall.position.y = 0.15;
-    hall.castShadow = true;
-    const spire = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.26, 4), roofMat);
-    spire.position.y = 0.43;
-    spire.rotation.y = Math.PI * 0.25;
-    group.add(hall, spire);
   } else {
     // City: outer wall ring + grand keep + 4 houses
     const wallRing = new THREE.Mesh(new THREE.CylinderGeometry(0.66, 0.68, 0.16, 6, 1, true), stoneMat);
@@ -132,14 +126,12 @@ export function createOverviewSettlementModel(
 
   const settlementFlag = createOverviewWindFlag(
     ownerColorHex,
-    tier === 'city' ? 0.56 : tier === 'town' ? 0.5 : 0.48,
+    tier === 'city' ? 0.56 : 0.48,
     0.28,
     0.16
   );
   if (tier === 'city') {
     settlementFlag.position.set(0, 0.72, 0);
-  } else if (tier === 'town') {
-    settlementFlag.position.set(0, 0.52, 0);
   } else {
     settlementFlag.position.set(0.06, 0, -0.02);
   }
@@ -422,12 +414,16 @@ export function createOverviewCombinedArmyVisual(
   const ringRadius = count <= 1 ? 0 : 0.34;
 
   squads.forEach((sq, idx) => {
-    const unitMesh = buildArticulatedUnit3DMesh(sq.creatureType, armyAlignment, false);
-    unitMesh.scale.setScalar(0.38);
+    const isPeasant = sq.creatureType === CreatureType.PEASANT;
+    const unitMesh = isPeasant
+      ? createOverviewPeasantModel(707 + idx * 31)
+      : buildArticulatedUnit3DMesh(sq.creatureType, armyAlignment, false);
+    const baseScale = isPeasant ? 0.63 : 0.38;
+    unitMesh.scale.setScalar(baseScale);
     unitMesh.userData = {
       ...unitMesh.userData,
       isOverviewUnit: true,
-      baseScale: 0.38,
+      baseScale,
       idlePhase: idx * 1.15,
     };
 

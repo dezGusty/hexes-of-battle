@@ -4838,5 +4838,124 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(explorer.isVisible()).toBe(false);
       explorer.dispose();
     });
+
+    it('should list battle-only models with " - lazy load" and only load/unload them on selection switch', async () => {
+      const { ModelExplorerPanel } = await import('../overview/ui/model-explorer-panel');
+      const explorer = new ModelExplorerPanel();
+      const entries = explorer.getModelEntries();
+
+      const battleEntries = entries.filter(
+        (e) =>
+          e.category === 'Battle Scene: Units' ||
+          e.category === 'Battle Scene: Terrain & Props'
+      );
+      expect(battleEntries.length).toBeGreaterThanOrEqual(20);
+      for (const entry of battleEntries) {
+        expect(entry.lazyLoad).toBe(true);
+        expect(entry.label.endsWith(' - lazy load')).toBe(true);
+      }
+
+      // Global map models should not have the lazy-load suffix
+      const globalEntries = entries.filter(
+        (e) =>
+          e.category !== 'Battle Scene: Units' &&
+          e.category !== 'Battle Scene: Terrain & Props'
+      );
+      for (const entry of globalEntries) {
+        expect(entry.label.endsWith(' - lazy load')).toBe(false);
+      }
+
+      // Verify lazy load & unload lifecycle on a battle prop
+      explorer.show();
+      await explorer.selectModel('battle_prop_windmill');
+      expect(explorer.getSelectedModelId()).toBe('battle_prop_windmill');
+      const windmillObj = (explorer as any).currentModel as THREE.Object3D;
+      expect(windmillObj).toBeTruthy();
+
+      let disposedGeoCount = 0;
+      windmillObj.traverse((child) => {
+        if (child instanceof THREE.Mesh && child.geometry) {
+          const origDispose = child.geometry.dispose.bind(child.geometry);
+          child.geometry.dispose = () => {
+            disposedGeoCount++;
+            origDispose();
+          };
+        }
+      });
+
+      // Switching to another model must unload the previous battle model
+      await explorer.selectModel('settlement_town');
+      expect(explorer.getSelectedModelId()).toBe('settlement_town');
+      expect(disposedGeoCount).toBeGreaterThan(0);
+
+      explorer.dispose();
+    });
+
+    it('should expose right-side animation selector with none, random, and model animations', async () => {
+      const { ModelExplorerPanel } = await import('../overview/ui/model-explorer-panel');
+      const explorer = new ModelExplorerPanel();
+      explorer.show();
+
+      await explorer.selectModel('unit_peasant');
+      const anims = explorer.getAvailableAnimations();
+      expect(anims).toContain('none');
+      expect(anims).toContain('random');
+      expect(anims).toContain('idle_stance');
+      expect(anims).toContain('idle_shift_weight');
+      expect(anims).toContain('idle_wipe_forehead');
+      expect(anims).toContain('combat_defensive_stance');
+      expect(anims).toContain('combat_move_advance');
+      expect(anims).toContain('combat_attack_poke');
+
+      expect(explorer.getSelectedAnimation()).toBe('idle_stance');
+
+      explorer.selectAnimation('combat_attack_poke');
+      expect(explorer.getSelectedAnimation()).toBe('combat_attack_poke');
+
+      explorer.selectAnimation('random');
+      expect(explorer.getSelectedAnimation()).toBe('random');
+
+      explorer.selectAnimation('none');
+      expect(explorer.getSelectedAnimation()).toBe('none');
+
+      // Static models should fall back to ['none', 'random']
+      await explorer.selectModel('settlement_town');
+      expect(explorer.getAvailableAnimations()).toEqual(['none', 'random']);
+      expect(explorer.getSelectedAnimation()).toBe('none');
+
+      // Wireframe toggle should apply to current and subsequent models
+      expect(explorer.isWireframeEnabled()).toBe(false);
+      explorer.toggleWireframe();
+      expect(explorer.isWireframeEnabled()).toBe(true);
+      const townObj = (explorer as any).currentModel as THREE.Object3D;
+      let sawWireframe = false;
+      townObj.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          const mats = Array.isArray(child.material) ? child.material : [child.material];
+          for (const m of mats) {
+            if ((m as THREE.MeshStandardMaterial).wireframe) sawWireframe = true;
+          }
+        }
+      });
+      expect(sawWireframe).toBe(true);
+
+      await explorer.selectModel('unit_peasant');
+      const peasantObj = (explorer as any).currentModel as THREE.Object3D;
+      let peasantWireframe = false;
+      peasantObj.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          const mats = Array.isArray(child.material) ? child.material : [child.material];
+          for (const m of mats) {
+            if ((m as THREE.MeshStandardMaterial).wireframe) peasantWireframe = true;
+          }
+        }
+      });
+      expect(peasantWireframe).toBe(true);
+
+      explorer.setWireframe(false);
+      expect(explorer.isWireframeEnabled()).toBe(false);
+
+      explorer.dispose();
+    });
   });
 });
