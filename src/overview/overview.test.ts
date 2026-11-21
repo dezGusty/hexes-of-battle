@@ -2062,4 +2062,60 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
     expect(board.group.getObjectByName('OverviewFieldstonesInstanced')).toBeDefined();
     board.dispose();
   });
+
+  it('should move attacking army adjacent to enemy before engagement so a draw leaves them next to each other', () => {
+    const campaign = new OverviewCampaign(createStarterOverviewMap(77));
+    const playerArmy = campaign.armies.find((a) => a.ownerPlayerId === 'player')!;
+    const enemyArmy = campaign.armies.find((a) => a.ownerPlayerId !== 'player')!;
+
+    // Place enemy at a reachable hex at least 2 steps away from playerArmy
+    const reachable = campaign.getReachableHexes(playerArmy.id);
+    const isAdjacent = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+      HexMap.getNeighboursInBounds(a, campaign.mapWidth, campaign.mapHeight).some(
+        (n) => n.x === b.x && n.y === b.y
+      );
+    const pathTarget = Array.from(reachable.entries()).find(([key, cost]) => {
+      const [x, y] = key.split(',').map(Number);
+      return cost >= 1.5 && (x !== playerArmy.coords.x || y !== playerArmy.coords.y) && !isAdjacent(playerArmy.coords, { x, y });
+    });
+    expect(pathTarget).toBeDefined();
+    const [tx, ty] = pathTarget![0].split(',').map(Number);
+    enemyArmy.coords = { x: tx, y: ty };
+    enemyArmy.isGarrison = false;
+    playerArmy.movementPoints = 10;
+
+    expect(isAdjacent(playerArmy.coords, enemyArmy.coords)).toBe(false);
+
+    const prepared = campaign.prepareEngagementAt(playerArmy.id, enemyArmy.coords);
+    expect(prepared).not.toBeNull();
+    expect(prepared!.movedDuringApproach).toBe(true);
+    expect(isAdjacent(playerArmy.coords, enemyArmy.coords)).toBe(true);
+
+    // Simulate a draw: attacker should remain at the adjacent hex next to enemy
+    const survivorA = new Creature(CreatureType.SWORDSMAN);
+    survivorA.armyAlignment = 0;
+    survivorA.live_stats.remaining_health = survivorA.stats.health;
+    const survivorB = new Creature(CreatureType.PEASANT);
+    survivorB.armyAlignment = 1;
+    survivorB.live_stats.remaining_health = survivorB.stats.health;
+
+    campaign.applyBattleResult(
+      {
+        victorArmyIndex: -1,
+        turnsTaken: 5,
+        survivingCreatures: [survivorA, survivorB],
+        casualties: [],
+        routedCreatures: [],
+        totalDamageDealt: [20, 20],
+        totalStaminaSpent: [20, 20],
+        moraleBreaks: [0, 0],
+        friendlyFireEvents: 0,
+      },
+      prepared!.attacker.id,
+      prepared!.defender.id,
+      prepared!.targetRegion?.id
+    );
+
+    expect(isAdjacent(playerArmy.coords, enemyArmy.coords)).toBe(true);
+  });
 });

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Creature } from '../../battle/creature';
 import { HexDirection } from '../../shared/hex-map';
 import { IUnitVisual } from './unit-visual-interface';
+import { getUnitMoveCyclesPerHex } from './unit-mesh-builder';
 import { UnitAnimationState } from '../types';
 import { MoraleState } from '../../battle/combat-rules';
 import { DamageIndicatorType, createDamageIndicatorCanvas } from '../../ui/indicator-icon-utils';
@@ -79,11 +80,13 @@ export class SquadVisual3D {
   private movePath: THREE.Vector3[] = [];
   private moveTargetIndex: number = 0;
   private moveSpeed: number = 5.0; // units per second
+  public moveCyclesPerHex: number = 1;
   private onMoveComplete?: () => void;
 
   constructor(creature: Creature, modelVisuals: IUnitVisual[]) {
     this.creature = creature;
     this.models = modelVisuals;
+    this.moveCyclesPerHex = getUnitMoveCyclesPerHex(creature.creatureType);
     this.maxCount = Math.max(1, creature.stats.model_count);
     this.aliveCount = creature.aliveModelCount;
     this.currentFacing =
@@ -552,12 +555,49 @@ export class SquadVisual3D {
     });
   }
 
-  public moveToPath(pathWorldPositions: THREE.Vector3[], onComplete?: () => void): void {
+  public hasMoveAnimation(): boolean {
+    return this.models.some((m) => m.hasMoveAnimation?.() === true);
+  }
+
+  public isCurrentlyMoving(): boolean {
+    return this.isMoving;
+  }
+
+  public getMoveTarget(): THREE.Vector3 | null {
+    if (!this.isMoving || this.movePath.length === 0) return null;
+    return this.movePath[this.movePath.length - 1];
+  }
+
+  public moveToPath(
+    pathWorldPositions: THREE.Vector3[],
+    onComplete?: () => void,
+    moveCyclesPerHexOverride?: number
+  ): void {
     if (pathWorldPositions.length === 0) return;
     this.movePath = pathWorldPositions;
     this.moveTargetIndex = 0;
     this.isMoving = true;
     this.onMoveComplete = onComplete;
+
+    let totalDist = 0;
+    let prev = this.rootGroup.position;
+    for (const pt of pathWorldPositions) {
+      totalDist += prev.distanceTo(pt);
+      prev = pt;
+    }
+    const travelTimeSec = totalDist / Math.max(0.01, this.moveSpeed);
+    const cyclesPerHex = moveCyclesPerHexOverride ?? this.moveCyclesPerHex;
+    const totalCycles = cyclesPerHex * Math.max(1, pathWorldPositions.length);
+
+    if (travelTimeSec > 0) {
+      this.models.forEach((m) => {
+        const clipDur = m.getMoveAnimationDurationSec?.() ?? 0;
+        if (clipDur > 0) {
+          m.setMoveAnimationTimeScale?.((totalCycles * clipDur) / travelTimeSec);
+        }
+      });
+    }
+
     this.playAnimation('walk');
   }
 
@@ -600,6 +640,7 @@ export class SquadVisual3D {
         this.moveTargetIndex++;
         if (this.moveTargetIndex >= this.movePath.length) {
           this.isMoving = false;
+          this.models.forEach((m) => m.setMoveAnimationTimeScale?.(1));
           this.playAnimation('idle');
           if (this.onMoveComplete) this.onMoveComplete();
         }

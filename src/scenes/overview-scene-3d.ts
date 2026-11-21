@@ -170,8 +170,13 @@ export class OverviewScene3D implements Scene {
   public handleMoveArmy(armyId: string, targetCoords: Coords): void {
     if (!this.campaign) return;
 
-    const engagement = this.campaign.getEngagementAt(armyId, targetCoords);
+    const engagement = this.campaign.prepareEngagementAt(armyId, targetCoords);
     if (engagement) {
+      if (engagement.movedDuringApproach) {
+        this.view?.syncAll();
+        this.hud?.refresh();
+        this.hud?.showSelectionAtHex(engagement.attacker.coords);
+      }
       const attackerOwner = this.campaign.getPlayer(engagement.attacker.ownerPlayerId);
       const defenderOwner = this.campaign.getPlayer(engagement.defender.ownerPlayerId);
       const info: BattlePromptInfo = {

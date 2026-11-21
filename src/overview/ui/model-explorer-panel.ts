@@ -43,6 +43,7 @@ export interface ModelAnimationController {
   play: (name: string) => void;
   stop: () => void;
   update: (dt: number) => void;
+  setLoop?: (loop: boolean) => void;
 }
 
 export interface ModelExplorerEntry {
@@ -68,11 +69,17 @@ function attachClipAnimationController(
     actions[name] = mixer.clipAction(clip);
   }
   let active: THREE.AnimationAction | null = null;
+  let loopEnabled = true;
+  const applyActionLoop = (action: THREE.AnimationAction, loop: boolean) => {
+    action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1);
+    action.clampWhenFinished = !loop;
+  };
   const controller: ModelAnimationController = {
     names,
     play: (name: string) => {
       const next = actions[name];
       if (!next) return;
+      applyActionLoop(next, loopEnabled);
       next.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).play();
       if (active && active !== next) {
         active.crossFadeTo(next, 0.25, false);
@@ -85,6 +92,12 @@ function attachClipAnimationController(
     },
     update: (dt: number) => {
       mixer.update(dt);
+    },
+    setLoop: (loop: boolean) => {
+      loopEnabled = loop;
+      for (const action of Object.values(actions)) {
+        applyActionLoop(action, loop);
+      }
     },
   };
   target.userData.animationController = controller;
@@ -104,10 +117,19 @@ function resolveAnimationController(model: THREE.Object3D): ModelAnimationContro
       }
     | undefined;
   if (peasant) {
+    let loopEnabled = true;
+    const applyActionLoop = (action: THREE.AnimationAction, loop: boolean) => {
+      action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1);
+      action.clampWhenFinished = !loop;
+    };
     return {
       names: Object.keys(peasant.actions),
       play: (name: string) => {
         peasant.playAnimation(name, 0.25);
+        const action = peasant.actions[name];
+        if (action) {
+          applyActionLoop(action, loopEnabled);
+        }
       },
       stop: () => {
         peasant.mixer.stopAllAction();
@@ -115,6 +137,12 @@ function resolveAnimationController(model: THREE.Object3D): ModelAnimationContro
       },
       update: (dt: number) => {
         peasant.update(dt);
+      },
+      setLoop: (loop: boolean) => {
+        loopEnabled = loop;
+        for (const action of Object.values(peasant.actions)) {
+          applyActionLoop(action, loop);
+        }
       },
     };
   }
@@ -426,6 +454,8 @@ export class ModelExplorerPanel {
   private listButtons = new Map<string, HTMLButtonElement>();
   private animListElement: HTMLElement | null = null;
   private animButtons = new Map<string, HTMLButtonElement>();
+  private loopButton: HTMLButtonElement | null = null;
+  private loopEnabled: boolean = true;
   private wireframeButton: HTMLButtonElement | null = null;
   private closeButton: HTMLButtonElement | null = null;
   private wireframeEnabled: boolean = false;
@@ -488,6 +518,7 @@ export class ModelExplorerPanel {
 
   public getAvailableAnimations(): string[] {
     const modelAnims = this.activeAnimController?.names ?? [];
+    if (modelAnims.length === 0) return [];
     return ['none', 'random', ...modelAnims];
   }
 
@@ -531,13 +562,61 @@ export class ModelExplorerPanel {
     }
   }
 
+  private updateLoopButtonVisual(): void {
+    if (!this.loopButton) return;
+    this.loopButton.textContent = this.loopEnabled ? 'Loop: On' : 'Loop: Off';
+    this.loopButton.style.background = this.loopEnabled
+      ? 'rgba(218, 176, 86, 0.28)'
+      : 'rgba(20, 28, 38, 0.72)';
+    this.loopButton.style.borderColor = this.loopEnabled ? '#e4be66' : '#3d4c5d';
+    this.loopButton.style.color = this.loopEnabled ? '#ffebaa' : '#dce6f2';
+  }
+
+  public getLoopButton(): HTMLButtonElement | null {
+    return this.loopButton;
+  }
+
+  public isLoopEnabled(): boolean {
+    return this.loopEnabled;
+  }
+
+  public toggleLoop(): boolean {
+    this.setLoop(!this.loopEnabled);
+    return this.loopEnabled;
+  }
+
+  public setLoop(enabled: boolean): void {
+    this.loopEnabled = enabled;
+    this.updateLoopButtonVisual();
+    this.activeAnimController?.setLoop?.(enabled);
+  }
+
   private rebuildAnimationPanel(): void {
     const container = this.animListElement;
     if (!container) return;
     container.innerHTML = '';
     this.animButtons.clear();
+    this.loopButton = null;
 
     const options = this.getAvailableAnimations();
+    if (options.length > 0) {
+      const loopBtn = document.createElement('button');
+      loopBtn.style.display = 'block';
+      loopBtn.style.width = '100%';
+      loopBtn.style.textAlign = 'left';
+      loopBtn.style.padding = '7px 10px';
+      loopBtn.style.marginBottom = '8px';
+      loopBtn.style.border = '1px solid #3d4c5d';
+      loopBtn.style.borderRadius = '4px';
+      loopBtn.style.cursor = 'pointer';
+      loopBtn.style.fontSize = '13px';
+      loopBtn.style.fontWeight = 'bold';
+      loopBtn.addEventListener('click', () => this.toggleLoop());
+      this.loopButton = loopBtn;
+      this.updateLoopButtonVisual();
+      container.appendChild(loopBtn);
+    }
+
     for (const animName of options) {
       const btn = document.createElement('button');
       btn.textContent = animName;
@@ -753,6 +832,7 @@ export class ModelExplorerPanel {
 
     this.activeAnimController = resolveAnimationController(model);
     if (this.activeAnimController && this.activeAnimController.names.length > 0) {
+      this.activeAnimController.setLoop?.(this.loopEnabled);
       this.selectedAnimation = this.activeAnimController.names[0];
       this.activeAnimController.play(this.selectedAnimation);
     } else {

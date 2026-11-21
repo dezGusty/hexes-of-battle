@@ -11,5 +11,8 @@ export interface IUnitVisual {
   setFacing(direction: HexDirection, cameraFacing?: boolean): void;
   setCasualtyFade(opacity: number): void;
   setAnimOffsetMs?(offsetMs: number): void;
+  hasMoveAnimation?(): boolean;
+  getMoveAnimationDurationSec?(): number;
+  setMoveAnimationTimeScale?(timeScale: number): void;
   dispose(): void;
 }

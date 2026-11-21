@@ -40,18 +40,70 @@ export class MeshRigidVisual implements IUnitVisual {
   private horseRearRPart: THREE.Object3D | null = null;
   public isMounted: boolean = false;
   private restRotations: Map<THREE.Object3D, THREE.Euler> = new Map();
+  private glbMixer: THREE.AnimationMixer | null = null;
+  private glbActions: Partial<Record<UnitAnimationState, THREE.AnimationAction>> = {};
+  private activeGlbAction: THREE.AnimationAction | null = null;
+  private moveTimeScale: number = 1;
 
   constructor(options: MeshRigidOptions) {
     this.model = options.meshOrGroup;
     this.baseScale = options.scale ?? 0.7;
     this.animOffsetMs = options.animOffsetMs ?? 0;
-    this.model.scale.set(this.baseScale, this.baseScale, this.baseScale);
+    this.model.scale.multiplyScalar(this.baseScale);
     this.object3D.add(this.model);
 
     this.cacheArticulatedParts();
+    this.initGlbAnimations();
 
     if (options.initialFacing) {
       this.setFacing(options.initialFacing);
+    }
+  }
+
+  private initGlbAnimations(): void {
+    const mixer = this.model.userData?.glbMixer as THREE.AnimationMixer | undefined;
+    const clips = this.model.userData?.glbAnimations as THREE.AnimationClip[] | undefined;
+    if (!mixer || !clips || clips.length === 0) return;
+
+    this.glbMixer = mixer;
+    const findClip = (exact: string, pattern: RegExp) =>
+      clips.find((c) => c.name === exact) ?? clips.find((c) => pattern.test(c.name));
+
+    const idleClip = findClip('idle_stance', /idle/i);
+    const walkClip = findClip('combat_move_advance', /move|walk|advance/i);
+    const attackClip = findClip('combat_attack_poke', /attack|poke/i);
+
+    if (idleClip) {
+      const action = mixer.clipAction(idleClip);
+      action.setLoop(THREE.LoopRepeat, Infinity);
+      this.glbActions.idle = action;
+      this.activeGlbAction = action;
+    }
+    if (walkClip) {
+      const action = mixer.clipAction(walkClip);
+      action.setLoop(THREE.LoopRepeat, Infinity);
+      this.glbActions.walk = action;
+    }
+    if (attackClip) {
+      const action = mixer.clipAction(attackClip);
+      action.setLoop(THREE.LoopOnce, 1);
+      action.clampWhenFinished = true;
+      this.glbActions.attack_melee = action;
+    }
+  }
+
+  public hasMoveAnimation(): boolean {
+    return Boolean(this.glbActions.walk);
+  }
+
+  public getMoveAnimationDurationSec(): number {
+    return this.glbActions.walk?.getClip().duration ?? 0;
+  }
+
+  public setMoveAnimationTimeScale(timeScale: number): void {
+    this.moveTimeScale = Math.max(0.01, timeScale);
+    if (this.glbActions.walk) {
+      this.glbActions.walk.setEffectiveTimeScale(this.moveTimeScale);
     }
   }
 
@@ -170,6 +222,23 @@ export class MeshRigidVisual implements IUnitVisual {
     this.animTimer = 0;
     this.animDuration = durationMs;
 
+    if (this.glbMixer) {
+      const next = this.glbActions[state] ?? this.glbActions.idle;
+      const scale = state === 'walk' ? this.moveTimeScale : 1;
+      if (next && next !== this.activeGlbAction) {
+        next.reset().setEffectiveTimeScale(scale).setEffectiveWeight(1).play();
+        if (this.activeGlbAction) {
+          this.activeGlbAction.crossFadeTo(next, 0.15, false);
+        }
+        this.activeGlbAction = next;
+      } else if (next && state === 'attack_melee') {
+        next.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).play();
+      } else if (next && state === 'walk') {
+        next.setEffectiveTimeScale(scale);
+      }
+      return;
+    }
+
     if (state === 'idle') {
       this.model.position.set(0, 0, 0);
       this.model.rotation.set(0, 0, 0);
@@ -213,6 +282,18 @@ export class MeshRigidVisual implements IUnitVisual {
 
   public update(deltaMs: number): void {
     this.animTimer += deltaMs;
+    if (this.glbMixer) {
+      this.glbMixer.update(deltaMs / 1000);
+      if (
+        this.animState !== 'idle' &&
+        this.animState !== 'walk' &&
+        this.animDuration > 0 &&
+        this.animTimer >= this.animDuration
+      ) {
+        this.playAnimation('idle');
+      }
+      return;
+    }
     const sec = (this.animTimer + this.animOffsetMs) / 1000;
 
     switch (this.animState) {

@@ -174,6 +174,18 @@ export const UNIT_GLB_PATHS: Record<string, string> = {
   armored_knight: 'models/units/armored_knight.glb',
 };
 
+/**
+ * Number of full move animation cycles played per hex moved on the battle map.
+ * Defaults to 1; peasant plays 2 full cycles per hex.
+ */
+export const UNIT_MOVE_CYCLES_PER_HEX: Record<string, number> = {
+  peasant: 2,
+};
+
+export function getUnitMoveCyclesPerHex(type: CreatureType | string | number): number {
+  return UNIT_MOVE_CYCLES_PER_HEX[normalizeUnitKey(type)] ?? 1;
+}
+
 let sharedWhiteMap: THREE.DataTexture | null = null;
 export function getSharedWhiteTexture(): THREE.DataTexture {
   if (!sharedWhiteMap) {
@@ -1377,6 +1389,7 @@ export function instantiateGlbUnitTemplate(
 
     if (unitKey === 'peasant') {
       clonedSkinned.scale.setScalar(1.85);
+      clonedSkinned.rotation.y = Math.PI / 2;
     }
 
     const glbAnimations = templateScene.userData?.glbAnimations as THREE.AnimationClip[] | undefined;
@@ -1396,6 +1409,7 @@ export function instantiateGlbUnitTemplate(
       source: 'blender_glb',
       height: AVERAGE_UNIT_3D_HEIGHT,
       isRiggedGlb: true,
+      moveCyclesPerHex: getUnitMoveCyclesPerHex(unitKey),
     };
     return clonedSkinned as unknown as THREE.Mesh;
   }

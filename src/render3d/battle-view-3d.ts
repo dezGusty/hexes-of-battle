@@ -697,7 +697,17 @@ export class BattleView3D {
         const creature = this.battle.creatures.find((c) => c.GUID.toString() === guidStr);
         if (creature && creature.isAlive && creature.aliveModelCount > 0) {
           const worldPos = this.hexBoard.hexToWorldWithElevation(creature.position.x, creature.position.y, true);
-          squad.rootGroup.position.copy(worldPos);
+          if (squad.hasMoveAnimation()) {
+            const currentTarget = squad.getMoveTarget();
+            const needsMove = currentTarget
+              ? currentTarget.distanceToSquared(worldPos) > 1e-4
+              : squad.rootGroup.position.distanceToSquared(worldPos) > 1e-4;
+            if (needsMove) {
+              squad.moveToPath([worldPos]);
+            }
+          } else {
+            squad.rootGroup.position.copy(worldPos);
+          }
           squad.setFacing(creature.facingDirection);
           squad.updateStats(this.settings.hex.showDamageIndicators);
         } else {

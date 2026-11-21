@@ -828,18 +828,83 @@ export class OverviewBoard3D {
   private createOverviewRoadTexture(): THREE.DataTexture {
     const size = 128;
     const data = new Uint8Array(size * size * 4);
+    const twoPi = Math.PI * 2;
+
+    const hash2 = (ix: number, iy: number): number => {
+      const h = Math.sin(ix * 127.1 + iy * 311.7) * 43758.5453123;
+      return h - Math.floor(h);
+    };
+
+    const periodicValueNoise = (u: number, v: number, freqX: number, freqY: number): number => {
+      const gx = u * freqX;
+      const gy = v * freqY;
+      const x0 = Math.floor(gx);
+      const y0 = Math.floor(gy) % freqY;
+      const x1 = x0 + 1;
+      const y1 = (y0 + 1) % freqY;
+      const fx = gx - x0;
+      const fy = gy - Math.floor(gy);
+      const sx = fx * fx * (3 - 2 * fx);
+      const sy = fy * fy * (3 - 2 * fy);
+      const n00 = hash2(x0, y0);
+      const n10 = hash2(x1, y0);
+      const n01 = hash2(x0, y1);
+      const n11 = hash2(x1, y1);
+      return (n00 * (1 - sx) + n10 * sx) * (1 - sy) + (n01 * (1 - sx) + n11 * sx) * sy;
+    };
+
     for (let y = 0; y < size; y++) {
+      const v = y / size;
+      // Seamless multi-frequency edge irregularity along road length (v wraps 0..1)
+      const leftEdgeWave =
+        Math.sin(v * twoPi * 2 + 0.4) * 0.065 +
+        Math.sin(v * twoPi * 5 + 1.9) * 0.04 +
+        Math.sin(v * twoPi * 11 + 3.1) * 0.022;
+      const rightEdgeWave =
+        Math.sin(v * twoPi * 2 + 2.5) * 0.065 +
+        Math.sin(v * twoPi * 5 + 4.2) * 0.04 +
+        Math.sin(v * twoPi * 11 + 0.8) * 0.022;
+
       for (let x = 0; x < size; x++) {
         const u = x / size;
-        const edgeDist = Math.abs(u - 0.5) * 2; // 0 at center, 1 at edge
-        const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
-        const grain = ((n - Math.floor(n)) - 0.5) * 24;
-        const cobble = Math.sin(x * 0.55) * Math.cos(y * 0.45) * 12;
+        const sideWave = u < 0.5 ? leftEdgeWave : rightEdgeWave;
+        const rawEdgeDist = Math.abs(u - 0.5) * 2; // 0 at center, 1 at edge
+
+        // Seamless multi-octave dirt mottling + fine dry dust/pebble grain
+        const broadDirt =
+          periodicValueNoise(u, v, 6, 6) * 0.65 +
+          periodicValueNoise(u, v, 14, 14) * 0.35;
+        const fineGrain = (hash2(x, y) - 0.5) * 22;
+        const pebble = hash2(x * 3 + 7, y * 3 + 13) > 0.965 ? -18 : 0;
+
+        // Irregular edge distance for organic dirt road borders
+        const edgeJitter = (broadDirt - 0.5) * 0.18 + sideWave;
+        const edgeDist = Math.max(0, Math.min(1.25, rawEdgeDist + edgeJitter));
+
+        // Lighter dry sun-baked dirt in center -> darker earth-brown toward edges
+        const edgeFactor = Math.min(1, Math.pow(Math.min(1, edgeDist), 1.35));
+        const dirtMottle = (broadDirt - 0.5) * 28;
+
+        const rBase = 166 - edgeFactor * 74 + dirtMottle + fineGrain + pebble;
+        const gBase = 138 - edgeFactor * 66 + dirtMottle * 0.85 + fineGrain * 0.85 + pebble;
+        const bBase = 98 - edgeFactor * 52 + dirtMottle * 0.68 + fineGrain * 0.7 + pebble * 0.8;
+
+        // Organic alpha falloff with speckled dirt fringe
+        const alphaStart = 0.72;
+        const alphaEnd = 0.98;
+        let alpha = 255;
+        if (edgeDist > alphaStart) {
+          const t = Math.min(1, Math.max(0, (edgeDist - alphaStart) / (alphaEnd - alphaStart)));
+          const smoothFade = 1 - t * t * (3 - 2 * t);
+          const fringeNoise = 0.7 + 0.6 * broadDirt;
+          alpha = Math.round(Math.max(0, Math.min(1, smoothFade * fringeNoise)) * 255);
+        }
+
         const idx = (y * size + x) * 4;
-        data[idx] = Math.max(55, Math.min(185, 134 - edgeDist * 26 + cobble + grain));
-        data[idx + 1] = Math.max(45, Math.min(165, 114 - edgeDist * 22 + cobble + grain * 0.85));
-        data[idx + 2] = Math.max(35, Math.min(140, 88 - edgeDist * 18 + cobble * 0.8 + grain * 0.7));
-        data[idx + 3] = edgeDist > 0.88 ? Math.round((1 - (edgeDist - 0.88) / 0.12) * 255) : 255;
+        data[idx] = Math.max(42, Math.min(205, Math.round(rBase)));
+        data[idx + 1] = Math.max(32, Math.min(180, Math.round(gBase)));
+        data[idx + 2] = Math.max(22, Math.min(140, Math.round(bBase)));
+        data[idx + 3] = alpha;
       }
     }
     const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);

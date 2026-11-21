@@ -268,6 +268,83 @@ export class OverviewCampaign {
     return { cost, attacker, defender, targetRegion };
   }
 
+  public prepareEngagementAt(
+    armyId: string,
+    targetCoords: Coords
+  ): {
+    cost: number;
+    attacker: OverviewArmy;
+    defender: OverviewArmy;
+    targetRegion: RegionState | undefined;
+    movedDuringApproach: boolean;
+  } | null {
+    const engagement = this.getEngagementAt(armyId, targetCoords);
+    if (!engagement) return null;
+
+    const { attacker, cost: totalCost } = engagement;
+    const reachable = this.getReachableHexes(armyId);
+    const path = this.getPathToHex(armyId, targetCoords);
+
+    let movedDuringApproach = false;
+    let remainingCost = totalCost;
+
+    if (path.length >= 3) {
+      // Check intermediate hexes for any blocking enemy (e.g. previously unseen ambushers)
+      let blockedIdx = -1;
+      for (let i = 1; i <= path.length - 2; i++) {
+        const occ = this.getArmyAt(path[i], attacker.id);
+        if (occ && occ.ownerPlayerId !== attacker.ownerPlayerId) {
+          blockedIdx = i;
+          break;
+        }
+      }
+
+      if (blockedIdx !== -1) {
+        const stopCoords = path[blockedIdx - 1];
+        if (stopCoords.x !== attacker.coords.x || stopCoords.y !== attacker.coords.y) {
+          const stopCost = reachable.get(`${stopCoords.x},${stopCoords.y}`) ?? 0;
+          this.moveArmy(armyId, stopCoords);
+          movedDuringApproach = true;
+          const blocker = this.getArmyAt(path[blockedIdx], attacker.id)!;
+          const blockerCost = Math.max(
+            0,
+            Math.round(((reachable.get(`${path[blockedIdx].x},${path[blockedIdx].y}`) ?? stopCost) - stopCost) * 100) / 100
+          );
+          return {
+            cost: blockerCost,
+            attacker,
+            defender: blocker,
+            targetRegion: this.getRegionAt(path[blockedIdx]),
+            movedDuringApproach,
+          };
+        }
+        const blocker = this.getArmyAt(path[blockedIdx], attacker.id)!;
+        const blockerCost = reachable.get(`${path[blockedIdx].x},${path[blockedIdx].y}`) ?? totalCost;
+        return {
+          cost: blockerCost,
+          attacker,
+          defender: blocker,
+          targetRegion: this.getRegionAt(path[blockedIdx]),
+          movedDuringApproach: false,
+        };
+      }
+
+      const approachCoords = path[path.length - 2];
+      const approachCost = reachable.get(`${approachCoords.x},${approachCoords.y}`) ?? 0;
+      const moveOutcome = this.moveArmy(armyId, approachCoords);
+      if (moveOutcome.moved) {
+        movedDuringApproach = true;
+        remainingCost = Math.max(0, Math.round((totalCost - approachCost) * 100) / 100);
+      }
+    }
+
+    return {
+      ...engagement,
+      cost: remainingCost,
+      movedDuringApproach,
+    };
+  }
+
   public consumeMovementPoints(armyId: string, cost: number): void {
     const army = this.getArmyById(armyId);
     if (!army) return;
@@ -292,7 +369,14 @@ export class OverviewCampaign {
     const targetRegion = this.getRegionAt(targetCoords);
 
     if (occupant && occupant.ownerPlayerId !== army.ownerPlayerId) {
+      const path = this.getPathToHex(armyId, targetCoords);
+      if (path.length >= 3) {
+        const approachCoords = path[path.length - 2];
+        army.coords = { ...approachCoords };
+        army.isGarrison = Boolean(this.getHex(approachCoords)?.isSettlement);
+      }
       army.movementPoints = Math.max(0, Math.round((army.movementPoints - cost) * 100) / 100);
+      this.recomputeFogOfWar();
       const battleConfig = creatureRepository
         ? this.buildBattleConfigForEngagement(army, occupant, targetRegion, creatureRepository)
         : undefined;

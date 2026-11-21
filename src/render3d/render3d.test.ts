@@ -4908,6 +4908,14 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(anims).toContain('combat_attack_poke');
 
       expect(explorer.getSelectedAnimation()).toBe('idle_stance');
+      expect(explorer.getLoopButton()).not.toBeNull();
+      expect(explorer.isLoopEnabled()).toBe(true);
+      expect(explorer.getLoopButton()?.textContent).toBe('Loop: On');
+      explorer.toggleLoop();
+      expect(explorer.isLoopEnabled()).toBe(false);
+      expect(explorer.getLoopButton()?.textContent).toBe('Loop: Off');
+      explorer.toggleLoop();
+      expect(explorer.isLoopEnabled()).toBe(true);
 
       explorer.selectAnimation('combat_attack_poke');
       expect(explorer.getSelectedAnimation()).toBe('combat_attack_poke');
@@ -4918,9 +4926,10 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       explorer.selectAnimation('none');
       expect(explorer.getSelectedAnimation()).toBe('none');
 
-      // Static models should fall back to ['none', 'random']
+      // Static models with no animations should hide 'none', 'random', and 'Loop'
       await explorer.selectModel('settlement_town');
-      expect(explorer.getAvailableAnimations()).toEqual(['none', 'random']);
+      expect(explorer.getAvailableAnimations()).toEqual([]);
+      expect(explorer.getLoopButton()).toBeNull();
       expect(explorer.getSelectedAnimation()).toBe('none');
 
       // Wireframe toggle should apply to current and subsequent models
@@ -4956,6 +4965,63 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(explorer.isWireframeEnabled()).toBe(false);
 
       explorer.dispose();
+    });
+
+    it('should rotate rigged peasant 90 deg left to face East and use move animation between hexes only when available', async () => {
+      const { SquadVisual3D } = await import('./units/squad-visual-3d');
+      // Rigged GLB peasant template with SkinnedMesh + combat_move_advance clip
+      const scene = new THREE.Group();
+      const rootBone = new THREE.Bone();
+      const skeleton = new THREE.Skeleton([rootBone]);
+      const skinned = new THREE.SkinnedMesh(
+        new THREE.BoxGeometry(0.2, 0.5, 0.2),
+        new THREE.MeshStandardMaterial({ color: 0x887766 })
+      );
+      skinned.add(rootBone);
+      skinned.bind(skeleton);
+      scene.add(skinned);
+      scene.userData.glbAnimations = [
+        new THREE.AnimationClip('idle_stance', 1.0, []),
+        new THREE.AnimationClip('combat_move_advance', 0.8, []),
+      ];
+
+      const peasantMesh = instantiateGlbUnitTemplate(scene, 'peasant', 0, false);
+      expect(peasantMesh.rotation.y).toBeCloseTo(Math.PI / 2, 4);
+
+      const peasantVisual = new MeshRigidVisual({
+        meshOrGroup: peasantMesh,
+        scale: 0.525,
+        initialFacing: HexDirection.EAST,
+      });
+      expect(peasantVisual.hasMoveAnimation()).toBe(true);
+      expect(peasantVisual.getMoveAnimationDurationSec()).toBeCloseTo(0.8, 4);
+
+      const peasantCreature = new Creature(CreatureType.PEASANT);
+      const spyTimeScale = vi.spyOn(peasantVisual, 'setMoveAnimationTimeScale');
+      const peasantSquad = new SquadVisual3D(peasantCreature, [peasantVisual]);
+      expect(peasantSquad.moveCyclesPerHex).toBe(2);
+      // 1 hex = 2.0 world units; moveSpeed = 5.0 -> travelTimeSec = 0.4s -> 2 * 0.8 / 0.4 = 4.0x
+      peasantSquad.rootGroup.position.set(0, 0, 0);
+      peasantSquad.moveToPath([new THREE.Vector3(2.0, 0, 0)]);
+      expect(spyTimeScale).toHaveBeenCalledWith(4.0);
+
+      // Unit without a skeletal move animation clip falls back to teleporting
+      const staticMesh = new THREE.Mesh(
+        new THREE.BoxGeometry(0.3, 0.8, 0.3),
+        new THREE.MeshStandardMaterial({ color: 0x666666 })
+      );
+      const staticVisual = new MeshRigidVisual({
+        meshOrGroup: staticMesh,
+        scale: 0.525,
+        initialFacing: HexDirection.EAST,
+      });
+      expect(staticVisual.hasMoveAnimation()).toBe(false);
+      const swordsmanCreature = new Creature(CreatureType.SWORDSMAN);
+      const swordsmanSquad = new SquadVisual3D(swordsmanCreature, [staticVisual]);
+      expect(swordsmanSquad.moveCyclesPerHex).toBe(1);
+
+      peasantSquad.dispose();
+      swordsmanSquad.dispose();
     });
   });
 });
