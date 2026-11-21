@@ -871,4 +871,139 @@ describe('Configurable Fixed Retreat Points & Animated Flags', () => {
       hexBoard.dispose();
     });
   });
+
+  describe('7. Player Retreat & Surrender Commands', () => {
+    it('orderRetreat moves all player units toward retreat cells and adds escaped units to routedCreatures', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const nearUnit = new Creature(CreatureType.PEASANT);
+      nearUnit.position = { x: 1, y: 3 };
+      nearUnit.armyAlignment = 0;
+
+      const farUnit = new Creature(CreatureType.SWORDSMAN);
+      farUnit.position = { x: 6, y: 3 };
+      farUnit.armyAlignment = 0;
+
+      const enemy = new Creature(CreatureType.PEASANT);
+      enemy.position = { x: 8, y: 3 };
+      enemy.armyAlignment = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        retreatPoints: {
+          0: [{ x: 0, y: 3 }],
+          1: [{ x: 9, y: 3 }],
+        },
+        creatures: [nearUnit, farUnit, enemy],
+      });
+
+      battle.orderRetreat(0);
+
+      // nearUnit was 1 hex from retreat point (0,3) so it escapes immediately
+      expect(battle.routedCreatures).toContain(nearUnit);
+      expect(battle.creatures).not.toContain(nearUnit);
+
+      // farUnit moved westwards toward (0,3)
+      expect(farUnit.position.x).toBeLessThan(6);
+      expect(battle.isFinished()).toBe(false);
+
+      // Advancing turns continues moving farUnit until it reaches (0,3) and retreats
+      for (let i = 0; i < 6 && !battle.isFinished(); i++) {
+        battle.nextTurn();
+      }
+      expect(battle.routedCreatures).toContain(farUnit);
+      expect(battle.isFinished()).toBe(true);
+      expect(battle.getBattleResult().victorArmyIndex).toBe(1);
+    });
+
+    it('surrender immediately loses the battle and keeps only units that already retreated', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const escapedUnit = new Creature(CreatureType.PEASANT);
+      escapedUnit.position = { x: 1, y: 3 };
+      escapedUnit.armyAlignment = 0;
+
+      const remainingUnit = new Creature(CreatureType.SWORDSMAN);
+      remainingUnit.position = { x: 6, y: 3 };
+      remainingUnit.armyAlignment = 0;
+
+      const enemy = new Creature(CreatureType.PEASANT);
+      enemy.position = { x: 8, y: 3 };
+      enemy.armyAlignment = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        retreatPoints: {
+          0: [{ x: 0, y: 3 }],
+          1: [{ x: 9, y: 3 }],
+        },
+        creatures: [escapedUnit, remainingUnit, enemy],
+      });
+
+      // Order retreat so escapedUnit reaches the retreat cell while remainingUnit is still on the field
+      battle.orderRetreat(0);
+      expect(battle.routedCreatures).toContain(escapedUnit);
+      expect(battle.creatures).toContain(remainingUnit);
+
+      // Now click Surrender
+      battle.surrender(0);
+
+      expect(battle.isFinished()).toBe(true);
+      const result = battle.getBattleResult();
+      expect(result.victorArmyIndex).toBe(1);
+      expect(result.routedCreatures).toContain(escapedUnit);
+      expect(result.routedCreatures).not.toContain(remainingUnit);
+      expect(result.survivingCreatures.filter((c) => c.armyAlignment === 0)).toHaveLength(0);
+      expect(result.casualties).toContain(remainingUnit);
+    });
+
+    it('retreatActiveCreature moves only the active unit toward a retreat cell for one turn and awaits regular orders next round if not reached', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const unit = new Creature(CreatureType.PEASANT);
+      unit.position = { x: 6, y: 3 };
+      unit.armyAlignment = 0;
+
+      const enemy = new Creature(CreatureType.PEASANT);
+      enemy.position = { x: 8, y: 3 };
+      enemy.armyAlignment = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        retreatPoints: {
+          0: [{ x: 0, y: 3 }],
+          1: [{ x: 9, y: 3 }],
+        },
+        creatures: [unit, enemy],
+      });
+
+      const idx = battle.selectNextUnitAndGetIndex();
+      expect(idx).toBe(0);
+
+      const ok = battle.retreatActiveCreature();
+      expect(ok).toBe(true);
+      const posAfterTurn1 = { ...unit.position };
+      expect(posAfterTurn1.x).toBeLessThan(6);
+      expect(battle.routedCreatures).not.toContain(unit);
+      expect(battle.isRetreatingArmy(0)).toBe(false);
+
+      // Advance to army 1 turn and back to army 0 turn: unit should NOT auto-retreat
+      battle.nextTurn(); // army 1
+      battle.nextTurn(); // army 0 next round
+      expect(unit.position).toEqual(posAfterTurn1);
+      expect(battle.routedCreatures).not.toContain(unit);
+
+      // Unit can be selected for regular orders or have retreat re-issued
+      const idxNextRound = battle.selectNextUnitAndGetIndex();
+      expect(idxNextRound).toBe(0);
+      expect(battle.retreatActiveCreature()).toBe(true);
+      expect(unit.position.x).toBeLessThan(posAfterTurn1.x);
+    });
+  });
 });

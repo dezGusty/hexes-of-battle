@@ -63,7 +63,12 @@ describe('Overview Map Phase 1: Regions, Economy & Campaign Loop', () => {
 
     expect(generated.armies.length).toBe(4);
     for (const army of generated.armies) {
-      expect(army.squads.length).toBe(10);
+      if (army.ownerPlayerId === 'player') {
+        expect(army.squads.length).toBe(6);
+      } else {
+        expect(army.squads.length).toBeGreaterThanOrEqual(5);
+        expect(army.squads.length).toBeLessThanOrEqual(7);
+      }
     }
 
     for (const region of generated.regions) {
@@ -188,13 +193,17 @@ describe('Overview Map Phase 1: Regions, Economy & Campaign Loop', () => {
     expect(player.resources.money).toBeLessThan(moneyBeforeTrade);
     expect(tradeWithMerchant(player, 'iron', 2, 'sell')).toBe(true);
 
-    // Recruitment (reduce a 9-squad army to test adding a 10th squad)
+    // Recruitment (player starts with 6 squads; add 7th and 8th, then verify cap at 8)
     const playerArmy = campaign.armies.find((a) => a.ownerPlayerId === 'player')!;
-    playerArmy.squads.pop();
+    const initialCount = playerArmy.squads.length;
+    expect(initialCount).toBe(6);
     const popBeforeRecruit = playerRegion.population;
     expect(recruitSquad(player, playerRegion, CreatureType.PEASANT, playerArmy)).toBe(true);
-    expect(playerArmy.squads.length).toBe(10);
+    expect(playerArmy.squads.length).toBe(7);
     expect(playerRegion.population).toBe(popBeforeRecruit - 25);
+    expect(recruitSquad(player, playerRegion, CreatureType.PEASANT, playerArmy)).toBe(true);
+    expect(playerArmy.squads.length).toBe(8);
+    expect(recruitSquad(player, playerRegion, CreatureType.PEASANT, playerArmy)).toBe(false);
   });
 
   it('should trigger battle on enemy contact, capture regions on victory, and complete conquer_all campaign', () => {
@@ -472,6 +481,7 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
       playerArmy.coords = { ...passableNeighbor };
       playerArmy.movementPoints = 4;
 
+      const enemySquadsBefore = campaign.getArmyAt(targetCoords)!.squads.length;
       scene.handleMoveArmy(playerArmy.id, targetCoords);
       expect(scene.hud!.battlePromptPanel.isVisible()).toBe(true);
       expect(emittedBattles.length).toBe(i);
@@ -480,7 +490,7 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
       expect(emittedBattles.length).toBe(i + 1);
       expect(emittedBattles[i].replayMode).toBe(false);
       expect(emittedBattles[i].config.creatures.length).toBe(
-        playerArmy.squads.length + 10
+        playerArmy.squads.length + enemySquadsBefore
       );
 
       // Simulate exiting to battle and returning with victorArmyIndex = 0
@@ -1271,8 +1281,8 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
     expect(armyA.coords).toEqual({ x: 3, y: 2 });
     const panel = scene.hud!.armyExchangePanel;
     expect(panel.isVisible()).toBe(true);
-    expect(panel.leftSlots).toHaveLength(10);
-    expect(panel.rightSlots).toHaveLength(10);
+    expect(panel.leftSlots).toHaveLength(8);
+    expect(panel.rightSlots).toHaveLength(8);
 
     // Verify human-readable unit names, vertical healthbars, and portrait textures
     const dummyFaceTex = new Texture();
@@ -1287,8 +1297,8 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
     expect(panel.leftSlots[0].healthBar.visible).toBe(true);
     expect(panel.leftSlots[0].portrait.visible).toBe(true);
     expect(panel.leftSlots[0].portrait.texture).toBe(dummyFaceTex);
-    expect(panel.leftSlots[9].healthBar.visible).toBe(false);
-    expect(panel.leftSlots[9].portrait.visible).toBe(false);
+    expect(panel.leftSlots[7].healthBar.visible).toBe(false);
+    expect(panel.leftSlots[7].portrait.visible).toBe(false);
 
     // Move one squad from left (6 -> 5) to right (6 -> 7) via arrow button
     panel.leftSlots[0].button.container.emit('pointertap', {} as any);
@@ -2117,5 +2127,60 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
     );
 
     expect(isAdjacent(playerArmy.coords, enemyArmy.coords)).toBe(true);
+  });
+
+  it('keeps retreated player units in the army after defeat or surrender, and removes the army if none retreated', () => {
+    const campaign = new OverviewCampaign(createStarterOverviewMap(12345));
+    const playerArmy = campaign.armies.find((a) => a.ownerPlayerId === 'player')!;
+    const enemyArmy = campaign.armies.find((a) => a.ownerPlayerId !== 'player')!;
+    expect(playerArmy).toBeDefined();
+    expect(enemyArmy).toBeDefined();
+
+    const retreatedUnit = new Creature(CreatureType.PEASANT);
+    retreatedUnit.armyAlignment = 0;
+    retreatedUnit.live_stats.remaining_health = retreatedUnit.stats.health;
+
+    const enemySurvivor = new Creature(CreatureType.SWORDSMAN);
+    enemySurvivor.armyAlignment = 1;
+    enemySurvivor.live_stats.remaining_health = enemySurvivor.stats.health;
+
+    campaign.applyBattleResult(
+      {
+        victorArmyIndex: 1,
+        turnsTaken: 3,
+        survivingCreatures: [enemySurvivor],
+        casualties: [],
+        routedCreatures: [retreatedUnit],
+        totalDamageDealt: [10, 20],
+        totalStaminaSpent: [10, 10],
+        moraleBreaks: [0, 0],
+        friendlyFireEvents: 0,
+      },
+      playerArmy.id,
+      enemyArmy.id
+    );
+
+    const updatedPlayerArmy = campaign.getArmyById(playerArmy.id);
+    expect(updatedPlayerArmy).toBeDefined();
+    expect(updatedPlayerArmy!.squads.length).toBe(1);
+    expect(updatedPlayerArmy!.squads[0].creatureType).toBe(CreatureType.PEASANT);
+
+    // If no units retreated or survived on defeat, the army is removed
+    campaign.applyBattleResult(
+      {
+        victorArmyIndex: 1,
+        turnsTaken: 1,
+        survivingCreatures: [enemySurvivor],
+        casualties: [],
+        routedCreatures: [],
+        totalDamageDealt: [0, 20],
+        totalStaminaSpent: [0, 10],
+        moraleBreaks: [0, 0],
+        friendlyFireEvents: 0,
+      },
+      playerArmy.id,
+      enemyArmy.id
+    );
+    expect(campaign.getArmyById(playerArmy.id)).toBeUndefined();
   });
 });

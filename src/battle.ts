@@ -140,6 +140,8 @@ export class Battle {
   public casualties: Creature[] = [];
   public routedCreatures: Creature[] = [];
   public initialCreatures: Creature[] = [];
+  public retreatingArmies: Set<number> = new Set();
+  public forcedVictorArmyIndex: number = -1;
 
   public pathfinding_tiles: number[][] = [];
   public enemy_potential_tiles: number[][] = [];
@@ -320,6 +322,8 @@ export class Battle {
     this.casualties = [];
     this.routedCreatures = [];
     this.initialCreatures = [];
+    this.retreatingArmies.clear();
+    this.forcedVictorArmyIndex = -1;
     this.finished = false;
     this.turnNumber = 0;
     this.currentArmyIndex = 0;
@@ -1124,6 +1128,10 @@ export class Battle {
   }
 
   public checkVictoryConditions(): number {
+    if (this.forcedVictorArmyIndex >= 0) {
+      return this.forcedVictorArmyIndex;
+    }
+
     let army0Alive = false;
     let army1Alive = false;
     for (let i = 0; i < this.creatures.length; i++) {
@@ -1160,6 +1168,8 @@ export class Battle {
       if (
         c.armyAlignment === this.currentArmyIndex &&
         !c.isPanickedOrRouting &&
+        !this.retreatingArmies.has(c.armyAlignment) &&
+        !(c as any).isRetreating &&
         c.exhaustionState !== ExhaustionState.DEPLETED &&
         (c.live_stats.remaining_movement > 0 || c.live_stats.remaining_attacks > 0)
       ) {
@@ -2500,6 +2510,82 @@ export class Battle {
     }
   }
 
+  public isRetreatingArmy(armyIndex: number): boolean {
+    return this.retreatingArmies.has(armyIndex);
+  }
+
+  /**
+   * Orders all units of the given army to begin moving toward their retreat cells.
+   * Units that reach a retreat cell are removed from the battle as retreated.
+   */
+  public orderRetreat(armyIndex: number = 0): void {
+    if (this.finished) return;
+    this.retreatingArmies.add(armyIndex);
+    for (const creature of this.creatures) {
+      if (creature.armyAlignment === armyIndex && creature.isAlive) {
+        (creature as any).isRetreating = true;
+      }
+    }
+
+    if (this.currentArmyIndex === armyIndex) {
+      this.activeCreatureIndex = -1;
+      this.processRoutingRetreatsForCurrentArmy();
+    }
+    this.renderStateChanged = true;
+  }
+
+  /**
+   * Attempts a single-turn retreat for the currently active creature toward its army's retreat cells.
+   * Unlike `orderRetreat`, this does not mark the army or creature as permanently retreating:
+   * if the unit does not reach a retreat cell this turn, it will await regular orders next round.
+   */
+  public retreatActiveCreature(): boolean {
+    if (this.finished) return false;
+    const active = this.getActiveCreature();
+    if (!active || !active.isAlive) return false;
+    if (active.armyAlignment !== this.currentArmyIndex) return false;
+    if (active.stats.stamina <= 0 || active.exhaustionState === ExhaustionState.DEPLETED) {
+      return false;
+    }
+
+    const retreatPoints = this.getRetreatPoints(active.armyAlignment);
+    if (!retreatPoints || retreatPoints.length === 0) return false;
+
+    const alreadyAtRetreat = retreatPoints.some(
+      (p) => p.x === active.position.x && p.y === active.position.y
+    );
+    if (!alreadyAtRetreat && active.live_stats.remaining_movement <= 0) {
+      return false;
+    }
+
+    this.retreatRoutingCreature(active);
+    this.renderStateChanged = true;
+    return true;
+  }
+
+  /**
+   * Immediately surrenders the battle for the given army.
+   * Only units that already retreated before surrender remain in routedCreatures;
+   * all remaining units on the field for the surrendering army are lost.
+   */
+  public surrender(armyIndex: number = 0): void {
+    if (this.finished) return;
+    const opponentArmyIndex = armyIndex === 0 ? 1 : 0;
+
+    for (let i = this.creatures.length - 1; i >= 0; i--) {
+      const creature = this.creatures[i];
+      if (creature.armyAlignment === armyIndex) {
+        this.creatures.splice(i, 1);
+        this.casualties.push(creature);
+      }
+    }
+
+    this.forcedVictorArmyIndex = opponentArmyIndex;
+    this.activeCreatureIndex = -1;
+    this.renderStateChanged = true;
+    this.checkVictoryConditionsAndState();
+  }
+
   public processRoutingRetreatsForCurrentArmy(): void {
     if (this.finished) return;
 
@@ -2508,7 +2594,11 @@ export class Battle {
       const creature = this.creatures[i];
       if (!creature.isAlive) continue;
       if (creature.armyAlignment !== this.currentArmyIndex) continue;
-      if (creature.moraleState !== MoraleState.ROUTING) continue;
+      const isRetreating =
+        creature.moraleState === MoraleState.ROUTING ||
+        this.retreatingArmies.has(creature.armyAlignment) ||
+        Boolean((creature as any).isRetreating);
+      if (!isRetreating) continue;
 
       this.retreatRoutingCreature(creature);
       if (this.finished) break;

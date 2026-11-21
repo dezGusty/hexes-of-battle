@@ -133,7 +133,7 @@ export class OverviewArmyExchangePanel {
     this.subtitleText.position.set(PANEL_X + PANEL_W / 2, PANEL_Y + 54);
 
     this.leftHeaderText = new Text({
-      text: 'Army A (0 / 10)',
+      text: `Army A (0 / ${MAX_SQUADS_PER_ARMY})`,
       style: {
         fill: '#90c7ff',
         fontSize: 17,
@@ -143,7 +143,7 @@ export class OverviewArmyExchangePanel {
     this.leftHeaderText.position.set(LEFT_COL_X, PANEL_Y + 84);
 
     this.rightHeaderText = new Text({
-      text: 'Army B (0 / 10)',
+      text: `Army B (0 / ${MAX_SQUADS_PER_ARMY})`,
       style: {
         fill: '#90c7ff',
         fontSize: 17,

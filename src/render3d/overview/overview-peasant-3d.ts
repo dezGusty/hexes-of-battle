@@ -20,6 +20,7 @@ interface CachedPeasantGlb {
 
 let cachedPeasantGlb: CachedPeasantGlb | null = null;
 let peasantGlbPromise: Promise<CachedPeasantGlb | null> | null = null;
+const sharedOverviewPeasantMaterialCache = new WeakMap<THREE.Material, THREE.MeshStandardMaterial>();
 
 function nextRand(state: number): { value: number; next: number } {
   const next = (Math.imul(state >>> 0, 1664525) + 1013904223) >>> 0;
@@ -84,14 +85,19 @@ function populateGroupFromGlb(group: THREE.Group, template: CachedPeasantGlb, se
       mesh.receiveShadow = false;
       if (mesh.material) {
         const origMats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-        const clonedMats = origMats.map((origMat) => {
-          const matClone = origMat.clone() as THREE.MeshStandardMaterial;
-          matClone.transparent = false;
-          matClone.opacity = 1.0;
-          applyUnitRimLighting(matClone);
-          return matClone;
+        const sharedMats = origMats.map((origMat) => {
+          let cachedMat = sharedOverviewPeasantMaterialCache.get(origMat);
+          if (!cachedMat) {
+            cachedMat = origMat.clone() as THREE.MeshStandardMaterial;
+            cachedMat.transparent = false;
+            cachedMat.opacity = 1.0;
+            cachedMat.userData = { ...cachedMat.userData, isSharedAsset: true };
+            applyUnitRimLighting(cachedMat);
+            sharedOverviewPeasantMaterialCache.set(origMat, cachedMat);
+          }
+          return cachedMat;
         });
-        mesh.material = Array.isArray(mesh.material) ? clonedMats : clonedMats[0];
+        mesh.material = Array.isArray(mesh.material) ? sharedMats : sharedMats[0];
       }
     }
   });

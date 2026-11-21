@@ -21,6 +21,7 @@ import {
 export interface UnitAssetCatalog {
   unitsImage?: HTMLImageElement;
   spriteFrames?: Record<string, { frame: { x: number; y: number; w: number; h: number } }>;
+  getArmyBanner?: (armyIndex: number) => string;
 }
 
 export class UnitVisualFactory {
@@ -199,8 +200,11 @@ export class UnitVisualFactory {
     if (isUnit3DModelSupported(creature.creatureType)) {
       const unitKey = normalizeUnitKey(creature.creatureType);
       const glbTemplate = this.glbTemplates.get(unitKey);
+      const bannerName =
+        this.catalog.getArmyBanner?.(creature.armyAlignment) ??
+        (creature.armyAlignment === 0 ? 'banner1.png' : 'banner2.png');
       const articulatedModel = glbTemplate
-        ? instantiateGlbUnitTemplate(glbTemplate, unitKey, creature.armyAlignment, isHero)
+        ? instantiateGlbUnitTemplate(glbTemplate, unitKey, creature.armyAlignment, isHero, bannerName)
         : buildArticulatedUnit3DMesh(creature.creatureType, creature.armyAlignment, isHero);
 
       return new MeshRigidVisual({

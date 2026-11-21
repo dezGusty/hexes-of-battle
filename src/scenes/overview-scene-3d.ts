@@ -223,11 +223,13 @@ export class OverviewScene3D implements Scene {
       ? this.campaign.getRegionById(this.pendingEngagement.targetRegionId)
       : undefined;
 
+    const mapSize = this.context.settings?.getBattleMapDimensions?.() ?? { mapWidth: 10, mapHeight: 7 };
     const config = this.campaign.buildBattleConfigForEngagement(
       attacker,
       defender,
       targetRegion,
-      this.creatureRepository
+      this.creatureRepository,
+      mapSize
     );
     config.seed = this.pendingEngagement.seed;
     return config;

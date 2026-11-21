@@ -24,6 +24,7 @@ export class MeshRigidVisual implements IUnitVisual {
   private animDuration: number = 0;
   public animOffsetMs: number = 0;
   private baseScale: number = 0.7;
+  private deathTimeScale: number = 1;
 
   // Articulated sub-part references (populated if present on 3D unit mesh)
   private headPart: THREE.Object3D | null = null;
@@ -72,6 +73,7 @@ export class MeshRigidVisual implements IUnitVisual {
     const idleClip = findClip('idle_stance', /idle/i);
     const walkClip = findClip('combat_move_advance', /move|walk|advance/i);
     const attackClip = findClip('combat_attack_poke', /attack|poke/i);
+    const deathClip = findClip('death', /death|die/i);
 
     if (idleClip) {
       const action = mixer.clipAction(idleClip);
@@ -90,6 +92,12 @@ export class MeshRigidVisual implements IUnitVisual {
       action.clampWhenFinished = true;
       this.glbActions.attack_melee = action;
     }
+    if (deathClip) {
+      const action = mixer.clipAction(deathClip);
+      action.setLoop(THREE.LoopOnce, 1);
+      action.clampWhenFinished = true;
+      this.glbActions.die = action;
+    }
   }
 
   public hasMoveAnimation(): boolean {
@@ -105,6 +113,28 @@ export class MeshRigidVisual implements IUnitVisual {
     if (this.glbActions.walk) {
       this.glbActions.walk.setEffectiveTimeScale(this.moveTimeScale);
     }
+  }
+
+  public hasDeathAnimation(): boolean {
+    return Boolean(this.glbActions.die);
+  }
+
+  public getDeathAnimationDurationSec(): number {
+    return this.glbActions.die?.getClip().duration ?? 0;
+  }
+
+  public setDeathAnimationTimeScale(timeScale: number): void {
+    this.deathTimeScale = Math.max(0.01, timeScale);
+    if (this.glbActions.die) {
+      this.glbActions.die.setEffectiveTimeScale(this.deathTimeScale);
+    }
+  }
+
+  public isDeathAnimationFinished(): boolean {
+    if (!this.glbActions.die) return true;
+    if (this.animState !== 'die') return false;
+    const durMs = (this.getDeathAnimationDurationSec() * 1000) / Math.max(0.01, this.deathTimeScale);
+    return durMs <= 0 || this.animTimer >= durMs;
   }
 
   public setAnimOffsetMs(offsetMs: number): void {
@@ -224,7 +254,7 @@ export class MeshRigidVisual implements IUnitVisual {
 
     if (this.glbMixer) {
       const next = this.glbActions[state] ?? this.glbActions.idle;
-      const scale = state === 'walk' ? this.moveTimeScale : 1;
+      const scale = state === 'walk' ? this.moveTimeScale : state === 'die' ? this.deathTimeScale : 1;
       if (next && next !== this.activeGlbAction) {
         next.reset().setEffectiveTimeScale(scale).setEffectiveWeight(1).play();
         if (this.activeGlbAction) {
@@ -287,6 +317,7 @@ export class MeshRigidVisual implements IUnitVisual {
       if (
         this.animState !== 'idle' &&
         this.animState !== 'walk' &&
+        this.animState !== 'die' &&
         this.animDuration > 0 &&
         this.animTimer >= this.animDuration
       ) {

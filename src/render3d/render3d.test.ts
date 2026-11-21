@@ -4986,7 +4986,12 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       ];
 
       const peasantMesh = instantiateGlbUnitTemplate(scene, 'peasant', 0, false);
+      const peasantMesh2 = instantiateGlbUnitTemplate(scene, 'peasant', 0, false);
       expect(peasantMesh.rotation.y).toBeCloseTo(Math.PI / 2, 4);
+      const mat1 = (peasantMesh.children[0] as THREE.Mesh).material as THREE.MeshStandardMaterial;
+      const mat2 = (peasantMesh2.children[0] as THREE.Mesh).material as THREE.MeshStandardMaterial;
+      expect(mat1).toBe(mat2);
+      expect(mat1.userData.isSharedAsset).toBe(true);
 
       const peasantVisual = new MeshRigidVisual({
         meshOrGroup: peasantMesh,
@@ -5002,8 +5007,21 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(peasantSquad.moveCyclesPerHex).toBe(2);
       // 1 hex = 2.0 world units; moveSpeed = 5.0 -> travelTimeSec = 0.4s -> 2 * 0.8 / 0.4 = 4.0x
       peasantSquad.rootGroup.position.set(0, 0, 0);
-      peasantSquad.moveToPath([new THREE.Vector3(2.0, 0, 0)]);
+      peasantSquad.enqueueMoveStep(new THREE.Vector3(2.0, 0, 0));
       expect(spyTimeScale).toHaveBeenCalledWith(4.0);
+      // Enqueue a second step South (0, 0, 2) while moving East: must follow hex-by-hex path and orient per segment
+      peasantSquad.enqueueMoveStep(new THREE.Vector3(2.0, 0, 2.0));
+      const dummyCam = new THREE.PerspectiveCamera();
+      peasantSquad.update(100, dummyCam);
+      expect(peasantSquad.rootGroup.position.x).toBeCloseTo(0.5, 4);
+      expect(peasantSquad.rootGroup.position.z).toBeCloseTo(0, 4);
+      expect(peasantVisual.object3D.rotation.y).toBeCloseTo(0, 4);
+      // Advance past first hex waypoint (2, 0, 0) onto the South segment
+      peasantSquad.update(350, dummyCam);
+      peasantSquad.update(100, dummyCam);
+      expect(peasantSquad.rootGroup.position.x).toBeCloseTo(2.0, 4);
+      expect(peasantSquad.rootGroup.position.z).toBeGreaterThan(0);
+      expect(peasantVisual.object3D.rotation.y).toBeCloseTo(-Math.PI / 2, 4);
 
       // Unit without a skeletal move animation clip falls back to teleporting
       const staticMesh = new THREE.Mesh(
@@ -5022,6 +5040,149 @@ describe('3D Graphics Engine & Rendering Systems', () => {
 
       peasantSquad.dispose();
       swordsmanSquad.dispose();
+    });
+
+    it('should play generalized death animations for the exact count of dying units and keep corpses when showDeadUnits is enabled', async () => {
+      const { SquadVisual3D } = await import('./units/squad-visual-3d');
+      const { getUnitDeathSpeedMultiplier } = await import('./units/unit-mesh-builder');
+      const makeRiggedMesh = (withDeath: boolean) => {
+        const mesh = new THREE.Mesh(
+          new THREE.BoxGeometry(0.3, 0.8, 0.3),
+          new THREE.MeshStandardMaterial({ color: 0x887766 })
+        );
+        const clips = [new THREE.AnimationClip('idle_stance', 1.0, [])];
+        if (withDeath) {
+          clips.push(new THREE.AnimationClip('death', 0.6, []));
+        }
+        mesh.userData.glbMixer = new THREE.AnimationMixer(mesh);
+        mesh.userData.glbAnimations = clips;
+        return mesh;
+      };
+
+      const peasant = new Creature(CreatureType.PEASANT);
+      const modelCount = 4;
+      peasant.stats.model_count = modelCount;
+      peasant.stats.model_hp = 10;
+      peasant.stats.health = 40;
+      peasant.stats.remaining_health = 40;
+
+      const visuals = Array.from({ length: modelCount }, () =>
+        new MeshRigidVisual({
+          meshOrGroup: makeRiggedMesh(true),
+          scale: 0.525,
+          initialFacing: HexDirection.EAST,
+        })
+      );
+      expect(visuals[0].hasDeathAnimation()).toBe(true);
+      expect(visuals[0].getDeathAnimationDurationSec()).toBeCloseTo(0.6, 4);
+
+      const staticVisual = new MeshRigidVisual({
+        meshOrGroup: makeRiggedMesh(false),
+        scale: 0.525,
+        initialFacing: HexDirection.EAST,
+      });
+      expect(staticVisual.hasDeathAnimation()).toBe(false);
+      staticVisual.dispose();
+
+      const playSpies = visuals.map((v) => vi.spyOn(v, 'playAnimation'));
+      const squad = new SquadVisual3D(peasant, visuals);
+      expect(squad.deathSpeedMultiplier).toBe(getUnitDeathSpeedMultiplier(CreatureType.PEASANT));
+      const corpsesGroup = new THREE.Group();
+      squad.rootGroup.position.set(4.5, 0, -2.5);
+      const readyCorpses: any[] = [];
+      squad.setShowDeadUnits(true);
+      squad.setOnCorpseReady((m: any) => {
+        corpsesGroup.updateMatrixWorld(true);
+        m.object3D.updateWorldMatrix(true, false);
+        corpsesGroup.attach(m.object3D);
+        readyCorpses.push(m);
+      });
+
+      // Kill 2 of the 4 models (hp 40 -> 20)
+      peasant.stats.remaining_health = 20;
+      squad.updateStats(false);
+
+      // Exactly 2 models (indices 2 and 3) should play the death animation
+      expect(playSpies[0]).not.toHaveBeenCalledWith('die');
+      expect(playSpies[1]).not.toHaveBeenCalledWith('die');
+      expect(playSpies[2]).toHaveBeenCalledWith('die');
+      expect(playSpies[3]).toHaveBeenCalledWith('die');
+      expect(squad.hasActiveDeathAnimations()).toBe(true);
+
+      // With peasant deathSpeedMultiplier = 2, 0.6s clip finishes in 300ms (350ms > 300ms)
+      const dummyCam = new THREE.PerspectiveCamera();
+      squad.update(350, dummyCam);
+      expect(squad.hasActiveDeathAnimations()).toBe(false);
+      expect(readyCorpses.length).toBe(2);
+      expect(visuals[2].object3D.visible).toBe(true);
+      expect(visuals[3].object3D.visible).toBe(true);
+      // Corpse must stay at the squad's world coordinates, not cluster at (0, 0, 0),
+      // even after the surviving squad moves and changes facing
+      squad.rootGroup.position.set(1.0, 0, 1.0);
+      squad.setFacing(HexDirection.WEST);
+      expect(visuals[2].object3D.position.x).toBeCloseTo(4.5, 0);
+      expect(visuals[2].object3D.position.z).toBeCloseTo(-2.5, 0);
+
+      // Verify BattleSettings default and BattleMenuPanel toggle
+      const settings = new BattleSettings();
+      expect(settings.showDeadUnits).toBe(false);
+      expect(settings.corpseDurationSec).toBe(10);
+      settings.setCorpseDurationSec(25);
+      expect(settings.corpseDurationSec).toBe(25);
+
+      squad.dispose();
+    });
+
+    it('should apply per-army team color and banner UV transform uniforms on single-material rigged GLB meshes', async () => {
+      const { instantiateGlbUnitTemplate, getTeamColorHex } = await import('./units/unit-mesh-builder');
+      const { getBannerAtlasUvTransform } = await import('./decorations/retreat-flag-3d');
+
+      const makeTemplate = () => {
+        const scene = new THREE.Group();
+        const rootBone = new THREE.Bone();
+        const skeleton = new THREE.Skeleton([rootBone]);
+        const geo = new THREE.BoxGeometry(0.2, 0.4, 0.2);
+        const vertCount = geo.attributes.position.count;
+        geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(vertCount * 4).fill(1), 4));
+        geo.setAttribute('uv1', new THREE.BufferAttribute(new Float32Array(vertCount * 2).fill(0.5), 2));
+        const mat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+        const skinned = new THREE.SkinnedMesh(geo, mat);
+        skinned.add(rootBone);
+        skinned.bind(skeleton);
+        scene.add(skinned);
+        return scene;
+      };
+
+      const tpl = makeTemplate();
+      const p0a = instantiateGlbUnitTemplate(tpl, 'peasant', 0, false, 'banner3.png');
+      const p0b = instantiateGlbUnitTemplate(tpl, 'peasant', 0, false, 'banner3.png');
+      const p1 = instantiateGlbUnitTemplate(tpl, 'peasant', 1, false, 'banner7.png');
+
+      let mat0a: THREE.MeshStandardMaterial | null = null;
+      let mat0b: THREE.MeshStandardMaterial | null = null;
+      let mat1: THREE.MeshStandardMaterial | null = null;
+      p0a.traverse((n) => { if ((n as THREE.Mesh).isMesh) mat0a = (n as THREE.Mesh).material as THREE.MeshStandardMaterial; });
+      p0b.traverse((n) => { if ((n as THREE.Mesh).isMesh) mat0b = (n as THREE.Mesh).material as THREE.MeshStandardMaterial; });
+      p1.traverse((n) => { if ((n as THREE.Mesh).isMesh) mat1 = (n as THREE.Mesh).material as THREE.MeshStandardMaterial; });
+
+      expect(mat0a).not.toBeNull();
+      // Same army & banner shares the exact same material instance
+      expect(mat0a).toBe(mat0b);
+      // Different army/banner gets its own shared material instance
+      expect(mat0a).not.toBe(mat1);
+      expect(mat0a!.vertexColors).toBe(false);
+
+      const u0 = mat0a!.userData.teamBannerUniforms;
+      const u1 = mat1!.userData.teamBannerUniforms;
+      expect(u0.uTeamColor.value.getHex()).toBe(getTeamColorHex(0, false));
+      expect(u1.uTeamColor.value.getHex()).toBe(getTeamColorHex(1, false));
+
+      const expectedUv0 = getBannerAtlasUvTransform('banner3.png');
+      const expectedUv1 = getBannerAtlasUvTransform('banner7.png');
+      expect(u0.uBannerUvTransform.value.x).toBeCloseTo(expectedUv0.repeatX, 5);
+      expect(u0.uBannerUvTransform.value.z).toBeCloseTo(expectedUv0.offsetX, 5);
+      expect(u1.uBannerUvTransform.value.x).toBeCloseTo(expectedUv1.repeatX, 5);
+      expect(u1.uBannerUvTransform.value.z).toBeCloseTo(expectedUv1.offsetX, 5);
     });
   });
 });

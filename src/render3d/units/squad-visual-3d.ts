@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Creature } from '../../battle/creature';
 import { HexDirection } from '../../shared/hex-map';
 import { IUnitVisual } from './unit-visual-interface';
-import { getUnitMoveCyclesPerHex } from './unit-mesh-builder';
+import { getUnitDeathSpeedMultiplier, getUnitMoveCyclesPerHex } from './unit-mesh-builder';
 import { UnitAnimationState } from '../types';
 import { MoraleState } from '../../battle/combat-rules';
 import { DamageIndicatorType, createDamageIndicatorCanvas } from '../../ui/indicator-icon-utils';
@@ -81,12 +81,22 @@ export class SquadVisual3D {
   private moveTargetIndex: number = 0;
   private moveSpeed: number = 5.0; // units per second
   public moveCyclesPerHex: number = 1;
+  public deathSpeedMultiplier: number = 1;
   private onMoveComplete?: () => void;
+
+  // Death animation & corpse state
+  private dyingModelIndices: Set<number> = new Set();
+  private finishedDeathIndices: Set<number> = new Set();
+  private detachedCorpseIndices: Set<number> = new Set();
+  private showDeadUnits: boolean = false;
+  private onCorpseReadyCallback?: (model: IUnitVisual) => void;
 
   constructor(creature: Creature, modelVisuals: IUnitVisual[]) {
     this.creature = creature;
     this.models = modelVisuals;
     this.moveCyclesPerHex = getUnitMoveCyclesPerHex(creature.creatureType);
+    this.deathSpeedMultiplier = getUnitDeathSpeedMultiplier(creature.creatureType);
+    this.models.forEach((m) => m.setDeathAnimationTimeScale?.(this.deathSpeedMultiplier));
     this.maxCount = Math.max(1, creature.stats.model_count);
     this.aliveCount = creature.aliveModelCount;
     this.currentFacing =
@@ -254,6 +264,7 @@ export class SquadVisual3D {
 
   private applyFormationOffsets(): void {
     this.models.forEach((model, index) => {
+      if (this.detachedCorpseIndices.has(index) || this.dyingModelIndices.has(index)) return;
       const offset = this.modelOffsets[index];
       if (offset) {
         model.object3D.position.copy(offset);
@@ -365,7 +376,31 @@ export class SquadVisual3D {
   }
 
   public get hasActiveEffects(): boolean {
-    return this.floatingTexts.length > 0;
+    return this.floatingTexts.length > 0 || this.dyingModelIndices.size > 0;
+  }
+
+  public hasActiveDeathAnimations(): boolean {
+    return this.dyingModelIndices.size > 0;
+  }
+
+  public setShowDeadUnits(enabled: boolean): void {
+    this.showDeadUnits = enabled;
+    this.models.forEach((model, idx) => {
+      if (this.detachedCorpseIndices.has(idx)) return;
+      if (idx >= this.aliveCount && !this.dyingModelIndices.has(idx)) {
+        if (enabled && this.finishedDeathIndices.has(idx) && !(this.creature as any).hasRetreated) {
+          model.object3D.visible = true;
+          model.setCasualtyFade(1.0);
+        } else {
+          model.object3D.visible = false;
+          model.setCasualtyFade(0.0);
+        }
+      }
+    });
+  }
+
+  public setOnCorpseReady(cb?: (model: IUnitVisual) => void): void {
+    this.onCorpseReadyCallback = cb;
   }
 
   public setOverheadStatusVisible(visible: boolean): void {
@@ -410,9 +445,23 @@ export class SquadVisual3D {
 
     if (isDead) {
       this.overheadGroup.visible = false;
-      this.models.forEach((model) => {
-        model.object3D.visible = false;
-        model.setCasualtyFade(0.0);
+      const hasRetreated = (this.creature as any).hasRetreated === true;
+      this.models.forEach((model, idx) => {
+        if (this.detachedCorpseIndices.has(idx)) return;
+        if (!hasRetreated && idx < prevAlive && model.hasDeathAnimation?.()) {
+          model.object3D.visible = true;
+          model.setCasualtyFade(1.0);
+          model.playAnimation('die');
+          this.dyingModelIndices.add(idx);
+        } else if (!this.dyingModelIndices.has(idx)) {
+          if (!hasRetreated && this.showDeadUnits && this.finishedDeathIndices.has(idx)) {
+            model.object3D.visible = true;
+            model.setCasualtyFade(1.0);
+          } else {
+            model.object3D.visible = false;
+            model.setCasualtyFade(0.0);
+          }
+        }
       });
       return;
     }
@@ -437,14 +486,25 @@ export class SquadVisual3D {
     else if (hpRatio < 0.5) hpMat.color.setHex(0xddaa22);
     else hpMat.color.setHex(0x22cc44);
 
-    // Hide casualty models in the squad
+    // Hide casualty models in the squad (or play death animation if supported)
     this.models.forEach((model, idx) => {
+      if (this.detachedCorpseIndices.has(idx)) return;
       if (idx < this.aliveCount) {
         model.object3D.visible = true;
         model.setCasualtyFade(1.0);
-      } else {
-        model.object3D.visible = false;
-        model.setCasualtyFade(0.0);
+      } else if (idx < prevAlive && model.hasDeathAnimation?.()) {
+        model.object3D.visible = true;
+        model.setCasualtyFade(1.0);
+        model.playAnimation('die');
+        this.dyingModelIndices.add(idx);
+      } else if (!this.dyingModelIndices.has(idx)) {
+        if (this.showDeadUnits && this.finishedDeathIndices.has(idx)) {
+          model.object3D.visible = true;
+          model.setCasualtyFade(1.0);
+        } else {
+          model.object3D.visible = false;
+          model.setCasualtyFade(0.0);
+        }
       }
     });
 
@@ -508,13 +568,21 @@ export class SquadVisual3D {
     this.currentFacing = effectiveDir;
     this.calculateFormationOffsets(effectiveDir);
     this.applyFormationOffsets();
-    this.models.forEach((m) => m.setFacing(effectiveDir));
+    this.models.forEach((m, index) => {
+      if (!this.detachedCorpseIndices.has(index) && !this.dyingModelIndices.has(index)) {
+        m.setFacing(effectiveDir);
+      }
+    });
   }
 
   public playAnimation(state: UnitAnimationState, durationMs: number = 500): void {
     if (this.isEliminated) return;
     this.models.forEach((m, idx) => {
-      if (idx < this.aliveCount) {
+      if (
+        idx < this.aliveCount &&
+        !this.detachedCorpseIndices.has(idx) &&
+        !this.dyingModelIndices.has(idx)
+      ) {
         m.playAnimation(state, durationMs);
       }
     });
@@ -568,26 +636,33 @@ export class SquadVisual3D {
     return this.movePath[this.movePath.length - 1];
   }
 
-  public moveToPath(
-    pathWorldPositions: THREE.Vector3[],
-    onComplete?: () => void,
-    moveCyclesPerHexOverride?: number
-  ): void {
-    if (pathWorldPositions.length === 0) return;
-    this.movePath = pathWorldPositions;
-    this.moveTargetIndex = 0;
-    this.isMoving = true;
-    this.onMoveComplete = onComplete;
+  public enqueueMoveStep(worldPos: THREE.Vector3): void {
+    if (!this.isMoving || this.movePath.length === 0) {
+      if (this.rootGroup.position.distanceToSquared(worldPos) > 1e-4) {
+        this.moveToPath([worldPos]);
+      }
+      return;
+    }
+    const last = this.movePath[this.movePath.length - 1];
+    if (last.distanceToSquared(worldPos) <= 1e-4) {
+      return;
+    }
+    this.movePath.push(worldPos.clone());
+    this.updateWalkTimeScaleForRemainingPath();
+  }
 
+  private updateWalkTimeScaleForRemainingPath(moveCyclesPerHexOverride?: number): void {
     let totalDist = 0;
     let prev = this.rootGroup.position;
-    for (const pt of pathWorldPositions) {
-      totalDist += prev.distanceTo(pt);
-      prev = pt;
+    let remainingSteps = 0;
+    for (let i = this.moveTargetIndex; i < this.movePath.length; i++) {
+      totalDist += prev.distanceTo(this.movePath[i]);
+      prev = this.movePath[i];
+      remainingSteps++;
     }
     const travelTimeSec = totalDist / Math.max(0.01, this.moveSpeed);
     const cyclesPerHex = moveCyclesPerHexOverride ?? this.moveCyclesPerHex;
-    const totalCycles = cyclesPerHex * Math.max(1, pathWorldPositions.length);
+    const totalCycles = cyclesPerHex * Math.max(1, remainingSteps);
 
     if (travelTimeSec > 0) {
       this.models.forEach((m) => {
@@ -597,17 +672,64 @@ export class SquadVisual3D {
         }
       });
     }
+  }
 
+  public moveToPath(
+    pathWorldPositions: THREE.Vector3[],
+    onComplete?: () => void,
+    moveCyclesPerHexOverride?: number
+  ): void {
+    if (pathWorldPositions.length === 0) return;
+    this.movePath = pathWorldPositions.map((p) => p.clone());
+    this.moveTargetIndex = 0;
+    this.isMoving = true;
+    this.onMoveComplete = onComplete;
+
+    this.updateWalkTimeScaleForRemainingPath(moveCyclesPerHexOverride);
     this.playAnimation('walk');
   }
 
   public update(deltaMs: number, camera: THREE.Camera): void {
     if (!this.isEliminated) {
-      // Update individual models
-      this.models.forEach((m) => m.update(deltaMs));
+      // Update individual models (skipping detached corpses)
+      this.models.forEach((m, idx) => {
+        if (!this.detachedCorpseIndices.has(idx)) {
+          m.update(deltaMs);
+        }
+      });
 
       // Make overhead bars face camera (billboard effect)
       this.overheadGroup.quaternion.copy(camera.quaternion);
+    } else if (this.dyingModelIndices.size > 0) {
+      // Continue advancing active death animations even after squad elimination
+      this.dyingModelIndices.forEach((idx) => {
+        if (!this.detachedCorpseIndices.has(idx)) {
+          this.models[idx]?.update(deltaMs);
+        }
+      });
+    }
+
+    // Check if any dying models finished their death animation
+    if (this.dyingModelIndices.size > 0) {
+      for (const idx of Array.from(this.dyingModelIndices)) {
+        const model = this.models[idx];
+        if (!model || model.isDeathAnimationFinished?.()) {
+          this.dyingModelIndices.delete(idx);
+          this.finishedDeathIndices.add(idx);
+          if (model && !this.detachedCorpseIndices.has(idx)) {
+            if (this.onCorpseReadyCallback) {
+              this.detachedCorpseIndices.add(idx);
+              this.onCorpseReadyCallback(model);
+            } else if (this.showDeadUnits) {
+              model.object3D.visible = true;
+              model.setCasualtyFade(1.0);
+            } else {
+              model.object3D.visible = false;
+              model.setCasualtyFade(0.0);
+            }
+          }
+        }
+      }
     }
 
     // Process floating combat texts
@@ -641,18 +763,27 @@ export class SquadVisual3D {
         if (this.moveTargetIndex >= this.movePath.length) {
           this.isMoving = false;
           this.models.forEach((m) => m.setMoveAnimationTimeScale?.(1));
+          this.setFacing(this.creature.facingDirection !== HexDirection.NONE ? this.creature.facingDirection : this.currentFacing);
           this.playAnimation('idle');
           if (this.onMoveComplete) this.onMoveComplete();
         }
       } else {
         const dir = new THREE.Vector3().subVectors(target, this.rootGroup.position).normalize();
+        const yaw = Math.atan2(-dir.z, dir.x);
+        this.models.forEach((m) => {
+          m.object3D.rotation.y = yaw;
+        });
         this.rootGroup.position.addScaledVector(dir, step);
       }
     }
   }
 
   public dispose(): void {
-    this.models.forEach((m) => m.dispose());
+    this.models.forEach((m, idx) => {
+      if (!this.detachedCorpseIndices.has(idx)) {
+        m.dispose();
+      }
+    });
     this.floatingTexts.forEach((ft) => {
       this.rootGroup.remove(ft.sprite);
       if (ft.sprite.material.map) {

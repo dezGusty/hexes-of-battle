@@ -452,15 +452,22 @@ export class OverviewCampaign {
     attacker: OverviewArmy,
     defender: OverviewArmy,
     targetRegion: RegionState | undefined,
-    creatureRepository: CreatureRepository
+    creatureRepository: CreatureRepository,
+    mapSize: { mapWidth: number; mapHeight: number } = { mapWidth: 10, mapHeight: 7 }
   ): BattleConfig {
+    const mapWidth = mapSize.mapWidth;
+    const mapHeight = mapSize.mapHeight;
+    const rows = Math.max(1, mapHeight - 2);
     const creatures: Creature[] = [];
 
     attacker.squads.forEach((sq, idx) => {
       const c = creatureRepository.createCreature(sq.creatureType);
       c.armyAlignment = 0;
       c.facingDirection = HexDirection.EAST;
-      c.position = { x: 1 + Math.floor(idx / 5), y: 1 + (idx % 5) };
+      c.position = {
+        x: Math.min(mapWidth - 1, 1 + Math.floor(idx / rows)),
+        y: Math.min(mapHeight - 1, 1 + (idx % rows)),
+      };
       creatures.push(c);
     });
 
@@ -468,7 +475,10 @@ export class OverviewCampaign {
       const c = creatureRepository.createCreature(sq.creatureType);
       c.armyAlignment = 1;
       c.facingDirection = HexDirection.WEST;
-      c.position = { x: 10 - Math.floor(idx / 5), y: 1 + (idx % 5) };
+      c.position = {
+        x: Math.max(0, mapWidth - 3 - Math.floor(idx / rows)),
+        y: Math.min(mapHeight - 1, 1 + (idx % rows)),
+      };
       creatures.push(c);
     });
 
@@ -480,8 +490,8 @@ export class OverviewCampaign {
           : 'farm';
 
     return {
-      mapWidth: 13,
-      mapHeight: 9,
+      mapWidth,
+      mapHeight,
       creatures,
       armyControl: [ArmyControlType.PLAYER, ArmyControlType.AI],
       aiPersonality: CPUPersonalityType.AGGRESSIVE,
@@ -500,7 +510,7 @@ export class OverviewCampaign {
     if (!attacker || !defender) return;
 
     const toSquads = (armyIndex: number) =>
-      result.survivingCreatures
+      [...result.survivingCreatures, ...result.routedCreatures]
         .filter((c) => c.armyAlignment === armyIndex && c.live_stats.remaining_health > 0)
         .map((c) => ({
           creatureType: c.creatureType,
@@ -530,7 +540,12 @@ export class OverviewCampaign {
       }
     } else if (result.victorArmyIndex === 1) {
       defender.squads = toSquads(1);
-      this.armies = this.armies.filter((a) => a.id !== attacker.id);
+      const attackerRetreatedSquads = toSquads(0);
+      if (attackerRetreatedSquads.length > 0) {
+        attacker.squads = attackerRetreatedSquads;
+      } else {
+        this.armies = this.armies.filter((a) => a.id !== attacker.id);
+      }
     } else {
       // Draw: both sides keep surviving squads in place
       attacker.squads = toSquads(0);

@@ -223,16 +223,20 @@ export class CPUPersonalityDropdown extends Container {
  */
 export class CommonControls {
   public static readonly DEFAULT_PANEL_ORIGIN = { x: 40, y: 936 };
+  public static readonly UNIT_RETREAT_LOCAL_OFFSET = { x: 1380, y: 30 };
   public static readonly REST_LOCAL_OFFSET = { x: 1520, y: 30 };
   public static readonly NEXT_UNIT_LOCAL_OFFSET = { x: 1520, y: 82 };
   public static readonly END_TURN_LOCAL_OFFSET = { x: 1662, y: 26 };
 
   public static readonly COMMON_ACTIONS_STAGE_ORIGIN = { x: 1560, y: 962 };
+  public static readonly UNIT_RETREAT_BUTTON_BOUNDS = { x: 1420, y: 966, width: 132, height: 46 };
   public static readonly REST_BUTTON_BOUNDS = { x: 1560, y: 966, width: 132, height: 46 };
   public static readonly NEXT_UNIT_BUTTON_BOUNDS = { x: 1560, y: 1018, width: 132, height: 46 };
   public static readonly END_TURN_BUTTON_BOUNDS = { x: 1702, y: 962, width: 160, height: 104 };
   public static readonly AUTO_BATTLE_BUTTON_BOUNDS = { x: 4, y: 58, width: 130, height: 40 };
   public static readonly AUTO_BATTLE_DROPDOWN_BOUNDS = { x: 140, y: 58, width: 140, height: 40 };
+  public static readonly RETREAT_BUTTON_BOUNDS = { x: 286, y: 58, width: 110, height: 40 };
+  public static readonly SURRENDER_BUTTON_BOUNDS = { x: 402, y: 58, width: 120, height: 40 };
   public static readonly EXIT_REPLAY_BUTTON_BOUNDS = { x: 4, y: 58, width: 150, height: 40 };
 
   private panelOrigin: { x: number; y: number } = { ...CommonControls.DEFAULT_PANEL_ORIGIN };
@@ -241,6 +245,8 @@ export class CommonControls {
   public autoBattleButton?: FancyButton;
   public autoBattlePersonalityDropdown?: CPUPersonalityDropdown;
   public cpuPersonalityDropdown?: CPUPersonalityDropdown;
+  public retreatButton?: FancyButton;
+  public surrenderButton?: FancyButton;
   public exitReplayButton?: FancyButton;
   public isAutoBattleEnabled: boolean = false;
   public autoBattlePersonality: CPUPersonalityType = CPUPersonalityType.DEFENSIVE;
@@ -253,10 +259,12 @@ export class CommonControls {
   public nextTurnButton?: FancyButton;
   public nextUnitButton?: FancyButton;
   public restButton?: FancyButton;
+  public unitRetreatButton?: FancyButton;
   public resetButton?: FancyButton;
 
   public activeAbility1Button?: FancyButton;
   public isRestEnabled: boolean = true;
+  public isUnitRetreatEnabled: boolean = true;
 
   static DEFAULT_FONT_STYLE: TextStyle | TextStyleOptions = {
     fontFamily: "GustysSerpents",
@@ -401,6 +409,24 @@ export class CommonControls {
     this.activeAbility1Button.visible = false;
 
     // Common Actions Section in the bottom-right of the combined Battle UI:
+    // 0. Per-unit Retreat Button (to the left of Rest, same docked row)
+    const unitRetreatBounds = CommonControls.UNIT_RETREAT_BUTTON_BOUNDS;
+    this.unitRetreatButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE });
+    this.unitRetreatButton.position.set(unitRetreatBounds.x, unitRetreatBounds.y);
+    this.unitRetreatButton.width = unitRetreatBounds.width;
+    this.unitRetreatButton.height = unitRetreatBounds.height;
+    this.unitRetreatButton.visible = true;
+    this.unitRetreatButton.text = new Text({
+      style: CommonControls.DEFAULT_FONT_STYLE,
+      text: "Retreat",
+    });
+    this.decorateActionButton(
+      this.unitRetreatButton,
+      unitRetreatBounds.width,
+      unitRetreatBounds.height,
+      false
+    );
+
     // 1. Rest Button (always in the same spot, always shown, deactivated when not applicable)
     const restBounds = CommonControls.REST_BUTTON_BOUNDS;
     this.restButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE, icon: "glyph_stamina" });
@@ -478,6 +504,43 @@ export class CommonControls {
     this.autoBattlePersonalityDropdown.position.set(dropdownBounds.x, dropdownBounds.y);
     this.cpuPersonalityDropdown = this.autoBattlePersonalityDropdown;
 
+    const retreatBounds = CommonControls.RETREAT_BUTTON_BOUNDS;
+    this.retreatButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE });
+    this.retreatButton.position.set(retreatBounds.x, retreatBounds.y);
+    this.retreatButton.width = retreatBounds.width;
+    this.retreatButton.height = retreatBounds.height;
+    this.retreatButton.text = new Text({
+      style: {
+        fontFamily: "GustysSerpents",
+        fontSize: 14,
+        fill: "#f5e6c4",
+        align: "center",
+      },
+      text: "Retreat",
+    });
+    this.decorateActionButton(this.retreatButton, retreatBounds.width, retreatBounds.height, false);
+
+    const surrenderBounds = CommonControls.SURRENDER_BUTTON_BOUNDS;
+    this.surrenderButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE });
+    this.surrenderButton.position.set(surrenderBounds.x, surrenderBounds.y);
+    this.surrenderButton.width = surrenderBounds.width;
+    this.surrenderButton.height = surrenderBounds.height;
+    this.surrenderButton.text = new Text({
+      style: {
+        fontFamily: "GustysSerpents",
+        fontSize: 14,
+        fill: "#ff9b85",
+        align: "center",
+      },
+      text: "Surrender",
+    });
+    this.decorateActionButton(
+      this.surrenderButton,
+      surrenderBounds.width,
+      surrenderBounds.height,
+      false
+    );
+
     const exitReplayBounds = CommonControls.EXIT_REPLAY_BUTTON_BOUNDS;
     this.exitReplayButton = new FancyButton({ ...this.DEFAULT_BUTTON_STYLE });
     this.exitReplayButton.position.set(exitReplayBounds.x, exitReplayBounds.y);
@@ -506,11 +569,14 @@ export class CommonControls {
     bindButtonUISound(this.altitudeDownButton);
     bindButtonUISound(this.resetButton);
     bindButtonUISound(this.activeAbility1Button);
+    bindButtonUISound(this.unitRetreatButton);
     bindButtonUISound(this.restButton);
     bindButtonUISound(this.nextUnitButton);
     bindButtonUISound(this.nextTurnButton);
     bindButtonUISound(this.menuButton);
     bindButtonUISound(this.autoBattleButton);
+    bindButtonUISound(this.retreatButton);
+    bindButtonUISound(this.surrenderButton);
     bindButtonUISound(this.exitReplayButton);
     bindSliderUISound(this.zoomSlider);
   }
@@ -518,6 +584,12 @@ export class CommonControls {
   public setReplayMode(replayMode: boolean): void {
     if (this.autoBattleButton) {
       this.autoBattleButton.visible = !replayMode;
+    }
+    if (this.retreatButton) {
+      this.retreatButton.visible = !replayMode;
+    }
+    if (this.surrenderButton) {
+      this.surrenderButton.visible = !replayMode;
     }
     if (this.autoBattlePersonalityDropdown) {
       this.autoBattlePersonalityDropdown.visible = !replayMode;
@@ -568,6 +640,12 @@ export class CommonControls {
 
   public setPanelOrigin(panelX: number, panelY: number): void {
     this.panelOrigin = { x: panelX, y: panelY };
+    if (this.unitRetreatButton) {
+      this.unitRetreatButton.position.set(
+        panelX + CommonControls.UNIT_RETREAT_LOCAL_OFFSET.x,
+        panelY + CommonControls.UNIT_RETREAT_LOCAL_OFFSET.y
+      );
+    }
     if (this.restButton) {
       this.restButton.position.set(
         panelX + CommonControls.REST_LOCAL_OFFSET.x,
@@ -605,6 +683,22 @@ export class CommonControls {
     this.restButton.cursor = canRest ? "pointer" : "not-allowed";
   }
 
+  /**
+   * Updates the per-unit Retreat button's active/deactivated state while keeping it visible and in the same spot.
+   */
+  public setUnitRetreatApplicable(canRetreat: boolean): void {
+    this.isUnitRetreatEnabled = canRetreat;
+    if (!this.unitRetreatButton) return;
+    this.unitRetreatButton.position.set(
+      this.panelOrigin.x + CommonControls.UNIT_RETREAT_LOCAL_OFFSET.x,
+      this.panelOrigin.y + CommonControls.UNIT_RETREAT_LOCAL_OFFSET.y
+    );
+    this.unitRetreatButton.visible = true;
+    this.unitRetreatButton.enabled = canRetreat;
+    this.unitRetreatButton.alpha = canRetreat ? 1.0 : 0.4;
+    this.unitRetreatButton.cursor = canRetreat ? "pointer" : "not-allowed";
+  }
+
   public getControls(): Container[] {
     const results: Container[] = [];
     if (this.zoomSlider) results.push(this.zoomSlider);
@@ -612,6 +706,7 @@ export class CommonControls {
     if (this.zoomOutButton) results.push(this.zoomOutButton);
     if (this.altitudeUpButton) results.push(this.altitudeUpButton);
     if (this.altitudeDownButton) results.push(this.altitudeDownButton);
+    if (this.unitRetreatButton) results.push(this.unitRetreatButton);
     if (this.restButton) results.push(this.restButton);
     if (this.nextTurnButton) results.push(this.nextTurnButton);
     if (this.nextUnitButton) results.push(this.nextUnitButton);
@@ -619,6 +714,8 @@ export class CommonControls {
     if (this.menuButton) results.push(this.menuButton);
     if (this.autoBattleButton) results.push(this.autoBattleButton);
     if (this.autoBattlePersonalityDropdown) results.push(this.autoBattlePersonalityDropdown);
+    if (this.retreatButton) results.push(this.retreatButton);
+    if (this.surrenderButton) results.push(this.surrenderButton);
     if (this.exitReplayButton) results.push(this.exitReplayButton);
     if (this.activeAbility1Button) results.push(this.activeAbility1Button);
 

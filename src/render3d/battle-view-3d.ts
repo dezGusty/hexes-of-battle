@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { Battle, DamagePreviewResult, InputState, MapRenderUpdate, RangedAttackData } from '../battle';
 import { HexDirection, HexFlankStatus, HexMap, checkFlankingStatus } from '../shared/hex-map';
 import { Coords } from '../shared';
@@ -11,6 +12,7 @@ import { ThreeRendererHost } from './three-renderer-host';
 import { setUnitRimLightingEnabled, isUnitRimLightingEnabled } from './units/unit-rim-lighting';
 import { HexBoard3D } from './hex-board-3d';
 import { SquadVisual3D } from './units/squad-visual-3d';
+import type { IUnitVisual } from './units/unit-visual-interface';
 import { UnitVisualFactory } from './units/unit-visual-factory';
 import { ProjectileSystem3D } from './projectiles/projectile-system-3d';
 import { BattleHexMapPath } from '../battle/battle-hex-map-path';
@@ -82,6 +84,9 @@ export class BattleView3D {
   public cameraPanSpeed: number = 16.0; // world units per second
   public cameraRotateSpeed: number = 2.2; // radians per second
   public soundSystem?: ISoundSystem;
+  private corpsesGroup: THREE.Group = new THREE.Group();
+  private corpseVisuals: Array<{ visual: IUnitVisual; elapsedMs: number; durationMs: number }> = [];
+  private showDeadUnits: boolean = false;
 
   public setSoundSystem(soundSystem: ISoundSystem): void {
     this.soundSystem = soundSystem;
@@ -129,10 +134,15 @@ export class BattleView3D {
     });
     this.sceneManager.scene.add(this.hexBoard.group);
     this.sceneManager.scene.add(this.projectileSystem.group);
+    this.corpsesGroup.name = 'BattleCorpses';
+    this.showDeadUnits = settings.showDeadUnits ?? false;
+    this.corpsesGroup.visible = this.showDeadUnits;
+    this.sceneManager.scene.add(this.corpsesGroup);
 
     this.visualFactory = new UnitVisualFactory({
       unitsImage: unitsCatalogImage,
       spriteFrames,
+      getArmyBanner: (armyIndex) => this.battle.getBannerForArmy(armyIndex),
     });
 
     this.setupPointerEvents(container);
@@ -227,6 +237,43 @@ export class BattleView3D {
 
   public isSimpleTreesEnabled(): boolean {
     return this.hexBoard.isSimpleTreesEnabled();
+  }
+
+  public setShowDeadUnitsEnabled(enabled: boolean): void {
+    this.showDeadUnits = enabled;
+    this.settings.showDeadUnits = enabled;
+    this.settings.save();
+    this.corpsesGroup.visible = enabled;
+    this.squadVisuals.forEach((squad) => {
+      squad.setShowDeadUnits(enabled);
+    });
+    if (this.hud?.battleMenuPanel) {
+      this.hud.battleMenuPanel.setShowDeadUnitsEnabled(enabled);
+    }
+  }
+
+  public isShowDeadUnitsEnabled(): boolean {
+    return this.showDeadUnits;
+  }
+
+  public setCorpseDurationSec(sec: number): void {
+    this.settings.setCorpseDurationSec(sec);
+    this.settings.save();
+    const newDurationMs = this.settings.corpseDurationSec * 1000;
+    for (const c of this.corpseVisuals) {
+      c.durationMs = newDurationMs;
+    }
+    if (this.hud?.battleMenuPanel) {
+      this.hud.battleMenuPanel.setCorpseDurationSec(this.settings.corpseDurationSec);
+    }
+  }
+
+  private clearCorpses(): void {
+    this.corpseVisuals.forEach((c) => {
+      this.corpsesGroup.remove(c.visual.object3D);
+      c.visual.dispose();
+    });
+    this.corpseVisuals = [];
   }
 
   public setGridVisible(visible: boolean): void {
@@ -325,6 +372,7 @@ export class BattleView3D {
 
   public syncAllSquads(): void {
     // Clear existing
+    this.clearCorpses();
     this.squadVisuals.forEach((squad) => {
       this.sceneManager.scene.remove(squad.rootGroup);
       squad.dispose();
@@ -338,6 +386,19 @@ export class BattleView3D {
       const squad = this.visualFactory.createSquadVisual(creature);
       squad.showDamageIndicators = this.settings.hex.showDamageIndicators;
       squad.setOverheadStatusVisible(this.settings.hex.showHealthbars);
+      squad.setShowDeadUnits(this.showDeadUnits);
+      squad.setOnCorpseReady((model) => {
+        this.corpsesGroup.updateMatrixWorld(true);
+        model.object3D.updateWorldMatrix(true, false);
+        this.corpsesGroup.attach(model.object3D);
+        model.object3D.visible = true;
+        model.setCasualtyFade(1.0);
+        this.corpseVisuals.push({
+          visual: model,
+          elapsedMs: 0,
+          durationMs: (this.settings.corpseDurationSec ?? 10) * 1000,
+        });
+      });
       const worldPos = this.hexBoard.hexToWorldWithElevation(creature.position.x, creature.position.y, true);
       squad.rootGroup.position.copy(worldPos);
       squad.setFacing(creature.facingDirection);
@@ -357,8 +418,10 @@ export class BattleView3D {
       this.sceneManager.scene.remove(squad.rootGroup);
       squad.dispose();
       this.squadVisuals.delete(guid);
-      this.sceneDebugger?.refreshEntityList();
-      this.sceneDebugger?.updateStats();
+      if (this.sceneDebugger?.isVisible()) {
+        this.sceneDebugger.refreshEntityList();
+        this.sceneDebugger.updateStats();
+      }
     }
   }
 
@@ -698,17 +761,14 @@ export class BattleView3D {
         if (creature && creature.isAlive && creature.aliveModelCount > 0) {
           const worldPos = this.hexBoard.hexToWorldWithElevation(creature.position.x, creature.position.y, true);
           if (squad.hasMoveAnimation()) {
-            const currentTarget = squad.getMoveTarget();
-            const needsMove = currentTarget
-              ? currentTarget.distanceToSquared(worldPos) > 1e-4
-              : squad.rootGroup.position.distanceToSquared(worldPos) > 1e-4;
-            if (needsMove) {
-              squad.moveToPath([worldPos]);
+            squad.enqueueMoveStep(worldPos);
+            if (!squad.isCurrentlyMoving()) {
+              squad.setFacing(creature.facingDirection);
             }
           } else {
             squad.rootGroup.position.copy(worldPos);
+            squad.setFacing(creature.facingDirection);
           }
-          squad.setFacing(creature.facingDirection);
           squad.updateStats(this.settings.hex.showDamageIndicators);
         } else {
           squad.updateStats(this.settings.hex.showDamageIndicators);
@@ -733,6 +793,19 @@ export class BattleView3D {
         this.sceneManager.scene.remove(squad.rootGroup);
         squad.dispose();
         this.squadVisuals.delete(guid);
+      }
+    }
+
+    // 2.5 Expire and remove corpses after configurable corpseDurationSec
+    if (this.corpseVisuals) {
+      for (let i = this.corpseVisuals.length - 1; i >= 0; i--) {
+        const corpse = this.corpseVisuals[i];
+        corpse.elapsedMs += scaledDeltaMS;
+        if (corpse.elapsedMs >= corpse.durationMs) {
+          this.corpsesGroup?.remove(corpse.visual.object3D);
+          corpse.visual.dispose();
+          this.corpseVisuals.splice(i, 1);
+        }
       }
     }
 
@@ -1613,6 +1686,7 @@ export class BattleView3D {
     this.pressedKeys.clear();
     this.applyHardwareCursorVisibility(false);
 
+    this.clearCorpses();
     this.squadVisuals.forEach((s) => s.dispose());
     this.hexBoard.dispose();
     this.projectileSystem.dispose();

@@ -5,13 +5,18 @@ import { BattleSaveEntry, SaveManager } from "../battle/save-manager";
 import { Battle } from "../battle";
 import {
     clampAnimationSpeed,
+    clampCorpseDurationSec,
     clampInternalResolutionScaling,
+    CORPSE_DURATION_STEP,
     DEFAULT_ANIMATION_SPEED,
+    DEFAULT_CORPSE_DURATION_SEC,
     DEFAULT_INTERNAL_RESOLUTION_SCALING,
     INTERNAL_RESOLUTION_SCALING_STEP,
     MAX_ANIMATION_SPEED,
+    MAX_CORPSE_DURATION_SEC,
     MAX_INTERNAL_RESOLUTION_SCALING,
     MIN_ANIMATION_SPEED,
+    MIN_CORPSE_DURATION_SEC,
     MIN_INTERNAL_RESOLUTION_SCALING,
 } from "../battle/settings";
 import { bindButtonUISound, bindSliderUISound } from "../battle/ui-sounds";
@@ -86,9 +91,13 @@ export class BattleMenuPanel {
     public toggleRimLightingButton?: FancyButton;
     public toggleTiltShiftButton?: FancyButton;
     public toggleSimpleTreesButton?: FancyButton;
+    public toggleShowDeadUnitsButton?: FancyButton;
     public internalResolutionScalingLabel?: Text;
     public internalResolutionScalingSlider?: Slider;
     public internalResolutionScalingValueText?: Text;
+    public corpseDurationLabel?: Text;
+    public corpseDurationSlider?: Slider;
+    public corpseDurationValueText?: Text;
     public openModelExplorerButton?: FancyButton;
     public versionText?: Text;
 
@@ -96,13 +105,17 @@ export class BattleMenuPanel {
     private rimLightingText?: Text;
     private tiltShiftText?: Text;
     private simpleTreesText?: Text;
+    private showDeadUnitsText?: Text;
     private isRimLightingEnabled: boolean = true;
     private isTiltShiftEnabled: boolean = true;
     private isSimpleTreesEnabled: boolean = false;
+    private isShowDeadUnitsEnabled: boolean = false;
     private isHardwareCursorHidden: boolean = false;
     private isUpdatingAnimationSpeed: boolean = false;
     private isUpdatingInternalResolutionScaling: boolean = false;
     private lastAppliedResolutionScaling: number = DEFAULT_INTERNAL_RESOLUTION_SCALING;
+    private isUpdatingCorpseDuration: boolean = false;
+    private lastAppliedCorpseDuration: number = DEFAULT_CORPSE_DURATION_SEC;
     private isUpdatingSoundValues: boolean = false;
 
     private closeButton: FancyButton = new FancyButton({
@@ -138,6 +151,8 @@ export class BattleMenuPanel {
     public onToggleRimLighting?: (enabled: boolean) => void;
     public onToggleTiltShift?: (enabled: boolean) => void;
     public onToggleSimpleTrees?: (enabled: boolean) => void;
+    public onToggleShowDeadUnits?: (enabled: boolean) => void;
+    public onCorpseDurationChange?: (sec: number) => void;
     public onInternalResolutionScalingChange?: (scaling: number) => void;
     public onOpenModelExplorer?: () => void;
 
@@ -224,6 +239,30 @@ export class BattleMenuPanel {
         if (this.simpleTreesText) {
             this.simpleTreesText.text = this.getSimpleTreesLabel();
         }
+    }
+
+    private getShowDeadUnitsLabel(): string {
+        return `Show Dead Units\n[${this.isShowDeadUnitsEnabled ? 'ON' : 'OFF'}]`;
+    }
+
+    public setShowDeadUnitsEnabled(enabled: boolean): void {
+        this.isShowDeadUnitsEnabled = enabled;
+        if (this.showDeadUnitsText) {
+            this.showDeadUnitsText.text = this.getShowDeadUnitsLabel();
+        }
+    }
+
+    public setCorpseDurationSec(sec: number): void {
+        const clamped = clampCorpseDurationSec(sec);
+        this.isUpdatingCorpseDuration = true;
+        this.lastAppliedCorpseDuration = clamped;
+        if (this.corpseDurationSlider) {
+            this.corpseDurationSlider.value = clamped;
+        }
+        if (this.corpseDurationValueText) {
+            this.corpseDurationValueText.text = `${clamped}s`;
+        }
+        this.isUpdatingCorpseDuration = false;
     }
 
     public get hardwareCursorChecked(): boolean {
@@ -657,10 +696,28 @@ export class BattleMenuPanel {
             this.onToggleSimpleTrees?.(this.isSimpleTreesEnabled);
         });
 
+        this.showDeadUnitsText = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: this.getShowDeadUnitsLabel(),
+            style: { fontSize: 19, fill: '#E0F0FF', align: 'center' },
+        });
+        this.toggleShowDeadUnitsButton = new FancyButton({
+            ...this.THIN_BUTTON_STYLE,
+            text: this.showDeadUnitsText,
+        });
+        this.toggleShowDeadUnitsButton.position.set(contentBtnX + 370, toggleRow2Y);
+        this.toggleShowDeadUnitsButton.width = 350;
+        this.toggleShowDeadUnitsButton.height = 76;
+        this.toggleShowDeadUnitsButton.onPress.connect(() => {
+            this.setShowDeadUnitsEnabled(!this.isShowDeadUnitsEnabled);
+            this.onToggleShowDeadUnits?.(this.isShowDeadUnitsEnabled);
+        });
+
         graphicsTab.addChild(
             this.toggleTiltShiftButton,
             this.toggleRimLightingButton,
-            this.toggleSimpleTreesButton
+            this.toggleSimpleTreesButton,
+            this.toggleShowDeadUnitsButton
         );
 
         const resRowY = toggleRow2Y + 94;
@@ -710,6 +767,55 @@ export class BattleMenuPanel {
             resSubLabel,
             this.internalResolutionScalingSlider,
             this.internalResolutionScalingValueText
+        );
+
+        const corpseRowY = resRowY + 108;
+        this.corpseDurationLabel = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: 'Corpse Duration',
+            style: { fill: '#ffffff', fontSize: 22, fontWeight: 'bold' },
+        });
+        this.corpseDurationLabel.position.set(contentBtnX, corpseRowY);
+
+        const corpseSubLabel = new Text({
+            ...BattleMenuPanel.SUB_FONT_STYLE,
+            text: 'Seconds before dead unit corpses are removed from the map.',
+        });
+        corpseSubLabel.position.set(contentBtnX, corpseRowY + 28);
+
+        this.corpseDurationSlider = createMobileSlider(
+            MIN_CORPSE_DURATION_SEC,
+            MAX_CORPSE_DURATION_SEC,
+            CORPSE_DURATION_STEP,
+            DEFAULT_CORPSE_DURATION_SEC,
+            480,
+            26
+        );
+        this.corpseDurationSlider.position.set(contentBtnX, corpseRowY + 60);
+
+        this.corpseDurationValueText = new Text({
+            ...BattleMenuPanel.DEFAULT_FONT_STYLE,
+            text: `${DEFAULT_CORPSE_DURATION_SEC}s`,
+            style: { fontSize: 22, fill: '#AACCFF', fontWeight: 'bold' },
+        });
+        this.corpseDurationValueText.position.set(contentBtnX + 500, corpseRowY + 56);
+
+        this.corpseDurationSlider.onUpdate.connect((val) => {
+            const sec = clampCorpseDurationSec(val);
+            if (this.corpseDurationValueText) {
+                this.corpseDurationValueText.text = `${sec}s`;
+            }
+            if (!this.isUpdatingCorpseDuration && sec !== this.lastAppliedCorpseDuration) {
+                this.lastAppliedCorpseDuration = sec;
+                this.onCorpseDurationChange?.(sec);
+            }
+        });
+
+        graphicsTab.addChild(
+            this.corpseDurationLabel,
+            corpseSubLabel,
+            this.corpseDurationSlider,
+            this.corpseDurationValueText
         );
 
         if (this.weatherDropdown) {
@@ -874,6 +980,7 @@ export class BattleMenuPanel {
         bindButtonUISound(this.toggleRimLightingButton);
         bindButtonUISound(this.toggleTiltShiftButton);
         bindButtonUISound(this.toggleSimpleTreesButton);
+        bindButtonUISound(this.toggleShowDeadUnitsButton);
         bindButtonUISound(this.closeButton);
 
         bindSliderUISound(this.musicVolumeSlider, () => this.isUpdatingSoundValues);
@@ -883,6 +990,7 @@ export class BattleMenuPanel {
         }
         bindSliderUISound(this.animationSpeedSlider, () => this.isUpdatingAnimationSpeed);
         bindSliderUISound(this.internalResolutionScalingSlider, () => this.isUpdatingInternalResolutionScaling);
+        bindSliderUISound(this.corpseDurationSlider, () => this.isUpdatingCorpseDuration);
 
         this.selectTab('general');
         this.connectMainEventHandlers();

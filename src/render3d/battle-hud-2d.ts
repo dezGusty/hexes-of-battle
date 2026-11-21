@@ -33,6 +33,9 @@ export interface BattleHud2DEvents {
   onNextUnit: () => void;
   onReset: () => void;
   onRest: () => void;
+  onUnitRetreat?: () => void;
+  onRetreat?: () => void;
+  onSurrender?: () => void;
   onActiveAbility1?: () => void;
   onToggleStats?: () => void;
   onToggleFps?: (showFps: boolean) => void;
@@ -43,6 +46,8 @@ export interface BattleHud2DEvents {
   onToggleSceneInspector?: (showInspector: boolean) => void;
   onToggleHardwareCursor?: (hide: boolean) => void;
   onToggleDamageIndicators?: (showDamageIndicators: boolean) => void;
+  onToggleShowDeadUnits?: (enabled: boolean) => void;
+  onCorpseDurationChange?: (sec: number) => void;
   onAnimationSpeedChange?: (speed: number) => void;
   onToggleAutoBattle?: (enabled: boolean) => void;
   onAutoBattlePersonalityChange?: (personality: CPUPersonalityType) => void;
@@ -301,6 +306,7 @@ export class BattleHud2D {
     this.commonControls.initializeButtons();
 
     const dockedButtons = new Set<any>([
+      this.commonControls.unitRetreatButton,
       this.commonControls.restButton,
       this.commonControls.nextUnitButton,
       this.commonControls.nextTurnButton,
@@ -350,6 +356,18 @@ export class BattleHud2D {
         this.settings.simpleTrees = enabled;
         this.settings.save();
         events.onToggleSimpleTrees?.(enabled);
+      };
+      this.battleMenuPanel.setShowDeadUnitsEnabled(this.settings.showDeadUnits);
+      this.battleMenuPanel.onToggleShowDeadUnits = (enabled) => {
+        this.settings.showDeadUnits = enabled;
+        this.settings.save();
+        events.onToggleShowDeadUnits?.(enabled);
+      };
+      this.battleMenuPanel.setCorpseDurationSec(this.settings.corpseDurationSec);
+      this.battleMenuPanel.onCorpseDurationChange = (sec) => {
+        this.settings.setCorpseDurationSec(sec);
+        this.settings.save();
+        events.onCorpseDurationChange?.(this.settings.corpseDurationSec);
       };
       this.battleMenuPanel.setInternalResolutionScaling(this.settings.internalResolutionScaling);
       this.battleMenuPanel.onInternalResolutionScalingChange = (scaling) => {
@@ -510,10 +528,23 @@ export class BattleHud2D {
         events.onRest();
       }
     });
+    if (events.onUnitRetreat) {
+      this.commonControls.unitRetreatButton?.onPress.connect(() => {
+        if (this.commonControls?.isUnitRetreatEnabled !== false) {
+          events.onUnitRetreat!();
+        }
+      });
+    }
     this.commonControls.resetButton?.onPress.connect(() => events.onReset());
 
     if (events.onActiveAbility1) {
       this.commonControls.activeAbility1Button?.onPress.connect(() => events.onActiveAbility1!());
+    }
+    if (events.onRetreat) {
+      this.commonControls.retreatButton?.onPress.connect(() => events.onRetreat!());
+    }
+    if (events.onSurrender) {
+      this.commonControls.surrenderButton?.onPress.connect(() => events.onSurrender!());
     }
   }
 
@@ -652,6 +683,18 @@ export class BattleHud2D {
       } else if (this.commonControls.restButton) {
         this.commonControls.restButton.alpha = canRest ? 1.0 : 0.4;
       }
+      const canUnitRetreat = Boolean(
+        creature &&
+          creature.isAlive &&
+          !creature.isPanickedOrRouting &&
+          creature.stats.stamina > 0 &&
+          creature.live_stats.remaining_movement > 0
+      );
+      if (typeof this.commonControls.setUnitRetreatApplicable === 'function') {
+        this.commonControls.setUnitRetreatApplicable(canUnitRetreat);
+      } else if (this.commonControls.unitRetreatButton) {
+        this.commonControls.unitRetreatButton.alpha = canUnitRetreat ? 1.0 : 0.4;
+      }
     }
 
     if (creature && this.unitStats?.isVisible()) {
@@ -747,6 +790,18 @@ export class BattleHud2D {
         this.commonControls.setRestApplicable(canRest);
       } else if (this.commonControls.restButton) {
         this.commonControls.restButton.alpha = canRest ? 1.0 : 0.4;
+      }
+      const canUnitRetreat = Boolean(
+        creature &&
+          creature.isAlive &&
+          !creature.isPanickedOrRouting &&
+          creature.stats.stamina > 0 &&
+          creature.live_stats.remaining_movement > 0
+      );
+      if (typeof this.commonControls.setUnitRetreatApplicable === 'function') {
+        this.commonControls.setUnitRetreatApplicable(canUnitRetreat);
+      } else if (this.commonControls.unitRetreatButton) {
+        this.commonControls.unitRetreatButton.alpha = canUnitRetreat ? 1.0 : 0.4;
       }
     }
   }

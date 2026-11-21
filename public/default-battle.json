@@ -1,6 +1,6 @@
 {
-  "mapWidth": 13,
-  "mapHeight": 9,
+  "mapWidth": 10,
+  "mapHeight": 7,
   "creatures": [
     { "type": "peasant", "position": { "x": 3, "y": 4 }, "army": 0, "facing": "EAST" },
     { "type": "armored-knight", "position": { "x": 2, "y": 2 }, "army": 0, "facing": "EAST", "extraMoves": 6 },

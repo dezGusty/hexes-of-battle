@@ -157,6 +157,40 @@ export function getSharedBannersTexture(): THREE.Texture | null {
   return sharedBannersTexture;
 }
 
+export function loadSharedBannersTexture(): THREE.Texture | null {
+  if (sharedBannersTexture) return sharedBannersTexture;
+  if (typeof document === 'undefined' || typeof Image === 'undefined') return null;
+  const loader = new THREE.TextureLoader();
+  const tex = loader.load('banners.png', (loaded) => {
+    loaded.colorSpace = THREE.SRGBColorSpace;
+    loaded.minFilter = THREE.LinearFilter;
+    loaded.magFilter = THREE.LinearFilter;
+    loaded.generateMipmaps = false;
+    loaded.needsUpdate = true;
+  });
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.generateMipmaps = false;
+  sharedBannersTexture = tex;
+  return tex;
+}
+
+export function getBannerAtlasUvTransform(bannerName: string): {
+  repeatX: number;
+  repeatY: number;
+  offsetX: number;
+  offsetY: number;
+} {
+  const frame = BANNER_FRAMES[bannerName] || BANNER_FRAMES['banner1.png'];
+  return {
+    repeatX: frame.w / BANNERS_ATLAS_SIZE.w,
+    repeatY: frame.h / BANNERS_ATLAS_SIZE.h,
+    offsetX: frame.x / BANNERS_ATLAS_SIZE.w,
+    offsetY: (BANNERS_ATLAS_SIZE.h - frame.y - frame.h) / BANNERS_ATLAS_SIZE.h,
+  };
+}
+
 /**
  * Creates a sub-texture cropped to the specified banner frame within the 264x264 atlas.
  */

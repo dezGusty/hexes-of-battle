@@ -117,6 +117,44 @@ export class HotkeysSettings {
   public skill5: string = '5';
 }
 
+export const DEFAULT_CORPSE_DURATION_SEC = 10;
+export const MIN_CORPSE_DURATION_SEC = 1;
+export const MAX_CORPSE_DURATION_SEC = 120;
+export const CORPSE_DURATION_STEP = 1;
+
+export function clampCorpseDurationSec(sec: number): number {
+  if (!Number.isFinite(sec)) return DEFAULT_CORPSE_DURATION_SEC;
+  const snapped = Math.round(sec / CORPSE_DURATION_STEP) * CORPSE_DURATION_STEP;
+  return Math.max(MIN_CORPSE_DURATION_SEC, Math.min(MAX_CORPSE_DURATION_SEC, snapped));
+}
+
+export type BattleMapSizeId = '10x7' | '13x9';
+
+export interface BattleMapSizePreset {
+  id: BattleMapSizeId;
+  label: string;
+  mapWidth: number;
+  mapHeight: number;
+}
+
+export const APPROVED_BATTLE_MAP_SIZES: readonly BattleMapSizePreset[] = [
+  { id: '10x7', label: '10x7 Hexes', mapWidth: 10, mapHeight: 7 },
+  { id: '13x9', label: '13x9 Hexes', mapWidth: 13, mapHeight: 9 },
+];
+
+export const DEFAULT_BATTLE_MAP_SIZE_ID: BattleMapSizeId = '10x7';
+
+export function resolveBattleMapSize(id?: string | null): BattleMapSizePreset {
+  return APPROVED_BATTLE_MAP_SIZES.find((p) => p.id === id) ?? APPROVED_BATTLE_MAP_SIZES[0];
+}
+
+export function resolveBattleMapSizeFromDimensions(width?: number, height?: number): BattleMapSizePreset {
+  return (
+    APPROVED_BATTLE_MAP_SIZES.find((p) => p.mapWidth === width && p.mapHeight === height) ??
+    APPROVED_BATTLE_MAP_SIZES[0]
+  );
+}
+
 export class BattleSettings {
 
   public sound: SoundSettings = new SoundSettings();
@@ -130,7 +168,23 @@ export class BattleSettings {
   public unitRimLighting: boolean = true;
   public tiltShift: boolean = true;
   public simpleTrees: boolean = false;
+  public showDeadUnits: boolean = false;
+  public corpseDurationSec: number = DEFAULT_CORPSE_DURATION_SEC;
+  public battleMapSize: BattleMapSizeId = DEFAULT_BATTLE_MAP_SIZE_ID;
   public internalResolutionScaling: number = DEFAULT_INTERNAL_RESOLUTION_SCALING;
+
+  public getBattleMapDimensions(): { mapWidth: number; mapHeight: number } {
+    const preset = resolveBattleMapSize(this.battleMapSize);
+    return { mapWidth: preset.mapWidth, mapHeight: preset.mapHeight };
+  }
+
+  public setBattleMapSize(id: BattleMapSizeId): void {
+    this.battleMapSize = resolveBattleMapSize(id).id;
+  }
+
+  public setCorpseDurationSec(sec: number): void {
+    this.corpseDurationSec = clampCorpseDurationSec(sec);
+  }
 
   public setInternalResolutionScaling(scaling: number): void {
     this.internalResolutionScaling = clampInternalResolutionScaling(scaling);
@@ -244,6 +298,24 @@ export class BattleSettings {
       this.simpleTrees = simpleTrees === 'true';
     }
 
+    const showDeadUnits = localStorage.getItem('hob.showDeadUnits');
+    if (showDeadUnits !== null) {
+      this.showDeadUnits = showDeadUnits === 'true';
+    }
+
+    const corpseDurationSec = localStorage.getItem('hob.corpseDurationSec');
+    if (corpseDurationSec !== null) {
+      const parsed = Number(corpseDurationSec);
+      if (Number.isFinite(parsed)) {
+        this.corpseDurationSec = clampCorpseDurationSec(parsed);
+      }
+    }
+
+    const battleMapSize = localStorage.getItem('hob.battleMapSize');
+    if (battleMapSize !== null) {
+      this.battleMapSize = resolveBattleMapSize(battleMapSize).id;
+    }
+
     const internalResolutionScaling = localStorage.getItem('hob.internalResolutionScaling');
     if (internalResolutionScaling !== null) {
       const parsed = Number(internalResolutionScaling);
@@ -285,6 +357,12 @@ export class BattleSettings {
     localStorage.setItem('hob.unitRimLighting', String(this.unitRimLighting));
     localStorage.setItem('hob.tiltShift', String(this.tiltShift));
     localStorage.setItem('hob.simpleTrees', String(this.simpleTrees));
+    localStorage.setItem('hob.showDeadUnits', String(this.showDeadUnits));
+    localStorage.setItem(
+      'hob.corpseDurationSec',
+      String(clampCorpseDurationSec(this.corpseDurationSec))
+    );
+    localStorage.setItem('hob.battleMapSize', resolveBattleMapSize(this.battleMapSize).id);
     localStorage.setItem(
       'hob.internalResolutionScaling',
       String(clampInternalResolutionScaling(this.internalResolutionScaling))

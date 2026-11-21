@@ -23,7 +23,7 @@ import { CreatureRepository } from "../battle/creature-repository";
 import { BattleView3D } from "../render3d/battle-view-3d";
 import { BattleHud2D } from "../render3d/battle-hud-2d";
 import { BattleConfig } from "../battle/battle-types";
-import { BattleConfigJson, buildBattleConfigFromJson } from "../battle/battle-config-loader";
+import { BattleConfigJson, buildBattleConfigFromJson, fitBattleConfigToMapSize } from "../battle/battle-config-loader";
 import { JsonLoader } from "../shared/jsonloader";
 import { SaveManager } from "../battle/save-manager";
 
@@ -32,7 +32,7 @@ export class BattleScene3D implements Scene {
   public readonly container: Container = new Container();
 
   private context!: GameContext;
-  private hexMap: HexMap = new HexMap(13, 9);
+  private hexMap: HexMap = new HexMap(10, 7);
   private battle!: Battle;
   private cpuPlayer!: CPUPlayer;
   private view!: BattleView3D;
@@ -94,12 +94,17 @@ export class BattleScene3D implements Scene {
         try {
           jsonConfig = await JsonLoader.loadJson<BattleConfigJson>('./default-battle.json');
         } catch {
-          jsonConfig = { mapWidth: 13, mapHeight: 9, creatures: [] };
+          jsonConfig = { mapWidth: 10, mapHeight: 7, creatures: [] };
         }
       }
       this.currentJsonConfig = jsonConfig;
       resolvedConfig = buildBattleConfigFromJson(jsonConfig, this.creatureRepository);
       this.currentConfig = resolvedConfig;
+    }
+
+    if (context.settings && !resolvedConfig.terrainTiles) {
+      const dims = context.settings.getBattleMapDimensions();
+      resolvedConfig = fitBattleConfigToMapSize(resolvedConfig, dims.mapWidth, dims.mapHeight);
     }
 
     this.hexMap = new HexMap(resolvedConfig.mapWidth, resolvedConfig.mapHeight);
@@ -193,6 +198,30 @@ export class BattleScene3D implements Scene {
       onNextTurn: () => this.battle.nextTurn(),
       onNextUnit: () => this.battle.selectNextUnitAndGetIndex(),
       onReset: () => this.resetBattle(),
+      onRetreat: () => {
+        const playerArmyIndex =
+          this.battle.army_control[this.battle.currentArmyIndex] === ArmyControlType.PLAYER
+            ? this.battle.currentArmyIndex
+            : this.battle.army_control.indexOf(ArmyControlType.PLAYER);
+        this.hud.setAutoBattleEnabled(true);
+        this.battle.orderRetreat(playerArmyIndex >= 0 ? playerArmyIndex : 0);
+      },
+      onUnitRetreat: () => {
+        const active = this.battle.getActiveCreature();
+        if (active) {
+          const ok = this.battle.retreatActiveCreature();
+          if (ok && !this.battle.isFinished()) {
+            this.battle.selectNextUnitAndGetIndex();
+          }
+        }
+      },
+      onSurrender: () => {
+        const playerArmyIndex =
+          this.battle.army_control[this.battle.currentArmyIndex] === ArmyControlType.PLAYER
+            ? this.battle.currentArmyIndex
+            : this.battle.army_control.indexOf(ArmyControlType.PLAYER);
+        this.battle.surrender(playerArmyIndex >= 0 ? playerArmyIndex : 0);
+      },
       onActiveAbility1: () => this.battle.selectActiveAbilityForCurrentUnit(0),
       onRest: () => {
         const active = this.battle.getActiveCreature();
@@ -264,6 +293,12 @@ export class BattleScene3D implements Scene {
       },
       onToggleSimpleTrees: (enabled) => {
         this.view.setSimpleTreesEnabled(enabled);
+      },
+      onToggleShowDeadUnits: (enabled) => {
+        this.view.setShowDeadUnitsEnabled(enabled);
+      },
+      onCorpseDurationChange: (sec) => {
+        this.view.setCorpseDurationSec(sec);
       },
       onSaveBattle: (name) => {
         SaveManager.saveBattle(this.battle, name);

@@ -61,6 +61,7 @@ export class MeshSkeletalVisual implements IUnitVisual {
   public playAnimation(state: UnitAnimationState, _durationMs?: number): void {
     if (this.currentState === state && this.currentAction?.isRunning()) return;
     this.currentState = state;
+    this.animTimerMs = 0;
 
     // Try finding matching clip name (e.g. "idle", "walk", "attack")
     let targetAction = this.actions.get(state);
@@ -79,6 +80,7 @@ export class MeshSkeletalVisual implements IUnitVisual {
         this.currentAction.fadeOut(0.2);
       }
       targetAction.reset();
+      targetAction.setEffectiveTimeScale(state === 'die' ? this.deathTimeScale : 1);
       if (state === 'die') {
         targetAction.clampWhenFinished = true;
         targetAction.loop = THREE.LoopOnce;
@@ -93,6 +95,37 @@ export class MeshSkeletalVisual implements IUnitVisual {
   }
 
   private currentOpacity: number = 1.0;
+  private animTimerMs: number = 0;
+  private deathTimeScale: number = 1;
+
+  private findDeathAction(): THREE.AnimationAction | undefined {
+    const exact = this.actions.get('death') ?? this.actions.get('die');
+    if (exact) return exact;
+    for (const [key, action] of this.actions.entries()) {
+      if (/death|die/i.test(key)) return action;
+    }
+    return undefined;
+  }
+
+  public hasDeathAnimation(): boolean {
+    return Boolean(this.findDeathAction());
+  }
+
+  public getDeathAnimationDurationSec(): number {
+    return this.findDeathAction()?.getClip().duration ?? 0;
+  }
+
+  public setDeathAnimationTimeScale(timeScale: number): void {
+    this.deathTimeScale = Math.max(0.01, timeScale);
+  }
+
+  public isDeathAnimationFinished(): boolean {
+    const action = this.findDeathAction();
+    if (!action) return true;
+    if (this.currentState !== 'die') return false;
+    const durMs = (action.getClip().duration * 1000) / Math.max(0.01, this.deathTimeScale);
+    return durMs <= 0 || this.animTimerMs >= durMs;
+  }
 
   public setCasualtyFade(opacity: number): void {
     const clamped = Math.max(0, Math.min(1, opacity));
@@ -126,6 +159,7 @@ export class MeshSkeletalVisual implements IUnitVisual {
   }
 
   public update(deltaMs: number): void {
+    this.animTimerMs += deltaMs;
     this.mixer.update(deltaMs / 1000);
   }
 

@@ -93,3 +93,45 @@ export function buildBattleConfigFromJson(
     wind: json.wind,
   };
 }
+
+/**
+ * Resizes a BattleConfig to the target map dimensions and ensures all
+ * initial creature placements fit within `[0..mapWidth-1, 0..mapHeight-1]`
+ * without overlapping.
+ */
+export function fitBattleConfigToMapSize(
+  config: BattleConfig,
+  mapWidth: number,
+  mapHeight: number
+): BattleConfig {
+  const occupied = new Set<string>();
+  const creatures = config.creatures.map((creature) => {
+    const pos = creature.position ?? { x: 0, y: 0 };
+    let x = Math.max(0, Math.min(mapWidth - 1, pos.x));
+    let y = Math.max(0, Math.min(mapHeight - 1, pos.y));
+    if (occupied.has(`${x},${y}`)) {
+      const startX = creature.armyAlignment === 1 ? mapWidth - 2 : 1;
+      const stepX = creature.armyAlignment === 1 ? -1 : 1;
+      outer: for (let colOffset = 0; colOffset < mapWidth; colOffset++) {
+        const cx = Math.max(0, Math.min(mapWidth - 1, startX + stepX * colOffset));
+        for (let cy = 0; cy < mapHeight; cy++) {
+          if (!occupied.has(`${cx},${cy}`)) {
+            x = cx;
+            y = cy;
+            break outer;
+          }
+        }
+      }
+    }
+    occupied.add(`${x},${y}`);
+    creature.position = { x, y };
+    return creature;
+  });
+
+  return {
+    ...config,
+    mapWidth,
+    mapHeight,
+    creatures,
+  };
+}

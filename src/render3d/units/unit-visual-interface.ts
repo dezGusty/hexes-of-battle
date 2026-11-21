@@ -14,5 +14,9 @@ export interface IUnitVisual {
   hasMoveAnimation?(): boolean;
   getMoveAnimationDurationSec?(): number;
   setMoveAnimationTimeScale?(timeScale: number): void;
+  hasDeathAnimation?(): boolean;
+  getDeathAnimationDurationSec?(): number;
+  setDeathAnimationTimeScale?(timeScale: number): void;
+  isDeathAnimationFinished?(): boolean;
   dispose(): void;
 }

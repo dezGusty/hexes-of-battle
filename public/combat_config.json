@@ -1,5 +1,5 @@
 {
-  "maxTurns": 32,
+  "maxTurns": 24,
   "terrain": {
     "moveCosts": {
       "0": 1,
@@ -185,8 +185,8 @@
   "player1Banner": "banner7.png",
   "player2Banner": "banner12.png",
   "playerColors": {
-    "player1backup": "rgb(47, 99, 199)",
-    "player1": "rgb(199, 199, 47)",
+    "player1backup": "rgb(199, 54, 54)",
+    "player1": "rgb(199, 54, 47)",
     "player2backup": "rgb(199, 54, 54)",
     "player2": "rgb(54, 199, 54)",
     "hero": "rgb(212, 175, 55)"

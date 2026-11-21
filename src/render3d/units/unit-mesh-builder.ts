@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { applyUnitRimLighting } from './unit-rim-lighting';
+import { getBannerAtlasUvTransform, getSharedBannersTexture, loadSharedBannersTexture } from '../decorations/retreat-flag-3d';
 import { getWindThresholds } from '../decorations/wind-system';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
@@ -186,6 +187,18 @@ export function getUnitMoveCyclesPerHex(type: CreatureType | string | number): n
   return UNIT_MOVE_CYCLES_PER_HEX[normalizeUnitKey(type)] ?? 1;
 }
 
+/**
+ * Death animation playback speed multiplier per unit type.
+ * Defaults to 1; peasant plays at 2x speed.
+ */
+export const UNIT_DEATH_SPEED_MULTIPLIER: Record<string, number> = {
+  peasant: 3,
+};
+
+export function getUnitDeathSpeedMultiplier(type: CreatureType | string | number): number {
+  return UNIT_DEATH_SPEED_MULTIPLIER[normalizeUnitKey(type)] ?? 1;
+}
+
 let sharedWhiteMap: THREE.DataTexture | null = null;
 export function getSharedWhiteTexture(): THREE.DataTexture {
   if (!sharedWhiteMap) {
@@ -367,6 +380,91 @@ export function parseColorToRgba(
 
 let proceduralUnitTemplateCache: Map<string, THREE.Mesh> = new Map();
 let glbUnitTemplateCache: WeakMap<THREE.Object3D, Map<string, THREE.Mesh>> = new WeakMap();
+let sharedGlbRiggedMaterialCache: WeakMap<THREE.Material, Map<string, THREE.MeshStandardMaterial>> = new WeakMap();
+
+function applyRiggedTeamAndBannerShader(
+  mat: THREE.MeshStandardMaterial,
+  teamColorHex: number,
+  bannerName: string,
+  hasUv1: boolean
+): void {
+  const bannerTex = getSharedBannersTexture() ?? loadSharedBannersTexture() ?? getSharedWhiteTexture();
+  const hasRealBanner = Boolean(getSharedBannersTexture());
+  const uvT = getBannerAtlasUvTransform(bannerName);
+
+  mat.vertexColors = false;
+  mat.userData = {
+    ...mat.userData,
+    teamColorHex,
+    bannerName,
+    teamBannerUniforms: {
+      uTeamColor: { value: new THREE.Color(teamColorHex) },
+      uBannerAtlas: { value: bannerTex },
+      uBannerUvTransform: { value: new THREE.Vector4(uvT.repeatX, uvT.repeatY, uvT.offsetX, uvT.offsetY) },
+      uHasBanner: { value: hasRealBanner ? 1.0 : 0.0 },
+    },
+  };
+
+  const prevOnBeforeCompile = mat.onBeforeCompile;
+  const prevCacheKey = mat.customProgramCacheKey?.bind(mat);
+  mat.customProgramCacheKey = () => `${prevCacheKey ? prevCacheKey() : ''}_team_banner_v1_${hasUv1 ? 'uv1' : 'uv0'}`;
+
+  mat.onBeforeCompile = (shader, renderer) => {
+    if (prevOnBeforeCompile) {
+      prevOnBeforeCompile.call(mat, shader, renderer);
+    }
+    const uniforms = mat.userData.teamBannerUniforms;
+    shader.uniforms.uTeamColor = uniforms.uTeamColor;
+    shader.uniforms.uBannerAtlas = uniforms.uBannerAtlas;
+    shader.uniforms.uBannerUvTransform = uniforms.uBannerUvTransform;
+    shader.uniforms.uHasBanner = uniforms.uHasBanner;
+
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        attribute vec4 color;
+        ${hasUv1 ? 'attribute vec2 uv1;' : ''}
+        varying vec2 vTeamBannerMask;
+        varying vec2 vBannerPatchUv;`
+      )
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        vTeamBannerMask = color.rg;
+        vBannerPatchUv = ${hasUv1 ? 'uv1' : 'uv'};`
+      );
+
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        uniform vec3 uTeamColor;
+        uniform sampler2D uBannerAtlas;
+        uniform vec4 uBannerUvTransform;
+        uniform float uHasBanner;
+        varying vec2 vTeamBannerMask;
+        varying vec2 vBannerPatchUv;`
+      )
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+        if (vTeamBannerMask.x > 0.05) {
+          float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+          vec3 tintedCloth = uTeamColor * clamp(lum * 1.65, 0.25, 1.35);
+          diffuseColor.rgb = mix(diffuseColor.rgb, tintedCloth, clamp(vTeamBannerMask.x, 0.0, 1.0));
+        }
+        if (uHasBanner > 0.5 && vTeamBannerMask.y > 0.5 &&
+            vBannerPatchUv.x >= 0.02 && vBannerPatchUv.x <= 0.98 &&
+            vBannerPatchUv.y >= 0.02 && vBannerPatchUv.y <= 0.98) {
+          vec2 atlasUv = vBannerPatchUv * uBannerUvTransform.xy + uBannerUvTransform.zw;
+          vec4 bannerCol = texture2D(uBannerAtlas, atlasUv);
+          diffuseColor.rgb = mix(diffuseColor.rgb, bannerCol.rgb, bannerCol.a * 0.92);
+        }`
+      );
+  };
+  mat.needsUpdate = true;
+}
 
 export function configurePlayerColors(config?: PlayerColorsConfig | any): void {
   if (!config) return;
@@ -1342,14 +1440,16 @@ export function instantiateGlbUnitTemplate(
   templateScene: THREE.Object3D,
   unitKey: string,
   armyAlignment: number,
-  isHero: boolean = false
+  isHero: boolean = false,
+  bannerName?: string
 ): THREE.Mesh {
   let perSceneCache = glbUnitTemplateCache.get(templateScene);
   if (!perSceneCache) {
     perSceneCache = new Map();
     glbUnitTemplateCache.set(templateScene, perSceneCache);
   }
-  const cacheKey = `${unitKey}_${armyAlignment}_${isHero ? 1 : 0}`;
+  const resolvedBanner = bannerName ?? (armyAlignment === 0 ? 'banner1.png' : 'banner2.png');
+  const cacheKey = `${unitKey}_${armyAlignment}_${isHero ? 1 : 0}_${resolvedBanner}`;
   const cached = perSceneCache.get(cacheKey);
   if (cached) {
     return cloneCompactedUnitTemplate(cached);
@@ -1365,24 +1465,44 @@ export function instantiateGlbUnitTemplate(
   if (hasSkinnedMesh) {
     const clonedSkinned = SkeletonUtils.clone(templateScene);
     const whiteMap = getSharedWhiteTexture();
+    const teamHex = getTeamColorHex(armyAlignment, isHero);
     clonedSkinned.traverse((node) => {
       if ((node as THREE.Mesh).isMesh) {
         const mesh = node as THREE.Mesh;
         mesh.castShadow = true;
         mesh.receiveShadow = false;
+        if (mesh.geometry) {
+          mesh.geometry.userData = { ...mesh.geometry.userData, isSharedAsset: true };
+        }
+        const hasMaskColor = Boolean(mesh.geometry?.attributes?.color);
+        const hasUv1 = Boolean(mesh.geometry?.attributes?.uv1);
         if (mesh.material) {
           const origMats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-          const clonedMats = origMats.map((origMat) => {
-            const matClone = origMat.clone() as THREE.MeshStandardMaterial;
-            matClone.transparent = false;
-            matClone.opacity = 1.0;
-            applyUnitRimLighting(matClone);
-            if (!matClone.map) {
-              matClone.map = whiteMap;
+          const matKey = hasMaskColor ? `${armyAlignment}_${isHero ? 1 : 0}_${resolvedBanner}` : 'shared';
+          const sharedMats = origMats.map((origMat) => {
+            let matMap = sharedGlbRiggedMaterialCache.get(origMat);
+            if (!matMap) {
+              matMap = new Map();
+              sharedGlbRiggedMaterialCache.set(origMat, matMap);
             }
-            return matClone;
+            let cachedMat = matMap.get(matKey);
+            if (!cachedMat) {
+              cachedMat = origMat.clone() as THREE.MeshStandardMaterial;
+              cachedMat.transparent = false;
+              cachedMat.opacity = 1.0;
+              cachedMat.userData = { ...cachedMat.userData, isSharedAsset: true };
+              applyUnitRimLighting(cachedMat);
+              if (!cachedMat.map) {
+                cachedMat.map = whiteMap;
+              }
+              if (hasMaskColor) {
+                applyRiggedTeamAndBannerShader(cachedMat, teamHex, resolvedBanner, hasUv1);
+              }
+              matMap.set(matKey, cachedMat);
+            }
+            return cachedMat;
           });
-          mesh.material = Array.isArray(mesh.material) ? clonedMats : clonedMats[0];
+          mesh.material = Array.isArray(mesh.material) ? sharedMats : sharedMats[0];
         }
       }
     });

@@ -764,38 +764,33 @@ export function generateOverviewMap(
   };
 }
 
-function createFullTenSquadGarrison(isPlayer: boolean): ArmySquad[] {
+function createStarterGarrison(isPlayer: boolean, rng: SeedableRNG): ArmySquad[] {
   if (isPlayer) {
     return [
       { creatureType: CreatureType.SWORDSMAN, count: 8, hpPercent: 1.0 },
-      { creatureType: CreatureType.SWORDSMAN, count: 8, hpPercent: 1.0 },
-      { creatureType: CreatureType.SPEARMAN, count: 8, hpPercent: 1.0 },
       { creatureType: CreatureType.SPEARMAN, count: 8, hpPercent: 1.0 },
       { creatureType: CreatureType.PEASANT_ARCHER, count: 8, hpPercent: 1.0 },
       { creatureType: CreatureType.PEASANT_ARCHER, count: 8, hpPercent: 1.0 },
-      { creatureType: CreatureType.PEASANT, count: 12, hpPercent: 1.0 },
-      { creatureType: CreatureType.PEASANT, count: 12, hpPercent: 1.0 },
       { creatureType: CreatureType.PEASANT, count: 12, hpPercent: 1.0 },
       { creatureType: CreatureType.PEASANT, count: 12, hpPercent: 1.0 },
     ];
   }
-  return [
-    { creatureType: CreatureType.SPEARMAN, count: 8, hpPercent: 1.0 },
+  const pool: ArmySquad[] = [
     { creatureType: CreatureType.SPEARMAN, count: 8, hpPercent: 1.0 },
     { creatureType: CreatureType.SWORDSMAN, count: 8, hpPercent: 1.0 },
     { creatureType: CreatureType.PEASANT_ARCHER, count: 8, hpPercent: 1.0 },
     { creatureType: CreatureType.PEASANT_ARCHER, count: 8, hpPercent: 1.0 },
     { creatureType: CreatureType.PEASANT, count: 12, hpPercent: 1.0 },
     { creatureType: CreatureType.PEASANT, count: 12, hpPercent: 1.0 },
-    { creatureType: CreatureType.PEASANT, count: 12, hpPercent: 1.0 },
-    { creatureType: CreatureType.PEASANT, count: 12, hpPercent: 1.0 },
-    { creatureType: CreatureType.PEASANT, count: 12, hpPercent: 1.0 },
+    { creatureType: CreatureType.SPEARMAN, count: 8, hpPercent: 1.0 },
   ];
+  const count = rng.range(5, 7);
+  return pool.slice(0, count);
 }
 
 /**
  * Creates the 2x2 region starter map for playtesting:
- * 1 player-controlled region + 3 neutral regions, each defended by a 10-squad army,
+ * 1 player-controlled region (6-squad army) + 3 neutral regions (5-7 squad armies each),
  * with victory condition set to Conquer All Regions.
  */
 export function createStarterOverviewMap(seed: number = 42): GeneratedOverviewMap {
@@ -862,6 +857,7 @@ export function createStarterOverviewMap(seed: number = 42): GeneratedOverviewMa
     },
   ];
 
+  const armyRng = new SeedableRNG(seed + 101);
   generated.armies = generated.regions
     .filter((r) => Boolean(r.settlementCoords))
     .map((region, index) => {
@@ -872,7 +868,7 @@ export function createStarterOverviewMap(seed: number = 42): GeneratedOverviewMa
         coords: { ...region.settlementCoords! },
         movementPoints: 4,
         maxMovementPoints: 4,
-        squads: createFullTenSquadGarrison(isPlayer),
+        squads: createStarterGarrison(isPlayer, armyRng),
         isGarrison: true,
       };
     });

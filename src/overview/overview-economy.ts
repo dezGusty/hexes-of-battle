@@ -14,7 +14,7 @@ import {
 
 export const POPULATION_SOFT_CAP = 2500;
 export const POPULATION_HARD_CAP = 4999;
-export const MAX_SQUADS_PER_ARMY = 10;
+export const MAX_SQUADS_PER_ARMY = 8;
 
 const DEFENSE_TAX_MULTIPLIER: Record<DefenseStructureTier, number> = {
   none: 1.0,
