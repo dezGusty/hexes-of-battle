@@ -10,12 +10,14 @@ import { CPUPlayerFactory } from "../battle/cpu-player-factory";
 import { Creature, CreatureType } from "../battle/creature";
 import { Ability } from "../battle/ability";
 import { Coords } from "../shared";
+import { FpsDisplayTracker } from "../shared/fps-tracker";
 import { CommonControls } from "../ui/common-controls";
 import { TopSidePanel } from "../ui/top-side-panel";
 import { BattleMenuPanel } from "../ui/battle-menu";
 import { UnitStatsPanel } from "../ui/unit-stats-panel";
 import { EnemyStatsPanel } from "../ui/enemy-stats-panel";
 import { DamagePreviewTooltip } from "../ui/damage-preview-tooltip";
+import { buildTerrainTooltipInfo, TerrainTooltip } from "../ui/terrain-tooltip";
 import { TurnChangeCollection } from "../ui/turn-change-display";
 import { PostBattlePanel } from "../ui/post-battle-panel";
 
@@ -80,9 +82,11 @@ export class BattleHud2D {
   public unitStats?: UnitStatsPanel;
   public enemyStats?: EnemyStatsPanel;
   public damagePreviewTooltip?: DamagePreviewTooltip;
+  public terrainTooltip?: TerrainTooltip;
   public onShowEnemyStats?: (creature: Creature) => void;
   public onHideEnemyStats?: () => void;
   public fpsText?: BitmapText;
+  private fpsTracker: FpsDisplayTracker = new FpsDisplayTracker(5000);
   public versionText?: BitmapText;
   public turnChangeDisplay: TurnChangeCollection = new TurnChangeCollection();
   public softCursorSprite?: Sprite;
@@ -168,6 +172,8 @@ export class BattleHud2D {
       this.damagePreviewTooltip = new DamagePreviewTooltip(this.uiPlusRenderGroup, this.assets.uiSheet);
       this.damagePreviewTooltip.hide();
     }
+    this.terrainTooltip = new TerrainTooltip(this.uiPlusRenderGroup, this.assets.uiSheet);
+    this.terrainTooltip.hide();
 
     this.initializeCommonControls(events);
     if (this.unitStats && this.commonControls) {
@@ -393,7 +399,7 @@ export class BattleHud2D {
       this.battleMenuPanel.hide();
     }
 
-    this.postBattlePanel = new PostBattlePanel(this.uiPlusRenderGroup);
+    this.postBattlePanel = new PostBattlePanel(this.uiPlusRenderGroup, this.assets.unitsSheet);
 
     this.commonControls.menuButton?.onPress.connect(() => {
       this.battleMenuPanel?.toggleVisibility();
@@ -882,10 +888,29 @@ export class BattleHud2D {
 
   public showDamagePreview(preview: DamagePreviewResult, anchorX: number, anchorY: number): void {
     this.damagePreviewTooltip?.show(preview, anchorX, anchorY, this.screenWidth, this.screenHeight);
+    if (this.terrainTooltip?.isVisible() && this.damagePreviewTooltip?.isVisible()) {
+      const minTopY =
+        this.damagePreviewTooltip.container.position.y + this.damagePreviewTooltip.panelHeight + 8;
+      this.terrainTooltip.setPosition(anchorX, anchorY, this.screenWidth, this.screenHeight, minTopY);
+    }
   }
 
   public hideDamagePreview(): void {
     this.damagePreviewTooltip?.hide();
+  }
+
+  public showTerrainTooltip(coords: Coords, anchorX: number, anchorY: number): void {
+    if (!this.terrainTooltip) return;
+    const terrainType = this.battle.getTerrainAt(coords);
+    const info = buildTerrainTooltipInfo(terrainType, this.battle.combatConfig);
+    const minTopY = this.damagePreviewTooltip?.isVisible()
+      ? this.damagePreviewTooltip.container.position.y + this.damagePreviewTooltip.panelHeight + 8
+      : undefined;
+    this.terrainTooltip.show(info, anchorX, anchorY, this.screenWidth, this.screenHeight, minTopY);
+  }
+
+  public hideTerrainTooltip(): void {
+    this.terrainTooltip?.hide();
   }
 
   public getSelectedEnemyCreature(): Creature | undefined {
@@ -1038,7 +1063,7 @@ export class BattleHud2D {
     this.turnChangeDisplay.update(deltaMS * animMultiplier);
     this.updateTargetAcquirementHint();
     if (this.fpsText && fps !== undefined) {
-      this.fpsText.text = `FPS: ${Math.round(fps)}`;
+      this.fpsText.text = this.fpsTracker.record(fps, deltaMS).text;
       this.fpsText.visible = this.settings.debug.showFps;
     }
     if (this.versionText) {

@@ -674,3 +674,106 @@ export function createOverviewWheatFieldModel(
 }
 
 export const createGrainHexTile = createOverviewWheatFieldModel;
+
+/**
+ * Creates a larger rectangular Eador-style wind-animated wheat field for the battle
+ * scene's farm environment, reusing the overview wheat cluster geometry, texture,
+ * Voronoi sub-plot variation, and wind shader.
+ */
+export function createBattleWheatFieldModel(
+  width: number = 6.0,
+  depth: number = 2.6,
+  seed: number = 1
+): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'OuterCropField';
+
+  const soilMat = new THREE.MeshStandardMaterial({
+    color: 0x3e2d1c,
+    roughness: 0.96,
+    metalness: 0.02,
+  });
+  const soilBed = new THREE.Mesh(new THREE.BoxGeometry(width, 0.03, depth), soilMat);
+  soilBed.name = 'TilledSoil';
+  soilBed.position.y = 0.015;
+  soilBed.receiveShadow = true;
+  group.add(soilBed);
+
+  const plots = generateGrainSubPlots(seed);
+  const clusterGeo = buildWheatClusterGeometry();
+  const wheatMat = getOverviewWheatMaterial();
+
+  const halfW = width * 0.5;
+  const halfD = depth * 0.5;
+  const gridX = Math.max(24, Math.min(48, Math.round(width * 8)));
+  const gridZ = Math.max(14, Math.min(26, Math.round(depth * 8)));
+
+  const placements: Array<{
+    x: number;
+    z: number;
+    rotY: number;
+    scaleXZ: number;
+    scaleY: number;
+    color: THREE.Color;
+  }> = [];
+
+  const dummyColor = new THREE.Color();
+  const pathWidth = 0.075;
+
+  for (let gx = 0; gx < gridX; gx++) {
+    for (let gz = 0; gz < gridZ; gz++) {
+      const u = ((gx + 0.5) / gridX) * 2.0 - 1.0;
+      const v = ((gz + 0.5) / gridZ) * 2.0 - 1.0;
+      const jx = (hash2(gx * 13 + seed, gz * 7) - 0.5) * (width / gridX) * 0.7;
+      const jz = (hash2(gx * 19 + seed, gz * 11) - 0.5) * (depth / gridZ) * 0.7;
+      const x = u * (halfW - 0.14) + jx;
+      const z = v * (halfD - 0.14) + jz;
+
+      const { plotIndex, borderDist } = sampleSubPlotAt(u * 0.85, v * 0.85, plots);
+      if (borderDist < pathWidth) continue;
+
+      const plot = plots[plotIndex];
+      const hVar = 0.84 + hash2(gx + seed, gz + 101) * 0.34;
+      const wVar = 2.05 + hash2(gx + 37, gz + seed) * 0.7;
+      const rotY = plot.furrowAngle + (hash2(gx * 3 + seed, gz * 5) - 0.5) * 0.45;
+
+      dummyColor.copy(plot.tint).offsetHSL(
+        (hash2(gx, gz + seed) - 0.5) * 0.025,
+        (hash2(gx + seed, gz) - 0.5) * 0.05,
+        (hash2(gx * 2, gz * 2 + seed) - 0.5) * 0.1
+      );
+
+      placements.push({
+        x,
+        z,
+        rotY,
+        scaleXZ: wVar,
+        scaleY: (plot.stalkHeight * 2.25) * hVar,
+        color: dummyColor.clone(),
+      });
+    }
+  }
+
+  const instanced = new THREE.InstancedMesh(clusterGeo, wheatMat, placements.length);
+  instanced.name = 'WheatClusters';
+  instanced.castShadow = true;
+  instanced.receiveShadow = false;
+
+  const dummy = new THREE.Object3D();
+  for (let i = 0; i < placements.length; i++) {
+    const p = placements[i];
+    dummy.position.set(p.x, 0.025, p.z);
+    dummy.rotation.set(0, p.rotY, 0);
+    dummy.scale.set(p.scaleXZ, p.scaleY, p.scaleXZ);
+    dummy.updateMatrix();
+    instanced.setMatrixAt(i, dummy.matrix);
+    instanced.setColorAt(i, p.color);
+  }
+  instanced.instanceMatrix.needsUpdate = true;
+  if (instanced.instanceColor) {
+    instanced.instanceColor.needsUpdate = true;
+  }
+
+  group.add(instanced);
+  return group;
+}

@@ -822,8 +822,9 @@ export class BattleView3D {
     // 3.5 Update scene debugger
     this.sceneDebugger?.update(deltaMS);
 
-    // 3.8 Update hover duration and damage preview tooltip
+    // 3.8 Update hover duration, damage preview tooltip, and terrain tooltip
     this.updateDamagePreviewHover(deltaMS);
+    this.updateTerrainTooltipHover?.();
 
     // 4. Render 3D scene
     this.sceneManager.render();
@@ -904,6 +905,16 @@ export class BattleView3D {
     }
   }
 
+  private updateTerrainTooltipHover(): void {
+    if (!this.hoveredHex) {
+      this.hud?.hideTerrainTooltip?.();
+      return;
+    }
+    const worldPos = this.hexBoard.hexToWorldWithElevation(this.hoveredHex.x, this.hoveredHex.y, true);
+    const screenPos = this.sceneManager.projectToScreen(worldPos);
+    this.hud?.showTerrainTooltip?.(this.hoveredHex, screenPos.x, screenPos.y);
+  }
+
   public resize(width: number, height: number): void {
     this.sceneManager.resize(width, height);
   }
@@ -940,6 +951,7 @@ export class BattleView3D {
     this.targetHoverHex = null;
     this.targetHoverDuration = 0;
     this.hud?.hideDamagePreview?.();
+    this.hud?.hideTerrainTooltip?.();
     this.hexBoard.setHoverHex(null);
     this.hexBoard.clearAttackPreview();
     this.hexBoard.clearPathPreview();
@@ -1190,6 +1202,7 @@ export class BattleView3D {
       this.targetHoverHex = null;
       this.targetHoverDuration = 0;
       this.hud?.hideDamagePreview?.();
+    this.hud?.hideTerrainTooltip?.();
       if (this.pinchHandler?.shouldSuppressClick() || this.pinchHandler?.isPinching()) {
         this.touchDragSourceHex = null;
         this.isTouchDraggingAction = false;

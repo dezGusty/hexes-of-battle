@@ -938,10 +938,15 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
     expect(scene.hud!.battlePromptPanel.isVisible()).toBe(false);
     expect(playerArmy.movementPoints).toBe(4);
 
-    // 3. Re-trigger and click Quick Battle -> computes summary without launching battle mode
+    // 3. Re-trigger and click Quick Battle -> expands panel to 2-column summary with unit icons
     scene.handleMoveArmy(playerArmy.id, targetCoords);
+    expect(scene.hud!.battlePromptPanel.currentPanelWidth).toBe(620);
     scene.hud!.battlePromptPanel.quickBattleButton.container.emit('pointertap', {} as any);
     expect(scene.hud!.battlePromptPanel.isVisible()).toBe(true);
+    expect(scene.hud!.battlePromptPanel.currentPanelWidth).toBe(960);
+    expect(scene.hud!.battlePromptPanel.currentPanelHeight).toBe(680);
+    expect(scene.hud!.battlePromptPanel.summaryReportContainer.getChildByLabel('SquadIcon_0_0')).toBeDefined();
+    expect(scene.hud!.battlePromptPanel.summaryReportContainer.getChildByLabel('SquadIcon_1_0')).toBeDefined();
     expect(emittedBattles.length).toBe(0);
 
     // 4. View Battle emits overview:start-battle with replayMode: true and seed
@@ -2194,6 +2199,9 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
       expect(model.scale.z).toBeCloseTo(expectedScale, 4);
       if (tier === 'town') {
         expect(model.getObjectByName('SettlementGround')).toBeUndefined();
+        const gate = model.getObjectByName('CastleGate') as THREE.Mesh;
+        expect(gate).toBeDefined();
+        expect(gate.isMesh).toBe(true);
       }
       let foundBannerCloth = false;
       model.traverse((obj) => {

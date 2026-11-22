@@ -831,4 +831,93 @@ describe("Damage Preview & Hover Tooltip System", () => {
       expect(previewArg.maxDamage).toBe(10);
     });
   });
+
+  describe("4. Terrain Hover Tooltip, Semitransparency & Vertical Stacking", () => {
+    it("should build terrain modifiers for forest, hill, swamp, and plain and render semitransparent tooltips stacked below combat preview", async () => {
+      const { buildTerrainTooltipInfo, TerrainTooltip } = await import("../ui/terrain-tooltip");
+      const { DEFAULT_COMBAT_CONFIG } = await import("./combat-rules");
+
+      const forestInfo = buildTerrainTooltipInfo(TerrainType.FOREST, DEFAULT_COMBAT_CONFIG);
+      expect(forestInfo.name).toBe("FOREST");
+      expect(forestInfo.modifiers.some((m) => m.text.includes("+1 Ranged Def") && !m.isDebuff)).toBe(true);
+
+      const hillInfo = buildTerrainTooltipInfo(TerrainType.HILL, DEFAULT_COMBAT_CONFIG);
+      expect(hillInfo.name).toBe("HILL");
+      expect(hillInfo.modifiers.some((m) => m.text.includes("+1 Range"))).toBe(true);
+
+      const swampInfo = buildTerrainTooltipInfo(TerrainType.SWAMP, DEFAULT_COMBAT_CONFIG);
+      expect(swampInfo.name).toBe("SWAMP");
+      expect(swampInfo.modifiers.some((m) => m.text.includes("-1 Melee Def") && m.isDebuff)).toBe(true);
+
+      const plainInfo = buildTerrainTooltipInfo(TerrainType.PLAIN, DEFAULT_COMBAT_CONFIG);
+      expect(plainInfo.modifiers.length).toBe(0);
+
+      const parent = new Container();
+      const combatTooltip = new DamagePreviewTooltip(parent);
+      const terrainTooltip = new TerrainTooltip(parent);
+      expect(combatTooltip.container.alpha).toBeLessThan(1);
+      expect(terrainTooltip.container.alpha).toBeLessThan(1);
+
+      combatTooltip.show(
+        {
+          attacker: {} as any,
+          defender: {} as any,
+          targetHex: { x: 3, y: 2 },
+          originHex: { x: 2, y: 2 },
+          attackType: BattleActionType.ATTACK_MELEE,
+          isRanged: false,
+          canAttack: true,
+          minDamage: 5,
+          maxDamage: 8,
+          rawMinDamage: 5,
+          rawMaxDamage: 8,
+          targetArmor: 0,
+          effectiveTargetArmor: 0,
+          flankStatus: HexFlankStatus.NONE,
+          facingBonus: 0,
+          attackerMultiplier: 1,
+          volleyMultiplier: 1,
+          chargeMultiplier: 1,
+          shieldBlockReduction: 0,
+          spearWallReduction: 0,
+          armorPenetrated: 0,
+          defenderHpBefore: 20,
+          defenderHpAfterMin: 12,
+          defenderHpAfterMax: 15,
+          defenderModelsBefore: 4,
+          minCasualties: 1,
+          maxCasualties: 1,
+          traveledHexes: 0,
+          attackerModifiers: ["Fresh"],
+          defenderModifiers: ["Forest: +1 Def"],
+        },
+        500,
+        400
+      );
+
+      const minTopY = combatTooltip.container.position.y + combatTooltip.panelHeight + 8;
+      terrainTooltip.show(forestInfo, 500, 400, 1920, 1080, minTopY);
+      expect(terrainTooltip.isVisible()).toBe(true);
+      expect(terrainTooltip.container.position.y).toBeGreaterThanOrEqual(minTopY);
+
+      // Terrain hover works even with no active/selected unit
+      const mockHud = {
+        showTerrainTooltip: vi.fn(),
+        hideTerrainTooltip: vi.fn(),
+      };
+      const view3DContext: any = {
+        hoveredHex: { x: 2, y: 2 },
+        hud: mockHud,
+        hexBoard: {
+          hexToWorldWithElevation: () => ({ x: 2, y: 0, z: 2 }),
+        },
+        sceneManager: {
+          projectToScreen: () => ({ x: 400, y: 300 }),
+        },
+      };
+      const updateTerrainFn = (BattleView3D.prototype as any).updateTerrainTooltipHover;
+      updateTerrainFn.call(view3DContext);
+      expect(mockHud.showTerrainTooltip).toHaveBeenCalledWith({ x: 2, y: 2 }, 400, 300);
+    });
+  });
 });

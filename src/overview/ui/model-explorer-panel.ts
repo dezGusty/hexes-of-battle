@@ -338,6 +338,13 @@ export function getModelExplorerCatalog(): ModelExplorerEntry[] {
       lazyLoad: true,
       create: () => loadBattleTreeGlbModel('models/units/peasant_rigged.glb'),
     },
+    {
+      id: 'battle_unit_spearman_rigged',
+      label: 'Battle Unit: Spearman (Rigged GLB) - lazy load',
+      category: 'Battle Scene: Units' as const,
+      lazyLoad: true,
+      create: () => loadBattleTreeGlbModel('models/units/spearman_rigged.glb'),
+    },
     ...Object.entries(UNIT_GLB_PATHS).map(([unitKey, glbPath]) => ({
       id: `battle_unit_${unitKey}`,
       label: `Battle Unit: ${formatUnitDisplayName(unitKey)} - lazy load`,

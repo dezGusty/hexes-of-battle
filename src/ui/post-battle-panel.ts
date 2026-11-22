@@ -1,9 +1,11 @@
-import { Container, Graphics, Text, TextOptions } from "pixi.js";
+import { Assets, Container, Graphics, Sprite, Spritesheet, Text, TextOptions, Texture } from "pixi.js";
 import { Battle } from "../battle";
-import { Creature } from "../battle/creature";
+import { BattleResult } from "../battle/battle-types";
+import { Creature, CreatureType } from "../battle/creature";
 import { MoraleState } from "../battle/combat-rules";
 import { getTeamColorHex } from "../render3d/units/unit-mesh-builder";
 import { playUISound } from "../battle/ui-sounds";
+import { getExchangeFaceKey } from "../overview/ui/overview-army-exchange-panel";
 
 export interface SquadPostBattleInfo {
   creature: Creature;
@@ -50,18 +52,34 @@ export function formatSquadPostBattleStatus(
   return `${alive} out of ${max}`;
 }
 
-/**
- * Computes all unit losses and per-squad post-battle statuses for a given army.
- */
-export function computeArmyLosses(
-  armyIndex: number,
-  battle: Battle,
-  armyName?: string
-): ArmyLossesSummary {
-  const allSquads = battle.getInitialCreatures(armyIndex);
-  const casualties = battle.casualties || [];
-  const routed = battle.routedCreatures || [];
+export function resolveUnitIconTexture(
+  creatureOrType: Creature | CreatureType,
+  unitsSheet?: Spritesheet
+): Texture {
+  const portraitKey =
+    typeof creatureOrType === "object" && creatureOrType !== null
+      ? creatureOrType.portrait || getExchangeFaceKey(creatureOrType.creatureType)
+      : getExchangeFaceKey(creatureOrType);
 
+  const fromSheet = unitsSheet?.textures?.[portraitKey];
+  if (fromSheet) return fromSheet;
+
+  try {
+    const cached = Assets.cache.get(portraitKey) as Texture | undefined;
+    if (cached) return cached;
+  } catch {
+    // Ignore cache miss in headless tests
+  }
+  return Texture.EMPTY;
+}
+
+function buildArmyLossesSummary(
+  armyIndex: number,
+  allSquads: Creature[],
+  casualties: Creature[],
+  routed: Creature[],
+  armyName: string
+): ArmyLossesSummary {
   let totalInitialModels = 0;
   let totalRemainingModels = 0;
   let squadsKilled = 0;
@@ -109,13 +127,10 @@ export function computeArmyLosses(
   });
 
   const totalModelsLost = Math.max(0, totalInitialModels - totalRemainingModels);
-  const name =
-    armyName ??
-    ((battle as any).armyNames?.[armyIndex] || (armyIndex === 0 ? "Player 1" : "Player 2"));
 
   return {
     armyIndex,
-    armyName: name,
+    armyName,
     totalInitialModels,
     totalRemainingModels,
     totalModelsLost,
@@ -125,6 +140,55 @@ export function computeArmyLosses(
     squadsSurvived,
     squads: squadInfos,
   };
+}
+
+/**
+ * Computes all unit losses and per-squad post-battle statuses for a given army.
+ */
+export function computeArmyLosses(
+  armyIndex: number,
+  battle: Battle,
+  armyName?: string
+): ArmyLossesSummary {
+  const allSquads = battle.getInitialCreatures(armyIndex);
+  const casualties = battle.casualties || [];
+  const routed = battle.routedCreatures || [];
+  const name =
+    armyName ??
+    ((battle as any).armyNames?.[armyIndex] || (armyIndex === 0 ? "Player 1" : "Player 2"));
+
+  return buildArmyLossesSummary(armyIndex, allSquads, casualties, routed, name);
+}
+
+/**
+ * Computes per-squad post-battle summary for a given army from a BattleResult.
+ */
+export function computeArmyLossesFromResult(
+  armyIndex: number,
+  result: BattleResult,
+  armyName?: string
+): ArmyLossesSummary {
+  let allSquads: Creature[];
+  if (result.initialCreatures && result.initialCreatures.length > 0) {
+    allSquads = result.initialCreatures.filter((c) => c.armyAlignment === armyIndex);
+  } else {
+    const seen = new Set<Creature>();
+    allSquads = [];
+    for (const c of [...result.survivingCreatures, ...result.routedCreatures, ...result.casualties]) {
+      if (c.armyAlignment === armyIndex && !seen.has(c)) {
+        seen.add(c);
+        allSquads.push(c);
+      }
+    }
+  }
+  const name = armyName ?? (armyIndex === 0 ? "Player 1" : "Player 2");
+  return buildArmyLossesSummary(
+    armyIndex,
+    allSquads,
+    result.casualties || [],
+    result.routedCreatures || [],
+    name
+  );
 }
 
 /**
@@ -219,7 +283,10 @@ export class PostBattlePanel {
   public lastSummaries: [ArmyLossesSummary | null, ArmyLossesSummary | null] = [null, null];
   public onClose?: () => void;
 
-  public constructor(private parentContainer?: Container) {
+  public constructor(
+    private parentContainer?: Container,
+    private unitsSheet?: Spritesheet
+  ) {
     this.window.label = "PostBattlePanel";
     this.window.visible = false;
 
@@ -410,89 +477,16 @@ export class PostBattlePanel {
     width: number,
     armyIndex: number
   ): void {
-    const headerY = 115;
-    const headerH = 68;
-    const teamHex = getTeamColorHex(armyIndex, false);
-    const teamColorStr = armyIndex === 0 ? "#5dade2" : "#ec7063";
-    const tintColor = armyIndex === 0 ? 0x16283c : 0x3c1818;
-
-    // Header Plate
-    this.bgGraphics
-      .roundRect(startX, headerY, width, headerH, 6)
-      .fill({ color: tintColor, alpha: 0.75 })
-      .stroke({ width: 2, color: teamHex, alpha: 0.85 });
-
-    // Army Name Title
-    const nameText = new Text({
-      ...PostBattlePanel.SECTION_HEADER_STYLE,
-      text: summary.armyName,
-      style: {
-        ...PostBattlePanel.SECTION_HEADER_STYLE.style,
-        fill: { color: teamColorStr, alpha: 1 },
-      },
-    });
-    nameText.position.set(startX + 14, headerY + 10);
-    this.contentContainer.addChild(nameText);
-
-    // Losses Summary Line
-    const lossesStr = `Unit Losses: ${summary.totalModelsLost} of ${summary.totalInitialModels} units lost (${summary.squadsKilled} killed, ${summary.squadsRouted} routed)`;
-    const lossesText = new Text({
-      ...PostBattlePanel.LOSSES_SUMMARY_STYLE,
-      text: lossesStr,
-    });
-    lossesText.position.set(startX + 14, headerY + 38);
-    this.contentContainer.addChild(lossesText);
-
-    // Squad Rows Table
-    const startY = headerY + headerH + 12;
-    const rowHeight = 30;
-    const maxVisibleRows = 11;
-
-    if (summary.squads.length === 0) {
-      const emptyText = new Text({
-        style: { fill: { color: "#888888", alpha: 1 }, fontSize: 13, fontStyle: "italic" },
-        text: "No squads participated.",
-      });
-      emptyText.position.set(startX + 14, startY + 10);
-      this.contentContainer.addChild(emptyText);
-      return;
-    }
-
-    summary.squads.forEach((squad, i) => {
-      if (i >= maxVisibleRows) return; // Prevent overflow
-
-      const rowY = startY + i * (rowHeight + 4);
-
-      // Row background zebra stripe
-      const rowBgColor = i % 2 === 0 ? 0x1b202a : 0x151922;
-      this.bgGraphics
-        .roundRect(startX, rowY, width, rowHeight, 4)
-        .fill({ color: rowBgColor, alpha: 0.65 });
-
-      // Squad Name
-      const squadNameText = new Text({
-        ...PostBattlePanel.SQUAD_NAME_STYLE,
-        text: squad.name,
-      });
-      squadNameText.position.set(startX + 12, rowY + 6);
-      this.contentContainer.addChild(squadNameText);
-
-      // Squad Status (Right-aligned)
-      let statusStyle = PostBattlePanel.STATUS_SURVIVED_STYLE;
-      if (squad.isKilled) {
-        statusStyle = PostBattlePanel.STATUS_KILLED_STYLE;
-      } else if (squad.isRouted) {
-        statusStyle = PostBattlePanel.STATUS_ROUTED_STYLE;
-      }
-
-      const statusText = new Text({
-        ...statusStyle,
-        text: squad.statusText,
-      });
-      statusText.anchor.set(1, 0);
-      statusText.position.set(startX + width - 14, rowY + 6);
-      this.contentContainer.addChild(statusText);
-    });
+    renderArmyLossesColumn(
+      this.bgGraphics,
+      this.contentContainer,
+      summary,
+      startX,
+      115,
+      width,
+      armyIndex,
+      this.unitsSheet
+    );
   }
 
   public destroy(): void {
@@ -502,4 +496,111 @@ export class PostBattlePanel {
     this.card.destroy({ children: true });
     this.window.destroy({ children: true });
   }
+}
+
+/**
+ * Renders a single army column (header plate + per-squad rows with unit icons and status)
+ * into the provided Graphics & Container, shared by PostBattlePanel and Quick Battle summary.
+ */
+export function renderArmyLossesColumn(
+  bgGraphics: Graphics,
+  contentContainer: Container,
+  summary: ArmyLossesSummary,
+  startX: number,
+  headerY: number,
+  width: number,
+  armyIndex: number,
+  unitsSheet?: Spritesheet,
+  maxVisibleRows: number = 11
+): void {
+  const headerH = 68;
+  const teamHex = getTeamColorHex(armyIndex, false);
+  const teamColorStr = armyIndex === 0 ? "#5dade2" : "#ec7063";
+  const tintColor = armyIndex === 0 ? 0x16283c : 0x3c1818;
+
+  bgGraphics
+    .roundRect(startX, headerY, width, headerH, 6)
+    .fill({ color: tintColor, alpha: 0.75 })
+    .stroke({ width: 2, color: teamHex, alpha: 0.85 });
+
+  const nameText = new Text({
+    ...PostBattlePanel.SECTION_HEADER_STYLE,
+    text: summary.armyName,
+    style: {
+      ...PostBattlePanel.SECTION_HEADER_STYLE.style,
+      fill: { color: teamColorStr, alpha: 1 },
+    },
+  });
+  nameText.position.set(startX + 14, headerY + 10);
+  contentContainer.addChild(nameText);
+
+  const lossesStr = `Unit Losses: ${summary.totalModelsLost} of ${summary.totalInitialModels} units lost (${summary.squadsKilled} killed, ${summary.squadsRouted} routed)`;
+  const lossesText = new Text({
+    ...PostBattlePanel.LOSSES_SUMMARY_STYLE,
+    text: lossesStr,
+  });
+  lossesText.position.set(startX + 14, headerY + 38);
+  contentContainer.addChild(lossesText);
+
+  const startY = headerY + headerH + 12;
+  const rowHeight = 30;
+
+  if (summary.squads.length === 0) {
+    const emptyText = new Text({
+      style: { fill: { color: "#888888", alpha: 1 }, fontSize: 13, fontStyle: "italic" },
+      text: "No squads participated.",
+    });
+    emptyText.position.set(startX + 14, startY + 10);
+    contentContainer.addChild(emptyText);
+    return;
+  }
+
+  summary.squads.forEach((squad, i) => {
+    if (i >= maxVisibleRows) return;
+
+    const rowY = startY + i * (rowHeight + 4);
+    const rowBgColor = i % 2 === 0 ? 0x1b202a : 0x151922;
+    bgGraphics
+      .roundRect(startX, rowY, width, rowHeight, 4)
+      .fill({ color: rowBgColor, alpha: 0.65 });
+
+    const iconSize = 24;
+    const iconTex = resolveUnitIconTexture(squad.creature, unitsSheet);
+    const iconFrame = new Graphics();
+    iconFrame
+      .roundRect(startX + 8, rowY + 3, iconSize, iconSize, 3)
+      .fill({ color: 0x0f1218, alpha: 0.9 })
+      .stroke({ width: 1, color: 0x465264, alpha: 0.85 });
+    contentContainer.addChild(iconFrame);
+
+    const iconSprite = new Sprite(iconTex);
+    iconSprite.label = `SquadIcon_${armyIndex}_${i}`;
+    iconSprite.position.set(startX + 9, rowY + 4);
+    iconSprite.width = iconSize - 2;
+    iconSprite.height = iconSize - 2;
+    iconSprite.visible = iconTex !== Texture.EMPTY;
+    contentContainer.addChild(iconSprite);
+
+    const squadNameText = new Text({
+      ...PostBattlePanel.SQUAD_NAME_STYLE,
+      text: squad.name,
+    });
+    squadNameText.position.set(startX + 38, rowY + 6);
+    contentContainer.addChild(squadNameText);
+
+    let statusStyle = PostBattlePanel.STATUS_SURVIVED_STYLE;
+    if (squad.isKilled) {
+      statusStyle = PostBattlePanel.STATUS_KILLED_STYLE;
+    } else if (squad.isRouted) {
+      statusStyle = PostBattlePanel.STATUS_ROUTED_STYLE;
+    }
+
+    const statusText = new Text({
+      ...statusStyle,
+      text: squad.statusText,
+    });
+    statusText.anchor.set(1, 0);
+    statusText.position.set(startX + width - 14, rowY + 6);
+    contentContainer.addChild(statusText);
+  });
 }

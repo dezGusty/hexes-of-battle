@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { buildLowPolyForestTreeMesh, ForestTreeVariant } from '../units/unit-mesh-builder';
+import { createBattleWheatFieldModel } from '../overview/overview-wheat-field-3d';
 
 /**
  * Supported major terrain / battle location types for the surrounding 3D environment.
@@ -661,88 +662,77 @@ export function buildHaystackMesh(scale: number = 1.0): THREE.Group {
 }
 
 /**
- * Builds a tilled crop field patch with golden wheat rows.
+ * Builds a large wind-animated Eador-style wheat field patch for the battle farm environment.
  */
-export function buildCropFieldMesh(width: number = 3.2, depth: number = 2.2): THREE.Group {
-  const group = new THREE.Group();
-  group.name = 'OuterCropField';
-
-  const soilMat = new THREE.MeshStandardMaterial({
-    color: 0x5c4228,
-    roughness: 0.95,
-    flatShading: true,
-  });
-  const wheatMat = new THREE.MeshStandardMaterial({
-    color: 0xd8b244,
-    roughness: 0.88,
-    flatShading: true,
-  });
-
-  const baseGeo = new THREE.BoxGeometry(width, 0.06, depth);
-  const baseMesh = new THREE.Mesh(baseGeo, soilMat);
-  baseMesh.name = 'TilledSoil';
-  baseMesh.position.y = 0.03;
-  baseMesh.receiveShadow = true;
-  group.add(baseMesh);
-
-  const rowCount = 5;
-  const rowSpacing = (depth * 0.8) / Math.max(1, rowCount - 1);
-  const rowGeo = new THREE.BoxGeometry(width * 0.92, 0.16, depth * 0.09);
-
-  for (let i = 0; i < rowCount; i++) {
-    const rowMesh = new THREE.Mesh(rowGeo, wheatMat);
-    rowMesh.name = `WheatRow_${i}`;
-    const zOffset = -depth * 0.4 + i * rowSpacing;
-    rowMesh.position.set(0, 0.11, zOffset);
-    rowMesh.castShadow = true;
-    rowMesh.receiveShadow = true;
-    group.add(rowMesh);
-  }
-
+export function buildCropFieldMesh(width: number = 6.0, depth: number = 2.6, seed: number = 1): THREE.Group {
+  const group = createBattleWheatFieldModel(width, depth, seed);
   group.userData = {
     isOuterDecoration: true,
     decorationType: 'crop_field',
     locationType: BattleLocationType.FARM,
+    isWheatField: true,
   };
   return group;
 }
 
 /**
- * Builds a wooden post-and-rail farm fence segment.
+ * Builds a rustic wooden post-and-cross-beam farm fence segment (matching the
+ * cattle pasture cross-beam fence style).
  */
-export function buildFarmFenceMesh(length: number = 2.4): THREE.Group {
+export function buildFarmFenceMesh(length: number = 2.4, seed: number = 1): THREE.Group {
   const group = new THREE.Group();
   group.name = 'OuterFarmFence';
 
   const woodMat = new THREE.MeshStandardMaterial({
-    color: 0x6e4c2e,
-    roughness: 0.9,
+    color: 0x6b4829,
+    roughness: 0.92,
     flatShading: true,
   });
 
-  const postCount = 3;
-  const postGeo = new THREE.BoxGeometry(0.08, 0.46, 0.08);
+  const postCount = Math.max(3, Math.round(length / 0.95) + 1);
+  const postGeo = new THREE.BoxGeometry(0.085, 0.48, 0.085);
+  const posts: Array<{ x: number; z: number }> = [];
+
   for (let i = 0; i < postCount; i++) {
+    const t = i / (postCount - 1);
+    const x = -length * 0.5 + t * length;
+    const z = (seededRand(seed * 17 + i * 5) - 0.5) * 0.05;
+    posts.push({ x, z });
+
     const post = new THREE.Mesh(postGeo, woodMat);
     post.name = `FencePost_${i}`;
-    const x = -length * 0.5 + (i * length) / (postCount - 1);
-    post.position.set(x, 0.23, 0);
+    post.position.set(x, 0.24, z);
+    post.rotation.x = (seededRand(seed * 19 + i * 7) - 0.5) * 0.08;
+    post.rotation.z = (seededRand(seed * 23 + i * 11) - 0.5) * 0.08;
     post.castShadow = true;
     group.add(post);
   }
 
-  const railGeo = new THREE.BoxGeometry(length * 1.04, 0.05, 0.04);
-  const topRail = new THREE.Mesh(railGeo, woodMat);
-  topRail.name = 'FenceRailTop';
-  topRail.position.set(0, 0.36, 0);
-  topRail.castShadow = true;
-  group.add(topRail);
+  for (let i = 0; i < postCount - 1; i++) {
+    const a = posts[i];
+    const b = posts[i + 1];
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const segLen = Math.hypot(dx, dz);
+    const yaw = Math.atan2(-dz, dx);
 
-  const bottomRail = new THREE.Mesh(railGeo, woodMat);
-  bottomRail.name = 'FenceRailBottom';
-  bottomRail.position.set(0, 0.18, 0);
-  bottomRail.castShadow = true;
-  group.add(bottomRail);
+    for (const crossDir of [-1, 1]) {
+      const railGeo = new THREE.BoxGeometry(segLen + 0.1, 0.055, 0.048);
+      const rail = new THREE.Mesh(railGeo, woodMat);
+      rail.name = `FenceCrossRail_${i}_${crossDir > 0 ? 'a' : 'b'}`;
+      const midY = 0.24 + (seededRand(seed * 29 + i * 13 + crossDir) - 0.5) * 0.03;
+      rail.position.set(
+        (a.x + b.x) * 0.5,
+        midY,
+        (a.z + b.z) * 0.5 + crossDir * 0.014
+      );
+      rail.rotation.order = 'YXZ';
+      rail.rotation.y = yaw + (seededRand(seed * 31 + i * 17 + crossDir) - 0.5) * 0.04;
+      rail.rotation.z = crossDir * (0.28 + seededRand(seed * 37 + i * 19) * 0.06);
+      rail.castShadow = true;
+      group.add(rail);
+    }
+  }
 
   group.userData = {
     isOuterDecoration: true,
@@ -750,6 +740,16 @@ export function buildFarmFenceMesh(length: number = 2.4): THREE.Group {
     locationType: BattleLocationType.FARM,
   };
   return group;
+}
+
+export function getOuterApronColorHex(locationType: BattleLocationType): number {
+  const normalizedType = normalizeBattleLocationType(locationType);
+  const themeColors = getSkyboxThemeColors(normalizedType);
+  return normalizedType === BattleLocationType.FOREST
+    ? 0x2c5230
+    : normalizedType === BattleLocationType.FARM
+      ? 0x48783c
+      : themeColors.groundHex;
 }
 
 /**
@@ -760,23 +760,18 @@ export function populateOuterEnvironmentDecorations(
   targetGroup: THREE.Group,
   locationType: BattleLocationType,
   bounds: BoardWorldBounds,
-  hexHeight: number = 0.25,
+  _hexHeight: number = 0.25,
   treeTemplates?: Partial<Record<ForestTreeVariant, THREE.Object3D>>,
   simpleTrees: boolean = false
 ): { animatedWindmillSails: THREE.Object3D[] } {
   const normalizedType = normalizeBattleLocationType(locationType);
   const animatedWindmillSails: THREE.Object3D[] = [];
 
-  const groundY = -hexHeight + 0.005;
+  const groundY = -0.155;
 
   // 1. Outer Ground Apron surrounding the hex board out to the skybox horizon
   const themeColors = getSkyboxThemeColors(normalizedType);
-  const apronColor =
-    normalizedType === BattleLocationType.FOREST
-      ? 0x2c5230
-      : normalizedType === BattleLocationType.FARM
-        ? 0x48783c
-        : themeColors.groundHex;
+  const apronColor = getOuterApronColorHex(normalizedType);
   const apronGeo = new THREE.CircleGeometry(115, 48);
   apronGeo.rotateX(-Math.PI * 0.5);
   const apronMat = new THREE.MeshStandardMaterial({
@@ -834,12 +829,15 @@ export function populateOuterEnvironmentDecorations(
     targetGroup.add(moundMesh);
   }
 
-  // Generate perimeter anchor coordinates strictly outside the playable hex grid
-  const margin = 2.6;
-  const innerMinX = bounds.minX - margin;
-  const innerMaxX = bounds.maxX + margin;
-  const innerMinZ = bounds.minZ - margin;
-  const innerMaxZ = bounds.maxZ + margin;
+  // Generate perimeter anchor coordinates strictly outside the playable hex grid,
+  // closer along North/South edges so nearby obstacles frame the battlefield.
+  const marginX = 2.2;
+  const marginZ = 1.45;
+  const propY = -0.015;
+  const innerMinX = bounds.minX - marginX;
+  const innerMaxX = bounds.maxX + marginX;
+  const innerMinZ = bounds.minZ - marginZ;
+  const innerMaxZ = bounds.maxZ + marginZ;
 
   if (normalizedType === BattleLocationType.FOREST) {
     // ------------------------------------------------------------------------
@@ -860,7 +858,7 @@ export function populateOuterEnvironmentDecorations(
         treeObj = buildLowPolyForestTreeMesh(variant, scale);
       }
       treeObj.name = `OuterForestTree_${seed}`;
-      treeObj.position.set(wx, groundY, wz);
+      treeObj.position.set(wx, propY, wz);
       treeObj.rotation.y = seededRand(seed * 29) * Math.PI * 2;
       treeObj.userData = {
         ...treeObj.userData,
@@ -872,60 +870,60 @@ export function populateOuterEnvironmentDecorations(
       targetGroup.add(treeObj);
     };
 
-    // Place 2 concentric rings of woodland trees around the battle clearing
-    const perimeterTreeCount = 44;
+    // Place concentric woodland trees around the battle clearing (closer on North/South)
+    const perimeterTreeCount = 48;
     for (let i = 0; i < perimeterTreeCount; i++) {
       const t = i / perimeterTreeCount;
       const angle = t * Math.PI * 2 + (seededRand(i * 19) - 0.5) * 0.1;
-      const ringDepth = (i % 3) * 2.4 + seededRand(i * 37) * 1.8;
-      const rx = (innerMaxX - innerMinX) * 0.5 + 1.2 + ringDepth;
-      const rz = (innerMaxZ - innerMinZ) * 0.5 + 1.2 + ringDepth;
+      const ringDepth = (i % 3) * 2.1 + seededRand(i * 37) * 1.5;
+      const rx = (innerMaxX - innerMinX) * 0.5 + 0.9 + ringDepth;
+      const rz = (innerMaxZ - innerMinZ) * 0.5 + 0.65 + ringDepth * 0.85;
       const wx = bounds.centerX + Math.cos(angle) * rx;
       const wz = bounds.centerZ + Math.sin(angle) * rz;
       spawnTreeAt(wx, wz, i + 1);
     }
 
-    // Place mossy boulders and fallen logs along the clearing edge
-    const rockAndLogCount = 14;
+    // Place mossy boulders and fallen logs along the clearing edge, including closer North/South clusters
+    const rockAndLogCount = 18;
     for (let i = 0; i < rockAndLogCount; i++) {
       const angle = (i * Math.PI * 2) / rockAndLogCount + 0.15;
-      const rx = (innerMaxX - innerMinX) * 0.5 + 0.8 + seededRand(i * 53) * 2.2;
-      const rz = (innerMaxZ - innerMinZ) * 0.5 + 0.8 + seededRand(i * 61) * 2.2;
+      const rx = (innerMaxX - innerMinX) * 0.5 + 0.65 + seededRand(i * 53) * 1.8;
+      const rz = (innerMaxZ - innerMinZ) * 0.5 + 0.45 + seededRand(i * 61) * 1.6;
       const wx = bounds.centerX + Math.cos(angle) * rx;
       const wz = bounds.centerZ + Math.sin(angle) * rz;
 
       if (i % 2 === 0) {
         const rock = buildForestRockMesh(0.85 + seededRand(i * 71) * 0.45, i + 1);
-        rock.position.set(wx, groundY, wz);
+        rock.position.set(wx, propY, wz);
         rock.rotation.y = seededRand(i * 83) * Math.PI * 2;
         targetGroup.add(rock);
       } else {
         const log = buildForestLogMesh(0.85 + seededRand(i * 97) * 0.35);
-        log.position.set(wx, groundY, wz);
+        log.position.set(wx, propY, wz);
         log.rotation.y = seededRand(i * 101) * Math.PI * 2;
         targetGroup.add(log);
       }
     }
   } else {
     // ------------------------------------------------------------------------
-    // FARM LOCATION: Farmhouses, Barn, Windmill, Crop Fields, Fences & Haystacks
+    // FARM LOCATION: Farmhouses, Barn, Windmill, Crop Fields, Cross-Beam Fences & Haystacks
     // ------------------------------------------------------------------------
     // North-West Farmstead cluster (Farmhouse + Barn + Windmill + Crop Fields)
-    const nwX = innerMinX - 2.2;
-    const nwZ = innerMinZ - 2.0;
+    const nwX = innerMinX - 1.8;
+    const nwZ = innerMinZ - 1.5;
 
     const farmhouse1 = buildFarmhouseMesh(1.1, false);
-    farmhouse1.position.set(nwX + 2.8, groundY, nwZ - 1.2);
+    farmhouse1.position.set(nwX + 2.8, propY, nwZ - 0.9);
     farmhouse1.rotation.y = 0.25;
     targetGroup.add(farmhouse1);
 
     const barn1 = buildFarmhouseMesh(1.15, true);
-    barn1.position.set(nwX - 0.8, groundY, nwZ + 1.4);
+    barn1.position.set(nwX - 0.6, propY, nwZ + 1.2);
     barn1.rotation.y = 1.1;
     targetGroup.add(barn1);
 
     const windmill = buildWindmillMesh(1.15);
-    windmill.position.set(bounds.centerX + 3.5, groundY, innerMinZ - 3.2);
+    windmill.position.set(bounds.centerX + 3.4, propY, innerMinZ - 2.4);
     windmill.rotation.y = -0.35;
     targetGroup.add(windmill);
     const sails = windmill.getObjectByName('WindmillSails');
@@ -935,62 +933,72 @@ export function populateOuterEnvironmentDecorations(
 
     // South-East secondary farm cottage
     const farmhouse2 = buildFarmhouseMesh(1.0, false);
-    farmhouse2.position.set(innerMaxX + 2.4, groundY, innerMaxZ + 1.5);
+    farmhouse2.position.set(innerMaxX + 2.0, propY, innerMaxZ + 1.1);
     farmhouse2.rotation.y = -2.4;
     targetGroup.add(farmhouse2);
 
-    // Tilled wheat crop fields around North, South, East, West plains
+    // Wide wind-animated wheat fields placed strictly to the North (left and right of the windmill)
+    // and to the South of the battlefield (none on East/West sides).
     const fieldPositions: Array<{ x: number; z: number; w: number; d: number; rot: number }> = [
-      { x: bounds.centerX - 2.5, z: innerMinZ - 2.2, w: 3.6, d: 2.2, rot: 0.05 },
-      { x: bounds.centerX + 7.2, z: innerMinZ - 2.0, w: 3.2, d: 2.2, rot: -0.1 },
-      { x: bounds.centerX - 3.8, z: innerMaxZ + 2.4, w: 3.8, d: 2.4, rot: 0.08 },
-      { x: bounds.centerX + 2.5, z: innerMaxZ + 2.3, w: 3.4, d: 2.2, rot: -0.04 },
-      { x: innerMinX - 2.8, z: bounds.centerZ + 2.2, w: 2.6, d: 3.2, rot: Math.PI * 0.5 },
-      { x: innerMaxX + 2.8, z: bounds.centerZ - 1.8, w: 2.6, d: 3.2, rot: Math.PI * 0.5 },
+      // North-Left of windmill
+      { x: bounds.centerX - 2.6, z: innerMinZ - 1.9, w: 6.2, d: 2.6, rot: 0.03 },
+      // North-Right of windmill (windmill is at centerX + 3.4)
+      { x: bounds.centerX + 8.0, z: innerMinZ - 1.8, w: 5.4, d: 2.5, rot: -0.05 },
+      // South of battlefield
+      { x: bounds.centerX - 3.6, z: innerMaxZ + 1.9, w: 6.4, d: 2.7, rot: 0.04 },
+      { x: bounds.centerX + 3.8, z: innerMaxZ + 1.8, w: 6.0, d: 2.6, rot: -0.03 },
     ];
-    for (const fp of fieldPositions) {
-      const field = buildCropFieldMesh(fp.w, fp.d);
-      field.position.set(fp.x, groundY, fp.z);
+    fieldPositions.forEach((fp, idx) => {
+      const field = buildCropFieldMesh(fp.w, fp.d, 301 + idx * 17);
+      field.position.set(fp.x, propY, fp.z);
       field.rotation.y = fp.rot;
       targetGroup.add(field);
-    }
+    });
 
-    // Wooden split-rail fences bordering the fields and road
-    const fencePositions: Array<{ x: number; z: number; rot: number }> = [
-      { x: bounds.centerX - 2.5, z: innerMinZ - 0.8, rot: 0.05 },
-      { x: bounds.centerX + 0.5, z: innerMinZ - 0.8, rot: 0.0 },
-      { x: bounds.centerX - 3.8, z: innerMaxZ + 0.9, rot: 0.08 },
-      { x: bounds.centerX + 2.5, z: innerMaxZ + 0.9, rot: -0.04 },
-      { x: innerMinX - 1.2, z: bounds.centerZ - 1.5, rot: Math.PI * 0.5 },
-      { x: innerMaxX + 1.2, z: bounds.centerZ + 1.5, rot: Math.PI * 0.5 },
+    // Non-continuous sections of rustic cross-beam fences parallel to the North & South
+    // edges of the battlefield (with organic gaps and slight angle variations)
+    const fenceSections: Array<{ x: number; z: number; len: number; rot: number }> = [
+      // North side (broken into 3 non-continuous sections)
+      { x: bounds.centerX - 4.6, z: innerMinZ - 0.15, len: 2.4, rot: 0.03 },
+      { x: bounds.centerX - 0.2, z: innerMinZ - 0.35, len: 2.6, rot: -0.04 },
+      { x: bounds.centerX + 4.4, z: innerMinZ - 0.1, len: 2.2, rot: 0.05 },
+      // South side (broken into 3 non-continuous sections with different offsets/gaps)
+      { x: bounds.centerX - 5.2, z: innerMaxZ + 0.25, len: 2.2, rot: -0.05 },
+      { x: bounds.centerX + 0.4, z: innerMaxZ + 0.1, len: 2.8, rot: 0.03 },
+      { x: bounds.centerX + 5.0, z: innerMaxZ + 0.35, len: 2.1, rot: -0.03 },
+      // East / West side accents
+      { x: innerMinX - 1.0, z: bounds.centerZ - 1.5, len: 2.4, rot: Math.PI * 0.5 },
+      { x: innerMaxX + 1.0, z: bounds.centerZ + 1.5, len: 2.4, rot: Math.PI * 0.5 },
     ];
-    for (const fPos of fencePositions) {
-      const fence = buildFarmFenceMesh(2.4);
-      fence.position.set(fPos.x, groundY, fPos.z);
+    fenceSections.forEach((fPos, idx) => {
+      const fence = buildFarmFenceMesh(fPos.len, idx + 1);
+      fence.position.set(fPos.x, propY, fPos.z);
       fence.rotation.y = fPos.rot;
       targetGroup.add(fence);
-    }
+    });
 
-    // Golden haystacks & hay bales scattered near the fields and barn
+    // Golden haystacks & hay bales scattered near the fields and North/South borders
     const haystackPositions: Array<{ x: number; z: number; scale: number }> = [
-      { x: nwX + 1.2, z: nwZ + 0.6, scale: 1.1 },
-      { x: bounds.centerX + 5.2, z: innerMinZ - 1.5, scale: 0.95 },
-      { x: bounds.centerX - 0.8, z: innerMaxZ + 1.8, scale: 1.05 },
-      { x: innerMaxX + 1.8, z: innerMaxZ - 0.6, scale: 0.9 },
-      { x: innerMinX - 1.8, z: innerMaxZ + 1.2, scale: 1.0 },
+      { x: nwX + 1.2, z: nwZ + 0.5, scale: 1.1 },
+      { x: bounds.centerX + 5.0, z: innerMinZ - 1.0, scale: 0.95 },
+      { x: bounds.centerX - 1.8, z: innerMinZ - 0.9, scale: 0.9 },
+      { x: bounds.centerX - 0.9, z: innerMaxZ + 1.1, scale: 1.05 },
+      { x: bounds.centerX + 3.2, z: innerMaxZ + 1.0, scale: 0.95 },
+      { x: innerMaxX + 1.6, z: innerMaxZ - 0.6, scale: 0.9 },
+      { x: innerMinX - 1.6, z: innerMaxZ + 0.9, scale: 1.0 },
     ];
     for (const hp of haystackPositions) {
       const hay = buildHaystackMesh(hp.scale);
-      hay.position.set(hp.x, groundY, hp.z);
+      hay.position.set(hp.x, propY, hp.z);
       targetGroup.add(hay);
     }
 
     // A few solitary trees in the plains (matching simpleTrees mode)
     const plainsTrees: Array<{ x: number; z: number; scale: number; variant: ForestTreeVariant }> = [
-      { x: nwX + 4.8, z: nwZ - 1.8, scale: 1.15, variant: simpleTrees ? 'card_oak' : 'oak' },
-      { x: innerMaxX + 3.2, z: innerMinZ - 1.8, scale: 1.05, variant: simpleTrees ? 'card_birch' : 'birch' },
-      { x: innerMinX - 3.0, z: innerMaxZ + 2.2, scale: 1.1, variant: simpleTrees ? 'card_maple' : 'maple' },
-      { x: innerMaxX + 3.5, z: innerMaxZ + 3.0, scale: 1.2, variant: simpleTrees ? 'card_willow' : 'willow' },
+      { x: nwX + 4.8, z: nwZ - 1.2, scale: 1.15, variant: simpleTrees ? 'card_oak' : 'oak' },
+      { x: innerMaxX + 2.8, z: innerMinZ - 1.1, scale: 1.05, variant: simpleTrees ? 'card_birch' : 'birch' },
+      { x: innerMinX - 2.6, z: innerMaxZ + 1.4, scale: 1.1, variant: simpleTrees ? 'card_maple' : 'maple' },
+      { x: innerMaxX + 3.0, z: innerMaxZ + 2.0, scale: 1.2, variant: simpleTrees ? 'card_willow' : 'willow' },
     ];
     for (let i = 0; i < plainsTrees.length; i++) {
       const pt = plainsTrees[i];
@@ -1002,7 +1010,7 @@ export function populateOuterEnvironmentDecorations(
         tree.scale.set(pt.scale, pt.scale, pt.scale);
       }
       tree.name = `OuterPlainsTree_${i}`;
-      tree.position.set(pt.x, groundY, pt.z);
+      tree.position.set(pt.x, propY, pt.z);
       tree.userData = {
         ...tree.userData,
         isOuterDecoration: true,

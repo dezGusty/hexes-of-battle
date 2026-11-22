@@ -1,5 +1,9 @@
-import { Container, Graphics, Text } from 'pixi.js';
+import { Container, Graphics, Spritesheet, Text } from 'pixi.js';
 import { BattleResult } from '../../battle/battle-types';
+import {
+  computeArmyLossesFromResult,
+  renderArmyLossesColumn,
+} from '../../ui/post-battle-panel';
 import { createOverviewButton, OverviewUiButton } from './overview-ui-helpers';
 
 export interface BattlePromptInfo {
@@ -19,10 +23,10 @@ export interface BattlePromptCallbacks {
   onRefuseOutcome: () => void;
 }
 
-const PANEL_W = 620;
-const PANEL_H = 440;
-const PANEL_X = (1920 - PANEL_W) / 2;
-const PANEL_Y = (1080 - PANEL_H) / 2;
+const PROMPT_W = 620;
+const PROMPT_H = 440;
+const SUMMARY_W = 960;
+const SUMMARY_H = 680;
 
 export class OverviewBattlePromptPanel {
   public readonly container = new Container();
@@ -33,6 +37,11 @@ export class OverviewBattlePromptPanel {
 
   private readonly promptGroup = new Container();
   private readonly summaryGroup = new Container();
+  public readonly summaryReportGraphics = new Graphics();
+  public readonly summaryReportContainer = new Container();
+
+  public currentPanelWidth: number = PROMPT_W;
+  public currentPanelHeight: number = PROMPT_H;
 
   public readonly quickBattleButton: OverviewUiButton;
   public readonly fightOnBattlefieldButton: OverviewUiButton;
@@ -42,10 +51,14 @@ export class OverviewBattlePromptPanel {
   public readonly viewBattleButton: OverviewUiButton;
   public readonly refuseOutcomeButton: OverviewUiButton;
 
+  private unitsSheet?: Spritesheet;
+
   constructor(
     parent: Container,
-    callbacks: BattlePromptCallbacks
+    callbacks: BattlePromptCallbacks,
+    unitsSheet?: Spritesheet
   ) {
+    this.unitsSheet = unitsSheet;
     this.container.label = 'OverviewBattlePromptPanel';
     this.container.visible = false;
 
@@ -53,11 +66,6 @@ export class OverviewBattlePromptPanel {
       .rect(0, 0, 1920, 1080)
       .fill({ color: 0x05080d, alpha: 0.65 });
     this.backdrop.eventMode = 'static';
-
-    this.panelBg
-      .roundRect(PANEL_X, PANEL_Y, PANEL_W, PANEL_H, 12)
-      .fill({ color: 0x111924, alpha: 0.98 })
-      .stroke({ width: 2.5, color: 0xd4af37, alpha: 0.95 });
 
     this.titleText = new Text({
       text: 'Battle Engagement',
@@ -68,7 +76,6 @@ export class OverviewBattlePromptPanel {
       },
     });
     this.titleText.anchor.set(0.5, 0);
-    this.titleText.position.set(PANEL_X + PANEL_W / 2, PANEL_Y + 24);
 
     this.bodyText = new Text({
       text: '',
@@ -78,16 +85,18 @@ export class OverviewBattlePromptPanel {
         lineHeight: 28,
         align: 'center',
         wordWrap: true,
-        wordWrapWidth: PANEL_W - 64,
+        wordWrapWidth: PROMPT_W - 64,
       },
     });
     this.bodyText.anchor.set(0.5, 0);
-    this.bodyText.position.set(PANEL_X + PANEL_W / 2, PANEL_Y + 76);
+
+    const promptX = (1920 - PROMPT_W) / 2;
+    const promptY = (1080 - PROMPT_H) / 2;
 
     // Prompt mode buttons
     const btnW = 380;
     const btnH = 48;
-    const btnX = PANEL_X + (PANEL_W - btnW) / 2;
+    const btnX = promptX + (PROMPT_W - btnW) / 2;
 
     this.quickBattleButton = createOverviewButton(
       'Quick Battle',
@@ -96,7 +105,7 @@ export class OverviewBattlePromptPanel {
       () => callbacks.onQuickBattle(),
       { fillColor: 0x2c4b6e, fontSize: 18 }
     );
-    this.quickBattleButton.container.position.set(btnX, PANEL_Y + 210);
+    this.quickBattleButton.container.position.set(btnX, promptY + 210);
 
     this.fightOnBattlefieldButton = createOverviewButton(
       'Fight on the Battlefield',
@@ -105,7 +114,7 @@ export class OverviewBattlePromptPanel {
       () => callbacks.onFightOnBattlefield(),
       { fillColor: 0x6b2c2c, fontSize: 18 }
     );
-    this.fightOnBattlefieldButton.container.position.set(btnX, PANEL_Y + 272);
+    this.fightOnBattlefieldButton.container.position.set(btnX, promptY + 272);
 
     this.cancelButton = createOverviewButton(
       'Cancel',
@@ -114,7 +123,7 @@ export class OverviewBattlePromptPanel {
       () => callbacks.onCancel(),
       { fillColor: 0x243040, borderColor: 0x7c8a99, fontSize: 16 }
     );
-    this.cancelButton.container.position.set(PANEL_X + (PANEL_W - 200) / 2, PANEL_Y + 344);
+    this.cancelButton.container.position.set(promptX + (PROMPT_W - 200) / 2, promptY + 344);
 
     this.promptGroup.addChild(
       this.quickBattleButton.container,
@@ -122,35 +131,41 @@ export class OverviewBattlePromptPanel {
       this.cancelButton.container
     );
 
-    // Quick battle summary mode buttons
+    // Quick battle summary mode (2-column post-battle report + bottom buttons)
+    const summaryX = (1920 - SUMMARY_W) / 2;
+    const summaryY = (1080 - SUMMARY_H) / 2;
+    const summaryBtnY = summaryY + SUMMARY_H - 68;
+
     this.acceptOutcomeButton = createOverviewButton(
       'Accept Outcome',
-      btnW,
-      btnH,
+      268,
+      44,
       () => callbacks.onAcceptOutcome(),
-      { fillColor: 0x255c3e, fontSize: 18 }
+      { fillColor: 0x255c3e, fontSize: 16 }
     );
-    this.acceptOutcomeButton.container.position.set(btnX, PANEL_Y + 220);
+    this.acceptOutcomeButton.container.position.set(summaryX + 34, summaryBtnY);
 
     this.viewBattleButton = createOverviewButton(
       'View Battle (Replay)',
-      btnW,
-      btnH,
+      268,
+      44,
       () => callbacks.onViewBattle(),
-      { fillColor: 0x2c4b6e, fontSize: 18 }
+      { fillColor: 0x2c4b6e, fontSize: 16 }
     );
-    this.viewBattleButton.container.position.set(btnX, PANEL_Y + 280);
+    this.viewBattleButton.container.position.set(summaryX + 318, summaryBtnY);
 
     this.refuseOutcomeButton = createOverviewButton(
       'Refuse Outcome (Fight Manually)',
-      btnW,
+      324,
       44,
       () => callbacks.onRefuseOutcome(),
-      { fillColor: 0x6b2c2c, borderColor: 0xe67e73, fontSize: 16 }
+      { fillColor: 0x6b2c2c, borderColor: 0xe67e73, fontSize: 15 }
     );
-    this.refuseOutcomeButton.container.position.set(btnX, PANEL_Y + 342);
+    this.refuseOutcomeButton.container.position.set(summaryX + 602, summaryBtnY);
 
     this.summaryGroup.addChild(
+      this.summaryReportGraphics,
+      this.summaryReportContainer,
       this.acceptOutcomeButton.container,
       this.viewBattleButton.container,
       this.refuseOutcomeButton.container
@@ -166,10 +181,35 @@ export class OverviewBattlePromptPanel {
       this.summaryGroup
     );
 
+    this.applyPanelDimensions(PROMPT_W, PROMPT_H);
     parent.addChild(this.container);
   }
 
+  public setUnitsSpritesheet(unitsSheet?: Spritesheet): void {
+    this.unitsSheet = unitsSheet;
+  }
+
+  private applyPanelDimensions(width: number, height: number): { x: number; y: number } {
+    this.currentPanelWidth = width;
+    this.currentPanelHeight = height;
+    const x = (1920 - width) / 2;
+    const y = (1080 - height) / 2;
+
+    this.panelBg.clear();
+    this.panelBg
+      .roundRect(x, y, width, height, 12)
+      .fill({ color: 0x111924, alpha: 0.98 })
+      .stroke({ width: 2.5, color: 0xd4af37, alpha: 0.95 });
+
+    this.titleText.position.set(x + width / 2, y + 22);
+    this.bodyText.style.wordWrapWidth = width - 64;
+    this.bodyText.position.set(x + width / 2, y + 62);
+
+    return { x, y };
+  }
+
   public showPrompt(info: BattlePromptInfo): void {
+    this.applyPanelDimensions(PROMPT_W, PROMPT_H);
     this.titleText.text = 'Battle Engagement';
     this.titleText.style.fill = '#f5d46f';
 
@@ -189,6 +229,8 @@ export class OverviewBattlePromptPanel {
     info: BattlePromptInfo,
     result: BattleResult
   ): void {
+    const { x: panelX, y: panelY } = this.applyPanelDimensions(SUMMARY_W, SUMMARY_H);
+
     const victorLabel =
       result.victorArmyIndex === 0
         ? 'VICTORY!'
@@ -203,19 +245,48 @@ export class OverviewBattlePromptPanel {
           ? '#ff7070'
           : '#f5d46f';
 
-    const attackerSurvivors = result.survivingCreatures.filter(
-      (c) => c.armyAlignment === 0 && c.live_stats.remaining_health > 0
-    ).length;
-    const defenderSurvivors = result.survivingCreatures.filter(
-      (c) => c.armyAlignment === 1 && c.live_stats.remaining_health > 0
-    ).length;
-    const attackerLosses = Math.max(0, info.attackerSquadCount - attackerSurvivors);
-    const defenderLosses = Math.max(0, info.defenderSquadCount - defenderSurvivors);
+    const locationPrefix = info.regionName ? `${info.regionName} · ` : '';
+    this.bodyText.text = `${locationPrefix}Turns: ${result.turnsTaken}`;
 
-    this.bodyText.text =
-      `Turns: ${result.turnsTaken}\n` +
-      `${info.attackerName}: ${attackerSurvivors} survived, ${attackerLosses} lost\n` +
-      `${info.defenderName}: ${defenderSurvivors} survived, ${defenderLosses} lost`;
+    this.summaryReportGraphics.clear();
+    this.summaryReportContainer.removeChildren().forEach((c) => c.destroy({ children: true }));
+
+    // Central Vertical Divider
+    const headerY = panelY + 102;
+    this.summaryReportGraphics
+      .moveTo(panelX + SUMMARY_W * 0.5, headerY)
+      .lineTo(panelX + SUMMARY_W * 0.5, panelY + SUMMARY_H - 86)
+      .stroke({ width: 2, color: 0x3b424f, alpha: 0.7 });
+
+    const colWidth = 430;
+    const colLeftX = panelX + 30;
+    const colRightX = panelX + SUMMARY_W * 0.5 + 20;
+
+    const p1Summary = computeArmyLossesFromResult(0, result, info.attackerName);
+    const p2Summary = computeArmyLossesFromResult(1, result, info.defenderName);
+
+    renderArmyLossesColumn(
+      this.summaryReportGraphics,
+      this.summaryReportContainer,
+      p1Summary,
+      colLeftX,
+      headerY,
+      colWidth,
+      0,
+      this.unitsSheet,
+      11
+    );
+    renderArmyLossesColumn(
+      this.summaryReportGraphics,
+      this.summaryReportContainer,
+      p2Summary,
+      colRightX,
+      headerY,
+      colWidth,
+      1,
+      this.unitsSheet,
+      11
+    );
 
     this.promptGroup.visible = false;
     this.summaryGroup.visible = true;

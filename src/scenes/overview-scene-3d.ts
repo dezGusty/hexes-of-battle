@@ -317,7 +317,7 @@ export class OverviewScene3D implements Scene {
   public update(deltaTime: number): void {
     this.view?.update(deltaTime);
     if (this.context?.app?.ticker) {
-      this.hud?.updateFps(this.context.app.ticker.FPS);
+      this.hud?.updateFps(this.context.app.ticker.FPS, deltaTime);
     }
   }
 

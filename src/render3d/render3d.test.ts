@@ -197,7 +197,7 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       // Hover on hill projects onto continuous elevation using textured quad
       hexBoard.setHoverHex({ x: 2, y: 2 });
       const hoverMesh = (hexBoard as any).hoverMesh as THREE.Mesh;
-      expect(hoverMesh.position.y).toBeCloseTo(hexBoard.getHexElevation(2, 2) + 0.028, 3);
+      expect(hoverMesh.position.y).toBeCloseTo(hexBoard.getHexElevation(2, 2) + 0.035, 3);
       expect(hoverMesh.scale.x).toBeCloseTo(1.0, 4);
       expect(hoverMesh.geometry.attributes.uv).toBeDefined();
       expect((hoverMesh.material as THREE.MeshBasicMaterial).transparent).toBe(true);
@@ -404,7 +404,7 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       // Hover overlay projects onto continuous swamp depression
       hexBoard.setHoverHex({ x: 2, y: 2 });
       const hoverMesh = (hexBoard as any).hoverMesh as THREE.Mesh;
-      expect(hoverMesh.position.y).toBeCloseTo(hexBoard.getHexElevation(2, 2) + 0.028, 3);
+      expect(hoverMesh.position.y).toBeCloseTo(hexBoard.getHexElevation(2, 2) + 0.035, 3);
       expect(hoverMesh.position.y).toBeLessThan(0);
 
       hexBoard.dispose();
@@ -952,10 +952,17 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(hud.versionText?.visible).toBe(true);
       expect(hud.isFpsVisible()).toBe(true);
 
-      // Update with 60 FPS
+      // Update with 60 FPS -> shows current and 5-second average
       hud.update(16.6, 59.8);
-      expect(hud.fpsText?.text).toBe('FPS: 60');
+      expect(hud.fpsText?.text).toBe('FPS: 60 (60)');
       expect(hud.versionText?.visible).toBe(true);
+
+      // Update with lower FPS over 5 seconds -> current updates while 5s average reflects history
+      for (let i = 0; i < 4; i++) {
+        hud.update(1000, 60);
+      }
+      hud.update(1000, 30);
+      expect(hud.fpsText?.text).toBe('FPS: 30 (54)');
 
       // Toggle FPS visibility
       hud.setFpsVisible(false);
@@ -3859,6 +3866,19 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(farmChildrenNames).toContain('OuterFarmWindmill');
       expect(farmChildrenNames).toContain('OuterCropField');
       expect(farmChildrenNames).toContain('OuterFarmFence');
+      const sampleFence = view.hexBoard.outerDecorationsGroup.getObjectByName('OuterFarmFence')!;
+      expect(sampleFence.children.some((c) => c.name.startsWith('FenceCrossRail_'))).toBe(true);
+
+      // Verify farm wheat fields use instanced wind-animated WheatClusters, placed only North/South (none East/West)
+      const cropFields = view.hexBoard.outerDecorationsGroup.children.filter(
+        (c) => c.name === 'OuterCropField'
+      );
+      expect(cropFields.length).toBe(4);
+      const b = view.hexBoard.getBoardWorldBounds();
+      for (const field of cropFields) {
+        expect(field.getObjectByName('WheatClusters')).toBeDefined();
+        expect(field.position.z < b.minZ || field.position.z > b.maxZ).toBe(true);
+      }
       expect(farmChildrenNames).toContain('OuterHaystack');
 
       // Verify that all outer decoration elements are strictly outside the playable hex grid bounding box
@@ -5195,6 +5215,68 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(u0.uBannerUvTransform.value.z).toBeCloseTo(expectedUv0.offsetX, 5);
       expect(u1.uBannerUvTransform.value.x).toBeCloseTo(expectedUv1.repeatX, 5);
       expect(u1.uBannerUvTransform.value.z).toBeCloseTo(expectedUv1.offsetX, 5);
+    });
+
+    it('should provide 512x512 battle terrain textures with 4 variants per terrain and taper enlarged heightfield toward 0 at edges', async () => {
+      const { readFileSync } = await import('node:fs');
+      const { BATTLE_TERRAIN_TEXTURE_CONFIG, OVERVIEW_LAND_TERRAINS } = await import('./overview/overview-terrain-shader');
+
+      for (const terrain of ['grassland', 'forest', 'swamp', 'hill'] as const) {
+        const vars = BATTLE_TERRAIN_TEXTURE_CONFIG[terrain].variations;
+        expect(vars.length).toBe(4);
+        for (const file of vars) {
+          const buf = readFileSync(`public/textures/terrain/${file}`);
+          expect(buf.subarray(1, 4).toString('ascii')).toBe('PNG');
+          expect(buf.readUInt32BE(16)).toBe(512);
+          expect(buf.readUInt32BE(20)).toBe(512);
+        }
+      }
+      expect(OVERVIEW_LAND_TERRAINS.length).toBeGreaterThanOrEqual(4);
+
+      const hexMap = new HexMap(6, 6);
+      const board = new HexBoard3D(hexMap, {
+        getTerrain: () => TerrainType.HILL,
+      });
+      const atlas = (board as any).overviewTerrainAtlas;
+      expect(atlas.cellSize).toBe(512);
+
+      const bounds = board.getBoardWorldBounds();
+      const terrainMesh = board.group.getObjectByName('BattleTerrainHeightfield') as THREE.Mesh;
+      terrainMesh.geometry.computeBoundingBox();
+      const bbox = terrainMesh.geometry.boundingBox!;
+      expect(bbox.max.x).toBeGreaterThan(bounds.maxX + 4.0);
+      expect(bbox.min.x).toBeLessThan(bounds.minX - 4.0);
+
+      // Inside hill hex remains elevated, far outside tapers toward 0 / -0.02
+      const innerElev = board.getHexElevation(3, 3);
+      expect(innerElev).toBeGreaterThan(0.2);
+      const outerElev = board.sampleElevationAtWorld(bounds.maxX + 5.0, bounds.centerZ);
+      expect(Math.abs(outerElev)).toBeLessThan(0.16);
+
+      board.dispose();
+    });
+
+    it('should provide rigged spearman GLB with kettle helmet, spear, shield, and all 5 skeletal animations', async () => {
+      const { readFileSync, existsSync } = await import('node:fs');
+      expect(existsSync('public/models/units/spearman_rigged.glb')).toBe(true);
+      expect(existsSync('assets/blender/spearman_rigged.blend')).toBe(true);
+
+      const glbBuf = readFileSync('public/models/units/spearman_rigged.glb');
+      const jsonLen = glbBuf.readUInt32LE(12);
+      const gltf = JSON.parse(glbBuf.subarray(20, 20 + jsonLen).toString('utf8'));
+
+      const animNames = (gltf.animations ?? []).map((a: any) => a.name);
+      expect(animNames).toContain('idle_stance');
+      expect(animNames).toContain('combat_defensive_stance');
+      expect(animNames).toContain('combat_move_advance');
+      expect(animNames).toContain('combat_attack_poke');
+      expect(animNames).toContain('death');
+
+      const nodeNames = (gltf.nodes ?? []).map((n: any) => n.name);
+      expect(nodeNames).toContain('SpearWeapon');
+      expect(nodeNames).toContain('Shield');
+      expect(nodeNames).toContain('weaponSocket');
+      expect(nodeNames).toContain('shieldSocket');
     });
   });
 });

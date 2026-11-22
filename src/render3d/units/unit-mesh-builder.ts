@@ -166,7 +166,7 @@ export const UNIT_GLB_PATHS: Record<string, string> = {
   peasant: 'models/units/peasant_rigged.glb',
   peasant_archer: 'models/units/peasant_archer.glb',
   swordsman: 'models/units/swordsman.glb',
-  spearman: 'models/units/spearman.glb',
+  spearman: 'models/units/spearman_rigged.glb',
   crossbowman: 'models/units/crossbowman.glb',
   barbarian: 'models/units/barbarian.glb',
   slinger: 'models/units/slinger.glb',
@@ -181,6 +181,7 @@ export const UNIT_GLB_PATHS: Record<string, string> = {
  */
 export const UNIT_MOVE_CYCLES_PER_HEX: Record<string, number> = {
   peasant: 2,
+  spearman: 2,
 };
 
 export function getUnitMoveCyclesPerHex(type: CreatureType | string | number): number {
@@ -1497,6 +1498,8 @@ export function instantiateGlbUnitTemplate(
               }
               if (hasMaskColor) {
                 applyRiggedTeamAndBannerShader(cachedMat, teamHex, resolvedBanner, hasUv1);
+              } else if (cachedMat.name === 'ShieldFace' || cachedMat.name === 'SpearmanGambeson') {
+                cachedMat.color.setHex(teamHex);
               }
               matMap.set(matKey, cachedMat);
             }
@@ -1507,7 +1510,7 @@ export function instantiateGlbUnitTemplate(
       }
     });
 
-    if (unitKey === 'peasant') {
+    if (unitKey === 'peasant' || unitKey === 'spearman') {
       clonedSkinned.scale.setScalar(1.85);
       clonedSkinned.rotation.y = Math.PI / 2;
     }

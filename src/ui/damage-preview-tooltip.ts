@@ -59,6 +59,7 @@ export class DamagePreviewTooltip {
   public panelHeight: number = 175;
 
   constructor(parent?: Container, private uiSheet?: Spritesheet) {
+    this.container.alpha = 0.84;
     if (this.uiSheet?.textures?.["thin_panel_semitransparent.png"]) {
       this.bg = new NineSliceSprite({
         texture: this.uiSheet.textures["thin_panel_semitransparent.png"],
@@ -241,8 +242,8 @@ export class DamagePreviewTooltip {
     this.frame.clear();
     this.frame
       .roundRect(0, 0, this.panelWidth, this.panelHeight, 6)
-      .fill({ color: 0x12151b, alpha: 0.94 })
-      .stroke({ color: 0xd4af37, width: 2, alpha: 0.92 });
+      .fill({ color: 0x12151b, alpha: 0.78 })
+      .stroke({ color: 0xd4af37, width: 2, alpha: 0.88 });
 
     // Subtle inner accent line under header
     this.frame

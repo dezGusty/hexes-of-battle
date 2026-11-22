@@ -24,8 +24,8 @@ import {
   getSharedBannersTexture,
 } from './decorations/retreat-flag-3d';
 import {
+  BATTLE_TERRAIN_TEXTURE_CONFIG,
   OVERVIEW_LAND_TERRAINS,
-  OVERVIEW_TERRAIN_TEXTURE_CONFIG,
   createOverviewBlendedTerrainMaterial,
   createOverviewTerrainAtlas,
   createOverviewTerrainGridTexture,
@@ -36,12 +36,14 @@ import type { OverviewTerrainType } from '../overview/overview-types';
 import {
   BattleLocationType,
   BoardWorldBounds,
+  getOuterApronColorHex,
   normalizeBattleLocationType,
   populateOuterEnvironmentDecorations,
 } from './decorations/battle-environment-3d';
 import { WindState } from './decorations/wind-system';
 import { GrassFieldSystem, GrassModelType, GrassClumpInstanceData } from './decorations/grass-system-3d';
 import { BlowingLeavesSystem } from './decorations/blowing-leaves-3d';
+import { updateOverviewWheatWind } from './overview/overview-wheat-field-3d';
 import { TerrainSplattingContext } from './terrain-splatting';
 
 export interface HexBoard3DOptions {
@@ -381,17 +383,16 @@ export class HexBoard3D {
       ]);
       const mountainTex = await loadTex(`${basePath}mountain.jpg`).catch(() => undefined);
 
-      // Also load the global map's 4-variation terrain textures so the battle heightfield
-      // reuses the exact same crisp textures for grassland, forests, swamps, and hills.
-      const overviewFiles = Array.from(
+      // Load high-resolution (512x512) Eador-style battle terrain textures (4 variants per terrain)
+      const battleFiles = Array.from(
         new Set(
           OVERVIEW_LAND_TERRAINS.flatMap(
-            (t) => OVERVIEW_TERRAIN_TEXTURE_CONFIG[t]?.variations ?? []
+            (t) => BATTLE_TERRAIN_TEXTURE_CONFIG[t]?.variations ?? []
           )
         )
       );
       await Promise.all(
-        overviewFiles.map(async (file) => {
+        battleFiles.map(async (file) => {
           if (this.overviewTerrainTextures.has(file)) return;
           try {
             const tex = await loadTex(`${basePath}${file}`);
@@ -2196,7 +2197,7 @@ float hillTerrainNoise(vec2 p) {
     const elev = this.getHexElevation(coords.x, coords.y);
     this.hoverMesh.scale.set(1, 1, 1);
     this.projectRingGeometryToHex(this.hoverMesh, worldPos.x, worldPos.z, elev);
-    this.hoverMesh.position.set(worldPos.x, elev + 0.028, worldPos.z);
+    this.hoverMesh.position.set(worldPos.x, elev + 0.035, worldPos.z);
     this.hoverMesh.visible = true;
   }
 
@@ -2259,15 +2260,21 @@ float hillTerrainNoise(vec2 p) {
       }
     }
 
-    if (this.animatedFlagCloths.length > 0) {
-      this.windTime += deltaMS * 0.001;
-      if (this.getWindStateFn) {
-        const currentWind = this.getWindStateFn();
-        if (currentWind) {
-          this.currentWindAngleRad = currentWind.angleRad;
-          this.currentWindStrength = currentWind.strength;
-        }
+    this.windTime += deltaMS * 0.001;
+    if (this.getWindStateFn) {
+      const currentWind = this.getWindStateFn();
+      if (currentWind) {
+        this.currentWindAngleRad = currentWind.angleRad;
+        this.currentWindStrength = currentWind.strength;
       }
+    }
+    updateOverviewWheatWind(this.windTime, this.currentWindAngleRad, this.currentWindStrength);
+    const terrainShader = (this.continuousTerrainMesh?.material as any)?.userData?.shader;
+    if (terrainShader?.uniforms?.uTime) {
+      terrainShader.uniforms.uTime.value = this.windTime;
+    }
+
+    if (this.animatedFlagCloths.length > 0) {
       for (let i = 0; i < this.animatedFlagCloths.length; i++) {
         updateRetreatFlagWind(
           this.animatedFlagCloths[i],
@@ -2315,6 +2322,10 @@ float hillTerrainNoise(vec2 p) {
 
   public setMajorTerrainType(locationType: BattleLocationType | string): void {
     this.majorTerrainType = normalizeBattleLocationType(locationType, this.majorTerrainType);
+    const shader = (this.continuousTerrainMesh?.material as any)?.userData?.shader;
+    if (shader?.uniforms?.uOuterGroundColor?.value) {
+      shader.uniforms.uOuterGroundColor.value.setHex(getOuterApronColorHex(this.majorTerrainType));
+    }
     this.rebuildOuterDecorations();
   }
 
@@ -2658,7 +2669,7 @@ float hillTerrainNoise(vec2 p) {
       const elev = this.getHexElevation(c.x, c.y);
       const mesh = this.createProjectedHexMesh(pos.x, pos.z, elev, this.hexRadius * 0.96, 0x33aacc, 0.28);
       mesh.name = `Reach_Walkable[${c.x},${c.y}]`;
-      mesh.position.set(pos.x, elev + 0.015, pos.z);
+      mesh.position.set(pos.x, elev + 0.029, pos.z);
       this.group.add(mesh);
       this.overlayMeshes.set(key, mesh);
     });
@@ -2670,7 +2681,7 @@ float hillTerrainNoise(vec2 p) {
       const elev = this.getHexElevation(c.x, c.y);
       const mesh = this.createProjectedHexMesh(pos.x, pos.z, elev, this.hexRadius * 0.96, 0xee4433, 0.38);
       mesh.name = `Reach_Attackable[${c.x},${c.y}]`;
-      mesh.position.set(pos.x, elev + 0.02, pos.z);
+      mesh.position.set(pos.x, elev + 0.032, pos.z);
       this.group.add(mesh);
       this.overlayMeshes.set(key, mesh);
     });
@@ -2919,7 +2930,7 @@ float hillTerrainNoise(vec2 p) {
       case TerrainType.FOREST:
         return 0.06;
       case TerrainType.SWAMP:
-        return -0.18;
+        return -0.27;
       case TerrainType.WATER:
         return -0.38;
       case TerrainType.PLAIN:
@@ -3008,7 +3019,28 @@ float hillTerrainNoise(vec2 p) {
     const macroH = sumW > 0 ? sumH / sumW : this.getBattleTerrainBaseHeight(baseTerrain);
     const noiseAmp = sumW > 0 ? sumNoise / sumW : this.getBattleTerrainNoiseAmp(baseTerrain);
     const noise = this.sampleTerrainFbm(wx * 1.35, wz * 1.35) * noiseAmp;
-    return macroH + noise;
+    const rawElev = macroH + noise;
+
+    // Outside the playable hex bounds, smoothly trend elevation toward 0 and blend into the outer apron
+    const topLeft = this.hexToWorld(0, 0);
+    const bottomRight = this.hexToWorld(Math.max(0, this.hexMap.width - 1), Math.max(0, this.hexMap.height - 1));
+    const boardMinX = Math.min(topLeft.x, bottomRight.x) - this.hexRadius * 0.5;
+    const boardMaxX = Math.max(topLeft.x, bottomRight.x) + this.hexRadius * 0.5;
+    const boardMinZ = Math.min(topLeft.z, bottomRight.z) - this.hexRadius * 0.5;
+    const boardMaxZ = Math.max(topLeft.z, bottomRight.z) + this.hexRadius * 0.5;
+
+    const dxOut = Math.max(boardMinX - wx, wx - boardMaxX, 0);
+    const dzOut = Math.max(boardMinZ - wz, wz - boardMaxZ, 0);
+    const dOut = Math.max(dxOut, dzOut);
+    if (dOut <= this.hexRadius * 0.65) {
+      return rawElev;
+    }
+
+    const taperT = Math.min(1, (dOut - this.hexRadius * 0.65) / (this.hexRadius * 3.6));
+    const smoothTaper = taperT * taperT * (3 - 2 * taperT);
+    const rimDropT = Math.min(1, Math.max(0, (dOut - this.hexRadius * 4.2) / (this.hexRadius * 1.3)));
+    const rimDrop = -0.155 * (rimDropT * rimDropT * (3 - 2 * rimDropT));
+    return rawElev * (1 - smoothTaper) + rimDrop;
   }
 
   private buildContinuousTerrainMesh(): void {
@@ -3022,8 +3054,6 @@ float hillTerrainNoise(vec2 p) {
     this.overviewTerrainAtlas = null;
     this.overviewTerrainGridTex?.dispose();
     this.overviewTerrainGridTex = null;
-    this.overviewTerrainTextures.forEach((t) => t.dispose());
-    this.overviewTerrainTextures.clear();
 
     let minX = Infinity;
     let maxX = -Infinity;
@@ -3038,13 +3068,17 @@ float hillTerrainNoise(vec2 p) {
         if (p.z > maxZ) maxZ = p.z;
       }
     }
-    const pad = this.hexRadius * 1.1;
+    const boardMinX = minX;
+    const boardMaxX = maxX;
+    const boardMinZ = minZ;
+    const boardMaxZ = maxZ;
+    const pad = this.hexRadius * 5.5;
     minX -= pad;
     maxX += pad;
     minZ -= pad;
     maxZ += pad;
 
-    const step = this.hexRadius / 3.5;
+    const step = this.hexRadius / 3.0;
     const cols = Math.max(16, Math.ceil((maxX - minX) / step));
     const rows = Math.max(16, Math.ceil((maxZ - minZ) / step));
     const vertCount = (cols + 1) * (rows + 1);
@@ -3130,7 +3164,7 @@ float hillTerrainNoise(vec2 p) {
     geo.setIndex(indices);
     geo.computeVertexNormals();
 
-    const atlas = createOverviewTerrainAtlas();
+    const atlas = createOverviewTerrainAtlas(512);
     const gridTex = createOverviewTerrainGridTexture(this.hexMap.width, this.hexMap.height);
     this.overviewTerrainAtlas = atlas;
     this.overviewTerrainGridTex = gridTex;
@@ -3170,7 +3204,16 @@ float hillTerrainNoise(vec2 p) {
       this.hexMap.height,
       this.hexRadius,
       undefined,
-      false
+      false,
+      {
+        minX: boardMinX - this.hexRadius * 0.4,
+        maxX: boardMaxX + this.hexRadius * 0.4,
+        minZ: boardMinZ - this.hexRadius * 0.4,
+        maxZ: boardMaxZ + this.hexRadius * 0.4,
+        fadeWidth: this.hexRadius * 4.8,
+        outerColor: getOuterApronColorHex(this.majorTerrainType),
+        enableSwampWaterShader: true,
+      }
     );
 
     const mesh = new THREE.Mesh(geo, mat);
@@ -3186,7 +3229,7 @@ float hillTerrainNoise(vec2 p) {
   private paintOverviewAtlasTextures(): void {
     if (!this.overviewTerrainAtlas) return;
     OVERVIEW_LAND_TERRAINS.forEach((terrain, row) => {
-      const variations = OVERVIEW_TERRAIN_TEXTURE_CONFIG[terrain]?.variations ?? [];
+      const variations = BATTLE_TERRAIN_TEXTURE_CONFIG[terrain]?.variations ?? [];
       variations.forEach((file, col) => {
         const tex = this.overviewTerrainTextures.get(file);
         if (tex && tex.image) {

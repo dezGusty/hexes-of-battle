@@ -533,13 +533,22 @@ describe('Configurable Fixed Retreat Points & Animated Flags', () => {
         creatures: [p1Peasant, p2Swordsman],
       });
 
-      const panel = new PostBattlePanel();
+      const dummyTex = {} as any;
+      const dummySheet = {
+        textures: {
+          'peasant_face.png': dummyTex,
+          'swordman_face.png': dummyTex,
+        },
+      } as any;
+      const panel = new PostBattlePanel(undefined, dummySheet);
       expect(panel.isVisible()).toBe(false);
 
       // Show panel
       panel.show(battle, 0); // Player 1 victory
       expect(panel.isVisible()).toBe(true);
       expect(panel.lastVictor).toBe(0);
+      expect(panel.contentContainer.getChildByLabel('SquadIcon_0_0')).toBeDefined();
+      expect(panel.contentContainer.getChildByLabel('SquadIcon_1_0')).toBeDefined();
 
       // Summaries should be cached and accessible
       const p1Sum = panel.getArmySummary(0);

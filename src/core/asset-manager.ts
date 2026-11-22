@@ -27,7 +27,6 @@ export const BATTLE_SHEET_PATHS: string[] = [
   'stars.jpg',
   'hexagon_selections.json',
   'hex_terrain.json',
-  'unitsspritesheet.json',
   'bannersspritesheet.json',
 ];
 
@@ -52,6 +51,7 @@ export class AssetBundleManager {
 
     assets.uiSheet = await Assets.load('ui/hexes-ui-sheet.json');
     assets.uiSheet2 = await Assets.load('ui/hexes_blue_ui_sheet.json');
+    assets.unitsSheet = await Assets.load('unitsspritesheet.json');
 
     if (assets.uiSheet?.textures) {
       assets.softCursorTextures['default'] = assets.uiSheet.textures['cur_gs_arrow.png'];
@@ -84,7 +84,9 @@ export class AssetBundleManager {
     assets.terrainTexture = await Assets.load('stars.jpg');
     assets.hexagonSheet = await Assets.load('hexagon_selections.json');
     assets.terrainSheet = await Assets.load('hex_terrain.json');
-    assets.unitsSheet = await Assets.load('unitsspritesheet.json');
+    if (!assets.unitsSheet) {
+      assets.unitsSheet = await Assets.load('unitsspritesheet.json');
+    }
     assets.bannersSheet = await Assets.load('bannersspritesheet.json');
 
     try {
@@ -102,7 +104,6 @@ export class AssetBundleManager {
     assets.terrainTexture = undefined;
     assets.hexagonSheet = undefined;
     assets.terrainSheet = undefined;
-    assets.unitsSheet = undefined;
     assets.bannersSheet = undefined;
 
     try {

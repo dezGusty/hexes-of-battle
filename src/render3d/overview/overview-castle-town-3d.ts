@@ -285,6 +285,45 @@ function createRoofTextures(
   };
 }
 
+function createWoodPlankTextures(rng: () => number): TextureSet {
+  const size = 128;
+  const colPair = makeCanvas(size);
+  const bmpPair = makeCanvas(size);
+  if (!colPair || !bmpPair) return { map: null, bumpMap: null };
+
+  const { canvas: colC, ctx: col } = colPair;
+  const { canvas: bmpC, ctx: bmp } = bmpPair;
+
+  const planks = 6;
+  const plankW = size / planks;
+  for (let p = 0; p < planks; p++) {
+    const px = p * plankW;
+    const tone = Math.round((rng() - 0.5) * 18);
+    col.fillStyle = `rgb(${94 + tone}, ${62 + Math.round(tone * 0.7)}, ${38 + Math.round(tone * 0.5)})`;
+    col.fillRect(px, 0, plankW - 2, size);
+    col.fillStyle = 'rgba(20, 14, 10, 0.75)';
+    col.fillRect(px + plankW - 2, 0, 2, size);
+
+    bmp.fillStyle = `rgb(${155 + tone}, ${155 + tone}, ${155 + tone})`;
+    bmp.fillRect(px, 0, plankW - 2, size);
+    bmp.fillStyle = '#303030';
+    bmp.fillRect(px + plankW - 2, 0, 2, size);
+  }
+
+  // Iron cross-brace bands with rivets
+  for (const bandY of [size * 0.24, size * 0.72]) {
+    col.fillStyle = '#2d3034';
+    col.fillRect(0, bandY, size, 10);
+    bmp.fillStyle = '#d8d8d8';
+    bmp.fillRect(0, bandY, size, 10);
+  }
+
+  return {
+    map: configureTexture(colC, { srgb: true, repeat: 1 }),
+    bumpMap: configureTexture(bmpC, { srgb: false, repeat: 1 }),
+  };
+}
+
 function createTimberPlasterTextures(rng: () => number): TextureSet {
   const size = 256;
   const colPair = makeCanvas(size);
@@ -448,7 +487,7 @@ export function createCastleSettlementHex(options: CastleSettlementOptions = {})
       const wallH = 0.155 + rng() * 0.015;
       stoneParts.push(
         preparePart(
-          new THREE.BoxGeometry(len * 0.94, wallH, 0.052),
+          new THREE.BoxGeometry(len, wallH, 0.052),
           compose(midX, wallH * 0.5, midZ, 0, rotY, 0),
           { jitter: 0.004, salt: 100 + i, aoHeight: 0.13 }
         )
@@ -471,18 +510,22 @@ export function createCastleSettlementHex(options: CastleSettlementOptions = {})
         );
       }
     } else {
-      // 3. Fortified Gatehouse
-      const nx = Math.cos(gateAngle);
-      const nz = Math.sin(gateAngle);
-      const tx = -nz;
-      const tz = nx;
+      // 3. Fortified Gatehouse (aligned along edge a -> b for a full enclosure)
+      const tx = dx / len;
+      const tz = dz / len;
+      let nx = -dz / len;
+      let nz = dx / len;
+      if (nx * midX + nz * midZ < 0) {
+        nx = -nx;
+        nz = -nz;
+      }
 
       for (const side of [-1, 1]) {
         const fx = midX + tx * side * (len * 0.31);
         const fz = midZ + tz * side * (len * 0.31);
         stoneParts.push(
           preparePart(
-            new THREE.BoxGeometry(len * 0.32, 0.165, 0.054),
+            new THREE.BoxGeometry(len * 0.38, 0.165, 0.054),
             compose(fx, 0.0825, fz, 0, rotY, 0),
             { jitter: 0.004, salt: 160 + side, aoHeight: 0.13 }
           )
@@ -520,6 +563,24 @@ export function createCastleSettlementHex(options: CastleSettlementOptions = {})
           { jitter: 0.001, salt: 195, aoHeight: 0.12, aoMin: 0.3 }
         )
       );
+
+      // Wooden textured extruded rectangle gate door
+      const gateTex = createWoodPlankTextures(rng);
+      const gateMat = new THREE.MeshStandardMaterial({
+        color: gateTex.map ? 0xffffff : 0x5c3e26,
+        map: gateTex.map,
+        bumpMap: gateTex.bumpMap,
+        bumpScale: 0.012,
+        roughness: 0.85,
+        metalness: 0.05,
+      });
+      const gateDoor = new THREE.Mesh(new THREE.BoxGeometry(0.095, 0.135, 0.024), gateMat);
+      gateDoor.name = 'CastleGate';
+      gateDoor.position.set(midX + nx * 0.026, 0.0675, midZ + nz * 0.026);
+      gateDoor.rotation.set(0, rotY, 0);
+      gateDoor.castShadow = true;
+      gateDoor.receiveShadow = true;
+      root.add(gateDoor);
 
       for (let s = 1; s <= 4; s++) {
         const dist = 0.07 * s;

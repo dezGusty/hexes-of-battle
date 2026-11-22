@@ -1,0 +1,833 @@
+"""
+Headless Blender 5.x script to build, rig (Armature + smooth skin weights),
+and animate a detailed, organic-proportioned Medieval Spearman unit for Hexes of Battle.
+
+Features:
+  - Continuous, connected anatomical body in the style & realistic ratios of Peasant:
+    sculpted face, light beige skin, kettle metal helmet, padded gambeson tunic,
+    leather belt, trousers, and boots.
+  - Full humanoid Armature with weaponSocket (hand_R) and shieldSocket (forearm_L).
+  - Armed with a one-handed ash spear (SpearWeapon) and round bossed shield (Shield).
+  - 5 keyframed animations exported as glTF NLA clips:
+      idle_stance, combat_defensive_stance, combat_move_advance,
+      combat_attack_poke, death
+
+Blender axes: -Y = forward, +X = character's left, +Z = up.
+glTF exporter (export_yup=True) converts this to Three.js: +Z = forward, +X = left, +Y = up.
+
+Run via:
+  blender --background --python scripts/blender_spearman_rigged.py
+"""
+
+import math
+import os
+import random
+
+import bpy
+import bmesh
+from mathutils import Euler, Matrix, Vector
+
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+GLB_OUT = os.path.join(ROOT_DIR, "public", "models", "units", "spearman_rigged.glb")
+BLEND_OUT = os.path.join(ROOT_DIR, "assets", "blender", "spearman_rigged.blend")
+
+
+def clear_scene():
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+
+
+def make_material(name: str, rgba, metallic: float = 0.02, roughness: float = 0.85):
+    mat = bpy.data.materials.new(name=name)
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes.get("Principled BSDF")
+    if bsdf:
+        bsdf.inputs["Base Color"].default_value = rgba
+        bsdf.inputs["Metallic"].default_value = metallic
+        bsdf.inputs["Roughness"].default_value = roughness
+    mat.diffuse_color = rgba
+    return mat
+
+
+def create_gambeson_texture(size: int = 256):
+    """Generates a seamless quilted diamond-stitched gambeson linen texture."""
+    img = bpy.data.images.new("tex_spearman_gambeson", width=size, height=size, alpha=False)
+    pixels = [0.0] * (size * size * 4)
+    rng = random.Random(42)
+
+    for y in range(size):
+        v = y / size
+        for x in range(size):
+            u = x / size
+            # Diamond quilting pattern (two diagonal seam grids)
+            d1 = abs(((u * 6.0 + v * 6.0) % 1.0) - 0.5) * 2.0
+            d2 = abs(((u * 6.0 - v * 6.0) % 1.0) - 0.5) * 2.0
+            seam = max(0.0, 1.0 - min(d1, d2) * 7.5)
+            puff = min(1.0, (min(d1, d2) ** 0.55) * 1.15)
+            # Subtle woven linen cross-threads
+            weave = 0.03 * math.sin(u * math.pi * 64.0) * math.sin(v * math.pi * 64.0)
+            grain = (rng.random() - 0.5) * 0.035
+
+            lum = 0.72 + 0.18 * puff - 0.34 * seam + weave + grain
+            lum = max(0.25, min(0.96, lum))
+            idx = (y * size + x) * 4
+            pixels[idx] = lum
+            pixels[idx + 1] = lum * 0.96
+            pixels[idx + 2] = lum * 0.88
+            pixels[idx + 3] = 1.0
+
+    img.pixels.foreach_set(pixels)
+    img.pack()
+    return img
+
+
+def make_gambeson_material():
+    mat = make_material("SpearmanGambeson", (0.85, 0.80, 0.72, 1.0), metallic=0.0, roughness=0.88)
+    tex_img = create_gambeson_texture(256)
+    nt = mat.node_tree
+    bsdf = nt.nodes.get("Principled BSDF")
+    tex_node = nt.nodes.new("ShaderNodeTexImage")
+    tex_node.image = tex_img
+    nt.links.new(tex_node.outputs["Color"], bsdf.inputs["Base Color"])
+    bump = nt.nodes.new("ShaderNodeBump")
+    bump.inputs["Strength"].default_value = 0.28
+    bump.inputs["Distance"].default_value = 0.008
+    nt.links.new(tex_node.outputs["Color"], bump.inputs["Height"])
+    nt.links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
+    return mat
+
+
+# ---------------------------------------------------------------------------------------
+# Lofting & Organic Mesh Helpers (matching Peasant proportions)
+# ---------------------------------------------------------------------------------------
+def _superellipse(theta: float, p: float):
+    e = 2.0 / p
+    c, s = math.cos(theta), math.sin(theta)
+    return math.copysign(abs(c) ** e, c), math.copysign(abs(s) ** e, s)
+
+
+def make_ring(bm, centre: Vector, lat_vec: Vector, fwd_vec: Vector, r_lat: float, r_fwd, segs: int, p: float = 2.1):
+    verts = []
+    for k in range(segs):
+        th = 2.0 * math.pi * k / segs
+        cf, sl = _superellipse(th, p)
+        if isinstance(r_fwd, tuple):
+            rf = r_fwd[0] if cf >= 0 else r_fwd[1]
+        else:
+            rf = r_fwd
+        pos = centre + fwd_vec * (rf * cf) + lat_vec * (r_lat * sl)
+        verts.append(bm.verts.new(pos))
+    return verts
+
+
+def bridge_rings(bm, rings, cap_start=False, cap_end=False):
+    n = len(rings[0])
+    faces = []
+    for i in range(len(rings) - 1):
+        for k in range(n):
+            k2 = (k + 1) % n
+            faces.append(bm.faces.new((rings[i][k], rings[i + 1][k], rings[i + 1][k2], rings[i][k2])))
+    if cap_start:
+        faces.append(bm.faces.new(list(reversed(rings[0]))))
+    if cap_end:
+        faces.append(bm.faces.new(list(rings[-1])))
+    bm.normal_update()
+    bmesh.ops.recalc_face_normals(bm, faces=faces)
+    return faces
+
+
+def build_lofted_tube(bm, stations, segs=16, p=2.1, cap_start=True, cap_end=True):
+    rings = []
+    for i, (c, rl, rf) in enumerate(stations):
+        if i == 0:
+            tangent = (stations[1][0] - c).normalized()
+        elif i == len(stations) - 1:
+            tangent = (c - stations[-2][0]).normalized()
+        else:
+            tangent = (stations[i + 1][0] - stations[i - 1][0]).normalized()
+
+        ref = Vector((0.0, -1.0, 0.0))
+        if abs(tangent.dot(ref)) > 0.92:
+            ref = Vector((0.0, 0.0, 1.0))
+        lat_vec = ref.cross(tangent).normalized()
+        fwd_vec = tangent.cross(lat_vec).normalized()
+        rings.append(make_ring(bm, c, lat_vec, fwd_vec, rl, rf, segs, p))
+    return bridge_rings(bm, rings, cap_start=cap_start, cap_end=cap_end)
+
+
+def create_mesh_obj(name: str, bm, mat):
+    mesh = bpy.data.meshes.new(name)
+    bm.to_mesh(mesh)
+    bm.free()
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    obj.data.materials.append(mat)
+    for poly in obj.data.polygons:
+        poly.use_smooth = True
+    return obj
+
+
+# ---------------------------------------------------------------------------------------
+# Anatomical Body & Equipment Builders
+# ---------------------------------------------------------------------------------------
+def build_torso_neck_head_bm():
+    bm = bmesh.new()
+    stations = [
+        (Vector((0.0, 0.002, 0.232)), 0.072, (0.056, 0.052)),
+        (Vector((0.0, 0.000, 0.275)), 0.082, (0.064, 0.058)),
+        (Vector((0.0, -0.002, 0.320)), 0.076, (0.060, 0.054)),
+        (Vector((0.0, -0.006, 0.375)), 0.092, (0.070, 0.060)),
+        (Vector((0.0, -0.009, 0.425)), 0.104, (0.072, 0.062)),
+        (Vector((0.0, -0.011, 0.460)), 0.074, (0.050, 0.048)),
+        (Vector((0.0, -0.013, 0.478)), 0.036, (0.036, 0.034)),
+        (Vector((0.0, -0.014, 0.502)), 0.034, (0.035, 0.033)),
+        (Vector((0.0, -0.018, 0.514)), 0.038, (0.046, 0.042)),
+        (Vector((0.0, -0.018, 0.538)), 0.048, (0.056, 0.052)),
+        (Vector((0.0, -0.014, 0.562)), 0.049, (0.055, 0.054)),
+        (Vector((0.0, -0.010, 0.580)), 0.042, (0.046, 0.046)),
+        (Vector((0.0, -0.008, 0.592)), 0.022, (0.024, 0.024)),
+    ]
+    build_lofted_tube(bm, stations, segs=20, p=2.15, cap_start=True, cap_end=True)
+
+    # Sculpted nose bridge
+    for v in bm.verts:
+        if 0.526 <= v.co.z <= 0.550 and v.co.y < -0.045 and abs(v.co.x) < 0.016:
+            t = 1.0 - abs(v.co.x) / 0.016
+            v.co.y -= 0.012 * t
+    bm.normal_update()
+    return bm
+
+
+def build_arm_bm(side: float):
+    bm = bmesh.new()
+    stations = [
+        (Vector((side * 0.078, -0.006, 0.402)), 0.036, 0.038),
+        (Vector((side * 0.125, -0.006, 0.398)), 0.031, 0.032),
+        (Vector((side * 0.175, -0.004, 0.398)), 0.027, 0.028),
+        (Vector((side * 0.220, -0.007, 0.398)), 0.025, 0.026),
+        (Vector((side * 0.265, -0.010, 0.398)), 0.021, 0.022),
+        (Vector((side * 0.295, -0.012, 0.398)), 0.023, 0.026),
+        (Vector((side * 0.320, -0.014, 0.398)), 0.015, 0.020),
+    ]
+    build_lofted_tube(bm, stations, segs=14, p=2.0, cap_start=True, cap_end=True)
+    return bm
+
+
+def build_tunic_bm():
+    """Thick quilted padded gambeson armor with flared skirt, collar, and padded sleeves + UVs."""
+    bm = bmesh.new()
+    uv_layer = bm.loops.layers.uv.new("UVMap")
+    rng = random.Random(101)
+    stations = [
+        (Vector((0.0, -0.002, 0.188)), 0.106, (0.088, 0.082)),
+        (Vector((0.0, 0.000, 0.245)), 0.098, (0.080, 0.074)),
+        (Vector((0.0, -0.002, 0.305)), 0.095, (0.078, 0.072)),
+        (Vector((0.0, -0.006, 0.375)), 0.114, (0.090, 0.080)),
+        (Vector((0.0, -0.009, 0.430)), 0.126, (0.092, 0.082)),
+        (Vector((0.0, -0.011, 0.468)), 0.086, (0.064, 0.060)),
+    ]
+    build_lofted_tube(bm, stations, segs=20, p=2.2, cap_start=False, cap_end=False)
+
+    # Thick padded gambeson sleeves
+    for side in (-1.0, 1.0):
+        s_stations = [
+            (Vector((side * 0.084, -0.006, 0.402)), 0.048, 0.050),
+            (Vector((side * 0.135, -0.006, 0.398)), 0.042, 0.044),
+            (Vector((side * 0.182, -0.005, 0.398)), 0.038, 0.040),
+        ]
+        build_lofted_tube(bm, s_stations, segs=12, p=2.0, cap_start=True, cap_end=False)
+
+    for v in bm.verts:
+        v.co.x += (rng.random() - 0.5) * 0.002
+        v.co.y += (rng.random() - 0.5) * 0.002
+    bm.normal_update()
+
+    # Cylindrical/planar UV projection for quilted gambeson texture
+    for face in bm.faces:
+        for loop in face.loops:
+            co = loop.vert.co
+            ang = math.atan2(co.y, co.x)
+            u = (ang / (2.0 * math.pi)) + 0.5
+            v_coord = (co.z - 0.18) / 0.30
+            loop[uv_layer].uv = (u * 2.0, v_coord * 2.0)
+    return bm
+
+
+def build_belt_bm():
+    bm = bmesh.new()
+    stations = [
+        (Vector((0.0, -0.001, 0.285)), 0.098, (0.081, 0.075)),
+        (Vector((0.0, -0.001, 0.310)), 0.098, (0.081, 0.075)),
+    ]
+    build_lofted_tube(bm, stations, segs=18, p=2.2, cap_start=True, cap_end=True)
+    return bm
+
+
+def build_trousers_bm():
+    """Simplified trousers tapered in their upper side towards the pelvis, ending cleanly into boots."""
+    bm = bmesh.new()
+    for side in (-1.0, 1.0):
+        sx = side * 0.048
+        stations = [
+            (Vector((sx * 0.92, 0.0, 0.252)), 0.038, 0.041),    # tapered inward toward pelvis
+            (Vector((sx, -0.002, 0.212)), 0.044, 0.046),
+            (Vector((sx, -0.004, 0.165)), 0.039, 0.041),
+            (Vector((sx, -0.005, 0.120)), 0.034, 0.036),
+            (Vector((sx, 0.000, 0.078)), 0.031, 0.033),
+        ]
+        build_lofted_tube(bm, stations, segs=10, p=2.1, cap_start=True, cap_end=False)
+    return bm
+
+
+def build_boots_bm():
+    """Combined lower-leg boot & foot mesh with a clean 90-degree ankle angle."""
+    bm = bmesh.new()
+    for side in (-1.0, 1.0):
+        sx = side * 0.048
+        # Vertical boot shaft (90 degrees to ground)
+        shaft_stations = [
+            (Vector((sx, 0.000, 0.088)), 0.035, 0.037),
+            (Vector((sx, 0.000, 0.036)), 0.031, 0.033),
+            (Vector((sx, 0.000, 0.000)), 0.031, 0.033),
+        ]
+        build_lofted_tube(bm, shaft_stations, segs=10, p=2.1, cap_start=True, cap_end=True)
+
+        # Horizontal boot foot extending forward (-Y) at 90 degrees
+        foot_stations = [
+            (Vector((sx, 0.018, 0.016)), 0.031, 0.016),
+            (Vector((sx, -0.025, 0.016)), 0.032, 0.016),
+            (Vector((sx, -0.068, 0.013)), 0.028, 0.013),
+        ]
+        build_lofted_tube(bm, foot_stations, segs=10, p=2.2, cap_start=True, cap_end=True)
+    return bm
+
+
+def build_kettle_helmet_bm():
+    """Wide-brimmed medieval kettle helmet fitted over the head."""
+    bm = bmesh.new()
+    # Helmet dome + flared brim lofted smoothly
+    stations = [
+        (Vector((0.0, -0.014, 0.546)), 0.086, 0.092),  # wide kettle brim outer edge
+        (Vector((0.0, -0.014, 0.556)), 0.062, 0.068),  # brim-to-bowl crease
+        (Vector((0.0, -0.013, 0.576)), 0.056, 0.062),  # upper bowl
+        (Vector((0.0, -0.011, 0.598)), 0.046, 0.052),  # crown curve
+        (Vector((0.0, -0.010, 0.614)), 0.022, 0.025),  # apex
+    ]
+    build_lofted_tube(bm, stations, segs=22, p=2.0, cap_start=False, cap_end=True)
+    return bm
+
+
+def build_spear_obj(mats):
+    """Creates a one-handed ash spear aligned along local +Z (weaponSocket forward)."""
+    bpy.ops.object.select_all(action="DESELECT")
+    parts = []
+
+    # Ash wood shaft (centered around grip at z = 0, extending -0.30..+0.62)
+    bm_shaft = bmesh.new()
+    build_lofted_tube(
+        bm_shaft,
+        [
+            (Vector((0, 0, -0.30)), 0.011, 0.011),
+            (Vector((0, 0, 0.00)), 0.012, 0.012),
+            (Vector((0, 0, 0.52)), 0.011, 0.011),
+        ],
+        segs=10,
+        p=2.0,
+    )
+    parts.append(create_mesh_obj("Spear_Shaft", bm_shaft, mats["wood"]))
+
+    # Leather grip wrap at hand position
+    bm_grip = bmesh.new()
+    build_lofted_tube(
+        bm_grip,
+        [
+            (Vector((0, 0, -0.06)), 0.014, 0.014),
+            (Vector((0, 0, 0.06)), 0.014, 0.014),
+        ],
+        segs=10,
+        p=2.0,
+    )
+    parts.append(create_mesh_obj("Spear_Grip", bm_grip, mats["leather"]))
+
+    # Leaf-shaped steel spearhead (+Z tip)
+    bm_head = bmesh.new()
+    build_lofted_tube(
+        bm_head,
+        [
+            (Vector((0, 0, 0.51)), 0.014, 0.014),
+            (Vector((0, 0, 0.54)), 0.024, 0.010),
+            (Vector((0, 0, 0.60)), 0.018, 0.008),
+            (Vector((0, 0, 0.68)), 0.002, 0.002),
+        ],
+        segs=8,
+        p=1.8,
+    )
+    parts.append(create_mesh_obj("Spear_Head", bm_head, mats["steel"]))
+
+    bpy.ops.object.select_all(action="DESELECT")
+    for p in parts:
+        p.select_set(True)
+    spear = parts[0]
+    spear.name = "SpearWeapon"
+    bpy.context.view_layer.objects.active = spear
+    bpy.ops.object.join()
+    return spear
+
+
+def build_shield_obj(mats):
+    """Creates a round wooden shield with iron rim and central steel boss."""
+    bpy.ops.object.select_all(action="DESELECT")
+    parts = []
+
+    # Wooden disc (local +Z faces outward from forearm_L)
+    bm_disc = bmesh.new()
+    build_lofted_tube(
+        bm_disc,
+        [
+            (Vector((0, 0, -0.010)), 0.145, 0.145),
+            (Vector((0, 0, 0.010)), 0.145, 0.145),
+        ],
+        segs=20,
+        p=2.0,
+    )
+    parts.append(create_mesh_obj("Shield_Board", bm_disc, mats["shield_paint"]))
+
+    # Iron outer rim ring
+    bm_rim = bmesh.new()
+    build_lofted_tube(
+        bm_rim,
+        [
+            (Vector((0, 0, -0.012)), 0.152, 0.152),
+            (Vector((0, 0, 0.012)), 0.152, 0.152),
+        ],
+        segs=20,
+        p=2.0,
+        cap_start=False,
+        cap_end=False,
+    )
+    parts.append(create_mesh_obj("Shield_Rim", bm_rim, mats["iron"]))
+
+    # Central steel boss dome
+    bm_boss = bmesh.new()
+    build_lofted_tube(
+        bm_boss,
+        [
+            (Vector((0, 0, 0.008)), 0.040, 0.040),
+            (Vector((0, 0, 0.026)), 0.026, 0.026),
+            (Vector((0, 0, 0.036)), 0.006, 0.006),
+        ],
+        segs=12,
+        p=2.0,
+    )
+    parts.append(create_mesh_obj("Shield_Boss", bm_boss, mats["steel"]))
+
+    bpy.ops.object.select_all(action="DESELECT")
+    for p in parts:
+        p.select_set(True)
+    shield = parts[0]
+    shield.name = "Shield"
+    bpy.context.view_layer.objects.active = shield
+    bpy.ops.object.join()
+    return shield
+
+
+# ---------------------------------------------------------------------------------------
+# Armature, Skin Weighting & 5 Keyframed Animations
+# ---------------------------------------------------------------------------------------
+def create_armature():
+    arm_data = bpy.data.armatures.new("SpearmanArmature")
+    arm_obj = bpy.data.objects.new("SpearmanArmature", arm_data)
+    bpy.context.collection.objects.link(arm_obj)
+    bpy.context.view_layer.objects.active = arm_obj
+    bpy.ops.object.mode_set(mode="EDIT")
+
+    eb = arm_data.edit_bones
+
+    def add_bone(name, head, tail, parent_name=None, connected=False, roll_vec=None):
+        b = eb.new(name)
+        b.head = Vector(head)
+        b.tail = Vector(tail)
+        if roll_vec is not None:
+            b.align_roll(Vector(roll_vec))
+        if parent_name:
+            b.parent = eb[parent_name]
+            b.use_connect = connected
+        return b
+
+    add_bone("root", (0, 0, 0), (0, 0, 0.08))
+    add_bone("pelvis", (0, 0, 0.245), (0, 0, 0.300), "root")
+    add_bone("spine", (0, 0, 0.300), (0, -0.006, 0.380), "pelvis", connected=True)
+    add_bone("chest", (0, -0.006, 0.380), (0, -0.012, 0.470), "spine", connected=True)
+    add_bone("neck", (0, -0.012, 0.470), (0, -0.014, 0.505), "chest", connected=True)
+    add_bone("head", (0, -0.014, 0.505), (0, -0.010, 0.585), "neck", connected=True)
+
+    # Arms in T-pose (+X = Left, -X = Right)
+    add_bone("shoulder_L", (0.045, -0.006, 0.402), (0.088, -0.006, 0.398), "chest", roll_vec=(0, 0, 1))
+    add_bone("upperArm_L", (0.088, -0.006, 0.398), (0.175, -0.006, 0.398), "shoulder_L", connected=True, roll_vec=(0, 0, 1))
+    add_bone("forearm_L", (0.175, -0.006, 0.398), (0.265, -0.008, 0.398), "upperArm_L", connected=True, roll_vec=(0, 0, 1))
+    add_bone("hand_L", (0.265, -0.008, 0.398), (0.320, -0.013, 0.398), "forearm_L", connected=True, roll_vec=(0, 0, 1))
+    # shieldSocket on outer side of forearm_L (+Z points outward along arm normal)
+    add_bone("shieldSocket", (0.225, -0.008, 0.430), (0.225, -0.068, 0.430), "forearm_L", roll_vec=(0, 0, 1))
+
+    add_bone("shoulder_R", (-0.045, -0.006, 0.402), (-0.088, -0.006, 0.398), "chest", roll_vec=(0, 0, 1))
+    add_bone("upperArm_R", (-0.088, -0.006, 0.398), (-0.175, -0.006, 0.398), "shoulder_R", connected=True, roll_vec=(0, 0, 1))
+    add_bone("forearm_R", (-0.175, -0.006, 0.398), (-0.265, -0.008, 0.398), "upperArm_R", connected=True, roll_vec=(0, 0, 1))
+    add_bone("hand_R", (-0.265, -0.008, 0.398), (-0.320, -0.013, 0.398), "forearm_R", connected=True, roll_vec=(0, 0, 1))
+    add_bone("weaponSocket", (-0.295, -0.011, 0.398), (-0.295, -0.071, 0.398), "hand_R", roll_vec=(0, 0, 1))
+
+    # Legs
+    add_bone("thigh_L", (0.046, -0.002, 0.230), (0.050, -0.006, 0.120), "pelvis")
+    add_bone("shin_L", (0.050, -0.006, 0.120), (0.050, 0.002, 0.036), "thigh_L", connected=True)
+    add_bone("foot_L", (0.050, 0.002, 0.036), (0.050, -0.048, 0.008), "shin_L", connected=True)
+
+    add_bone("thigh_R", (-0.046, -0.002, 0.230), (-0.050, -0.006, 0.120), "pelvis")
+    add_bone("shin_R", (-0.050, -0.006, 0.120), (-0.050, 0.002, 0.036), "thigh_R", connected=True)
+    add_bone("foot_R", (-0.050, 0.002, 0.036), (-0.050, -0.048, 0.008), "shin_R", connected=True)
+
+    bpy.ops.object.mode_set(mode="OBJECT")
+    return arm_obj
+
+
+def assign_smooth_skin_weights(mesh_obj, arm_obj):
+    bone_names = [b.name for b in arm_obj.data.bones]
+    vgroups = {name: mesh_obj.vertex_groups.new(name=name) for name in bone_names}
+
+    def smoothstep(edge0, edge1, x):
+        t = max(0.0, min(1.0, (x - edge0) / max(1e-5, edge1 - edge0)))
+        return t * t * (3.0 - 2.0 * t)
+
+    for v in mesh_obj.data.vertices:
+        x, y, z = v.co.x, v.co.y, v.co.z
+        weights = {}
+
+        if abs(x) > 0.075 and 0.345 <= z <= 0.445:
+            side = "L" if x > 0 else "R"
+            ax = abs(x)
+            if ax < 0.105:
+                t = smoothstep(0.075, 0.105, ax)
+                weights[f"shoulder_{side}"] = 1.0 - t
+                weights[f"upperArm_{side}"] = t
+            elif ax < 0.195:
+                t = smoothstep(0.155, 0.195, ax)
+                weights[f"upperArm_{side}"] = 1.0 - t
+                weights[f"forearm_{side}"] = t
+            elif ax < 0.275:
+                t = smoothstep(0.245, 0.275, ax)
+                weights[f"forearm_{side}"] = 1.0 - t
+                weights[f"hand_{side}"] = t
+            else:
+                weights[f"hand_{side}"] = 1.0
+        elif z < 0.245:
+            side = "L" if x >= 0 else "R"
+            if z > 0.215:
+                t = smoothstep(0.215, 0.245, z)
+                weights[f"thigh_{side}"] = 1.0 - t
+                weights["pelvis"] = t
+            elif z > 0.105:
+                t = smoothstep(0.105, 0.145, z)
+                weights[f"shin_{side}"] = 1.0 - t
+                weights[f"thigh_{side}"] = t
+            elif z > 0.028:
+                t = smoothstep(0.028, 0.050, z)
+                weights[f"foot_{side}"] = 1.0 - t
+                weights[f"shin_{side}"] = t
+            else:
+                weights[f"foot_{side}"] = 1.0
+        else:
+            if z < 0.310:
+                t = smoothstep(0.280, 0.310, z)
+                weights["pelvis"] = 1.0 - t
+                weights["spine"] = t
+            elif z < 0.385:
+                t = smoothstep(0.355, 0.385, z)
+                weights["spine"] = 1.0 - t
+                weights["chest"] = t
+            elif z < 0.470:
+                t = smoothstep(0.455, 0.470, z)
+                weights["chest"] = 1.0 - t
+                weights["neck"] = t
+            elif z < 0.505:
+                t = smoothstep(0.485, 0.505, z)
+                weights["neck"] = 1.0 - t
+                weights["head"] = t
+            else:
+                weights["head"] = 1.0
+
+        total = sum(weights.values())
+        if total <= 0:
+            weights = {"pelvis": 1.0}
+            total = 1.0
+        for bname, w in weights.items():
+            if w > 0.001:
+                vgroups[bname].add([v.index], w / total, "REPLACE")
+
+    mesh_obj.parent = arm_obj
+    mod = mesh_obj.modifiers.new(name="Armature", type="ARMATURE")
+    mod.object = arm_obj
+
+
+def bake_animations(arm_obj):
+    """Creates all 5 animation actions and pushes them to NLA tracks for glTF export."""
+    fps = 30
+    bpy.context.scene.render.fps = fps
+    if not arm_obj.animation_data:
+        arm_obj.animation_data_create()
+
+    pb = arm_obj.pose.bones
+
+    def reset_pose():
+        for b in pb:
+            b.location = (0.0, 0.0, 0.0)
+            b.rotation_mode = "XYZ"
+            b.rotation_euler = (0.0, 0.0, 0.0)
+
+    def align_socket(bone_name: str, target_world_dir: Vector):
+        bpy.context.view_layer.update()
+        ws = pb[bone_name]
+        parent_rot = (arm_obj.matrix_world @ ws.parent.matrix).to_3x3().normalized()
+        z_w = target_world_dir.normalized()
+        x_ref = Vector((1.0, 0.0, 0.0))
+        if abs(z_w.dot(x_ref)) > 0.9:
+            x_ref = Vector((0.0, 1.0, 0.0))
+        y_w = z_w.cross(x_ref).normalized()
+        x_w = y_w.cross(z_w).normalized()
+        desired_world_rot = Matrix((x_w, y_w, z_w)).transposed()
+        rest_local_rot = ws.bone.matrix_local.to_3x3()
+        parent_rest_rot = ws.parent.bone.matrix_local.to_3x3()
+        rest_rel = parent_rest_rot.inverted() @ rest_local_rot
+        local_rot = (parent_rot @ rest_rel).inverted() @ desired_world_rot
+        ws.rotation_euler = local_rot.to_euler("XYZ")
+
+    def key_pose(frame: int, bone_rot_deg: dict, pelvis_loc=(0.0, 0.0, 0.0), spear_dir=None, shield_dir=(0.7, -0.7, 0.0)):
+        reset_pose()
+        pb["pelvis"].location = Vector(pelvis_loc)
+        pb["pelvis"].keyframe_insert(data_path="location", frame=frame)
+        for bname, deg in bone_rot_deg.items():
+            if bname in pb:
+                pb[bname].rotation_euler = Euler(
+                    (math.radians(deg[0]), math.radians(deg[1]), math.radians(deg[2])), "XYZ"
+                )
+                pb[bname].keyframe_insert(data_path="rotation_euler", frame=frame)
+        if spear_dir is not None:
+            align_socket("weaponSocket", Vector(spear_dir))
+            pb["weaponSocket"].keyframe_insert(data_path="rotation_euler", frame=frame)
+        if shield_dir is not None:
+            align_socket("shieldSocket", Vector(shield_dir))
+            pb["shieldSocket"].keyframe_insert(data_path="rotation_euler", frame=frame)
+
+    # Note: In T-pose:
+    #   Blender -Y = forward, +X = character's left, +Z = up
+    #   Left arm (_L): rx < 0 lowers arm, rz < 0 swings forward (-Y)
+    #   Right arm (_R): rx < 0 lowers arm, rz > 0 swings forward (-Y)
+    anims = {
+        # 1. Idle stance: alert sentinel posture, shield at left side, spear held upright-forward
+        "idle_stance": (
+            72,
+            [
+                (1, {"pelvis": (0, 0, -6), "spine": (6, 0, 6), "chest": (4, 0, 0), "head": (-6, 0, 0),
+                     "upperArm_L": (-64, 0, -28), "forearm_L": (0, 0, -48),
+                     "upperArm_R": (-66, 0, 22), "forearm_R": (0, 0, 42),
+                     "thigh_L": (-8, 0, 5), "shin_L": (10, 0, 0), "thigh_R": (6, 0, -5), "shin_R": (8, 0, 0)},
+                 (0, 0, -0.008), (0.0, -0.25, 1.0), (0.70, -0.70, 0.05)),
+                (36, {"pelvis": (0, 0, -6), "spine": (9, 0, 6), "chest": (3, 0, 0), "head": (-4, 0, 0),
+                      "upperArm_L": (-62, 0, -30), "forearm_L": (0, 0, -50),
+                      "upperArm_R": (-64, 0, 24), "forearm_R": (0, 0, 40),
+                      "thigh_L": (-8, 0, 5), "shin_L": (10, 0, 0), "thigh_R": (6, 0, -5), "shin_R": (8, 0, 0)},
+                 (0, 0, -0.004), (0.0, -0.25, 1.0), (0.70, -0.70, 0.05)),
+                (72, {"pelvis": (0, 0, -6), "spine": (6, 0, 6), "chest": (4, 0, 0), "head": (-6, 0, 0),
+                      "upperArm_L": (-64, 0, -28), "forearm_L": (0, 0, -48),
+                      "upperArm_R": (-66, 0, 22), "forearm_R": (0, 0, 42),
+                      "thigh_L": (-8, 0, 5), "shin_L": (10, 0, 0), "thigh_R": (6, 0, -5), "shin_R": (8, 0, 0)},
+                 (0, 0, -0.008), (0.0, -0.25, 1.0), (0.70, -0.70, 0.05)),
+            ],
+        ),
+        # 2. Defensive stance: braced low with shield forward and spear pointed directly toward the front (-Y)
+        "combat_defensive_stance": (
+            54,
+            [
+                (1, {"pelvis": (6, 0, -18), "spine": (12, 0, 12), "chest": (6, 0, 4), "head": (-16, 0, 2),
+                     "upperArm_L": (-46, 0, -62), "forearm_L": (0, 0, -58),
+                     "upperArm_R": (-56, 0, 22), "forearm_R": (0, 0, 76),
+                     "thigh_L": (-28, 0, 8), "shin_L": (34, 0, 0), "thigh_R": (18, 0, -8), "shin_R": (26, 0, 0)},
+                 (0, 0, -0.032), (0.0, -1.0, 0.05), (0.35, -0.92, 0.06)),
+                (27, {"pelvis": (7, 0, -18), "spine": (14, 0, 12), "chest": (6, 0, 4), "head": (-14, 0, 2),
+                      "upperArm_L": (-44, 0, -64), "forearm_L": (0, 0, -56),
+                      "upperArm_R": (-54, 0, 24), "forearm_R": (0, 0, 74),
+                      "thigh_L": (-28, 0, 8), "shin_L": (34, 0, 0), "thigh_R": (18, 0, -8), "shin_R": (26, 0, 0)},
+                 (0, 0, -0.037), (0.0, -1.0, 0.05), (0.35, -0.92, 0.06)),
+                (54, {"pelvis": (6, 0, -18), "spine": (12, 0, 12), "chest": (6, 0, 4), "head": (-16, 0, 2),
+                      "upperArm_L": (-46, 0, -62), "forearm_L": (0, 0, -58),
+                      "upperArm_R": (-56, 0, 22), "forearm_R": (0, 0, 76),
+                      "thigh_L": (-28, 0, 8), "shin_L": (34, 0, 0), "thigh_R": (18, 0, -8), "shin_R": (26, 0, 0)},
+                 (0, 0, -0.032), (0.0, -1.0, 0.05), (0.35, -0.92, 0.06)),
+            ],
+        ),
+        # 3. Walk: brisk march with spear pointed up and forward at ~45 degree angle (0, -1, 1)
+        "combat_move_advance": (
+            24,
+            [
+                (1, {"pelvis": (8, 4, -10), "spine": (14, 0, 8), "head": (-14, 0, 0),
+                     "upperArm_L": (-48, 0, -56), "forearm_L": (0, 0, -52),
+                     "upperArm_R": (-58, 0, 20), "forearm_R": (0, 0, 64),
+                     "thigh_L": (-40, 0, 4), "shin_L": (18, 0, 0), "thigh_R": (22, 0, -4), "shin_R": (16, 0, 0)},
+                 (0, 0, -0.025), (0.0, -0.707, 0.707), (0.55, -0.82, 0.08)),
+                (12, {"pelvis": (8, -4, 10), "spine": (14, 0, -8), "head": (-12, 0, 0),
+                      "upperArm_L": (-46, 0, -60), "forearm_L": (0, 0, -50),
+                      "upperArm_R": (-56, 0, 24), "forearm_R": (0, 0, 62),
+                      "thigh_L": (22, 0, 4), "shin_L": (16, 0, 0), "thigh_R": (-40, 0, -4), "shin_R": (18, 0, 0)},
+                 (0, 0, -0.025), (0.0, -0.707, 0.707), (0.55, -0.82, 0.08)),
+                (24, {"pelvis": (8, 4, -10), "spine": (14, 0, 8), "head": (-14, 0, 0),
+                      "upperArm_L": (-48, 0, -56), "forearm_L": (0, 0, -52),
+                      "upperArm_R": (-58, 0, 20), "forearm_R": (0, 0, 64),
+                      "thigh_L": (-40, 0, 4), "shin_L": (18, 0, 0), "thigh_R": (22, 0, -4), "shin_R": (16, 0, 0)},
+                 (0, 0, -0.025), (0.0, -0.707, 0.707), (0.55, -0.82, 0.08)),
+            ],
+        ),
+        # 4. Attack: wide balanced stance -> pull spear back & lean upper body back -> thrust spear forward & lean torso forward for reach
+        "combat_attack_poke": (
+            30,
+            [
+                # Braced wide stance
+                (1, {"pelvis": (6, 0, -18), "spine": (10, 0, 10), "chest": (6, 0, 4), "head": (-14, 0, 0),
+                     "upperArm_L": (-46, 0, -62), "forearm_L": (0, 0, -58),
+                     "upperArm_R": (-56, 0, 22), "forearm_R": (0, 0, 76),
+                     "thigh_L": (-30, 0, 12), "shin_L": (36, 0, 0), "thigh_R": (22, 0, -12), "shin_R": (28, 0, 0)},
+                 (0, 0, -0.036), (0.0, -1.0, 0.05), (0.35, -0.92, 0.06)),
+                # Windup: pull spear back with hand, lean upper body/torso slightly backward (+Y / negative pitch)
+                (9, {"pelvis": (2, 0, -34), "spine": (-10, 0, -14), "chest": (-8, 0, -6), "head": (12, 0, 14),
+                     "upperArm_L": (-52, 0, -54), "forearm_L": (0, 0, -66),
+                     "upperArm_R": (-56, 0, -24), "forearm_R": (0, 0, 102),
+                     "thigh_L": (-24, 0, 12), "shin_L": (28, 0, 0), "thigh_R": (26, 0, -12), "shin_R": (36, 0, 0)},
+                 (0, 0.042, -0.040), (0.0, -1.0, 0.04), (0.35, -0.92, 0.08)),
+                # Thrust: push spear forward, bring upper body/torso forward (-Y) for extended reach
+                (17, {"pelvis": (16, 0, 14), "spine": (26, 0, 16), "chest": (14, 0, 8), "head": (-26, 0, -12),
+                      "upperArm_L": (-42, 0, -76), "forearm_L": (0, 0, -40),
+                      "upperArm_R": (-44, 0, 74), "forearm_R": (0, 0, 12),
+                      "thigh_L": (-50, 0, 10), "shin_L": (54, 0, 0), "thigh_R": (38, 0, -10), "shin_R": (16, 0, 0)},
+                 (0, -0.075, -0.052), (0.0, -1.0, 0.02), (0.45, -0.88, 0.04)),
+                # Recover back to braced stance
+                (30, {"pelvis": (6, 0, -18), "spine": (10, 0, 10), "chest": (6, 0, 4), "head": (-14, 0, 0),
+                      "upperArm_L": (-46, 0, -62), "forearm_L": (0, 0, -58),
+                      "upperArm_R": (-56, 0, 22), "forearm_R": (0, 0, 76),
+                      "thigh_L": (-30, 0, 12), "shin_L": (36, 0, 0), "thigh_R": (22, 0, -12), "shin_R": (28, 0, 0)},
+                 (0, 0, -0.036), (0.0, -1.0, 0.05), (0.35, -0.92, 0.06)),
+            ],
+        ),
+        # 5. Death animation: stagger, knees buckle, collapse backward onto the ground
+        "death": (
+            36,
+            [
+                (1, {"pelvis": (6, 0, -18), "spine": (10, 0, 10), "head": (-14, 0, 0),
+                     "upperArm_L": (-46, 0, -62), "forearm_L": (0, 0, -58),
+                     "upperArm_R": (-56, 0, 22), "forearm_R": (0, 0, 76),
+                     "thigh_L": (-28, 0, 8), "shin_L": (34, 0, 0), "thigh_R": (18, 0, -8), "shin_R": (26, 0, 0)},
+                 (0, 0, -0.032), (0.0, -1.0, 0.05), (0.35, -0.92, 0.06)),
+                (12, {"pelvis": (-24, 6, -10), "spine": (-16, 0, 6), "head": (18, 0, -8),
+                      "upperArm_L": (-58, 0, -24), "forearm_L": (0, 0, -28),
+                      "upperArm_R": (-62, 0, 10), "forearm_R": (0, 0, 34),
+                      "thigh_L": (-36, 0, 10), "shin_L": (64, 0, 0), "thigh_R": (-24, 0, -10), "shin_R": (56, 0, 0)},
+                 (0, 0.06, -0.10), (0.2, -0.8, 0.55), (0.7, -0.4, 0.4)),
+                (26, {"pelvis": (-80, 10, 0), "spine": (-8, 0, 0), "head": (10, 0, -10),
+                      "upperArm_L": (-76, 0, -10), "forearm_L": (0, 0, -14),
+                      "upperArm_R": (-78, 0, 8), "forearm_R": (0, 0, 18),
+                      "thigh_L": (-10, 0, 8), "shin_L": (18, 0, 0), "thigh_R": (-6, 0, -8), "shin_R": (12, 0, 0)},
+                 (0, 0.14, -0.20), (0.65, -0.75, 0.02), (0.85, -0.35, 0.25)),
+                (36, {"pelvis": (-84, 12, 0), "spine": (-6, 0, 0), "head": (8, 0, -12),
+                      "upperArm_L": (-80, 0, -6), "forearm_L": (0, 0, -10),
+                      "upperArm_R": (-82, 0, 6), "forearm_R": (0, 0, 12),
+                      "thigh_L": (-6, 0, 8), "shin_L": (12, 0, 0), "thigh_R": (-4, 0, -8), "shin_R": (10, 0, 0)},
+                 (0, 0.16, -0.215), (0.75, -0.66, 0.0), (0.9, -0.25, 0.2)),
+            ],
+        ),
+    }
+
+    for action_name, (end_frame, keyframes) in anims.items():
+        act = bpy.data.actions.new(name=action_name)
+        arm_obj.animation_data.action = act
+        for frame, rot_dict, p_loc, s_dir, sh_dir in keyframes:
+            key_pose(frame, rot_dict, p_loc, s_dir, sh_dir)
+
+        track = arm_obj.animation_data.nla_tracks.new()
+        track.name = action_name
+        strip = track.strips.new(action_name, 1, act)
+        strip.action_frame_start = 1
+        strip.action_frame_end = end_frame
+
+    arm_obj.animation_data.action = None
+
+
+def build_and_export():
+    clear_scene()
+
+    mats = {
+        "skin": make_material("SpearmanSkin", (0.86, 0.72, 0.58, 1.0), metallic=0.0, roughness=0.78),
+        "tunic": make_gambeson_material(),
+        "trousers": make_material("SpearmanTrousers", (0.24, 0.20, 0.17, 1.0), metallic=0.0, roughness=0.92),
+        "leather": make_material("SpearmanLeather", (0.28, 0.18, 0.10, 1.0), metallic=0.04, roughness=0.82),
+        "iron": make_material("SpearmanHelmetIron", (0.46, 0.49, 0.53, 1.0), metallic=0.80, roughness=0.38),
+        "steel": make_material("SpearmanSteel", (0.64, 0.67, 0.72, 1.0), metallic=0.86, roughness=0.28),
+        "wood": make_material("SpearAshWood", (0.38, 0.26, 0.14, 1.0), metallic=0.02, roughness=0.85),
+        "shield_paint": make_material("ShieldFace", (0.22, 0.35, 0.58, 1.0), metallic=0.05, roughness=0.75),
+    }
+
+    parts = [
+        create_mesh_obj("Body_TorsoHead", build_torso_neck_head_bm(), mats["skin"]),
+        create_mesh_obj("Body_Arm_L", build_arm_bm(+1.0), mats["skin"]),
+        create_mesh_obj("Body_Arm_R", build_arm_bm(-1.0), mats["skin"]),
+        create_mesh_obj("Garb_Tunic", build_tunic_bm(), mats["tunic"]),
+        create_mesh_obj("Garb_Belt", build_belt_bm(), mats["leather"]),
+        create_mesh_obj("Garb_Trousers", build_trousers_bm(), mats["trousers"]),
+        create_mesh_obj("Garb_Boots", build_boots_bm(), mats["leather"]),
+        create_mesh_obj("Helmet_Kettle", build_kettle_helmet_bm(), mats["iron"]),
+    ]
+
+    bpy.ops.object.select_all(action="DESELECT")
+    for p in parts:
+        p.select_set(True)
+    spearman_mesh = parts[0]
+    spearman_mesh.name = "MedievalSpearman"
+    bpy.context.view_layer.objects.active = spearman_mesh
+    bpy.ops.object.join()
+
+    arm_obj = create_armature()
+    assign_smooth_skin_weights(spearman_mesh, arm_obj)
+
+    spear = build_spear_obj(mats)
+    spear.parent = arm_obj
+    spear.parent_type = "BONE"
+    spear.parent_bone = "weaponSocket"
+    spear.matrix_parent_inverse.identity()
+    spear.location = Vector((0.0, 0.0, 0.0))
+
+    shield = build_shield_obj(mats)
+    shield.parent = arm_obj
+    shield.parent_type = "BONE"
+    shield.parent_bone = "shieldSocket"
+    shield.matrix_parent_inverse.identity()
+    shield.location = Vector((0.0, 0.0, 0.0))
+
+    bake_animations(arm_obj)
+
+    tri_count = sum(len(p.vertices) - 2 for p in spearman_mesh.data.polygons)
+    print(
+        f"Built MedievalSpearman mesh with ~{tri_count} triangles and "
+        f"{len(arm_obj.animation_data.nla_tracks)} NLA animation tracks."
+    )
+
+    os.makedirs(os.path.dirname(GLB_OUT), exist_ok=True)
+    os.makedirs(os.path.dirname(BLEND_OUT), exist_ok=True)
+    bpy.ops.wm.save_as_mainfile(filepath=BLEND_OUT)
+    bpy.ops.export_scene.gltf(
+        filepath=GLB_OUT,
+        export_format="GLB",
+        export_yup=True,
+        export_apply=True,
+        export_materials="EXPORT",
+        export_animations=True,
+        export_nla_strips=True,
+    )
+    print(f"Exported GLB -> {GLB_OUT}")
+    print(f"Saved BLEND  -> {BLEND_OUT}")
+
+
+if __name__ == "__main__":
+    build_and_export()

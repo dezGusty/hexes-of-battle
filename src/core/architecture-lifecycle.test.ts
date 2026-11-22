@@ -86,6 +86,9 @@ describe('3D Multi-Scene Architecture & Resource Lifecycle', () => {
     const manager = new AssetBundleManager();
     const assets: GameAssets = { softCursorTextures: {} };
 
+    await manager.loadCoreAssets(assets);
+    expect(assets.unitsSheet).toBeDefined();
+
     await manager.loadBattleAssets(assets);
     expect(manager.isBattleAssetsLoaded()).toBe(true);
     expect(assets.unitsSheet).toBeDefined();
@@ -96,7 +99,7 @@ describe('3D Multi-Scene Architecture & Resource Lifecycle', () => {
     expect(assets.terrainTexture).toBeUndefined();
     expect(assets.hexagonSheet).toBeUndefined();
     expect(assets.terrainSheet).toBeUndefined();
-    expect(assets.unitsSheet).toBeUndefined();
+    expect(assets.unitsSheet).toBeDefined();
     expect(assets.bannersSheet).toBeUndefined();
     expect(unloadSpy).toHaveBeenCalled();
 

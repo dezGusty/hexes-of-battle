@@ -5,6 +5,7 @@ import { setActiveUISoundSystem } from '../../battle/ui-sounds';
 import { MusicManager } from '../../core/music-manager';
 import { GameAssets } from '../../core/scene';
 import { Coords } from '../../shared';
+import { FpsDisplayTracker } from '../../shared/fps-tracker';
 import { BattleMenuPanel } from '../../ui/battle-menu';
 import { OverviewCampaign } from '../overview-campaign';
 import { OverviewSaveEntry, OverviewSaveManager } from '../overview-save-manager';
@@ -68,6 +69,7 @@ export class OverviewHud2D {
   public menuPanel?: BattleMenuPanel;
   public softCursorSprite?: Sprite;
   public fpsText?: BitmapText;
+  private fpsTracker: FpsDisplayTracker = new FpsDisplayTracker(5000);
 
   private campaign?: OverviewCampaign;
   private onEndTurn?: () => void;
@@ -198,7 +200,8 @@ export class OverviewHud2D {
         onAcceptOutcome: () => this.battlePromptPanel.hide(),
         onViewBattle: () => {},
         onRefuseOutcome: () => {},
-      }
+      },
+      options.assets?.unitsSheet
     );
     this.armyExchangePanel = new OverviewArmyExchangePanel(
       this.uiPlusRenderGroup,
@@ -421,9 +424,10 @@ export class OverviewHud2D {
     }
   }
 
-  public updateFps(fps: number): void {
+  public updateFps(fps: number, deltaMS?: number): void {
+    const formatted = this.fpsTracker.record(fps, deltaMS).text;
     if (this.fpsText && this.fpsText.visible) {
-      this.fpsText.text = `FPS: ${Math.round(fps)}`;
+      this.fpsText.text = formatted;
     }
   }
 

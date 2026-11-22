@@ -4,13 +4,13 @@
       "id": "player",
       "name": "Player",
       "isAI": false,
-      "color": "#3498db",
-      "banner": "banner7.png"
+      "color": "#3498bb",
+      "banner": "banner11.png"
     }
   ],
   "neutral": {
     "name": "Neutral",
     "color": "#8c929a",
-    "banner": "banner16.png"
+    "banner": "banner4.png"
   }
 }

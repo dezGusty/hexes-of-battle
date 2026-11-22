@@ -93,6 +93,77 @@ export const OVERVIEW_TERRAIN_TEXTURE_CONFIG: Record<
   },
 };
 
+export const BATTLE_TERRAIN_TEXTURE_CONFIG: Record<
+  OverviewTerrainType,
+  { file: string; variations: string[]; tint: number }
+> = {
+  grassland: {
+    file: 'battle_grassland_1.png',
+    variations: [
+      'battle_grassland_1.png',
+      'battle_grassland_2.png',
+      'battle_grassland_3.png',
+      'battle_grassland_4.png',
+    ],
+    tint: 0xffffff,
+  },
+  forest: {
+    file: 'battle_forest_1.png',
+    variations: [
+      'battle_forest_1.png',
+      'battle_forest_2.png',
+      'battle_forest_3.png',
+      'battle_forest_4.png',
+    ],
+    tint: 0xffffff,
+  },
+  deep_forest: {
+    file: 'battle_forest_1.png',
+    variations: [
+      'battle_forest_1.png',
+      'battle_forest_2.png',
+      'battle_forest_3.png',
+      'battle_forest_4.png',
+    ],
+    tint: 0xffffff,
+  },
+  swamp: {
+    file: 'battle_swamp_1.png',
+    variations: [
+      'battle_swamp_1.png',
+      'battle_swamp_2.png',
+      'battle_swamp_3.png',
+      'battle_swamp_4.png',
+    ],
+    tint: 0xffffff,
+  },
+  hill: {
+    file: 'battle_hill_1.png',
+    variations: [
+      'battle_hill_1.png',
+      'battle_hill_2.png',
+      'battle_hill_3.png',
+      'battle_hill_4.png',
+    ],
+    tint: 0xffffff,
+  },
+  mountain: {
+    file: 'battle_hill_1.png',
+    variations: [
+      'battle_hill_1.png',
+      'battle_hill_2.png',
+      'battle_hill_3.png',
+      'battle_hill_4.png',
+    ],
+    tint: 0xffffff,
+  },
+  water: {
+    file: 'battle_water.png',
+    variations: ['battle_water.png'],
+    tint: 0xffffff,
+  },
+};
+
 export const FALLBACK_TERRAIN_RGB: Record<OverviewTerrainType, [number, number, number]> = {
   grassland: [92, 138, 71],
   forest: [59, 102, 52],
@@ -122,10 +193,9 @@ export interface OverviewTerrainAtlasHandle {
   dispose: () => void;
 }
 
-export function createOverviewTerrainAtlas(): OverviewTerrainAtlasHandle {
-  const cellSize = 256;
+export function createOverviewTerrainAtlas(cellSize: number = 256): OverviewTerrainAtlasHandle {
   const cols = 4; // 4 variations
-  const rows = 8; // 6 land terrains + padding to power-of-two height (1024x2048)
+  const rows = 8; // 6 land terrains + padding to power-of-two height
 
   if (typeof document !== 'undefined') {
     const canvas = document.createElement('canvas');
@@ -297,6 +367,16 @@ export function createOverviewHighlightGridTexture(
   return texture;
 }
 
+export interface OuterEnvironmentBlendConfig {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+  fadeWidth: number;
+  outerColor: number;
+  enableSwampWaterShader?: boolean;
+}
+
 export function createOverviewBlendedTerrainMaterial(
   atlasTexture: THREE.Texture,
   terrainGridTexture: THREE.DataTexture,
@@ -304,7 +384,8 @@ export function createOverviewBlendedTerrainMaterial(
   mapHeight: number,
   hexRadius: number,
   highlightGridTexture?: THREE.DataTexture,
-  showGrid: boolean = true
+  showGrid: boolean = true,
+  outerBlend?: OuterEnvironmentBlendConfig
 ): THREE.MeshStandardMaterial {
   const highlightTex =
     highlightGridTexture ?? createOverviewHighlightGridTexture(mapWidth, mapHeight);
@@ -332,6 +413,17 @@ export function createOverviewBlendedTerrainMaterial(
     shader.uniforms.uHexRadius = { value: hexRadius };
     shader.uniforms.uAtlasGrid = { value: new THREE.Vector2(4, 8) };
     shader.uniforms.uShowGrid = { value: showGrid ? 1.0 : 0.0 };
+    shader.uniforms.uOuterBlendRect = {
+      value: outerBlend
+        ? new THREE.Vector4(outerBlend.minX, outerBlend.maxX, outerBlend.minZ, outerBlend.maxZ)
+        : new THREE.Vector4(-1e6, 1e6, -1e6, 1e6),
+    };
+    shader.uniforms.uOuterBlendFade = { value: outerBlend ? outerBlend.fadeWidth : 0.0 };
+    shader.uniforms.uOuterGroundColor = {
+      value: new THREE.Color(outerBlend ? outerBlend.outerColor : 0x48783c),
+    };
+    shader.uniforms.uTime = { value: 0.0 };
+    shader.uniforms.uSwampWaterEnabled = { value: outerBlend?.enableSwampWaterShader ? 1.0 : 0.0 };
     mat.userData.shader = shader;
 
     shader.vertexShader = shader.vertexShader.replace(
@@ -360,6 +452,11 @@ uniform vec2 uGridSize;
 uniform float uHexRadius;
 uniform vec2 uAtlasGrid;
 uniform float uShowGrid;
+uniform vec4 uOuterBlendRect;
+uniform float uOuterBlendFade;
+uniform vec3 uOuterGroundColor;
+uniform float uTime;
+uniform float uSwampWaterEnabled;
 
 float overviewHash21(vec2 p) {
   return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
@@ -462,6 +559,7 @@ vec2 worldXZToHexCoord(vec2 worldXZ) {
     ? vec4(0.46, 0.42, 0.31, 1.0)
     : sampleAtlasTerrain(ownType, ownVar, worldUv);
   float totalWeight = 1.0;
+  float swampAcc = (abs(ownType - 3.0) < 0.5) ? 1.0 : 0.0;
 
   float apothem = uHexRadius * 0.86602540378;
   float edgeNoise = (overviewFbm(vTerrainWorldPos.xz * 2.3) - 0.5) * 0.34;
@@ -504,12 +602,34 @@ vec2 worldXZToHexCoord(vec2 worldXZ) {
             : sampleAtlasTerrain(nType, nVar, worldUv);
           accColor += nColor * w;
           totalWeight += w;
+          if (abs(nType - 3.0) < 0.5) {
+            swampAcc += w;
+          }
         }
       }
     }
   }
 
   vec3 blendedRgb = accColor.rgb / totalWeight;
+  float swampWeight = swampAcc / totalWeight;
+  float swampWaterMask = 0.0;
+
+  if (uSwampWaterEnabled > 0.5 && swampWeight > 0.01) {
+    float waterDepth = smoothstep(-0.08, -0.23, vTerrainWorldPos.y);
+    swampWaterMask = clamp(swampWeight * waterDepth, 0.0, 1.0);
+    float dampShore = swampWeight * smoothstep(-0.03, -0.10, vTerrainWorldPos.y) * (1.0 - waterDepth);
+    blendedRgb = mix(blendedRgb, blendedRgb * vec3(0.68, 0.72, 0.64), dampShore * 0.65);
+
+    if (swampWaterMask > 0.005) {
+      float rippleA = overviewFbm(vTerrainWorldPos.xz * 2.8 + vec2(uTime * 0.14, -uTime * 0.09));
+      float rippleB = overviewFbm(vTerrainWorldPos.xz * 5.2 - vec2(uTime * 0.11, uTime * 0.16));
+      float algaeNoise = overviewFbm(vTerrainWorldPos.xz * 1.9 + vec2(1.7, 3.1));
+      vec3 murkyBase = mix(vec3(0.08, 0.15, 0.14), vec3(0.16, 0.24, 0.14), algaeNoise);
+      float shimmer = smoothstep(0.54, 0.78, rippleA * 0.55 + rippleB * 0.45);
+      vec3 murkyWaterCol = murkyBase + vec3(0.12, 0.17, 0.15) * shimmer;
+      blendedRgb = mix(blendedRgb, murkyWaterCol, swampWaterMask * 0.86);
+    }
+  }
 
   // Subtle world-space sunlit & clover variation on grassland plains
   if (abs(ownType) < 0.5) {
@@ -540,7 +660,30 @@ vec2 worldXZToHexCoord(vec2 worldXZ) {
     blendedRgb = mix(blendedRgb, vec3(0.95, 0.85, 0.42), hoverRing * 0.65);
   }
 
+  if (uOuterBlendFade > 0.01) {
+    float dxOut = max(uOuterBlendRect.x - vTerrainWorldPos.x, vTerrainWorldPos.x - uOuterBlendRect.y);
+    float dzOut = max(uOuterBlendRect.z - vTerrainWorldPos.z, vTerrainWorldPos.z - uOuterBlendRect.w);
+    float dOut = max(0.0, max(dxOut, dzOut));
+    float outerT = smoothstep(0.35, uOuterBlendFade, dOut);
+    blendedRgb = mix(blendedRgb, uOuterGroundColor, outerT);
+  }
+
   diffuseColor.rgb *= blendedRgb;
+}
+#define SWAMP_WATER_ROUGHNESS_PASS
+`
+    );
+
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <roughnessmap_fragment>',
+      `#include <roughnessmap_fragment>
+if (uSwampWaterEnabled > 0.5) {
+  vec2 sHex = worldXZToHexCoord(vTerrainWorldPos.xz);
+  vec2 sCell = fetchGridCell(sHex);
+  if (abs(sCell.x - 3.0) < 0.5) {
+    float sWater = smoothstep(-0.08, -0.23, vTerrainWorldPos.y);
+    roughnessFactor = mix(roughnessFactor, 0.16, sWater);
+  }
 }`
     );
   };

@@ -8,6 +8,7 @@ import { BattleSettings } from './settings';
 import { HexDirection, HexEdge, HexFlankStatus, HexMap } from '../shared/hex-map';
 import { HexViewportCamera } from '../shared/hex-viewport-camera';
 import { Coords } from '../shared';
+import { FpsDisplayTracker } from '../shared/fps-tracker';
 import { Creature, CreatureType } from './creature';
 import { Ability } from './ability';
 import { AnimationType, ArmyControlType, Battle, InputState, MapRenderUpdate } from '../battle';
@@ -64,6 +65,7 @@ export class BattleView {
   private softCursorName: string = 'default';
 
   private fpsText?: BitmapText;
+  private fpsTracker: FpsDisplayTracker = new FpsDisplayTracker(5000);
   public versionText?: BitmapText;
   private instructionsText?: Text;
   private messagesText?: Text;
@@ -328,7 +330,7 @@ export class BattleView {
 
   public update(deltaMS: number, fps: number): void {
     if (this.fpsText) {
-      this.fpsText.text = `FPS: ${Math.round(fps)}`;
+      this.fpsText.text = this.fpsTracker.record(fps, deltaMS).text;
       this.fpsText.visible = this.settings.debug.showFps;
     }
     if (this.versionText) {
@@ -582,7 +584,7 @@ export class BattleView {
       this.battleMenuPanel.setHardwareCursorHidden(this.settings.hideHardwareCursor);
       this.battleMenuPanel.hide();
     }
-    this.postBattlePanel = new PostBattlePanel(this.uiPlusRenderGroup);
+    this.postBattlePanel = new PostBattlePanel(this.uiPlusRenderGroup, this.assets.unitsSheet);
     this.applyHardwareCursorVisibility(this.settings.hideHardwareCursor);
 
     const dockedButtons = new Set<any>([
