@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { applyUnitRimLighting } from '../units/unit-rim-lighting';
+import { applyRiggedTeamAndBannerShader, parseColorToHex } from '../units/unit-mesh-builder';
 
 export const OVERVIEW_PEASANT_GLB_PATH = 'models/units/peasant_rigged.glb';
 const IDLE_PROBABILITY = 0.85;
@@ -20,7 +21,12 @@ interface CachedPeasantGlb {
 
 let cachedPeasantGlb: CachedPeasantGlb | null = null;
 let peasantGlbPromise: Promise<CachedPeasantGlb | null> | null = null;
-const sharedOverviewPeasantMaterialCache = new WeakMap<THREE.Material, THREE.MeshStandardMaterial>();
+const sharedOverviewPeasantMaterialCache = new WeakMap<THREE.Material, Map<string, THREE.MeshStandardMaterial>>();
+
+export interface OverviewPeasantOptions {
+  playerColor?: string | number;
+  bannerName?: string;
+}
 
 function nextRand(state: number): { value: number; next: number } {
   const next = (Math.imul(state >>> 0, 1664525) + 1013904223) >>> 0;
@@ -75,25 +81,47 @@ export function preloadOverviewPeasantGlb(basePath: string = ''): Promise<Cached
   return peasantGlbPromise;
 }
 
-function populateGroupFromGlb(group: THREE.Group, template: CachedPeasantGlb, seed: number): void {
+function populateGroupFromGlb(
+  group: THREE.Group,
+  template: CachedPeasantGlb,
+  seed: number,
+  options?: OverviewPeasantOptions
+): void {
   group.clear();
+  const teamColorHex = options?.playerColor !== undefined ? parseColorToHex(options.playerColor) : 0x8c929a;
+  const resolvedBanner = options?.bannerName ?? 'banner7.png';
+  group.userData.teamColorHex = teamColorHex;
+  group.userData.bannerName = resolvedBanner;
+
   const cloned = SkeletonUtils.clone(template.scene);
   cloned.traverse((node) => {
     if ((node as THREE.Mesh).isMesh) {
       const mesh = node as THREE.Mesh;
       mesh.castShadow = true;
       mesh.receiveShadow = false;
+      const hasMaskColor = Boolean(mesh.geometry?.attributes?.color);
+      const hasUv1 = Boolean(mesh.geometry?.attributes?.uv1);
+      const matKey = hasMaskColor ? `${teamColorHex}_${resolvedBanner}` : 'shared';
       if (mesh.material) {
         const origMats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
         const sharedMats = origMats.map((origMat) => {
-          let cachedMat = sharedOverviewPeasantMaterialCache.get(origMat);
+          let matMap = sharedOverviewPeasantMaterialCache.get(origMat);
+          if (!matMap) {
+            matMap = new Map();
+            sharedOverviewPeasantMaterialCache.set(origMat, matMap);
+          }
+          let cachedMat = matMap.get(matKey);
           if (!cachedMat) {
             cachedMat = origMat.clone() as THREE.MeshStandardMaterial;
             cachedMat.transparent = false;
             cachedMat.opacity = 1.0;
+            cachedMat.vertexColors = false;
             cachedMat.userData = { ...cachedMat.userData, isSharedAsset: true };
             applyUnitRimLighting(cachedMat);
-            sharedOverviewPeasantMaterialCache.set(origMat, cachedMat);
+            if (hasMaskColor) {
+              applyRiggedTeamAndBannerShader(cachedMat, teamColorHex, resolvedBanner, hasUv1);
+            }
+            matMap.set(matKey, cachedMat);
           }
           return cachedMat;
         });
@@ -201,12 +229,17 @@ function populateGroupFromGlb(group: THREE.Group, template: CachedPeasantGlb, se
  * Returns the rigged, textured `peasant_rigged.glb` model for the global overview map
  * and Model Explorer, with cow-style occasional idle animations (85% static, 15% random idle).
  */
-export function createOverviewPeasantModel(seed = 707): THREE.Group {
+export function createOverviewPeasantModel(
+  seed = 707,
+  options?: OverviewPeasantOptions
+): THREE.Group {
   const group = new THREE.Group();
   group.name = 'OverviewPeasant';
+  group.userData.teamColorHex = options?.playerColor !== undefined ? parseColorToHex(options.playerColor) : 0x8c929a;
+  group.userData.bannerName = options?.bannerName ?? 'banner7.png';
 
   if (cachedPeasantGlb) {
-    populateGroupFromGlb(group, cachedPeasantGlb, seed);
+    populateGroupFromGlb(group, cachedPeasantGlb, seed, options);
   } else {
     const placeholder = new THREE.Mesh(
       new THREE.CylinderGeometry(0.1, 0.12, 0.5, 8),
@@ -232,7 +265,7 @@ export function createOverviewPeasantModel(seed = 707): THREE.Group {
 
     void preloadOverviewPeasantGlb().then((loaded) => {
       if (loaded) {
-        populateGroupFromGlb(group, loaded, seed);
+        populateGroupFromGlb(group, loaded, seed, options);
       }
     });
   }

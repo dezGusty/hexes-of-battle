@@ -169,6 +169,11 @@ export class Battle {
   private lastAbilityTargetCanceledTimestamp: number = 0;
 
   public combatConfig: CombatConfig = { ...DEFAULT_COMBAT_CONFIG };
+  private battleBannerConfig?: {
+    player1Banner?: string;
+    player2Banner?: string;
+    playerBanners?: Record<string | number, string>;
+  };
   public majorTerrainType: BattleLocationType = BattleLocationType.FARM;
   public rng: SeedableRNG = new SeedableRNG();
   public windSystem: WindSystem = new WindSystem(undefined, this.rng);
@@ -248,6 +253,25 @@ export class Battle {
   }
 
   public getBannerForArmy(armyIndex: number): string {
+    if (this.battleBannerConfig) {
+      const hasOverride =
+        (armyIndex === 0 &&
+          Boolean(
+            this.battleBannerConfig.player1Banner ||
+              this.battleBannerConfig.playerBanners?.player1 ||
+              this.battleBannerConfig.playerBanners?.['0']
+          )) ||
+        (armyIndex === 1 &&
+          Boolean(
+            this.battleBannerConfig.player2Banner ||
+              this.battleBannerConfig.playerBanners?.player2 ||
+              this.battleBannerConfig.playerBanners?.['1']
+          )) ||
+        Boolean(this.battleBannerConfig.playerBanners?.[armyIndex]);
+      if (hasOverride) {
+        return getPlayerBanner(armyIndex, this.battleBannerConfig);
+      }
+    }
     return getPlayerBanner(armyIndex, this.combatConfig);
   }
 
@@ -365,6 +389,21 @@ export class Battle {
       (config as any).major_terrain_type;
     if (rawConfigMajorTerrain) {
       this.majorTerrainType = normalizeBattleLocationType(rawConfigMajorTerrain);
+    }
+    if (config.playerColors || (config as any).player_colors || (config as any).teamColors) {
+      configurePlayerColors(
+        config.playerColors ?? (config as any).player_colors ?? (config as any).teamColors
+      );
+    }
+    if (config.player1Banner || config.player2Banner || config.playerBanners) {
+      configurePlayerBanners(config);
+      this.battleBannerConfig = {
+        player1Banner: config.player1Banner,
+        player2Banner: config.player2Banner,
+        playerBanners: config.playerBanners,
+      };
+    } else {
+      this.battleBannerConfig = undefined;
     }
     if (config.seed !== undefined) {
       this.setSeed(config.seed);

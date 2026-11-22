@@ -7,7 +7,8 @@ import {
   SettlementTier,
 } from '../../overview/overview-types';
 import { CreatureType } from '../../battle/creature';
-import { buildArticulatedUnit3DMesh } from '../units/unit-mesh-builder';
+import { buildArticulatedUnit3DMesh, parseColorToHex } from '../units/unit-mesh-builder';
+import { createBannerTextureForName } from '../decorations/retreat-flag-3d';
 import { createOverviewCowModel } from './overview-cow-3d';
 import { createCastleSettlementHex } from './overview-castle-town-3d';
 import { createOverviewIronMineModel } from './overview-iron-mine-3d';
@@ -23,7 +24,8 @@ export function createOverviewWindFlag(
   colorHex: string = '#8c929a',
   poleHeight: number = 0.85,
   flagWidth: number = 0.34,
-  flagHeight: number = 0.2
+  flagHeight: number = 0.2,
+  bannerName?: string
 ): THREE.Group {
   const flagGroup = new THREE.Group();
   flagGroup.name = 'OverviewWindFlag';
@@ -45,8 +47,10 @@ export function createOverviewWindFlag(
     clothGeo.attributes.position.array as Float32Array
   );
 
+  const bannerMap = createBannerTextureForName(bannerName);
   const clothMat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(colorHex),
+    color: bannerMap ? 0xffffff : new THREE.Color(colorHex),
+    map: bannerMap ?? null,
     roughness: 0.65,
     side: THREE.DoubleSide,
   });
@@ -59,6 +63,7 @@ export function createOverviewWindFlag(
     flagHeight,
     basePositions,
     flagPhase: (colorHex.charCodeAt(1) || 1) * 0.37,
+    bannerName,
   };
 
   clothPivot.add(clothMesh);
@@ -68,10 +73,13 @@ export function createOverviewWindFlag(
 
 export function createOverviewSettlementModel(
   tier: SettlementTier,
-  ownerColorHex: string = '#8c929a'
+  ownerColorHex: string = '#8c929a',
+  bannerName?: string
 ): THREE.Group {
   if (tier === 'town') {
-    return createCastleSettlementHex({ bannerColor: ownerColorHex });
+    const castle = createCastleSettlementHex({ bannerColor: ownerColorHex, bannerName });
+    castle.scale.setScalar(1.518);
+    return castle;
   }
 
   const group = new THREE.Group();
@@ -128,7 +136,8 @@ export function createOverviewSettlementModel(
     ownerColorHex,
     tier === 'city' ? 0.56 : 0.48,
     0.28,
-    0.16
+    0.16,
+    bannerName
   );
   if (tier === 'city') {
     settlementFlag.position.set(0, 0.72, 0);
@@ -136,6 +145,7 @@ export function createOverviewSettlementModel(
     settlementFlag.position.set(0.06, 0, -0.02);
   }
   group.add(settlementFlag);
+  group.scale.setScalar(1.2);
 
   return group;
 }
@@ -399,7 +409,8 @@ export function createOverviewDefenseModel(tier: DefenseStructureTier): THREE.Gr
  */
 export function createOverviewCombinedArmyVisual(
   army: OverviewArmy,
-  playerColorHex: string = '#3498db'
+  playerColorHex: string = '#8c929a',
+  bannerName?: string
 ): THREE.Group {
   const group = new THREE.Group();
   group.name = `OverviewArmy_${army.id}`;
@@ -407,17 +418,18 @@ export function createOverviewCombinedArmyVisual(
 
   const isNeutral = army.ownerPlayerId === null;
   const armyAlignment = isNeutral ? 1 : 0;
-  const flagColor = isNeutral ? '#8c929a' : playerColorHex;
+  const flagColor = playerColorHex;
 
   const squads = army.squads;
   const count = squads.length;
   const ringRadius = count <= 1 ? 0 : 0.34;
 
+  const unitTeamColorHex = parseColorToHex(flagColor);
   squads.forEach((sq, idx) => {
     const isPeasant = sq.creatureType === CreatureType.PEASANT;
     const unitMesh = isPeasant
-      ? createOverviewPeasantModel(707 + idx * 31)
-      : buildArticulatedUnit3DMesh(sq.creatureType, armyAlignment, false);
+      ? createOverviewPeasantModel(707 + idx * 31, { playerColor: flagColor, bannerName })
+      : buildArticulatedUnit3DMesh(sq.creatureType, armyAlignment, false, unitTeamColorHex);
     const baseScale = isPeasant ? 0.63 : 0.38;
     unitMesh.scale.setScalar(baseScale);
     unitMesh.userData = {
@@ -438,7 +450,7 @@ export function createOverviewCombinedArmyVisual(
   });
 
   // Allegiance standard (pole + wind-animated flag)
-  const flag = createOverviewWindFlag(flagColor, 0.85, 0.34, 0.2);
+  const flag = createOverviewWindFlag(flagColor, 0.85, 0.34, 0.2, bannerName);
   group.add(flag);
   return group;
 }

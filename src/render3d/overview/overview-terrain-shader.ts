@@ -303,7 +303,8 @@ export function createOverviewBlendedTerrainMaterial(
   mapWidth: number,
   mapHeight: number,
   hexRadius: number,
-  highlightGridTexture?: THREE.DataTexture
+  highlightGridTexture?: THREE.DataTexture,
+  showGrid: boolean = true
 ): THREE.MeshStandardMaterial {
   const highlightTex =
     highlightGridTexture ?? createOverviewHighlightGridTexture(mapWidth, mapHeight);
@@ -330,7 +331,7 @@ export function createOverviewBlendedTerrainMaterial(
     shader.uniforms.uGridSize = { value: new THREE.Vector2(mapWidth, mapHeight) };
     shader.uniforms.uHexRadius = { value: hexRadius };
     shader.uniforms.uAtlasGrid = { value: new THREE.Vector2(4, 8) };
-    shader.uniforms.uShowGrid = { value: 1.0 };
+    shader.uniforms.uShowGrid = { value: showGrid ? 1.0 : 0.0 };
     mat.userData.shader = shader;
 
     shader.vertexShader = shader.vertexShader.replace(

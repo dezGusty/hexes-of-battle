@@ -215,6 +215,13 @@ export function createBannerSubTexture(atlasTexture: THREE.Texture, bannerName: 
   return tex;
 }
 
+export function createBannerTextureForName(bannerName?: string): THREE.Texture | null {
+  if (!bannerName) return null;
+  const atlas = loadSharedBannersTexture();
+  if (!atlas) return null;
+  return createBannerSubTexture(atlas, bannerName);
+}
+
 /**
  * Generates an authentic medieval heraldic war standard canvas texture.
  * Defaults to a square canvas (256x256) matching the square flag cloth.

@@ -14,7 +14,9 @@ import { GeneratedOverviewMap } from './overview-map-generator';
 import {
   createEmptyResourcePool,
   DEFAULT_ARMY_SIGHT_RANGE,
+  DEFAULT_NEUTRAL_FACTION,
   isOverviewTerrainPassable,
+  NeutralFactionConfig,
   OverviewArmy,
   OverviewCampaignConfig,
   OverviewHex,
@@ -71,6 +73,7 @@ export class OverviewCampaign {
   public readonly hexes: OverviewHex[][];
   public readonly regions: RegionState[];
   public readonly players: OverviewPlayer[];
+  public readonly neutralFaction: NeutralFactionConfig;
   public armies: OverviewArmy[];
   public turnNumber: number = 1;
   public currentPlayerId: string = 'player';
@@ -85,8 +88,25 @@ export class OverviewCampaign {
     this.hexes = generated.hexes;
     this.regions = generated.regions;
     this.players = generated.players;
+    this.neutralFaction = generated.neutralFaction
+      ? { ...DEFAULT_NEUTRAL_FACTION, ...generated.neutralFaction }
+      : { ...DEFAULT_NEUTRAL_FACTION };
     this.armies = generated.armies;
     this.recomputeFogOfWar();
+  }
+
+  public getFactionColor(ownerPlayerId: string | null): string {
+    if (ownerPlayerId === null) {
+      return this.neutralFaction.color;
+    }
+    return this.getPlayer(ownerPlayerId)?.color ?? this.neutralFaction.color;
+  }
+
+  public getFactionBanner(ownerPlayerId: string | null): string {
+    if (ownerPlayerId === null) {
+      return this.neutralFaction.banner;
+    }
+    return this.getPlayer(ownerPlayerId)?.banner ?? 'banner7.png';
   }
 
   public recomputeFogOfWar(playerId: string = 'player'): void {
@@ -482,12 +502,26 @@ export class OverviewCampaign {
       creatures.push(c);
     });
 
+    const defenderHex = this.getHex(defender.coords);
     const majorTerrainType =
-      targetRegion?.preset === 'forest'
+      defenderHex?.terrain === 'forest' || defenderHex?.terrain === 'deep_forest'
         ? 'forest'
-        : targetRegion?.preset === 'swamp'
+        : defenderHex?.terrain === 'swamp'
           ? 'swamp'
-          : 'farm';
+          : defenderHex?.terrain === 'hill' || defenderHex?.terrain === 'mountain'
+            ? 'highlands'
+            : targetRegion?.preset === 'forest'
+              ? 'forest'
+              : targetRegion?.preset === 'swamp'
+                ? 'swamp'
+                : targetRegion?.preset === 'mountains'
+                  ? 'highlands'
+                  : 'farm';
+
+    const attackerColor = this.getFactionColor(attacker.ownerPlayerId);
+    const defenderColor = this.getFactionColor(defender.ownerPlayerId);
+    const attackerBanner = this.getFactionBanner(attacker.ownerPlayerId);
+    const defenderBanner = this.getFactionBanner(defender.ownerPlayerId);
 
     return {
       mapWidth,
@@ -496,6 +530,18 @@ export class OverviewCampaign {
       armyControl: [ArmyControlType.PLAYER, ArmyControlType.AI],
       aiPersonality: CPUPersonalityType.AGGRESSIVE,
       majorTerrainType,
+      playerColors: {
+        player1: attackerColor,
+        player2: defenderColor,
+      },
+      player1Banner: attackerBanner,
+      player2Banner: defenderBanner,
+      playerBanners: {
+        player1: attackerBanner,
+        player2: defenderBanner,
+        0: attackerBanner,
+        1: defenderBanner,
+      },
     };
   }
 

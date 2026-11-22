@@ -1807,12 +1807,10 @@ export class OverviewBoard3D {
         const surfaceY = this.getSurfaceY(hex);
 
         if (hex.isSettlement && region?.settlementTier) {
-          const owner = region.ownerPlayerId
-            ? this.campaign.getPlayer(region.ownerPlayerId)
-            : undefined;
           const model = createOverviewSettlementModel(
             region.settlementTier,
-            owner?.color ?? '#8c929a'
+            this.campaign.getFactionColor(region.ownerPlayerId),
+            this.campaign.getFactionBanner(region.ownerPlayerId)
           );
           model.position.set(pos.x, surfaceY, pos.z);
           this.landmarksGroup.add(model);
@@ -1936,13 +1934,13 @@ export class OverviewBoard3D {
       }
       const hex = this.campaign.getHex(army.coords);
       if (!hex) continue;
-      const owner = this.campaign.getPlayer(army.ownerPlayerId);
       const pos = this.hexToWorld(army.coords.x, army.coords.y);
       const surfaceY = this.getSurfaceY(hex);
 
       const visual = createOverviewCombinedArmyVisual(
         army,
-        owner?.color ?? '#8c929a'
+        this.campaign.getFactionColor(army.ownerPlayerId),
+        this.campaign.getFactionBanner(army.ownerPlayerId)
       );
       visual.position.set(pos.x, surfaceY, pos.z);
       this.armiesGroup.add(visual);

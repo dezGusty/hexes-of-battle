@@ -145,7 +145,8 @@ describe('3D Graphics Engine & Rendering Systems', () => {
 
       const elev = hexBoard.getHexElevation(2, 2);
       expect(elev).toBeGreaterThanOrEqual(0.18);
-      expect(elev).toBeLessThanOrEqual(0.25);
+      expect(elev).toBeLessThanOrEqual(0.95);
+      expect(hexBoard.getContinuousTerrainMesh()).not.toBeNull();
 
       const mesaRadius = hexBoard.getHillMesaRadius(2, 2);
       expect(mesaRadius).toBeLessThan(hexBoard.hexRadius);
@@ -176,9 +177,10 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       const elev2 = hexBoard.getHexElevation(2, 1);
       const elevIsolated = hexBoard.getHexElevation(4, 4);
 
-      // Connected hills must have identical elevation
-      expect(elev1).toBe(elev2);
+      // Connected hills are both elevated via continuous terrain sampling
+      expect(Math.abs(elev1 - elev2)).toBeLessThan(0.25);
       expect(elev1).toBeGreaterThanOrEqual(0.18);
+      expect(elev2).toBeGreaterThanOrEqual(0.18);
 
       // Isolated hill should be defined and elevated
       expect(elevIsolated).toBeGreaterThanOrEqual(0.18);
@@ -192,13 +194,15 @@ describe('3D Graphics Engine & Rendering Systems', () => {
         getTerrain: (x, y) => (x === 2 && y === 2 ? TerrainType.HILL : TerrainType.PLAIN),
       });
 
-      // Hover on hill
+      // Hover on hill projects onto continuous elevation using textured quad
       hexBoard.setHoverHex({ x: 2, y: 2 });
       const hoverMesh = (hexBoard as any).hoverMesh as THREE.Mesh;
-      expect(hoverMesh.position.y).toBeCloseTo(hexBoard.getHexElevation(2, 2) + 0.03, 3);
-      expect(hoverMesh.scale.x).toBeLessThan(1.0);
+      expect(hoverMesh.position.y).toBeCloseTo(hexBoard.getHexElevation(2, 2) + 0.028, 3);
+      expect(hoverMesh.scale.x).toBeCloseTo(1.0, 4);
+      expect(hoverMesh.geometry.attributes.uv).toBeDefined();
+      expect((hoverMesh.material as THREE.MeshBasicMaterial).transparent).toBe(true);
 
-      // Select hill
+      // Select hill projects onto continuous elevation
       hexBoard.setSelectedUnitHex({ x: 2, y: 2 }, HexDirection.EAST);
       const selectedMesh = (hexBoard as any).selectedRingMesh as THREE.Mesh;
       expect(selectedMesh.position.y).toBeCloseTo(hexBoard.getHexElevation(2, 2) + 0.02, 3);
@@ -397,11 +401,11 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       const topMat = materials[1] as THREE.MeshStandardMaterial;
       expect(topMat.userData.terrainType).toBe(TerrainType.SWAMP);
 
-      // Hover and selection overlays scale to fit inside inset basin
+      // Hover overlay projects onto continuous swamp depression
       hexBoard.setHoverHex({ x: 2, y: 2 });
       const hoverMesh = (hexBoard as any).hoverMesh as THREE.Mesh;
-      expect(hoverMesh.position.y).toBeCloseTo(-0.08 + 0.03, 3);
-      expect(hoverMesh.scale.x).toBeLessThan(1.0);
+      expect(hoverMesh.position.y).toBeCloseTo(hexBoard.getHexElevation(2, 2) + 0.028, 3);
+      expect(hoverMesh.position.y).toBeLessThan(0);
 
       hexBoard.dispose();
     });
@@ -441,8 +445,12 @@ describe('3D Graphics Engine & Rendering Systems', () => {
 
       const mat = hexBoard.selectedHaloMesh.material as THREE.MeshBasicMaterial;
       expect(mat.transparent).toBe(true);
-      expect(mat.opacity).toBe(0.5);
+      expect(mat.opacity).toBeCloseTo(0.2975, 4);
       expect(mat.map).toBeDefined();
+      expect(mat.polygonOffset).toBe(true);
+      expect(mat.polygonOffsetFactor).toBe(-2);
+      expect(hexBoard.selectedHaloMesh.geometry.attributes.position.count).toBeGreaterThan(4);
+      expect(hexBoard.selectedHaloMesh.geometry.attributes.uv).toBeDefined();
 
       // Select unit at (4, 4) - halo is raised above hover and reach overlay hex highlights (elev + 0.08) with renderOrder 5
       hexBoard.setSelectedUnitHex({ x: 4, y: 4 }, HexDirection.EAST);
@@ -468,6 +476,10 @@ describe('3D Graphics Engine & Rendering Systems', () => {
 
       expect(walkableOverlay).toBeDefined();
       expect(attackableOverlay).toBeDefined();
+      const walkableMat = walkableOverlay.material as THREE.MeshBasicMaterial;
+      expect(walkableMat.transparent).toBe(true);
+      expect(walkableMat.depthWrite).toBe(false);
+      expect(walkableOverlay.geometry.attributes.uv).toBeDefined();
 
       const elev22 = hexBoard.getHexElevation(2, 2);
       // Reachable hex highlights have cylinder height 0.04 (top surface at elev + pos.y + 0.02)

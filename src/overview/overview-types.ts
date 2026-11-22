@@ -113,9 +113,38 @@ export interface OverviewPlayer {
   name: string;
   isAI: boolean;
   color: string;
+  banner?: string;
   resources: ResourcePool;
   eliminated: boolean;
 }
+
+export interface GlobalPlayerConfig {
+  id: string;
+  name?: string;
+  isAI?: boolean;
+  color?: string;
+  banner?: string;
+}
+
+export interface NeutralFactionConfig {
+  name: string;
+  color: string;
+  banner: string;
+}
+
+export interface GlobalConfig {
+  players?: GlobalPlayerConfig[] | Record<string, Partial<GlobalPlayerConfig>>;
+  neutral?: Partial<NeutralFactionConfig>;
+  neutralFaction?: Partial<NeutralFactionConfig>;
+  playerColors?: Record<string, string>;
+  playerBanners?: Record<string, string>;
+}
+
+export const DEFAULT_NEUTRAL_FACTION: NeutralFactionConfig = {
+  name: 'Neutral',
+  color: '#8c929a',
+  banner: 'banner16.png',
+};
 
 export interface OverviewCampaignConfig {
   mapRegionWidth: number;

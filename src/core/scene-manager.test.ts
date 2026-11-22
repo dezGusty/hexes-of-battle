@@ -70,4 +70,38 @@ describe('SceneManager', () => {
     expect(enterBFn).toHaveBeenCalledWith(mockContext, { param1: 'test' });
     expect(root.children).toContain(sceneBContainer);
   });
+
+  it('should display a Loading... overlay on black background when switching to battle scene', async () => {
+    const root = new Container();
+    const mockContext = {} as GameContext;
+    const manager = new SceneManager(root, () => mockContext);
+
+    let wasOverlayVisibleDuringEnter = false;
+    const overviewScene: Scene = {
+      name: 'overview',
+      container: new Container(),
+      enter: vi.fn(),
+      exit: vi.fn(),
+      update: vi.fn(),
+    };
+    const battleScene: Scene = {
+      name: 'battle',
+      container: new Container(),
+      enter: async () => {
+        wasOverlayVisibleDuringEnter = manager.isLoadingOverlayVisible();
+      },
+      exit: vi.fn(),
+      update: vi.fn(),
+    };
+
+    manager.register(overviewScene);
+    manager.register(battleScene);
+
+    await manager.switchTo('overview');
+    expect(manager.isLoadingOverlayVisible()).toBe(false);
+
+    await manager.switchTo('battle');
+    expect(wasOverlayVisibleDuringEnter).toBe(true);
+    expect(manager.isLoadingOverlayVisible()).toBe(false);
+  });
 });

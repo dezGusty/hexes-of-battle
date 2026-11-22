@@ -382,7 +382,7 @@ let proceduralUnitTemplateCache: Map<string, THREE.Mesh> = new Map();
 let glbUnitTemplateCache: WeakMap<THREE.Object3D, Map<string, THREE.Mesh>> = new WeakMap();
 let sharedGlbRiggedMaterialCache: WeakMap<THREE.Material, Map<string, THREE.MeshStandardMaterial>> = new WeakMap();
 
-function applyRiggedTeamAndBannerShader(
+export function applyRiggedTeamAndBannerShader(
   mat: THREE.MeshStandardMaterial,
   teamColorHex: number,
   bannerName: string,
@@ -1952,16 +1952,17 @@ function createProceduralArmoredKnightTemplate(teamColor: number, _isHero: boole
 export function buildArticulatedUnit3DMesh(
   creatureType: CreatureType | string | number,
   armyAlignment: number = 0,
-  isHero: boolean = false
+  isHero: boolean = false,
+  overrideTeamColorHex?: number
 ): THREE.Mesh {
   const unitKey = normalizeUnitKey(creatureType);
-  const cacheKey = `${unitKey}_${armyAlignment}_${isHero ? 1 : 0}`;
+  const cacheKey = `${unitKey}_${armyAlignment}_${isHero ? 1 : 0}_${overrideTeamColorHex ?? ''}`;
   const cached = proceduralUnitTemplateCache.get(cacheKey);
   if (cached) {
     return cloneCompactedUnitTemplate(cached);
   }
 
-  const teamColor = getTeamColorHex(armyAlignment, isHero);
+  const teamColor = overrideTeamColorHex ?? getTeamColorHex(armyAlignment, isHero);
 
   if (unitKey === 'armored_knight') {
     const template = createProceduralArmoredKnightTemplate(teamColor, isHero);

@@ -2,7 +2,7 @@ import { Creature } from './creature';
 import { Ability } from './ability';
 import { ArmyControlType } from '../battle';
 import { CPUPersonalityType } from './cpu-player';
-import { CombatConfig } from './combat-rules';
+import { CombatConfig, PlayerColorsConfig } from './combat-rules';
 import { Coords } from '../shared';
 import { BattleActionType } from './battle-action';
 import { HexFlankStatus } from '../shared/hex-map';
@@ -25,6 +25,10 @@ export interface BattleConfig {
   battleLocationType?: BattleLocationType | string;
   locationType?: BattleLocationType | string;
   wind?: WindConfig;
+  playerColors?: PlayerColorsConfig;
+  player1Banner?: string;
+  player2Banner?: string;
+  playerBanners?: Record<string | number, string>;
 }
 
 export interface BattleResult {

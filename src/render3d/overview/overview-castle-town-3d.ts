@@ -1,10 +1,12 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { createBannerTextureForName } from '../decorations/retreat-flag-3d';
 
 export interface CastleSettlementOptions {
   seed?: number;
   gateEdgeIndex?: number;
   bannerColor?: string | number;
+  bannerName?: string;
 }
 
 interface PreparePartOptions {
@@ -328,102 +330,19 @@ function createTimberPlasterTextures(rng: () => number): TextureSet {
   };
 }
 
-function createGroundTextures(
-  rng: () => number,
-  gateAngle: number,
-  baileyRadius: number
-): TextureSet {
-  const size = 512;
-  const colPair = makeCanvas(size);
-  const bmpPair = makeCanvas(size);
-  if (!colPair || !bmpPair) return { map: null, bumpMap: null };
 
-  const { canvas: colC, ctx: col } = colPair;
-  const { canvas: bmpC, ctx: bmp } = bmpPair;
-
-  col.fillStyle = '#3a422b';
-  col.fillRect(0, 0, size, size);
-  bmp.fillStyle = '#787878';
-  bmp.fillRect(0, 0, size, size);
-
-  const cx = size * 0.5;
-  const cy = size * 0.5;
-
-  const yardGrad = col.createRadialGradient(cx, cy, size * 0.08, cx, cy, size * 0.37);
-  yardGrad.addColorStop(0, '#3e3126');
-  yardGrad.addColorStop(0.75, '#33281f');
-  yardGrad.addColorStop(1, 'rgba(51, 40, 31, 0)');
-  col.fillStyle = yardGrad;
-  col.fillRect(0, 0, size, size);
-
-  for (let i = 0; i < 2400; i++) {
-    const x = rng() * size;
-    const y = rng() * size;
-    const dist = Math.hypot((x - cx) / (size * 0.5), (y - cy) / (size * 0.5));
-    const r = 2 + rng() * 6;
-    if (dist < baileyRadius * 0.95) {
-      col.fillStyle = rng() < 0.35 ? 'rgba(84, 76, 66, 0.25)' : 'rgba(34, 25, 18, 0.28)';
-    } else {
-      col.fillStyle = rng() < 0.55 ? 'rgba(68, 80, 46, 0.28)' : 'rgba(42, 34, 24, 0.26)';
-    }
-    col.beginPath();
-    col.arc(x, y, r, 0, Math.PI * 2);
-    col.fill();
-
-    const bv = 100 + Math.floor(rng() * 70);
-    bmp.fillStyle = `rgba(${bv}, ${bv}, ${bv}, 0.35)`;
-    bmp.fillRect(x, y, r, r);
-  }
-
-  col.save();
-  col.translate(cx, cy);
-  col.rotate(gateAngle);
-
-  col.fillStyle = '#4a3a2b';
-  col.beginPath();
-  col.moveTo(0, -16);
-  col.lineTo(size * 0.45, -22);
-  col.lineTo(size * 0.45, 22);
-  col.lineTo(0, 16);
-  col.closePath();
-  col.fill();
-
-  col.fillStyle = 'rgba(26, 19, 14, 0.6)';
-  col.fillRect(size * 0.08, -11, size * 0.36, 4);
-  col.fillRect(size * 0.08, 7, size * 0.36, 4);
-  col.restore();
-
-  col.strokeStyle = 'rgba(15, 12, 10, 0.45)';
-  col.lineWidth = 18;
-  col.beginPath();
-  for (let i = 0; i < 6; i++) {
-    const a = (Math.PI / 3) * i + Math.PI / 6;
-    const px = cx + Math.cos(a) * (baileyRadius * size * 0.5);
-    const pz = cy + Math.sin(a) * (baileyRadius * size * 0.5);
-    if (i === 0) col.moveTo(px, pz);
-    else col.lineTo(px, pz);
-  }
-  col.closePath();
-  col.stroke();
-
-  return {
-    map: configureTexture(colC, { srgb: true, repeat: 1 }),
-    bumpMap: configureTexture(bmpC, { srgb: false, repeat: 1 }),
-  };
-}
 
 /**
  * Procedurally generates a stylized dark-fantasy castle-protected settlement
  * fitting cleanly inside a pointy-top hexagon of outer radius 1.0 (y = 0 ground plane).
  */
 export function createCastleSettlementHex(options: CastleSettlementOptions = {}): THREE.Group {
-  const { seed = 1337, gateEdgeIndex = 1, bannerColor = 0x8c2424 } = options;
+  const { seed = 1337, gateEdgeIndex = 1, bannerColor = 0x8c2424, bannerName } = options;
   const rng = createRng(seed);
 
   const root = new THREE.Group();
   root.name = 'OverviewSettlement_town';
 
-  const HEX_RADIUS = 1.0;
   const BAILEY_RADIUS = 0.64;
   const gateAngle = (gateEdgeIndex % 6) * (Math.PI / 3);
 
@@ -454,49 +373,6 @@ export function createCastleSettlementHex(options: CastleSettlementOptions = {})
     dummy.updateMatrix();
     return dummy.matrix.clone();
   };
-
-  // 1. Hex Ground Base
-  const hexShape = new THREE.Shape();
-  for (let i = 0; i < 6; i++) {
-    const a = (Math.PI / 3) * i + Math.PI / 6;
-    const x = Math.cos(a) * (HEX_RADIUS * 0.992);
-    const y = Math.sin(a) * (HEX_RADIUS * 0.992);
-    if (i === 0) hexShape.moveTo(x, y);
-    else hexShape.lineTo(x, y);
-  }
-  hexShape.closePath();
-
-  const groundGeo = new THREE.ExtrudeGeometry(hexShape, {
-    depth: 0.022,
-    bevelEnabled: true,
-    bevelThickness: 0.006,
-    bevelSize: 0.008,
-    bevelSegments: 1,
-  });
-  groundGeo.rotateX(Math.PI / 2);
-  groundGeo.translate(0, 0.002, 0);
-
-  const gPos = groundGeo.attributes.position;
-  const gUv = groundGeo.attributes.uv;
-  for (let i = 0; i < gPos.count; i++) {
-    gUv.setXY(i, gPos.getX(i) * 0.5 + 0.5, gPos.getZ(i) * 0.5 + 0.5);
-  }
-  gUv.needsUpdate = true;
-
-  const groundTex = createGroundTextures(rng, gateAngle, BAILEY_RADIUS);
-  const groundMat = new THREE.MeshStandardMaterial({
-    color: groundTex.map ? 0xffffff : 0x3a422b,
-    map: groundTex.map,
-    bumpMap: groundTex.bumpMap,
-    bumpScale: 0.015,
-    roughness: 0.95,
-    metalness: 0.02,
-  });
-  const groundMesh = new THREE.Mesh(groundGeo, groundMat);
-  groundMesh.name = 'SettlementGround';
-  groundMesh.castShadow = true;
-  groundMesh.receiveShadow = true;
-  root.add(groundMesh);
 
   // 2. Outer Bailey Wall & Corner Watchtowers
   const towerPositions: THREE.Vector2[] = [];
@@ -930,10 +806,12 @@ export function createCastleSettlementHex(options: CastleSettlementOptions = {})
   const basePositions = Float32Array.from(cPos.array as Float32Array);
 
   const colorObj = new THREE.Color(bannerColor);
+  const bannerMap = createBannerTextureForName(bannerName);
   const cloth = new THREE.Mesh(
     clothGeo,
     new THREE.MeshStandardMaterial({
-      color: colorObj,
+      color: bannerMap ? 0xffffff : colorObj,
+      map: bannerMap ?? null,
       roughness: 0.72,
       side: THREE.DoubleSide,
     })
@@ -947,6 +825,7 @@ export function createCastleSettlementHex(options: CastleSettlementOptions = {})
     flagHeight,
     basePositions,
     flagPhase: seed * 0.37,
+    bannerName,
   };
 
   clothPivot.add(cloth);

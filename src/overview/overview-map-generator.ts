@@ -5,7 +5,11 @@ import { CreatureType } from '../battle/creature';
 import {
   ArmySquad,
   createEmptyResourcePool,
+  DEFAULT_NEUTRAL_FACTION,
+  GlobalConfig,
+  GlobalPlayerConfig,
   isOverviewTerrainPassable,
+  NeutralFactionConfig,
   OverviewArmy,
   OverviewCampaignConfig,
   OverviewHex,
@@ -36,6 +40,7 @@ export interface GeneratedOverviewMap {
   hexes: OverviewHex[][];
   regions: RegionState[];
   players: OverviewPlayer[];
+  neutralFaction?: NeutralFactionConfig;
   armies: OverviewArmy[];
 }
 
@@ -788,12 +793,89 @@ function createStarterGarrison(isPlayer: boolean, rng: SeedableRNG): ArmySquad[]
   return pool.slice(0, count);
 }
 
+function resolveGlobalPlayersConfig(globalConfig?: GlobalConfig): OverviewPlayer[] {
+  const defaultPlayer: OverviewPlayer = {
+    id: 'player',
+    name: 'Player',
+    isAI: false,
+    color: '#3498db',
+    banner: 'banner7.png',
+    resources: createEmptyResourcePool({
+      money: 300,
+      food: 100,
+      lumber: 40,
+      stone: 20,
+      iron: 30,
+    }),
+    eliminated: false,
+  };
+
+  if (!globalConfig) {
+    return [defaultPlayer];
+  }
+
+  const rawPlayers: GlobalPlayerConfig[] = Array.isArray(globalConfig.players)
+    ? globalConfig.players
+    : globalConfig.players && typeof globalConfig.players === 'object'
+      ? Object.entries(globalConfig.players).map(([id, cfg]) => ({ id, ...cfg }))
+      : [];
+
+  if (rawPlayers.length === 0) {
+    return [
+      {
+        ...defaultPlayer,
+        color: globalConfig.playerColors?.player ?? globalConfig.playerColors?.player1 ?? defaultPlayer.color,
+        banner: globalConfig.playerBanners?.player ?? globalConfig.playerBanners?.player1 ?? defaultPlayer.banner,
+      },
+    ];
+  }
+
+  return rawPlayers.map((p, idx) => {
+    const id = p.id || (idx === 0 ? 'player' : `player_${idx + 1}`);
+    const isHuman = id === 'player' ? (p.isAI ?? false) : (p.isAI ?? true);
+    return {
+      id,
+      name: p.name ?? (id === 'player' ? 'Player' : `Player ${idx + 1}`),
+      isAI: isHuman,
+      color:
+        p.color ??
+        globalConfig.playerColors?.[id] ??
+        (idx === 0 ? '#3498db' : '#c73636'),
+      banner:
+        p.banner ??
+        globalConfig.playerBanners?.[id] ??
+        (idx === 0 ? 'banner7.png' : 'banner12.png'),
+      resources: createEmptyResourcePool(
+        id === 'player'
+          ? {
+              money: 300,
+              food: 100,
+              lumber: 40,
+              stone: 20,
+              iron: 30,
+            }
+          : {
+              money: 200,
+              food: 80,
+              lumber: 25,
+              stone: 15,
+              iron: 15,
+            }
+      ),
+      eliminated: false,
+    };
+  });
+}
+
 /**
  * Creates the 2x2 region starter map for playtesting:
  * 1 player-controlled region (6-squad army) + 3 neutral regions (5-7 squad armies each),
  * with victory condition set to Conquer All Regions.
  */
-export function createStarterOverviewMap(seed: number = 42): GeneratedOverviewMap {
+export function createStarterOverviewMap(
+  seed: number = 42,
+  globalConfig?: GlobalConfig
+): GeneratedOverviewMap {
   const specs: RegionGenerationSpec[] = [
     {
       id: 'region_0_0',
@@ -840,22 +922,13 @@ export function createStarterOverviewMap(seed: number = 42): GeneratedOverviewMa
     seed,
   });
 
-  generated.players = [
-    {
-      id: 'player',
-      name: 'Player',
-      isAI: false,
-      color: '#3498db',
-      resources: createEmptyResourcePool({
-        money: 300,
-        food: 100,
-        lumber: 40,
-        stone: 20,
-        iron: 30,
-      }),
-      eliminated: false,
-    },
-  ];
+  generated.players = resolveGlobalPlayersConfig(globalConfig);
+  const rawNeutral = globalConfig?.neutral ?? globalConfig?.neutralFaction;
+  generated.neutralFaction = {
+    name: rawNeutral?.name ?? DEFAULT_NEUTRAL_FACTION.name,
+    color: rawNeutral?.color ?? DEFAULT_NEUTRAL_FACTION.color,
+    banner: rawNeutral?.banner ?? DEFAULT_NEUTRAL_FACTION.banner,
+  };
 
   const armyRng = new SeedableRNG(seed + 101);
   generated.armies = generated.regions

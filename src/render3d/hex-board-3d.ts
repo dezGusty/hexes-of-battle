@@ -24,6 +24,16 @@ import {
   getSharedBannersTexture,
 } from './decorations/retreat-flag-3d';
 import {
+  OVERVIEW_LAND_TERRAINS,
+  OVERVIEW_TERRAIN_TEXTURE_CONFIG,
+  createOverviewBlendedTerrainMaterial,
+  createOverviewTerrainAtlas,
+  createOverviewTerrainGridTexture,
+  getTerrainVariationIndex,
+  updateOverviewTerrainGridCell,
+} from './overview/overview-terrain-shader';
+import type { OverviewTerrainType } from '../overview/overview-types';
+import {
   BattleLocationType,
   BoardWorldBounds,
   normalizeBattleLocationType,
@@ -65,6 +75,11 @@ export class HexBoard3D {
 
   private tileMeshes: Map<string, THREE.Mesh> = new Map();
   private tileMeshList: THREE.Mesh[] = [];
+  private continuousTerrainMesh: THREE.Mesh | null = null;
+  private overviewTerrainAtlas: ReturnType<typeof createOverviewTerrainAtlas> | null = null;
+  private overviewTerrainGridTex: THREE.DataTexture | null = null;
+  private overviewTerrainTextures: Map<string, THREE.Texture> = new Map();
+  private highlightOverlayTexture: THREE.Texture | null = null;
   private overlayMeshes: Map<string, THREE.Mesh> = new Map();
   private gridBordersGroup: THREE.Group = new THREE.Group();
   private coordsGroup: THREE.Group = new THREE.Group();
@@ -90,6 +105,7 @@ export class HexBoard3D {
   private hoverMesh: THREE.Mesh;
   private selectedRingMesh: THREE.Mesh;
   public readonly selectedHaloMesh: THREE.Mesh;
+  private selectedHaloAnchor: { x: number; z: number; elev: number } | null = null;
   private facingIndicatorGroup: THREE.Group = new THREE.Group();
   private attackPreviewGroup: THREE.Group = new THREE.Group();
   private pathPreviewGroup: THREE.Group = new THREE.Group();
@@ -183,7 +199,7 @@ export class HexBoard3D {
     this.retreatFlagsGroup.name = 'RetreatFlags';
     this.outerDecorationsGroup.name = 'OuterDecorations';
 
-    this.hoverMesh = this.createHighlightHexMesh(0xffffff, 0.4);
+    this.hoverMesh = this.createProjectedHexMesh(0, 0, 0, this.hexRadius * 0.96, 0xffffff, 0.36);
     this.hoverMesh.name = 'TileHoverMesh';
     this.hoverMesh.visible = false;
     this.group.add(this.hoverMesh);
@@ -195,14 +211,16 @@ export class HexBoard3D {
 
     const haloTexture = createSelectedHaloTexture();
     const haloDiameter = this.hexRadius * 2.0;
-    const haloGeo = new THREE.PlaneGeometry(haloDiameter, haloDiameter);
+    const haloGeo = new THREE.PlaneGeometry(haloDiameter, haloDiameter, 4, 4);
     haloGeo.rotateX(-Math.PI * 0.5);
     const haloMat = new THREE.MeshBasicMaterial({
       map: haloTexture,
       transparent: true,
-      opacity: 0.5,
+      opacity: 0.2975,
       side: THREE.DoubleSide,
       depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
     });
     this.selectedHaloMesh = new THREE.Mesh(haloGeo, haloMat);
     this.selectedHaloMesh.name = 'TileSelectedHalo';
@@ -363,6 +381,28 @@ export class HexBoard3D {
       ]);
       const mountainTex = await loadTex(`${basePath}mountain.jpg`).catch(() => undefined);
 
+      // Also load the global map's 4-variation terrain textures so the battle heightfield
+      // reuses the exact same crisp textures for grassland, forests, swamps, and hills.
+      const overviewFiles = Array.from(
+        new Set(
+          OVERVIEW_LAND_TERRAINS.flatMap(
+            (t) => OVERVIEW_TERRAIN_TEXTURE_CONFIG[t]?.variations ?? []
+          )
+        )
+      );
+      await Promise.all(
+        overviewFiles.map(async (file) => {
+          if (this.overviewTerrainTextures.has(file)) return;
+          try {
+            const tex = await loadTex(`${basePath}${file}`);
+            this.overviewTerrainTextures.set(file, tex);
+          } catch {
+            // Keep fallback color if texture fails to load
+          }
+        })
+      );
+      this.paintOverviewAtlasTextures();
+
       this.terrainSplatting.setLoadedDiffuseTextures({
         grass: grassTex,
         dirt: dirtTex,
@@ -431,6 +471,17 @@ export class HexBoard3D {
     this.blendedTileMaterials = [];
 
     // Remove existing tile meshes
+    if (this.continuousTerrainMesh) {
+      this.group.remove(this.continuousTerrainMesh);
+      this.continuousTerrainMesh.geometry.dispose();
+      (this.continuousTerrainMesh.material as THREE.Material).dispose();
+      this.continuousTerrainMesh = null;
+    }
+    this.overviewTerrainAtlas?.texture.dispose();
+    this.overviewTerrainAtlas = null;
+    this.overviewTerrainGridTex?.dispose();
+    this.overviewTerrainGridTex = null;
+
     this.tileMeshes.forEach((m) => {
       this.group.remove(m);
       if (!m.geometry.userData?.isSharedAsset) {
@@ -1654,6 +1705,7 @@ float hillTerrainNoise(vec2 p) {
           mesh.add(line);
         }
 
+        mesh.visible = false;
         mesh.updateMatrix();
         mesh.matrixAutoUpdate = false;
         this.group.add(mesh);
@@ -1661,8 +1713,15 @@ float hillTerrainNoise(vec2 p) {
 
         this.tileMeshes.set(`${x},${y}`, mesh);
         this.tileMeshList.push(mesh);
+      }
+    }
 
-        if (terrain === TerrainType.FOREST) {
+    this.buildContinuousTerrainMesh();
+
+    for (let x = 0; x < this.hexMap.width; x++) {
+      for (let y = 0; y < this.hexMap.height; y++) {
+        if (this.getTerrainAt(x, y) === TerrainType.FOREST) {
+          const pos = this.hexToWorld(x, y);
           this.populateForestTreesForHex(x, y, pos, this.getHexElevation(x, y));
         }
       }
@@ -1791,11 +1850,33 @@ float hillTerrainNoise(vec2 p) {
 
   public setGridBorderThickness(thickness: number): void {
     this.borderThickness = thickness;
+    this.buildContinuousTerrainMesh();
+
+    for (let x = 0; x < this.hexMap.width; x++) {
+      for (let y = 0; y < this.hexMap.height; y++) {
+        if (this.getTerrainAt(x, y) === TerrainType.FOREST) {
+          const pos = this.hexToWorld(x, y);
+          this.populateForestTreesForHex(x, y, pos, this.getHexElevation(x, y));
+        }
+      }
+    }
+
     this.rebuildGridBorders();
   }
 
   public setGridBorderColor(colorHex: string): void {
     this.borderColor = colorHex;
+    this.buildContinuousTerrainMesh();
+
+    for (let x = 0; x < this.hexMap.width; x++) {
+      for (let y = 0; y < this.hexMap.height; y++) {
+        if (this.getTerrainAt(x, y) === TerrainType.FOREST) {
+          const pos = this.hexToWorld(x, y);
+          this.populateForestTreesForHex(x, y, pos, this.getHexElevation(x, y));
+        }
+      }
+    }
+
     this.rebuildGridBorders();
   }
 
@@ -1828,13 +1909,10 @@ float hillTerrainNoise(vec2 p) {
 
     if (typeof document === 'undefined') return;
 
-    const sharedCoordGeo = new THREE.PlaneGeometry(0.85, 0.42);
-    sharedCoordGeo.rotateX(-Math.PI * 0.5);
-    sharedCoordGeo.userData = { isSharedAsset: true };
-
     for (let x = 0; x < this.hexMap.width; x++) {
       for (let y = 0; y < this.hexMap.height; y++) {
         const elevation = this.getHexElevation(x, y);
+        const pos = this.hexToWorld(x, y);
 
         const canvas = document.createElement('canvas');
         canvas.width = 128;
@@ -1866,11 +1944,21 @@ float hillTerrainNoise(vec2 p) {
             transparent: true,
             side: THREE.DoubleSide,
             depthTest: true,
+            depthWrite: false,
           });
 
-          const mesh = new THREE.Mesh(sharedCoordGeo, mat);
-          const pos = this.hexToWorld(x, y);
-          mesh.position.set(pos.x, pos.y + elevation + 0.005, pos.z);
+          const coordGeo = new THREE.PlaneGeometry(0.85, 0.42, 4, 4);
+          coordGeo.rotateX(-Math.PI * 0.5);
+          const cPosAttr = coordGeo.getAttribute('position') as THREE.BufferAttribute;
+          for (let i = 0; i < cPosAttr.count; i++) {
+            const lx = cPosAttr.getX(i);
+            const lz = cPosAttr.getZ(i);
+            cPosAttr.setY(i, this.sampleElevationAtWorld(pos.x + lx, pos.z + lz) - elevation);
+          }
+          cPosAttr.needsUpdate = true;
+
+          const mesh = new THREE.Mesh(coordGeo, mat);
+          mesh.position.set(pos.x, pos.y + elevation + 0.015, pos.z);
           mesh.updateMatrix();
           mesh.matrixAutoUpdate = false;
           this.coordsGroup.add(mesh);
@@ -1888,71 +1976,213 @@ float hillTerrainNoise(vec2 p) {
       child.geometry?.dispose();
     }
 
-    const thickness = this.borderThickness;
-    const thicknessWorld = thickness > 0.3 ? (thickness / 60.0) * this.hexRadius : thickness;
-    const outerRadius = this.hexRadius * 0.995;
-    const innerRadius = Math.max(0.05, outerRadius - thicknessWorld);
-
-    const ringGeo = new THREE.RingGeometry(innerRadius, outerRadius, 6, 1, Math.PI / 6);
-    ringGeo.rotateX(-Math.PI * 0.5);
-
-    const borderMat = new THREE.MeshBasicMaterial({
-      color: new THREE.Color(this.borderColor),
-      side: THREE.DoubleSide,
-      depthTest: true,
-    });
+    const linePositions: number[] = [];
+    const r = this.hexRadius * 0.992;
+    const subSegs = 3;
 
     for (let x = 0; x < this.hexMap.width; x++) {
       for (let y = 0; y < this.hexMap.height; y++) {
-        const isHill = this.isHill(x, y);
-        const elevation = this.getHexElevation(x, y);
         const pos = this.hexToWorld(x, y);
-
-        if (isHill) {
-          // On hill mesa, border outlines the smaller playable mesa hexagon
-          const rTop = this.getHillMesaRadius(x, y);
-          const hillOuter = rTop * 0.995;
-          const hillInner = Math.max(0.05, hillOuter - thicknessWorld);
-          const hillRingGeo = new THREE.RingGeometry(hillInner, hillOuter, 6, 1, Math.PI / 6);
-          hillRingGeo.rotateX(-Math.PI * 0.5);
-
-          const hillBorderMesh = new THREE.Mesh(hillRingGeo, borderMat);
-          hillBorderMesh.position.set(pos.x, pos.y + elevation + 0.003, pos.z);
-          hillBorderMesh.updateMatrix();
-          hillBorderMesh.matrixAutoUpdate = false;
-          this.gridBordersGroup.add(hillBorderMesh);
-        } else {
-          const borderMesh = new THREE.Mesh(ringGeo, borderMat);
-          const borderElev = this.isSwamp(x, y) ? 0 : elevation;
-          borderMesh.position.set(pos.x, pos.y + borderElev + 0.003, pos.z);
-          borderMesh.updateMatrix();
-          borderMesh.matrixAutoUpdate = false;
-          this.gridBordersGroup.add(borderMesh);
+        for (let e = 0; e < 6; e++) {
+          const a0 = (e * Math.PI) / 3 + Math.PI / 6;
+          const a1 = (((e + 1) % 6) * Math.PI) / 3 + Math.PI / 6;
+          const x0 = pos.x + Math.cos(a0) * r;
+          const z0 = pos.z + Math.sin(a0) * r;
+          const x1 = pos.x + Math.cos(a1) * r;
+          const z1 = pos.z + Math.sin(a1) * r;
+          for (let s = 0; s < subSegs; s++) {
+            const t0 = s / subSegs;
+            const t1 = (s + 1) / subSegs;
+            const sx0 = x0 + (x1 - x0) * t0;
+            const sz0 = z0 + (z1 - z0) * t0;
+            const sx1 = x0 + (x1 - x0) * t1;
+            const sz1 = z0 + (z1 - z0) * t1;
+            linePositions.push(
+              sx0, this.sampleElevationAtWorld(sx0, sz0) + 0.008, sz0,
+              sx1, this.sampleElevationAtWorld(sx1, sz1) + 0.008, sz1
+            );
+          }
         }
       }
     }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(linePositions, 3));
+    const mat = new THREE.LineBasicMaterial({
+      color: new THREE.Color(this.borderColor),
+      transparent: true,
+      opacity: 0.45,
+      linewidth: this.borderThickness,
+    });
+    const lines = new THREE.LineSegments(geo, mat);
+    lines.name = 'ProjectedHexGridLines';
+    this.gridBordersGroup.add(lines);
     this.gridBordersGroup.visible = this.showGrid;
   }
 
-  private createHighlightHexMesh(colorHex: number, opacity: number): THREE.Mesh {
-    const geo = new THREE.CylinderGeometry(this.hexRadius * 0.98, this.hexRadius * 0.98, 0.04, 6);
+  public getHighlightOverlayTexture(): THREE.Texture | null {
+    if (this.highlightOverlayTexture) return this.highlightOverlayTexture;
+    if (typeof document === 'undefined') return null;
+
+    const size = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = typeof canvas.getContext === 'function' ? canvas.getContext('2d') : null;
+    if (!ctx) return null;
+
+    ctx.clearRect(0, 0, size, size);
+    const cx = size * 0.5;
+    const cy = size * 0.5;
+    const r = size * 0.45;
+    const cornerRadius = size * 0.06;
+
+    // Pointy-top hex corners matching Three.js hex orientation (angles 30, 90, 150, 210, 270, 330 deg)
+    const pts: Array<{ x: number; y: number }> = [];
+    for (let k = 0; k < 6; k++) {
+      const ang = (k * Math.PI) / 3 + Math.PI / 6;
+      pts.push({
+        x: cx + Math.cos(ang) * r,
+        y: cy + Math.sin(ang) * r,
+      });
+    }
+
+    const traceRoundedHex = () => {
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const prev = pts[(i + 5) % 6];
+        const curr = pts[i];
+        const next = pts[(i + 1) % 6];
+        const d1x = prev.x - curr.x;
+        const d1y = prev.y - curr.y;
+        const len1 = Math.hypot(d1x, d1y) || 1;
+        const d2x = next.x - curr.x;
+        const d2y = next.y - curr.y;
+        const len2 = Math.hypot(d2x, d2y) || 1;
+        const sx = curr.x + (d1x / len1) * cornerRadius;
+        const sy = curr.y + (d1y / len1) * cornerRadius;
+        const ex = curr.x + (d2x / len2) * cornerRadius;
+        const ey = curr.y + (d2y / len2) * cornerRadius;
+        if (i === 0) ctx.moveTo(sx, sy);
+        else ctx.lineTo(sx, sy);
+        ctx.quadraticCurveTo(curr.x, curr.y, ex, ey);
+      }
+      ctx.closePath();
+    };
+
+    traceRoundedHex();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
+    ctx.fill();
+
+    traceRoundedHex();
+    ctx.lineWidth = 10;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 1.0)';
+    ctx.stroke();
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.needsUpdate = true;
+    this.highlightOverlayTexture = tex;
+    return tex;
+  }
+
+  private createProjectedHexMesh(
+    worldCenterX: number,
+    worldCenterZ: number,
+    centerElev: number,
+    radius: number,
+    colorHex: number,
+    opacity: number
+  ): THREE.Mesh {
+    const geo = new THREE.PlaneGeometry(radius * 2, radius * 2, 4, 4);
+    geo.rotateX(-Math.PI * 0.5);
+    const posAttr = geo.getAttribute('position') as THREE.BufferAttribute;
+    for (let i = 0; i < posAttr.count; i++) {
+      const lx = posAttr.getX(i);
+      const lz = posAttr.getZ(i);
+      posAttr.setY(i, this.sampleElevationAtWorld(worldCenterX + lx, worldCenterZ + lz) - centerElev);
+    }
+    posAttr.needsUpdate = true;
+    geo.computeVertexNormals();
+
     const mat = new THREE.MeshBasicMaterial({
       color: colorHex,
+      map: this.getHighlightOverlayTexture(),
       transparent: true,
-      opacity,
+      opacity: Math.min(1, opacity * 1.35 * 0.7 * 0.85),
       side: THREE.DoubleSide,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
     });
     return new THREE.Mesh(geo, mat);
   }
 
+  private projectRingGeometryToHex(mesh: THREE.Mesh, cx: number, cz: number, centerElev: number): void {
+    const posAttr = mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const sx = mesh.scale.x;
+    const sz = mesh.scale.z;
+    const theta = mesh.rotation.y;
+    const cos = Math.cos(theta);
+    const sin = Math.sin(theta);
+
+    for (let i = 0; i < posAttr.count; i++) {
+      const lx = posAttr.getX(i) * sx;
+      const lz = posAttr.getZ(i) * sz;
+      const wx = cx + lx * cos + lz * sin;
+      const wz = cz - lx * sin + lz * cos;
+      const wy = this.sampleElevationAtWorld(wx, wz);
+      posAttr.setY(i, wy - centerElev);
+    }
+    posAttr.needsUpdate = true;
+    mesh.geometry.computeVertexNormals();
+  }
+
   private createRingMesh(colorHex: number): THREE.Mesh {
-    const geo = new THREE.RingGeometry(this.hexRadius * 0.75, this.hexRadius * 0.95, 6, 1, Math.PI / 6);
-    geo.rotateX(-Math.PI * 0.5);
+    const innerR = this.hexRadius * 0.75;
+    const outerR = this.hexRadius * 0.95;
+    const segsPerEdge = 4;
+    const positions: number[] = [];
+    const indices: number[] = [];
+
+    for (let e = 0; e < 6; e++) {
+      const a0 = (e * Math.PI) / 3 + Math.PI / 6;
+      const a1 = (((e + 1) % 6) * Math.PI) / 3 + Math.PI / 6;
+      const ix0 = Math.cos(a0) * innerR;
+      const iz0 = Math.sin(a0) * innerR;
+      const ix1 = Math.cos(a1) * innerR;
+      const iz1 = Math.sin(a1) * innerR;
+      const ox0 = Math.cos(a0) * outerR;
+      const oz0 = Math.sin(a0) * outerR;
+      const ox1 = Math.cos(a1) * outerR;
+      const oz1 = Math.sin(a1) * outerR;
+
+      for (let s = 0; s < segsPerEdge; s++) {
+        const t0 = s / segsPerEdge;
+        const t1 = (s + 1) / segsPerEdge;
+        const base = positions.length / 3;
+        positions.push(
+          ix0 + (ix1 - ix0) * t0, 0, iz0 + (iz1 - iz0) * t0,
+          ox0 + (ox1 - ox0) * t0, 0, oz0 + (oz1 - oz0) * t0,
+          ix0 + (ix1 - ix0) * t1, 0, iz0 + (iz1 - iz0) * t1,
+          ox0 + (ox1 - ox0) * t1, 0, oz0 + (oz1 - oz0) * t1
+        );
+        indices.push(base, base + 1, base + 3);
+        indices.push(base, base + 3, base + 2);
+      }
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setIndex(indices);
     const mat = new THREE.MeshBasicMaterial({
       color: colorHex,
       transparent: true,
       opacity: 0.85,
       side: THREE.DoubleSide,
+      depthWrite: false,
     });
     return new THREE.Mesh(geo, mat);
   }
@@ -1964,13 +2194,9 @@ float hillTerrainNoise(vec2 p) {
     }
     const worldPos = this.hexToWorld(coords.x, coords.y);
     const elev = this.getHexElevation(coords.x, coords.y);
-    const isHill = this.isHill(coords.x, coords.y);
-    const isSwamp = this.isSwamp(coords.x, coords.y);
-    const scale = isHill
-      ? this.getHillMesaRadius(coords.x, coords.y) / (this.hexRadius * 0.98)
-      : (isSwamp ? this.getSwampInsetRadius(coords.x, coords.y) / (this.hexRadius * 0.98) : 1.0);
-    this.hoverMesh.scale.set(scale, 1, scale);
-    this.hoverMesh.position.set(worldPos.x, elev + 0.03, worldPos.z);
+    this.hoverMesh.scale.set(1, 1, 1);
+    this.projectRingGeometryToHex(this.hoverMesh, worldPos.x, worldPos.z, elev);
+    this.hoverMesh.position.set(worldPos.x, elev + 0.028, worldPos.z);
     this.hoverMesh.visible = true;
   }
 
@@ -1978,6 +2204,7 @@ float hillTerrainNoise(vec2 p) {
     if (!coords) {
       this.selectedRingMesh.visible = false;
       this.selectedHaloMesh.visible = false;
+      this.selectedHaloAnchor = null;
       this.facingIndicatorGroup.visible = false;
       return;
     }
@@ -1991,10 +2218,13 @@ float hillTerrainNoise(vec2 p) {
       : (isSwamp ? this.getSwampInsetRadius(coords.x, coords.y) / (this.hexRadius * 0.95) : 1.0);
 
     this.selectedRingMesh.scale.set(scale, 1, scale);
+    this.projectRingGeometryToHex(this.selectedRingMesh, worldPos.x, worldPos.z, elev);
     this.selectedRingMesh.position.set(worldPos.x, elev + 0.02, worldPos.z);
     this.selectedRingMesh.visible = false;
 
+    this.selectedHaloAnchor = { x: worldPos.x, z: worldPos.z, elev };
     this.selectedHaloMesh.scale.set(scale, 1, scale);
+    this.projectRingGeometryToHex(this.selectedHaloMesh, worldPos.x, worldPos.z, elev);
     this.selectedHaloMesh.position.set(worldPos.x, elev + 0.08, worldPos.z);
     this.selectedHaloMesh.visible = true;
 
@@ -2019,6 +2249,14 @@ float hillTerrainNoise(vec2 p) {
     if (this.selectedHaloMesh && this.selectedHaloMesh.visible) {
       const deltaAngle = (2 * Math.PI * deltaMS) / 30000;
       this.selectedHaloMesh.rotation.y = (this.selectedHaloMesh.rotation.y + deltaAngle) % (2 * Math.PI);
+      if (this.selectedHaloAnchor) {
+        this.projectRingGeometryToHex(
+          this.selectedHaloMesh,
+          this.selectedHaloAnchor.x,
+          this.selectedHaloAnchor.z,
+          this.selectedHaloAnchor.elev
+        );
+      }
     }
 
     if (this.animatedFlagCloths.length > 0) {
@@ -2413,43 +2651,25 @@ float hillTerrainNoise(vec2 p) {
     });
     this.overlayMeshes.clear();
 
-    // Walkable (Cyan / Soft Blue)
+    // Walkable (Cyan / Soft Blue) projected onto continuous elevation
     walkableCells.forEach((c) => {
       const key = `${c.x},${c.y}`;
-      const mesh = this.createHighlightHexMesh(0x33aacc, 0.28);
-      mesh.name = `Reach_Walkable[${c.x},${c.y}]`;
       const pos = this.hexToWorld(c.x, c.y);
       const elev = this.getHexElevation(c.x, c.y);
-      const isHill = this.isHill(c.x, c.y);
-      const isSwamp = this.isSwamp(c.x, c.y);
-      if (isHill) {
-        const scale = this.getHillMesaRadius(c.x, c.y) / (this.hexRadius * 0.98);
-        mesh.scale.set(scale, 1, scale);
-      } else if (isSwamp) {
-        const scale = this.getSwampInsetRadius(c.x, c.y) / (this.hexRadius * 0.98);
-        mesh.scale.set(scale, 1, scale);
-      }
+      const mesh = this.createProjectedHexMesh(pos.x, pos.z, elev, this.hexRadius * 0.96, 0x33aacc, 0.28);
+      mesh.name = `Reach_Walkable[${c.x},${c.y}]`;
       mesh.position.set(pos.x, elev + 0.015, pos.z);
       this.group.add(mesh);
       this.overlayMeshes.set(key, mesh);
     });
 
-    // Attackable (Orange / Red)
+    // Attackable (Orange / Red) projected onto continuous elevation
     attackableCells.forEach((c) => {
       const key = `atk_${c.x},${c.y}`;
-      const mesh = this.createHighlightHexMesh(0xee4433, 0.38);
-      mesh.name = `Reach_Attackable[${c.x},${c.y}]`;
       const pos = this.hexToWorld(c.x, c.y);
       const elev = this.getHexElevation(c.x, c.y);
-      const isHill = this.isHill(c.x, c.y);
-      const isSwamp = this.isSwamp(c.x, c.y);
-      if (isHill) {
-        const scale = this.getHillMesaRadius(c.x, c.y) / (this.hexRadius * 0.98);
-        mesh.scale.set(scale, 1, scale);
-      } else if (isSwamp) {
-        const scale = this.getSwampInsetRadius(c.x, c.y) / (this.hexRadius * 0.98);
-        mesh.scale.set(scale, 1, scale);
-      }
+      const mesh = this.createProjectedHexMesh(pos.x, pos.z, elev, this.hexRadius * 0.96, 0xee4433, 0.38);
+      mesh.name = `Reach_Attackable[${c.x},${c.y}]`;
       mesh.position.set(pos.x, elev + 0.02, pos.z);
       this.group.add(mesh);
       this.overlayMeshes.set(key, mesh);
@@ -2667,23 +2887,318 @@ float hillTerrainNoise(vec2 p) {
     return HexDirection.EAST;
   }
 
-  public getHexElevation(x: number, y: number): number {
-    let terrain: TerrainType = TerrainType.PLAIN;
-    if (this.getTerrain) {
-      terrain = this.getTerrain(x, y);
-    } else if (typeof (this.hexMap as any).getTerrain === 'function') {
-      terrain = (this.hexMap as any).getTerrain(x, y);
+  public getContinuousTerrainMesh(): THREE.Mesh | null {
+    return this.continuousTerrainMesh;
+  }
+
+  private sampleTerrainFbm(x: number, z: number): number {
+    const hash = (ix: number, iz: number) => {
+      const n = Math.sin(ix * 127.1 + iz * 311.7) * 43758.5453123;
+      return n - Math.floor(n);
+    };
+    const valueNoise = (px: number, pz: number) => {
+      const ix = Math.floor(px);
+      const iz = Math.floor(pz);
+      const fx = px - ix;
+      const fz = pz - iz;
+      const ux = fx * fx * (3 - 2 * fx);
+      const uz = fz * fz * (3 - 2 * fz);
+      const a = hash(ix, iz);
+      const b = hash(ix + 1, iz);
+      const c = hash(ix, iz + 1);
+      const d = hash(ix + 1, iz + 1);
+      return (a + (b - a) * ux + (c - a) * uz + (a - b - c + d) * ux * uz) * 2 - 1;
+    };
+    return valueNoise(x, z) * 0.65 + valueNoise(x * 2.13 + 7.3, z * 2.13 - 4.1) * 0.35;
+  }
+
+  private getBattleTerrainBaseHeight(terrain: TerrainType): number {
+    switch (terrain) {
+      case TerrainType.HILL:
+        return 0.70;
+      case TerrainType.FOREST:
+        return 0.06;
+      case TerrainType.SWAMP:
+        return -0.18;
+      case TerrainType.WATER:
+        return -0.38;
+      case TerrainType.PLAIN:
+      default:
+        return 0.0;
     }
-    if (terrain === TerrainType.WATER) return -0.08;
-    if (terrain === TerrainType.HILL) {
-      const clusterId = this.hillClusters.get(`${x},${y}`);
-      if (clusterId !== undefined) {
-        return this.clusterElevations.get(clusterId) ?? 0.21;
+  }
+
+  private getBattleTerrainNoiseAmp(terrain: TerrainType): number {
+    switch (terrain) {
+      case TerrainType.HILL:
+        return 0.14;
+      case TerrainType.FOREST:
+        return 0.065;
+      case TerrainType.SWAMP:
+        return 0.038;
+      case TerrainType.WATER:
+        return 0.022;
+      case TerrainType.PLAIN:
+      default:
+        return 0.06;
+    }
+  }
+
+  private getBattleTerrainVertexColor(terrain: TerrainType): [number, number, number] {
+    switch (terrain) {
+      case TerrainType.HILL:
+        return [0.48, 0.44, 0.32];
+      case TerrainType.FOREST:
+        return [0.24, 0.38, 0.18];
+      case TerrainType.SWAMP:
+        return [0.25, 0.32, 0.22];
+      case TerrainType.WATER:
+        return [0.14, 0.31, 0.44];
+      case TerrainType.PLAIN:
+      default:
+        return [0.35, 0.5, 0.24];
+    }
+  }
+
+  private findNearestHexCoords(wx: number, wz: number): { x: number; y: number } {
+    const colSpacing = Math.sqrt(3) * this.hexRadius;
+    const rowSpacing = 1.5 * this.hexRadius;
+    const origin = this.hexToWorld(0, 0);
+    const approxY = Math.round((wz - origin.z) / rowSpacing);
+    const cy = Math.max(0, Math.min(this.hexMap.height - 1, approxY));
+    const xShift = Math.abs(cy) % 2 === 1 ? colSpacing * 0.5 : 0;
+    const approxX = Math.round((wx - origin.x - xShift) / colSpacing);
+    const cx = Math.max(0, Math.min(this.hexMap.width - 1, approxX));
+    return { x: cx, y: cy };
+  }
+
+  public sampleElevationAtWorld(wx: number, wz: number): number {
+    const nearest = this.findNearestHexCoords(wx, wz);
+    const cx = nearest.x;
+    const cy = nearest.y;
+
+    const oddOffsets: ReadonlyArray<[number, number]> = [
+      [0, 0], [1, 0], [1, -1], [0, -1], [-1, 0], [0, 1], [1, 1],
+    ];
+    const evenOffsets: ReadonlyArray<[number, number]> = [
+      [0, 0], [1, 0], [0, -1], [-1, -1], [-1, 0], [-1, 1], [0, 1],
+    ];
+    const offsets = Math.abs(cy) % 2 === 1 ? oddOffsets : evenOffsets;
+
+    const sigma = this.hexRadius * 0.78;
+    const invTwoSigmaSq = 1 / (2 * sigma * sigma);
+    let sumH = 0;
+    let sumNoise = 0;
+    let sumW = 0;
+
+    for (const [dx, dy] of offsets) {
+      const nx = cx + dx;
+      const ny = cy + dy;
+      if (nx < 0 || nx >= this.hexMap.width || ny < 0 || ny >= this.hexMap.height) continue;
+      const hp = this.hexToWorld(nx, ny);
+      const dSq = (wx - hp.x) ** 2 + (wz - hp.z) ** 2;
+      const w = Math.exp(-dSq * invTwoSigmaSq);
+      const t = this.getTerrainAt(nx, ny);
+      sumH += w * this.getBattleTerrainBaseHeight(t);
+      sumNoise += w * this.getBattleTerrainNoiseAmp(t);
+      sumW += w;
+    }
+
+    const baseTerrain = this.getTerrainAt(cx, cy);
+    const macroH = sumW > 0 ? sumH / sumW : this.getBattleTerrainBaseHeight(baseTerrain);
+    const noiseAmp = sumW > 0 ? sumNoise / sumW : this.getBattleTerrainNoiseAmp(baseTerrain);
+    const noise = this.sampleTerrainFbm(wx * 1.35, wz * 1.35) * noiseAmp;
+    return macroH + noise;
+  }
+
+  private buildContinuousTerrainMesh(): void {
+    if (this.continuousTerrainMesh) {
+      this.group.remove(this.continuousTerrainMesh);
+      this.continuousTerrainMesh.geometry.dispose();
+      (this.continuousTerrainMesh.material as THREE.Material).dispose();
+      this.continuousTerrainMesh = null;
+    }
+    this.overviewTerrainAtlas?.texture.dispose();
+    this.overviewTerrainAtlas = null;
+    this.overviewTerrainGridTex?.dispose();
+    this.overviewTerrainGridTex = null;
+    this.overviewTerrainTextures.forEach((t) => t.dispose());
+    this.overviewTerrainTextures.clear();
+
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (let x = 0; x < this.hexMap.width; x++) {
+      for (let y = 0; y < this.hexMap.height; y++) {
+        const p = this.hexToWorld(x, y);
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.z < minZ) minZ = p.z;
+        if (p.z > maxZ) maxZ = p.z;
       }
-      return 0.21;
     }
-    if (terrain === TerrainType.SWAMP) return this.getSwampDepression(x, y);
-    return 0;
+    const pad = this.hexRadius * 1.1;
+    minX -= pad;
+    maxX += pad;
+    minZ -= pad;
+    maxZ += pad;
+
+    const step = this.hexRadius / 3.5;
+    const cols = Math.max(16, Math.ceil((maxX - minX) / step));
+    const rows = Math.max(16, Math.ceil((maxZ - minZ) / step));
+    const vertCount = (cols + 1) * (rows + 1);
+
+    const positions = new Float32Array(vertCount * 3);
+    const colors = new Float32Array(vertCount * 3);
+    const uvs = new Float32Array(vertCount * 2);
+
+    const sigma = this.hexRadius * 0.78;
+    const invTwoSigmaSq = 1 / (2 * sigma * sigma);
+    const oddOffsets: ReadonlyArray<[number, number]> = [
+      [0, 0], [1, 0], [1, -1], [0, -1], [-1, 0], [0, 1], [1, 1],
+    ];
+    const evenOffsets: ReadonlyArray<[number, number]> = [
+      [0, 0], [1, 0], [0, -1], [-1, -1], [-1, 0], [-1, 1], [0, 1],
+    ];
+
+    for (let r = 0; r <= rows; r++) {
+      const tz = r / rows;
+      const wz = minZ + tz * (maxZ - minZ);
+      for (let c = 0; c <= cols; c++) {
+        const tx = c / cols;
+        const wx = minX + tx * (maxX - minX);
+        const idx = r * (cols + 1) + c;
+        const wy = this.sampleElevationAtWorld(wx, wz);
+
+        positions[idx * 3] = wx;
+        positions[idx * 3 + 1] = wy;
+        positions[idx * 3 + 2] = wz;
+        uvs[idx * 2] = wx * 0.35;
+        uvs[idx * 2 + 1] = wz * 0.35;
+
+        const nearest = this.findNearestHexCoords(wx, wz);
+        const cx = nearest.x;
+        const cy = nearest.y;
+        const offsets = Math.abs(cy) % 2 === 1 ? oddOffsets : evenOffsets;
+        let cr = 0;
+        let cg = 0;
+        let cb = 0;
+        let cw = 0;
+        for (const [dx, dy] of offsets) {
+          const nx = cx + dx;
+          const ny = cy + dy;
+          if (nx < 0 || nx >= this.hexMap.width || ny < 0 || ny >= this.hexMap.height) continue;
+          const hp = this.hexToWorld(nx, ny);
+          const dSq = (wx - hp.x) ** 2 + (wz - hp.z) ** 2;
+          const w = Math.exp(-dSq * invTwoSigmaSq);
+          const [tr, tg, tb] = this.getBattleTerrainVertexColor(this.getTerrainAt(nx, ny));
+          cr += w * tr;
+          cg += w * tg;
+          cb += w * tb;
+          cw += w;
+        }
+        if (cw > 0) {
+          colors[idx * 3] = cr / cw;
+          colors[idx * 3 + 1] = cg / cw;
+          colors[idx * 3 + 2] = cb / cw;
+        } else {
+          const [tr, tg, tb] = this.getBattleTerrainVertexColor(this.getTerrainAt(cx, cy));
+          colors[idx * 3] = tr;
+          colors[idx * 3 + 1] = tg;
+          colors[idx * 3 + 2] = tb;
+        }
+      }
+    }
+
+    const indices: number[] = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const i0 = r * (cols + 1) + c;
+        const i1 = i0 + 1;
+        const i2 = i0 + (cols + 1);
+        const i3 = i2 + 1;
+        indices.push(i0, i2, i1);
+        indices.push(i1, i2, i3);
+      }
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+
+    const atlas = createOverviewTerrainAtlas();
+    const gridTex = createOverviewTerrainGridTexture(this.hexMap.width, this.hexMap.height);
+    this.overviewTerrainAtlas = atlas;
+    this.overviewTerrainGridTex = gridTex;
+    const toOverviewTerrain = (t: TerrainType): OverviewTerrainType => {
+      switch (t) {
+        case TerrainType.FOREST:
+          return 'forest';
+        case TerrainType.SWAMP:
+          return 'swamp';
+        case TerrainType.HILL:
+          return 'hill';
+        case TerrainType.WATER:
+          return 'water';
+        case TerrainType.PLAIN:
+        default:
+          return 'grassland';
+      }
+    };
+    for (let x = 0; x < this.hexMap.width; x++) {
+      for (let y = 0; y < this.hexMap.height; y++) {
+        updateOverviewTerrainGridCell(
+          gridTex,
+          x,
+          y,
+          toOverviewTerrain(this.getTerrainAt(x, y)),
+          getTerrainVariationIndex(x, y),
+          false
+        );
+      }
+    }
+    gridTex.needsUpdate = true;
+
+    const mat = createOverviewBlendedTerrainMaterial(
+      atlas.texture,
+      gridTex,
+      this.hexMap.width,
+      this.hexMap.height,
+      this.hexRadius,
+      undefined,
+      false
+    );
+
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.name = 'BattleTerrainHeightfield';
+    mesh.receiveShadow = true;
+    mesh.castShadow = true;
+    mesh.userData = { isBattleTerrainHeightfield: true };
+    this.continuousTerrainMesh = mesh;
+    this.group.add(mesh);
+    this.paintOverviewAtlasTextures();
+  }
+
+  private paintOverviewAtlasTextures(): void {
+    if (!this.overviewTerrainAtlas) return;
+    OVERVIEW_LAND_TERRAINS.forEach((terrain, row) => {
+      const variations = OVERVIEW_TERRAIN_TEXTURE_CONFIG[terrain]?.variations ?? [];
+      variations.forEach((file, col) => {
+        const tex = this.overviewTerrainTextures.get(file);
+        if (tex && tex.image) {
+          this.overviewTerrainAtlas?.paintImageToCell(row, col, tex.image as CanvasImageSource);
+        }
+      });
+    });
+  }
+
+  public getHexElevation(x: number, y: number): number {
+    const pos = this.hexToWorld(x, y);
+    return this.sampleElevationAtWorld(pos.x, pos.z);
   }
 
   /**
@@ -2743,6 +3258,7 @@ float hillTerrainNoise(vec2 p) {
       // Melee Target Ring
       const targetRing = this.createRingMesh(colorHex);
       targetRing.name = `Attack_Target_Ring[${targetCoords.x},${targetCoords.y}]`;
+      this.projectRingGeometryToHex(targetRing, targetWorld.x, targetWorld.z, targetElev);
       targetRing.position.set(targetWorld.x, targetWorld.y + targetElev + 0.025, targetWorld.z);
       this.attackPreviewGroup.add(targetRing);
 
@@ -2751,7 +3267,14 @@ float hillTerrainNoise(vec2 p) {
       const originElev = this.getHexElevation(originCoords.x, originCoords.y);
 
       // Origin hex highlight
-      const originHexMesh = this.createHighlightHexMesh(colorHex, 0.45);
+      const originHexMesh = this.createProjectedHexMesh(
+        originWorld.x,
+        originWorld.z,
+        originElev,
+        this.hexRadius * 0.96,
+        colorHex,
+        0.45
+      );
       originHexMesh.name = `Attack_Origin_Hex[${originCoords.x},${originCoords.y}]`;
       originHexMesh.position.set(originWorld.x, originWorld.y + originElev + 0.02, originWorld.z);
       this.attackPreviewGroup.add(originHexMesh);
@@ -2892,6 +3415,11 @@ float hillTerrainNoise(vec2 p) {
   }
 
   public dispose(): void {
+    if (this.highlightOverlayTexture) {
+      this.highlightOverlayTexture.dispose();
+      this.highlightOverlayTexture = null;
+    }
+
     if (this.hillMaskTexture) {
       this.hillMaskTexture.dispose();
       this.hillMaskTexture = null;
@@ -2900,6 +3428,17 @@ float hillTerrainNoise(vec2 p) {
     this.blendedTileMaterials.forEach((m) => m.dispose());
     this.blendedTileMaterials = [];
     this.terrainSplatting.dispose();
+
+    if (this.continuousTerrainMesh) {
+      this.group.remove(this.continuousTerrainMesh);
+      this.continuousTerrainMesh.geometry.dispose();
+      (this.continuousTerrainMesh.material as THREE.Material).dispose();
+      this.continuousTerrainMesh = null;
+    }
+    this.overviewTerrainAtlas?.texture.dispose();
+    this.overviewTerrainAtlas = null;
+    this.overviewTerrainGridTex?.dispose();
+    this.overviewTerrainGridTex = null;
 
     this.tileMeshes.forEach((m) => {
       this.group.remove(m);

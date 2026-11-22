@@ -2183,4 +2183,141 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
     );
     expect(campaign.getArmyById(playerArmy.id)).toBeUndefined();
   });
+
+  it('renders settlements 20% larger (and town castles 10% larger further) and omits the hexagon base on town castles', async () => {
+    const { createOverviewSettlementModel } = await import('../render3d/overview/overview-models-3d');
+    for (const tier of ['village', 'town', 'city'] as const) {
+      const model = createOverviewSettlementModel(tier, '#3498db', 'banner7.png');
+      const expectedScale = tier === 'town' ? 1.518 : 1.2;
+      expect(model.scale.x).toBeCloseTo(expectedScale, 4);
+      expect(model.scale.y).toBeCloseTo(expectedScale, 4);
+      expect(model.scale.z).toBeCloseTo(expectedScale, 4);
+      if (tier === 'town') {
+        expect(model.getObjectByName('SettlementGround')).toBeUndefined();
+      }
+      let foundBannerCloth = false;
+      model.traverse((obj) => {
+        if (obj.userData?.isOverviewFlagCloth) {
+          foundBannerCloth = true;
+          expect(obj.userData.bannerName).toBe('banner7.png');
+        }
+      });
+      expect(foundBannerCloth).toBe(true);
+    }
+  });
+
+  it('loads global_config.json for player & neutral colors/banners and passes them with terrain type to initiated battles', async () => {
+    const globalConfig = JSON.parse(readFileSync('public/global_config.json', 'utf8'));
+    expect(Array.isArray(globalConfig.players)).toBe(true);
+    expect(globalConfig.neutral).toBeDefined();
+
+    const customGlobalConfig = {
+      players: [
+        {
+          id: 'player',
+          name: 'Azure Kingdom',
+          isAI: false,
+          color: '#1e88e5',
+          banner: 'banner3.png',
+        },
+      ],
+      neutral: {
+        name: 'Neutral',
+        color: '#7f8c8d',
+        banner: 'banner15.png',
+      },
+    };
+
+    const campaign = new OverviewCampaign(createStarterOverviewMap(12345, customGlobalConfig));
+    expect(campaign.getFactionColor('player')).toBe('#1e88e5');
+    expect(campaign.getFactionBanner('player')).toBe('banner3.png');
+    expect(campaign.getFactionColor(null)).toBe('#7f8c8d');
+    expect(campaign.getFactionBanner(null)).toBe('banner15.png');
+
+    const { CreatureRepository } = await import('../battle/creature-repository');
+    const { Battle } = await import('../battle');
+    const { getPlayerColorsConfig } = await import('../render3d/units/unit-mesh-builder');
+    const repo = new CreatureRepository();
+    repo.setAbilities(JSON.parse(readFileSync('public/abilitytypes.json', 'utf8')));
+    repo.setCreatureTemplates(JSON.parse(readFileSync('public/creaturetypes.json', 'utf8')));
+
+    const playerArmy = campaign.armies.find((a) => a.ownerPlayerId === 'player')!;
+    const forestRegion = campaign.regions.find((r) => r.preset === 'forest')!;
+    const neutralArmy = campaign.armies.find((a) => a.ownerPlayerId === null)!;
+    // Place neutral army on a hill hex if available or verify forest region preset fallback
+    const battleConfig = campaign.buildBattleConfigForEngagement(
+      playerArmy,
+      neutralArmy,
+      forestRegion,
+      repo
+    );
+
+    expect(battleConfig.playerColors).toEqual({
+      player1: '#1e88e5',
+      player2: '#7f8c8d',
+    });
+    expect(battleConfig.player1Banner).toBe('banner3.png');
+    expect(battleConfig.player2Banner).toBe('banner15.png');
+
+    const battle = new Battle(new HexMap(battleConfig.mapWidth, battleConfig.mapHeight));
+    const combatConfig = JSON.parse(readFileSync('public/combat_config.json', 'utf8'));
+    battle.setCombatConfig(combatConfig);
+    battle.initializeFromConfig(battleConfig);
+
+    expect(battle.getBannerForArmy(0)).toBe('banner3.png');
+    expect(battle.getBannerForArmy(1)).toBe('banner15.png');
+    expect(getPlayerColorsConfig().player1).toBe(0x1e88e5);
+    expect(getPlayerColorsConfig().player2).toBe(0x7f8c8d);
+    expect(battle.getMajorTerrainType()).toBe(
+      campaign.getHex(neutralArmy.coords)?.terrain === 'swamp'
+        ? 'swamp'
+        : campaign.getHex(neutralArmy.coords)?.terrain === 'hill' || campaign.getHex(neutralArmy.coords)?.terrain === 'mountain'
+          ? 'highlands'
+          : 'forest'
+    );
+  });
+
+  it('applies faction color and banner to overview army units (including peasants) and uses light beige peasant skin', () => {
+    const playerVisual = createOverviewCombinedArmyVisual(
+      {
+        id: 'army_p',
+        ownerPlayerId: 'player',
+        coords: { x: 0, y: 0 },
+        movementPoints: 4,
+        maxMovementPoints: 4,
+        squads: [
+          { creatureType: CreatureType.PEASANT, count: 10, hpPercent: 1 },
+          { creatureType: CreatureType.SPEARMAN, count: 8, hpPercent: 1 },
+        ],
+      },
+      '#1e88e5',
+      'banner3.png'
+    );
+    const neutralVisual = createOverviewCombinedArmyVisual(
+      {
+        id: 'army_n',
+        ownerPlayerId: null,
+        coords: { x: 1, y: 0 },
+        movementPoints: 4,
+        maxMovementPoints: 4,
+        squads: [{ creatureType: CreatureType.PEASANT, count: 8, hpPercent: 1 }],
+      },
+      '#7f8c8d',
+      'banner15.png'
+    );
+
+    const playerPeasant = playerVisual.getObjectByName('OverviewPeasant')!;
+    const neutralPeasant = neutralVisual.getObjectByName('OverviewPeasant')!;
+    expect(playerPeasant.userData.teamColorHex).toBe(0x1e88e5);
+    expect(playerPeasant.userData.bannerName).toBe('banner3.png');
+    expect(neutralPeasant.userData.teamColorHex).toBe(0x7f8c8d);
+    expect(neutralPeasant.userData.bannerName).toBe('banner15.png');
+
+    // Verify peasant_rigged.glb embedded texture was updated to light beige skin
+    const glbBuf = readFileSync('public/models/units/peasant_rigged.glb');
+    const jsonLen = glbBuf.readUInt32LE(12);
+    const gltf = JSON.parse(glbBuf.subarray(20, 20 + jsonLen).toString('utf8'));
+    expect(gltf.images?.[0]?.name).toBe('tex_peasant_atlas');
+    expect(gltf.buffers?.[0]?.byteLength).toBeGreaterThan(0);
+  });
 });

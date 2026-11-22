@@ -106,10 +106,10 @@ export function generatePeasantFacePixels(): Uint8Array {
       // Rustic face region (center at x = 128)
       const pore = (n - 0.5) * 18 + (fine - 0.5) * 8;
 
-      // Weathered tanned peasant skin base
-      let r = 218 + pore;
-      let g = 172 + pore * 0.82;
-      let b = 132 + pore * 0.68;
+      // Light beige peasant skin base
+      let r = 232 + pore;
+      let g = 196 + pore * 0.82;
+      let b = 164 + pore * 0.68;
 
       // Thick dark eyebrows (y = 122..132, adx = 8..36)
       const browY = 127 + (adx - 10) * -0.10;

@@ -51,7 +51,9 @@ export class OverviewScene3D implements Scene {
     }
 
     if (!this.campaign) {
-      this.campaign = new OverviewCampaign(createStarterOverviewMap(321345));
+      this.campaign = new OverviewCampaign(
+        createStarterOverviewMap(321345, context.templates.globalConfig)
+      );
     }
 
     if (params?.battleResult && this.pendingBattle) {

@@ -1,0 +1,16 @@
+{
+  "players": [
+    {
+      "id": "player",
+      "name": "Player",
+      "isAI": false,
+      "color": "#3498db",
+      "banner": "banner7.png"
+    }
+  ],
+  "neutral": {
+    "name": "Neutral",
+    "color": "#8c929a",
+    "banner": "banner16.png"
+  }
+}
