@@ -27,7 +27,7 @@ import {
   createOverviewSettlementModel,
 } from '../../render3d/overview/overview-models-3d';
 import { createOverviewCowModel } from '../../render3d/overview/overview-cow-3d';
-import { createOverviewPeasantModel } from '../../render3d/overview/overview-peasant-3d';
+import { createOverviewPeasantModel, createOverviewSpearmanModel } from '../../render3d/overview/overview-peasant-3d';
 import { createOverviewWheatFieldModel } from '../../render3d/overview/overview-wheat-field-3d';
 
 export type ModelExplorerCategory =
@@ -328,7 +328,9 @@ export function getModelExplorerCatalog(): ModelExplorerEntry[] {
       create: () =>
         ut.type === CreatureType.PEASANT
           ? createOverviewPeasantModel(707)
-          : buildArticulatedUnit3DMesh(ut.type, 0, Boolean(ut.isHero)),
+          : ut.type === CreatureType.SPEARMAN
+            ? createOverviewSpearmanModel(809)
+            : buildArticulatedUnit3DMesh(ut.type, 0, Boolean(ut.isHero)),
     })),
     // Battle-scene-only models (lazy loaded on click, unloaded on switch)
     {

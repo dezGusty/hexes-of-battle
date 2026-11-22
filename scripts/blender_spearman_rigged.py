@@ -48,6 +48,39 @@ def make_material(name: str, rgba, metallic: float = 0.02, roughness: float = 0.
     return mat
 
 
+def create_skin_texture(size: int = 128):
+    """Generates a light beige organic skin texture for face, neck, and arms."""
+    img = bpy.data.images.new("tex_spearman_skin", width=size, height=size, alpha=False)
+    pixels = [0.0] * (size * size * 4)
+    rng = random.Random(19)
+    for y in range(size):
+        v = y / size
+        for x in range(size):
+            u = x / size
+            sub_tone = 0.015 * math.sin(u * math.pi * 10.0) * math.cos(v * math.pi * 10.0)
+            pore = (rng.random() - 0.5) * 0.025
+            base = max(0.76, min(0.95, 0.87 + sub_tone + pore))
+            idx = (y * size + x) * 4
+            pixels[idx] = base
+            pixels[idx + 1] = base * 0.84
+            pixels[idx + 2] = base * 0.69
+            pixels[idx + 3] = 1.0
+    img.pixels.foreach_set(pixels)
+    img.pack()
+    return img
+
+
+def make_skin_material():
+    mat = make_material("SpearmanSkin", (0.87, 0.73, 0.60, 1.0), metallic=0.0, roughness=0.76)
+    tex_img = create_skin_texture(128)
+    nt = mat.node_tree
+    bsdf = nt.nodes.get("Principled BSDF")
+    tex_node = nt.nodes.new("ShaderNodeTexImage")
+    tex_node.image = tex_img
+    nt.links.new(tex_node.outputs["Color"], bsdf.inputs["Base Color"])
+    return mat
+
+
 def create_gambeson_texture(size: int = 256):
     """Generates a seamless quilted diamond-stitched gambeson linen texture."""
     img = bpy.data.images.new("tex_spearman_gambeson", width=size, height=size, alpha=False)
@@ -94,6 +127,127 @@ def make_gambeson_material():
     nt.links.new(tex_node.outputs["Color"], bump.inputs["Height"])
     nt.links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
     return mat
+
+
+def create_chainmail_texture(size: int = 128):
+    """Generates a seamless interlocking steel chainmail ring texture."""
+    img = bpy.data.images.new("tex_spearman_chainmail", width=size, height=size, alpha=False)
+    pixels = [0.0] * (size * size * 4)
+    for y in range(size):
+        v = y / size
+        for x in range(size):
+            u = x / size
+            gx = (u * 16.0) % 1.0 - 0.5
+            gy = (v * 16.0) % 1.0 - 0.5
+            r1 = math.hypot(gx, gy)
+            r2 = math.hypot(((u * 16.0 + 0.5) % 1.0) - 0.5, ((v * 16.0 + 0.5) % 1.0) - 0.5)
+            ring1 = math.exp(-((r1 - 0.30) ** 2) / 0.008)
+            ring2 = math.exp(-((r2 - 0.30) ** 2) / 0.008)
+            lum = 0.16 + 0.44 * max(ring1, ring2)
+            idx = (y * size + x) * 4
+            pixels[idx] = lum * 0.94
+            pixels[idx + 1] = lum * 0.97
+            pixels[idx + 2] = lum
+            pixels[idx + 3] = 1.0
+    img.pixels.foreach_set(pixels)
+    img.pack()
+    return img
+
+
+def make_chainmail_material():
+    mat = make_material("SpearmanChainmail", (0.42, 0.45, 0.49, 1.0), metallic=0.72, roughness=0.46)
+    tex_img = create_chainmail_texture(128)
+    nt = mat.node_tree
+    bsdf = nt.nodes.get("Principled BSDF")
+    tex_node = nt.nodes.new("ShaderNodeTexImage")
+    tex_node.image = tex_img
+    nt.links.new(tex_node.outputs["Color"], bsdf.inputs["Base Color"])
+    bump = nt.nodes.new("ShaderNodeBump")
+    bump.inputs["Strength"].default_value = 0.42
+    bump.inputs["Distance"].default_value = 0.006
+    nt.links.new(tex_node.outputs["Color"], bump.inputs["Height"])
+    nt.links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
+    return mat
+
+
+def create_plate_armor_texture(size: int = 128):
+    """Generates a bright polished steel texture for the reflective kettle helmet."""
+    img = bpy.data.images.new("tex_spearman_plate", width=size, height=size, alpha=False)
+    pixels = [0.0] * (size * size * 4)
+    rng = random.Random(77)
+    for y in range(size):
+        v = y / size
+        for x in range(size):
+            u = x / size
+            brush = 0.018 * math.sin(u * math.pi * 36.0 + v * 3.0)
+            grain = (rng.random() - 0.5) * 0.015
+            lum = max(0.68, min(0.88, 0.78 + brush + grain))
+            idx = (y * size + x) * 4
+            pixels[idx] = lum * 0.96
+            pixels[idx + 1] = lum * 0.98
+            pixels[idx + 2] = lum
+            pixels[idx + 3] = 1.0
+    img.pixels.foreach_set(pixels)
+    img.pack()
+    return img
+
+
+def make_plate_armor_material():
+    mat = make_material("SpearmanHelmetIron", (0.76, 0.79, 0.84, 1.0), metallic=0.92, roughness=0.18)
+    tex_img = create_plate_armor_texture(128)
+    nt = mat.node_tree
+    bsdf = nt.nodes.get("Principled BSDF")
+    tex_node = nt.nodes.new("ShaderNodeTexImage")
+    tex_node.image = tex_img
+    nt.links.new(tex_node.outputs["Color"], bsdf.inputs["Base Color"])
+    bump = nt.nodes.new("ShaderNodeBump")
+    bump.inputs["Strength"].default_value = 0.06
+    bump.inputs["Distance"].default_value = 0.002
+    nt.links.new(tex_node.outputs["Color"], bump.inputs["Height"])
+    nt.links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
+    return mat
+
+
+def create_shield_texture(size: int = 128):
+    """Generates a warm wooden plank texture for the shield face under the player banner."""
+    img = bpy.data.images.new("tex_spearman_shield", width=size, height=size, alpha=False)
+    pixels = [0.0] * (size * size * 4)
+    rng = random.Random(91)
+    for y in range(size):
+        v = y / size
+        for x in range(size):
+            u = x / size
+            plank_seam = 1.0 if ((x * 5) % size) < 2 else 0.0
+            grain = 0.05 * math.sin(v * math.pi * 24.0 + math.sin(u * math.pi * 6.0) * 1.5)
+            noise = (rng.random() - 0.5) * 0.04
+            lum = max(0.30, min(0.85, 0.68 + grain + noise - 0.22 * plank_seam))
+            idx = (y * size + x) * 4
+            pixels[idx] = lum * 0.96
+            pixels[idx + 1] = lum * 0.84
+            pixels[idx + 2] = lum * 0.66
+            pixels[idx + 3] = 1.0
+    img.pixels.foreach_set(pixels)
+    img.pack()
+    return img
+
+
+def make_shield_material():
+    mat = make_material("ShieldFace", (0.68, 0.58, 0.44, 1.0), metallic=0.04, roughness=0.76)
+    tex_img = create_shield_texture(128)
+    nt = mat.node_tree
+    bsdf = nt.nodes.get("Principled BSDF")
+    tex_node = nt.nodes.new("ShaderNodeTexImage")
+    tex_node.image = tex_img
+    nt.links.new(tex_node.outputs["Color"], bsdf.inputs["Base Color"])
+    return mat
+
+
+def set_bm_vertex_color(bm, rgba):
+    """Assigns a uniform vertex color attribute ('Col') to all face loops of a bmesh."""
+    color_layer = bm.loops.layers.color.get("Col") or bm.loops.layers.color.new("Col")
+    for face in bm.faces:
+        for loop in face.loops:
+            loop[color_layer] = rgba
 
 
 # ---------------------------------------------------------------------------------------
@@ -213,26 +367,31 @@ def build_arm_bm(side: float):
 
 
 def build_tunic_bm():
-    """Thick quilted padded gambeson armor with flared skirt, collar, and padded sleeves + UVs."""
+    """Thick quilted padded gambeson armor hugging the neck with inward thickness cuffs at neck and sleeves."""
     bm = bmesh.new()
     uv_layer = bm.loops.layers.uv.new("UVMap")
     rng = random.Random(101)
     stations = [
-        (Vector((0.0, -0.002, 0.188)), 0.106, (0.088, 0.082)),
-        (Vector((0.0, 0.000, 0.245)), 0.098, (0.080, 0.074)),
-        (Vector((0.0, -0.002, 0.305)), 0.095, (0.078, 0.072)),
-        (Vector((0.0, -0.006, 0.375)), 0.114, (0.090, 0.080)),
-        (Vector((0.0, -0.009, 0.430)), 0.126, (0.092, 0.082)),
-        (Vector((0.0, -0.011, 0.468)), 0.086, (0.064, 0.060)),
+        (Vector((0.0, -0.002, 0.194)), 0.106, (0.088, 0.082)),
+        (Vector((0.0, 0.000, 0.252)), 0.098, (0.080, 0.074)),
+        (Vector((0.0, -0.002, 0.312)), 0.096, (0.078, 0.072)),
+        (Vector((0.0, -0.006, 0.382)), 0.116, (0.092, 0.082)),
+        (Vector((0.0, -0.009, 0.436)), 0.122, (0.090, 0.080)),
+        (Vector((0.0, -0.011, 0.465)), 0.084, (0.064, 0.060)),
+        (Vector((0.0, -0.013, 0.484)), 0.047, (0.046, 0.044)),  # snug collar outer rim
+        (Vector((0.0, -0.013, 0.483)), 0.036, (0.036, 0.034)),  # collar thickness lip
+        (Vector((0.0, -0.013, 0.468)), 0.035, (0.035, 0.033)),  # inward neck cuff
     ]
     build_lofted_tube(bm, stations, segs=20, p=2.2, cap_start=False, cap_end=False)
 
-    # Thick padded gambeson sleeves
+    # Thick padded gambeson sleeves with inward thickness cuff around the arms
     for side in (-1.0, 1.0):
         s_stations = [
             (Vector((side * 0.084, -0.006, 0.402)), 0.048, 0.050),
             (Vector((side * 0.135, -0.006, 0.398)), 0.042, 0.044),
-            (Vector((side * 0.182, -0.005, 0.398)), 0.038, 0.040),
+            (Vector((side * 0.182, -0.005, 0.398)), 0.038, 0.040),  # outer cuff rim
+            (Vector((side * 0.181, -0.005, 0.398)), 0.027, 0.028),  # sleeve thickness lip
+            (Vector((side * 0.168, -0.005, 0.398)), 0.026, 0.027),  # inward sleeve cuff
         ]
         build_lofted_tube(bm, s_stations, segs=12, p=2.0, cap_start=True, cap_end=False)
 
@@ -302,17 +461,55 @@ def build_boots_bm():
 
 
 def build_kettle_helmet_bm():
-    """Wide-brimmed medieval kettle helmet fitted over the head."""
+    """Pointed medieval kettle helmet fitted over the head."""
     bm = bmesh.new()
-    # Helmet dome + flared brim lofted smoothly
     stations = [
         (Vector((0.0, -0.014, 0.546)), 0.086, 0.092),  # wide kettle brim outer edge
         (Vector((0.0, -0.014, 0.556)), 0.062, 0.068),  # brim-to-bowl crease
-        (Vector((0.0, -0.013, 0.576)), 0.056, 0.062),  # upper bowl
-        (Vector((0.0, -0.011, 0.598)), 0.046, 0.052),  # crown curve
-        (Vector((0.0, -0.010, 0.614)), 0.022, 0.025),  # apex
+        (Vector((0.0, -0.013, 0.578)), 0.055, 0.061),  # upper bowl
+        (Vector((0.0, -0.011, 0.606)), 0.036, 0.040),  # tapered pointed cone
+        (Vector((0.0, -0.010, 0.634)), 0.006, 0.006),  # pointed apex
     ]
     build_lofted_tube(bm, stations, segs=22, p=2.0, cap_start=False, cap_end=True)
+    return bm
+
+
+def build_helmet_chainmail_bm():
+    """Chainmail aventail protecting the sides and back of the head and neck, open at front face."""
+    bm = bmesh.new()
+    uv_layer = bm.loops.layers.uv.new("UVMap")
+    arc_segs = 14
+    z_rings = [
+        (0.552, 0.055, 0.061, -0.014),
+        (0.526, 0.054, 0.058, -0.015),
+        (0.502, 0.050, 0.054, -0.014),
+        (0.478, 0.049, 0.052, -0.013),
+    ]
+    # Angle 0 is +X (left), pi/2 is +Y (back), pi is -X (right); open front (-Y)
+    ang_start = -0.14 * math.pi
+    ang_end = 1.14 * math.pi
+    ring_verts = []
+    for z, rx, ry, cy in z_rings:
+        row = []
+        for s in range(arc_segs + 1):
+            t = s / arc_segs
+            ang = ang_start + t * (ang_end - ang_start)
+            x = math.cos(ang) * rx
+            y = cy + math.sin(ang) * ry
+            row.append(bm.verts.new((x, y, z)))
+        ring_verts.append(row)
+
+    for r in range(len(ring_verts) - 1):
+        for s in range(arc_segs):
+            v0 = ring_verts[r][s]
+            v1 = ring_verts[r][s + 1]
+            v2 = ring_verts[r + 1][s + 1]
+            v3 = ring_verts[r + 1][s]
+            f = bm.faces.new((v0, v1, v2, v3))
+            for loop in f.loops:
+                co = loop.vert.co
+                loop[uv_layer].uv = (math.atan2(co.y, co.x) * 0.8, (co.z - 0.47) * 6.0)
+    bm.normal_update()
     return bm
 
 
@@ -380,15 +577,30 @@ def build_shield_obj(mats):
 
     # Wooden disc (local +Z faces outward from forearm_L)
     bm_disc = bmesh.new()
+    uv_layer = bm_disc.loops.layers.uv.new("UVMap")
+    color_layer = bm_disc.loops.layers.color.new("Col")
+    shield_r = 0.145
     build_lofted_tube(
         bm_disc,
         [
-            (Vector((0, 0, -0.010)), 0.145, 0.145),
-            (Vector((0, 0, 0.010)), 0.145, 0.145),
+            (Vector((0, 0, -0.010)), shield_r, shield_r),
+            (Vector((0, 0, 0.010)), shield_r, shield_r),
         ],
         segs=20,
         p=2.0,
     )
+    for face in bm_disc.faces:
+        is_front = face.normal.z > 0.5
+        for loop in face.loops:
+            if is_front:
+                co = loop.vert.co
+                u = 0.5 + (co.x / (2.0 * shield_r)) * 0.92
+                v = 0.5 + (co.y / (2.0 * shield_r)) * 0.92
+                loop[uv_layer].uv = (u, v)
+                loop[color_layer] = (0.0, 1.0, 0.0, 1.0)  # G=1 -> player banner mask
+            else:
+                loop[uv_layer].uv = (0.0, 0.0)
+                loop[color_layer] = (0.0, 0.0, 0.0, 1.0)
     parts.append(create_mesh_obj("Shield_Board", bm_disc, mats["shield_paint"]))
 
     # Iron outer rim ring
@@ -404,6 +616,7 @@ def build_shield_obj(mats):
         cap_start=False,
         cap_end=False,
     )
+    set_bm_vertex_color(bm_rim, (0.0, 0.0, 0.0, 1.0))
     parts.append(create_mesh_obj("Shield_Rim", bm_rim, mats["iron"]))
 
     # Central steel boss dome
@@ -418,6 +631,7 @@ def build_shield_obj(mats):
         segs=12,
         p=2.0,
     )
+    set_bm_vertex_color(bm_boss, (0.0, 0.0, 0.0, 1.0))
     parts.append(create_mesh_obj("Shield_Boss", bm_boss, mats["steel"]))
 
     bpy.ops.object.select_all(action="DESELECT")
@@ -499,7 +713,7 @@ def assign_smooth_skin_weights(mesh_obj, arm_obj):
         x, y, z = v.co.x, v.co.y, v.co.z
         weights = {}
 
-        if abs(x) > 0.075 and 0.345 <= z <= 0.445:
+        if abs(x) > 0.075 and 0.345 <= z <= 0.465:
             side = "L" if x > 0 else "R"
             ax = abs(x)
             if ax < 0.105:
@@ -599,7 +813,8 @@ def bake_animations(arm_obj):
 
     def key_pose(frame: int, bone_rot_deg: dict, pelvis_loc=(0.0, 0.0, 0.0), spear_dir=None, shield_dir=(0.7, -0.7, 0.0)):
         reset_pose()
-        pb["pelvis"].location = Vector(pelvis_loc)
+        pelvis_local_mat = pb["pelvis"].bone.matrix_local.to_3x3()
+        pb["pelvis"].location = pelvis_local_mat.inverted() @ Vector(pelvis_loc)
         pb["pelvis"].keyframe_insert(data_path="location", frame=frame)
         for bname, deg in bone_rot_deg.items():
             if bname in pb:
@@ -725,17 +940,17 @@ def bake_animations(arm_obj):
                       "upperArm_L": (-58, 0, -24), "forearm_L": (0, 0, -28),
                       "upperArm_R": (-62, 0, 10), "forearm_R": (0, 0, 34),
                       "thigh_L": (-36, 0, 10), "shin_L": (64, 0, 0), "thigh_R": (-24, 0, -10), "shin_R": (56, 0, 0)},
-                 (0, 0.06, -0.10), (0.2, -0.8, 0.55), (0.7, -0.4, 0.4)),
-                (26, {"pelvis": (-80, 10, 0), "spine": (-8, 0, 0), "head": (10, 0, -10),
-                      "upperArm_L": (-76, 0, -10), "forearm_L": (0, 0, -14),
-                      "upperArm_R": (-78, 0, 8), "forearm_R": (0, 0, 18),
-                      "thigh_L": (-10, 0, 8), "shin_L": (18, 0, 0), "thigh_R": (-6, 0, -8), "shin_R": (12, 0, 0)},
-                 (0, 0.14, -0.20), (0.65, -0.75, 0.02), (0.85, -0.35, 0.25)),
-                (36, {"pelvis": (-84, 12, 0), "spine": (-6, 0, 0), "head": (8, 0, -12),
-                      "upperArm_L": (-80, 0, -6), "forearm_L": (0, 0, -10),
-                      "upperArm_R": (-82, 0, 6), "forearm_R": (0, 0, 12),
-                      "thigh_L": (-6, 0, 8), "shin_L": (12, 0, 0), "thigh_R": (-4, 0, -8), "shin_R": (10, 0, 0)},
-                 (0, 0.16, -0.215), (0.75, -0.66, 0.0), (0.9, -0.25, 0.2)),
+                 (0, 0.06, -0.08), (0.2, -0.8, 0.55), (0.55, -0.35, 0.75)),
+                (26, {"pelvis": (-82, 8, 0), "spine": (-6, 0, 0), "head": (8, 0, -10),
+                      "upperArm_L": (-64, 0, 14), "forearm_L": (0, 0, 10),
+                      "upperArm_R": (-66, 0, -16), "forearm_R": (0, 0, -12),
+                      "thigh_L": (-8, 0, 8), "shin_L": (16, 0, 0), "thigh_R": (-4, 0, -8), "shin_R": (12, 0, 0)},
+                 (0, 0.14, -0.155), (0.65, -0.75, 0.02), (0.12, -0.08, 0.99)),
+                (36, {"pelvis": (-86, 8, 0), "spine": (-4, 0, 0), "head": (6, 0, -10),
+                      "upperArm_L": (-68, 0, 18), "forearm_L": (0, 0, 12),
+                      "upperArm_R": (-70, 0, -22), "forearm_R": (0, 0, -14),
+                      "thigh_L": (-4, 0, 8), "shin_L": (10, 0, 0), "thigh_R": (-2, 0, -8), "shin_R": (8, 0, 0)},
+                 (0, 0.16, -0.170), (0.75, -0.66, 0.0), (0.08, -0.06, 0.995)),
             ],
         ),
     }
@@ -759,25 +974,31 @@ def build_and_export():
     clear_scene()
 
     mats = {
-        "skin": make_material("SpearmanSkin", (0.86, 0.72, 0.58, 1.0), metallic=0.0, roughness=0.78),
+        "skin": make_skin_material(),
         "tunic": make_gambeson_material(),
         "trousers": make_material("SpearmanTrousers", (0.24, 0.20, 0.17, 1.0), metallic=0.0, roughness=0.92),
         "leather": make_material("SpearmanLeather", (0.28, 0.18, 0.10, 1.0), metallic=0.04, roughness=0.82),
-        "iron": make_material("SpearmanHelmetIron", (0.46, 0.49, 0.53, 1.0), metallic=0.80, roughness=0.38),
+        "iron": make_plate_armor_material(),
+        "chainmail": make_chainmail_material(),
         "steel": make_material("SpearmanSteel", (0.64, 0.67, 0.72, 1.0), metallic=0.86, roughness=0.28),
         "wood": make_material("SpearAshWood", (0.38, 0.26, 0.14, 1.0), metallic=0.02, roughness=0.85),
-        "shield_paint": make_material("ShieldFace", (0.22, 0.35, 0.58, 1.0), metallic=0.05, roughness=0.75),
+        "shield_paint": make_shield_material(),
     }
 
+    def tagged_bm(bm, rgba):
+        set_bm_vertex_color(bm, rgba)
+        return bm
+
     parts = [
-        create_mesh_obj("Body_TorsoHead", build_torso_neck_head_bm(), mats["skin"]),
-        create_mesh_obj("Body_Arm_L", build_arm_bm(+1.0), mats["skin"]),
-        create_mesh_obj("Body_Arm_R", build_arm_bm(-1.0), mats["skin"]),
-        create_mesh_obj("Garb_Tunic", build_tunic_bm(), mats["tunic"]),
-        create_mesh_obj("Garb_Belt", build_belt_bm(), mats["leather"]),
-        create_mesh_obj("Garb_Trousers", build_trousers_bm(), mats["trousers"]),
-        create_mesh_obj("Garb_Boots", build_boots_bm(), mats["leather"]),
-        create_mesh_obj("Helmet_Kettle", build_kettle_helmet_bm(), mats["iron"]),
+        create_mesh_obj("Body_TorsoHead", tagged_bm(build_torso_neck_head_bm(), (0.0, 0.0, 0.0, 1.0)), mats["skin"]),
+        create_mesh_obj("Body_Arm_L", tagged_bm(build_arm_bm(+1.0), (0.0, 0.0, 0.0, 1.0)), mats["skin"]),
+        create_mesh_obj("Body_Arm_R", tagged_bm(build_arm_bm(-1.0), (0.0, 0.0, 0.0, 1.0)), mats["skin"]),
+        create_mesh_obj("Garb_Tunic", tagged_bm(build_tunic_bm(), (1.0, 0.0, 0.0, 1.0)), mats["tunic"]),
+        create_mesh_obj("Garb_Belt", tagged_bm(build_belt_bm(), (0.0, 0.0, 0.0, 1.0)), mats["leather"]),
+        create_mesh_obj("Garb_Trousers", tagged_bm(build_trousers_bm(), (0.0, 0.0, 0.0, 1.0)), mats["trousers"]),
+        create_mesh_obj("Garb_Boots", tagged_bm(build_boots_bm(), (0.0, 0.0, 0.0, 1.0)), mats["leather"]),
+        create_mesh_obj("Helmet_Kettle", tagged_bm(build_kettle_helmet_bm(), (0.0, 0.0, 0.0, 1.0)), mats["iron"]),
+        create_mesh_obj("Helmet_Chainmail", tagged_bm(build_helmet_chainmail_bm(), (0.0, 0.0, 0.0, 1.0)), mats["chainmail"]),
     ]
 
     bpy.ops.object.select_all(action="DESELECT")

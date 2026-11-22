@@ -13,7 +13,7 @@ import { createOverviewCowModel } from './overview-cow-3d';
 import { createCastleSettlementHex } from './overview-castle-town-3d';
 import { createOverviewIronMineModel } from './overview-iron-mine-3d';
 import { createOverviewLumberMillModel } from './overview-lumber-mill-3d';
-import { createOverviewPeasantModel } from './overview-peasant-3d';
+import { createOverviewPeasantModel, createOverviewSpearmanModel } from './overview-peasant-3d';
 import { createOverviewWheatFieldModel } from './overview-wheat-field-3d';
 
 function makeMat(color: number, roughness = 0.8, metalness = 0.1): THREE.MeshStandardMaterial {
@@ -427,10 +427,13 @@ export function createOverviewCombinedArmyVisual(
   const unitTeamColorHex = parseColorToHex(flagColor);
   squads.forEach((sq, idx) => {
     const isPeasant = sq.creatureType === CreatureType.PEASANT;
+    const isSpearman = sq.creatureType === CreatureType.SPEARMAN;
     const unitMesh = isPeasant
       ? createOverviewPeasantModel(707 + idx * 31, { playerColor: flagColor, bannerName })
-      : buildArticulatedUnit3DMesh(sq.creatureType, armyAlignment, false, unitTeamColorHex);
-    const baseScale = isPeasant ? 0.63 : 0.38;
+      : isSpearman
+        ? createOverviewSpearmanModel(809 + idx * 31, { playerColor: flagColor, bannerName })
+        : buildArticulatedUnit3DMesh(sq.creatureType, armyAlignment, false, unitTeamColorHex);
+    const baseScale = isPeasant || isSpearman ? 0.63 : 0.38;
     unitMesh.scale.setScalar(baseScale);
     unitMesh.userData = {
       ...unitMesh.userData,

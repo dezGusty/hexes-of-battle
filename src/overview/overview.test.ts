@@ -2327,5 +2327,23 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
     const gltf = JSON.parse(glbBuf.subarray(20, 20 + jsonLen).toString('utf8'));
     expect(gltf.images?.[0]?.name).toBe('tex_peasant_atlas');
     expect(gltf.buffers?.[0]?.byteLength).toBeGreaterThan(0);
+
+    // Verify rigged spearman is used on the global map with player color and banner bound
+    const spearmanVisual = createOverviewCombinedArmyVisual(
+      {
+        id: 'army_spear',
+        ownerPlayerId: 'player1',
+        coords: { x: 2, y: 0 },
+        movementPoints: 4,
+        maxMovementPoints: 4,
+        squads: [{ creatureType: CreatureType.SPEARMAN, count: 8, hpPercent: 1 }],
+      },
+      '#c62828',
+      'banner5.png'
+    );
+    const overviewSpearman = spearmanVisual.getObjectByName('OverviewSpearman')!;
+    expect(overviewSpearman).toBeTruthy();
+    expect(overviewSpearman.userData.teamColorHex).toBe(0xc62828);
+    expect(overviewSpearman.userData.bannerName).toBe('banner5.png');
   });
 });
