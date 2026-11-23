@@ -41,7 +41,7 @@ describe("Slinger Unit and Imprecise Volley Perk", () => {
 
     it("should load slinger from creaturetypes.json with correct stats", () => {
       const slingerTemplate = rawTemplates.find((t) => t.name === "slinger");
-      const archerTemplate = rawTemplates.find((t) => t.name === "peasant-archer");
+      const archerTemplate = rawTemplates.find((t) => t.name === "archer");
 
       expect(slingerTemplate).toBeDefined();
       expect(archerTemplate).toBeDefined();

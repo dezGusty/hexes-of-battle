@@ -648,20 +648,28 @@ export class BattleView3D {
         },
       });
     } else {
-      // Melee attack
-      if (attackerSquad) {
-        attackerSquad.setFacing(attacker.facingDirection);
-        attackerSquad.playAnimation('attack_melee', 450);
-      }
+      // Melee attack: if attacker is still walking to the adjacent hex, defer attack animation until arrival
+      const executeMeleeVisuals = () => {
+        if (attackerSquad) {
+          attackerSquad.setFacing(attacker.facingDirection);
+          attackerSquad.playAnimation('attack_melee', 450);
+        }
 
-      if (this.soundSystem) {
-        this.soundSystem.play(SoundCategory.SOUND, SoundType.SWORD, true);
-      }
+        if (this.soundSystem) {
+          this.soundSystem.play(SoundCategory.SOUND, SoundType.SWORD, true);
+        }
 
-      const animMultiplier = this.getAnimationSpeedMultiplier();
-      setTimeout(() => {
-        this.applyDamageVisuals(defenderSquad, damage, flankStatus);
-      }, 180 / animMultiplier);
+        const animMultiplier = this.getAnimationSpeedMultiplier();
+        setTimeout(() => {
+          this.applyDamageVisuals(defenderSquad, damage, flankStatus);
+        }, 180 / animMultiplier);
+      };
+
+      if (attackerSquad && attackerSquad.isCurrentlyMoving()) {
+        attackerSquad.enqueuePostMoveAction(executeMeleeVisuals);
+      } else {
+        executeMeleeVisuals();
+      }
     }
   }
 

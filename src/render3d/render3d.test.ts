@@ -2302,10 +2302,12 @@ describe('3D Graphics Engine & Rendering Systems', () => {
   });
 
   describe('11. 3D Unit Models (Blender Pipeline) & Low-Poly 3D Forest Terrain Trees', () => {
-    it('should have valid binary glTF 2.0 (.glb) files exported by Blender for all 7 supported units and 2 forest tree variants', () => {
+    it('should have valid binary glTF 2.0 (.glb) files exported by Blender for all 7 supported units and 2 forest tree variants', async () => {
+      const { UNIT_GLB_PATHS } = await import('./units/unit-mesh-builder');
       const rootDir = path.resolve(__dirname, '../..');
       for (const unitKey of SUPPORTED_3D_UNIT_KEYS) {
-        const glbPath = path.join(rootDir, 'public/models/units', `${unitKey}.glb`);
+        const relPath = UNIT_GLB_PATHS[unitKey] ?? `models/units/${unitKey}.glb`;
+        const glbPath = path.join(rootDir, 'public', relPath);
         expect(fs.existsSync(glbPath)).toBe(true);
         const buf = fs.readFileSync(glbPath);
         expect(buf.byteLength).toBeGreaterThan(1024);
@@ -5277,6 +5279,106 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(nodeNames).toContain('Shield');
       expect(nodeNames).toContain('weaponSocket');
       expect(nodeNames).toContain('shieldSocket');
+    });
+
+    it('should provide rigged GLBs for archer, crossbowman, swordsman, maceman, and armored knight with animations and COLOR_0 masks', async () => {
+      const { readFileSync, existsSync } = await import('node:fs');
+      const { UNIT_GLB_PATHS } = await import('./units/unit-mesh-builder');
+
+      const specs = [
+        { key: 'archer', base: 'archer_rigged', anims: ['idle_stance', 'combat_move_advance', 'combat_attack_ranged', 'combat_attack_poke', 'combat_defensive_stance', 'death'] },
+        { key: 'crossbowman', base: 'crossbowman_rigged', anims: ['idle_stance', 'combat_move_advance', 'combat_attack_ranged', 'reload', 'combat_attack_poke', 'combat_defensive_stance', 'death'] },
+        { key: 'swordsman', base: 'swordsman_rigged', anims: ['idle_stance', 'combat_move_advance', 'combat_attack_poke', 'combat_defensive_stance', 'death'] },
+        { key: 'maceman', base: 'maceman_rigged', anims: ['idle_stance', 'combat_move_advance', 'combat_attack_poke', 'combat_defensive_stance', 'death'] },
+        { key: 'armored_knight', base: 'armored_knight_rigged', anims: ['idle_stance', 'combat_move_advance', 'combat_attack_poke', 'combat_defensive_stance', 'death'] },
+      ];
+
+      for (const spec of specs) {
+        expect(UNIT_GLB_PATHS[spec.key]).toBe(`models/units/${spec.base}.glb`);
+        expect(existsSync(`public/models/units/${spec.base}.glb`)).toBe(true);
+        expect(existsSync(`assets/blender/${spec.base}.blend`)).toBe(true);
+
+        const glbBuf = readFileSync(`public/models/units/${spec.base}.glb`);
+        const jsonLen = glbBuf.readUInt32LE(12);
+        const gltf = JSON.parse(glbBuf.subarray(20, 20 + jsonLen).toString('utf8'));
+
+        const animNames = (gltf.animations ?? []).map((a: any) => a.name);
+        for (const expectedAnim of spec.anims) {
+          expect(animNames).toContain(expectedAnim);
+        }
+
+        const hasColor0 = (gltf.meshes ?? []).some((m: any) =>
+          (m.primitives ?? []).some((p: any) => Boolean(p.attributes?.COLOR_0))
+        );
+        expect(hasColor0).toBe(true);
+
+        if (spec.base === 'swordsman_rigged') {
+          const capeMatIdx = (gltf.materials ?? []).findIndex((mat: any) => mat.name === 'SwordsmanCape');
+          expect(capeMatIdx).toBeGreaterThanOrEqual(0);
+          const capePrim = gltf.meshes[0].primitives.find((p: any) => p.material === capeMatIdx);
+          const acc = gltf.accessors[capePrim.attributes.COLOR_0];
+          const bv = gltf.bufferViews[acc.bufferView];
+          const binStart = 20 + jsonLen + 8 + (bv.byteOffset ?? 0) + (acc.byteOffset ?? 0);
+          // SwordsmanCape must have R=1, G=0 (player color only, no player banner)
+          const r = glbBuf.readUInt16LE(binStart) / 65535;
+          const g = glbBuf.readUInt16LE(binStart + 2) / 65535;
+          expect(r).toBeCloseTo(1.0, 2);
+          expect(g).toBeCloseTo(0.0, 2);
+        }
+      }
+    });
+
+    it('should finish moving to the adjacent hex in walk animation before playing melee attack animation', async () => {
+      const { SquadVisual3D } = await import('./units/squad-visual-3d');
+      const attacker = new Creature(CreatureType.SWORDSMAN);
+      attacker.position = { x: 0, y: 0 };
+      const defender = new Creature(CreatureType.PEASANT);
+      defender.position = { x: 2, y: 0 };
+
+      const dummyModel = {
+        format: UnitVisualFormat.FULL_3D_RIGID,
+        object3D: new THREE.Group(),
+        mesh: new THREE.Mesh(),
+        material: new THREE.MeshStandardMaterial(),
+        playAnimation: vi.fn(),
+        update: vi.fn(),
+        setFacing: vi.fn(),
+        setCasualtyFade: vi.fn(),
+        hasMoveAnimation: () => true,
+        getMoveAnimationDurationSec: () => 0.8,
+        setMoveAnimationTimeScale: vi.fn(),
+        dispose: vi.fn(),
+      };
+
+      const squad = new SquadVisual3D(attacker, [dummyModel as any]);
+      squad.rootGroup.position.set(0, 0, 0);
+      squad.enqueueMoveStep(new THREE.Vector3(2.0, 0, 0));
+
+      expect(squad.isCurrentlyMoving()).toBe(true);
+      expect(dummyModel.playAnimation).toHaveBeenLastCalledWith('walk', 500);
+
+      // Simulate attack triggered while squad is still walking to the adjacent hex
+      const playAttack = () => {
+        squad.setFacing(HexDirection.EAST);
+        squad.playAnimation('attack_melee', 450);
+      };
+      if (squad.isCurrentlyMoving()) {
+        squad.enqueuePostMoveAction(playAttack);
+      } else {
+        playAttack();
+      }
+
+      // Mid-walk: attack_melee must NOT have fired yet
+      expect(dummyModel.playAnimation).not.toHaveBeenCalledWith('attack_melee', 450);
+
+      // Advance simulation until arrival at adjacent hex (2.0 units at 5 u/s = 400ms)
+      const cam = new THREE.PerspectiveCamera();
+      squad.update(500, cam);
+
+      expect(squad.isCurrentlyMoving()).toBe(false);
+      // Upon arrival, attack_melee plays and is NOT overwritten by idle
+      expect(dummyModel.playAnimation).toHaveBeenLastCalledWith('attack_melee', 450);
+      squad.dispose();
     });
   });
 });

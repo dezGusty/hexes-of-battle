@@ -56,7 +56,7 @@ describe('Quick draw Skill for Archers', () => {
       const content = readFileSync(path, 'utf-8');
       const templates: any[] = JSON.parse(content);
 
-      const archerTemplate = templates.find((t) => t.name === 'peasant-archer');
+      const archerTemplate = templates.find((t) => t.name === 'archer');
       expect(archerTemplate).toBeDefined();
       expect(archerTemplate.ability_ids).toContain('quick-draw-01');
 

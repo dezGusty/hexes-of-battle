@@ -13,7 +13,15 @@ import { createOverviewCowModel } from './overview-cow-3d';
 import { createCastleSettlementHex } from './overview-castle-town-3d';
 import { createOverviewIronMineModel } from './overview-iron-mine-3d';
 import { createOverviewLumberMillModel } from './overview-lumber-mill-3d';
-import { createOverviewPeasantModel, createOverviewSpearmanModel } from './overview-peasant-3d';
+import {
+  createOverviewArcherModel,
+  createOverviewArmoredKnightModel,
+  createOverviewCrossbowmanModel,
+  createOverviewMacemanModel,
+  createOverviewPeasantModel,
+  createOverviewSpearmanModel,
+  createOverviewSwordsmanModel,
+} from './overview-peasant-3d';
 import { createOverviewWheatFieldModel } from './overview-wheat-field-3d';
 
 function makeMat(color: number, roughness = 0.8, metalness = 0.1): THREE.MeshStandardMaterial {
@@ -426,14 +434,42 @@ export function createOverviewCombinedArmyVisual(
 
   const unitTeamColorHex = parseColorToHex(flagColor);
   squads.forEach((sq, idx) => {
-    const isPeasant = sq.creatureType === CreatureType.PEASANT;
-    const isSpearman = sq.creatureType === CreatureType.SPEARMAN;
-    const unitMesh = isPeasant
-      ? createOverviewPeasantModel(707 + idx * 31, { playerColor: flagColor, bannerName })
-      : isSpearman
-        ? createOverviewSpearmanModel(809 + idx * 31, { playerColor: flagColor, bannerName })
-        : buildArticulatedUnit3DMesh(sq.creatureType, armyAlignment, false, unitTeamColorHex);
-    const baseScale = isPeasant || isSpearman ? 0.63 : 0.38;
+    const unitOpts = { playerColor: flagColor, bannerName };
+    let unitMesh: THREE.Object3D;
+    let baseScale = 0.63;
+    switch (sq.creatureType) {
+      case CreatureType.PEASANT:
+        unitMesh = createOverviewPeasantModel(707 + idx * 31, unitOpts);
+        break;
+      case CreatureType.SPEARMAN:
+        unitMesh = createOverviewSpearmanModel(809 + idx * 31, unitOpts);
+        break;
+      case CreatureType.ARCHER:
+      case CreatureType.PEASANT_ARCHER:
+        unitMesh = createOverviewArcherModel(907 + idx * 31, unitOpts);
+        break;
+      case CreatureType.CROSSBOWMAN:
+        unitMesh = createOverviewCrossbowmanModel(1009 + idx * 31, unitOpts);
+        break;
+      case CreatureType.SWORDSMAN:
+        unitMesh = createOverviewSwordsmanModel(1103 + idx * 31, unitOpts);
+        break;
+      case CreatureType.MACEMAN:
+        unitMesh = createOverviewMacemanModel(1201 + idx * 31, unitOpts);
+        break;
+      case CreatureType.ARMORED_KNIGHT:
+        unitMesh = createOverviewArmoredKnightModel(1301 + idx * 31, unitOpts);
+        baseScale = 0.56;
+        break;
+      case CreatureType.HERO_COMMANDER:
+      case CreatureType.BEHEMOTH:
+      case CreatureType.HEAVY_KNIGHTS:
+        return;
+      default:
+        unitMesh = buildArticulatedUnit3DMesh(sq.creatureType, armyAlignment, false, unitTeamColorHex);
+        baseScale = 0.38;
+        break;
+    }
     unitMesh.scale.setScalar(baseScale);
     unitMesh.userData = {
       ...unitMesh.userData,

@@ -6,11 +6,11 @@ export class CreatureRepository {
   creatureTemplates: CreatureTemplate[] = [];
   nameToTypesMap: Map<CreatureType, string> = new Map<CreatureType, string>([
     [CreatureType.PEASANT, "peasant"],
-    [CreatureType.PEASANT_ARCHER, "peasant-archer"],
+    [CreatureType.PEASANT_ARCHER, "archer"],
     [CreatureType.SWORDSMAN, "swordsman"],
     [CreatureType.SPEARMAN, "spearman"],
     [CreatureType.CROSSBOWMAN, "crossbowman"],
-    [CreatureType.ARCHER, "peasant-archer"],
+    [CreatureType.ARCHER, "archer"],
     [CreatureType.BARBARIAN, "barbarian"],
     [CreatureType.HEAVY_KNIGHTS, "heavy-knights"],
     [CreatureType.HERO_COMMANDER, "hero-commander"],
@@ -22,6 +22,14 @@ export class CreatureRepository {
 
   constructor() { }
 
+  private normalizeTemplateName(name: string): string {
+    const compact = name.trim().toLowerCase().replace(/[\s_-]+/g, '');
+    if (compact === 'peasantarcher' || compact === 'archer') {
+      return 'archer';
+    }
+    return name.trim().toLowerCase();
+  }
+
   setAbilities(abilities: Ability[]) {
     this.abilities = abilities;
   }
@@ -32,7 +40,12 @@ export class CreatureRepository {
 
   createCreature(creatureType: CreatureType): Creature {
     const creatureTypeName = this.nameToTypesMap.get(creatureType);
-    const creatureTemplate = this.creatureTemplates.find((template) => template.name === creatureTypeName);
+    const normalizedTarget = creatureTypeName ? this.normalizeTemplateName(creatureTypeName) : undefined;
+    const creatureTemplate = this.creatureTemplates.find(
+      (template) =>
+        template.name === creatureTypeName ||
+        (normalizedTarget !== undefined && this.normalizeTemplateName(template.name) === normalizedTarget)
+    );
     if (!creatureTemplate) {
       throw new Error(`Could not find creature template for creature type ${creatureType}`);
     }
@@ -73,9 +86,10 @@ export class CreatureRepository {
   }
 
   createCreatureByName(typeName: string): Creature {
+    const normalizedInput = this.normalizeTemplateName(typeName);
     let matchedType: CreatureType = CreatureType.PEASANT;
     for (const [cType, name] of this.nameToTypesMap.entries()) {
-      if (name === typeName || name.toLowerCase() === typeName.toLowerCase()) {
+      if (name === typeName || this.normalizeTemplateName(name) === normalizedInput) {
         matchedType = cType;
         break;
       }

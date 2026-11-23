@@ -83,6 +83,7 @@ export class SquadVisual3D {
   public moveCyclesPerHex: number = 1;
   public deathSpeedMultiplier: number = 1;
   private onMoveComplete?: () => void;
+  private pendingPostMoveActions: Array<() => void> = [];
 
   // Death animation & corpse state
   private dyingModelIndices: Set<number> = new Set();
@@ -689,6 +690,14 @@ export class SquadVisual3D {
     this.playAnimation('walk');
   }
 
+  public enqueuePostMoveAction(action: () => void): void {
+    if (!this.isMoving) {
+      action();
+      return;
+    }
+    this.pendingPostMoveActions.push(action);
+  }
+
   public update(deltaMs: number, camera: THREE.Camera): void {
     if (!this.isEliminated) {
       // Update individual models (skipping detached corpses)
@@ -764,7 +773,12 @@ export class SquadVisual3D {
           this.isMoving = false;
           this.models.forEach((m) => m.setMoveAnimationTimeScale?.(1));
           this.setFacing(this.creature.facingDirection !== HexDirection.NONE ? this.creature.facingDirection : this.currentFacing);
-          this.playAnimation('idle');
+          if (this.pendingPostMoveActions.length > 0) {
+            const actions = this.pendingPostMoveActions.splice(0);
+            for (const act of actions) act();
+          } else {
+            this.playAnimation('idle');
+          }
           if (this.onMoveComplete) this.onMoveComplete();
         }
       } else {

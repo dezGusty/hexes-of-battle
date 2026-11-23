@@ -70,9 +70,14 @@ export class MeshRigidVisual implements IUnitVisual {
     const findClip = (exact: string, pattern: RegExp) =>
       clips.find((c) => c.name === exact) ?? clips.find((c) => pattern.test(c.name));
 
-    const idleClip = findClip('idle_stance', /idle/i);
+    const idleClip = findClip('idle_stance', /^idle/i);
     const walkClip = findClip('combat_move_advance', /move|walk|advance/i);
-    const attackClip = findClip('combat_attack_poke', /attack|poke/i);
+    const attackClip =
+      findClip('combat_attack_poke', /attack_poke|attack_melee|melee/i) ??
+      findClip('combat_attack_poke', /attack|poke/i);
+    const rangedAttackClip =
+      findClip('combat_attack_ranged', /attack_ranged|ranged|shoot|fire/i) ?? attackClip;
+    const defendClip = findClip('combat_defensive_stance', /defensive|defend|rest/i);
     const deathClip = findClip('death', /death|die/i);
 
     if (idleClip) {
@@ -91,6 +96,18 @@ export class MeshRigidVisual implements IUnitVisual {
       action.setLoop(THREE.LoopOnce, 1);
       action.clampWhenFinished = true;
       this.glbActions.attack_melee = action;
+    }
+    if (rangedAttackClip) {
+      const action = mixer.clipAction(rangedAttackClip);
+      action.setLoop(THREE.LoopOnce, 1);
+      action.clampWhenFinished = true;
+      this.glbActions.attack_ranged = action;
+    }
+    if (defendClip) {
+      const action = mixer.clipAction(defendClip);
+      action.setLoop(THREE.LoopOnce, 1);
+      action.clampWhenFinished = true;
+      this.glbActions.rest = action;
     }
     if (deathClip) {
       const action = mixer.clipAction(deathClip);
@@ -261,7 +278,7 @@ export class MeshRigidVisual implements IUnitVisual {
           this.activeGlbAction.crossFadeTo(next, 0.15, false);
         }
         this.activeGlbAction = next;
-      } else if (next && state === 'attack_melee') {
+      } else if (next && (state === 'attack_melee' || state === 'attack_ranged' || state === 'rest')) {
         next.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).play();
       } else if (next && state === 'walk') {
         next.setEffectiveTimeScale(scale);

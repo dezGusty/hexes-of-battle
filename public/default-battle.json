@@ -4,7 +4,7 @@
   "creatures": [
     { "type": "peasant", "position": { "x": 3, "y": 4 }, "army": 0, "facing": "EAST" },
     { "type": "armored-knight", "position": { "x": 2, "y": 2 }, "army": 0, "facing": "EAST", "extraMoves": 6 },
-    { "type": "peasant-archer", "position": { "x": 1, "y": 5 }, "army": 0, "facing": "EAST" },
+    { "type": "archer", "position": { "x": 1, "y": 5 }, "army": 0, "facing": "EAST" },
     { "type": "crossbowman", "position": { "x": 0, "y": 4 }, "army": 0, "facing": "EAST" },
     { "type": "slinger", "position": { "x": 2, "y": 4 }, "army": 0, "facing": "EAST" },
     { "type": "spearman", "position": { "x": 3, "y": 5 }, "army": 0, "facing": "EAST" },
@@ -14,7 +14,7 @@
     { "type": "swordsman", "position": { "x": 4, "y": 4 }, "army": 1, "facing": "WEST" },
     { "type": "barbarian", "position": { "x": 4, "y": 6 }, "army": 1, "facing": "WEST" },
     { "type": "peasant", "position": { "x": 4, "y": 3 }, "army": 1, "facing": "WEST" },
-    { "type": "peasant-archer", "position": { "x": 7, "y": 4 }, "army": 1, "facing": "WEST" },
+    { "type": "archer", "position": { "x": 7, "y": 4 }, "army": 1, "facing": "WEST" },
     { "type": "armored-knight", "position": { "x": 7, "y": 6 }, "army": 1, "facing": "WEST" }
   ]
 }

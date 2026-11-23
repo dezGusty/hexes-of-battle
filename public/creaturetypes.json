@@ -127,8 +127,8 @@
     "ability_ids": []
   },
   {
-    "name": "peasant-archer",
-    "display_name": "Peasant Archer",
+    "name": "archer",
+    "display_name": "Archer",
     "portrait": "peasant_archer_face.png",
     "model_count": 12,
     "model_hp": 4,

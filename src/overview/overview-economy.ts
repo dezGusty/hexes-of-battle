@@ -73,7 +73,7 @@ export const RECRUITABLE_UNITS: RecruitUnitCost[] = [
   },
   {
     creatureType: CreatureType.PEASANT_ARCHER,
-    label: 'Peasant Archer',
+    label: 'Archer',
     money: 40,
     lumber: 8,
     iron: 2,

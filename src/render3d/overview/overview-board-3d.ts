@@ -33,7 +33,15 @@ import {
   createProceduralWaterNormalTexture,
 } from './overview-water-shader';
 import { updateOverviewCowAnimation } from './overview-cow-3d';
-import { preloadOverviewPeasantGlb, preloadOverviewSpearmanGlb } from './overview-peasant-3d';
+import {
+  preloadOverviewArcherGlb,
+  preloadOverviewArmoredKnightGlb,
+  preloadOverviewCrossbowmanGlb,
+  preloadOverviewMacemanGlb,
+  preloadOverviewPeasantGlb,
+  preloadOverviewSpearmanGlb,
+  preloadOverviewSwordsmanGlb,
+} from './overview-peasant-3d';
 import { updateOverviewWheatWind } from './overview-wheat-field-3d';
 import {
   buildOverviewMeadowClusterGeometry,
@@ -175,6 +183,11 @@ export class OverviewBoard3D {
   constructor(private readonly campaign: OverviewCampaign) {
     void preloadOverviewPeasantGlb();
     void preloadOverviewSpearmanGlb();
+    void preloadOverviewArcherGlb();
+    void preloadOverviewCrossbowmanGlb();
+    void preloadOverviewSwordsmanGlb();
+    void preloadOverviewMacemanGlb();
+    void preloadOverviewArmoredKnightGlb();
     this.mapWidth = campaign.mapWidth;
     this.mapHeight = campaign.mapHeight;
     this.group.name = 'OverviewBoard3D';

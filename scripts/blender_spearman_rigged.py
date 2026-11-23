@@ -1036,16 +1036,20 @@ def build_and_export():
 
     os.makedirs(os.path.dirname(GLB_OUT), exist_ok=True)
     os.makedirs(os.path.dirname(BLEND_OUT), exist_ok=True)
-    bpy.ops.wm.save_as_mainfile(filepath=BLEND_OUT)
     bpy.ops.export_scene.gltf(
         filepath=GLB_OUT,
         export_format="GLB",
         export_yup=True,
         export_apply=True,
         export_materials="EXPORT",
+        export_vertex_color="NAME",
+        export_vertex_color_name="Col",
+        export_all_vertex_colors=False,
         export_animations=True,
         export_nla_strips=True,
+        will_save_settings=True,
     )
+    bpy.ops.wm.save_as_mainfile(filepath=BLEND_OUT)
     print(f"Exported GLB -> {GLB_OUT}")
     print(f"Saved BLEND  -> {BLEND_OUT}")
 

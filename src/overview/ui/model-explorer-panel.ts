@@ -27,7 +27,15 @@ import {
   createOverviewSettlementModel,
 } from '../../render3d/overview/overview-models-3d';
 import { createOverviewCowModel } from '../../render3d/overview/overview-cow-3d';
-import { createOverviewPeasantModel, createOverviewSpearmanModel } from '../../render3d/overview/overview-peasant-3d';
+import {
+  createOverviewArcherModel,
+  createOverviewArmoredKnightModel,
+  createOverviewCrossbowmanModel,
+  createOverviewMacemanModel,
+  createOverviewPeasantModel,
+  createOverviewSpearmanModel,
+  createOverviewSwordsmanModel,
+} from '../../render3d/overview/overview-peasant-3d';
 import { createOverviewWheatFieldModel } from '../../render3d/overview/overview-wheat-field-3d';
 
 export type ModelExplorerCategory =
@@ -203,7 +211,6 @@ export function getModelExplorerCatalog(): ModelExplorerEntry[] {
 
   const unitTypes: Array<{ type: CreatureType; label: string; isHero?: boolean }> = [
     { type: CreatureType.PEASANT, label: 'Peasant' },
-    { type: CreatureType.PEASANT_ARCHER, label: 'Peasant Archer' },
     { type: CreatureType.SLINGER, label: 'Slinger' },
     { type: CreatureType.SWORDSMAN, label: 'Swordsman' },
     { type: CreatureType.SPEARMAN, label: 'Spearman' },
@@ -212,10 +219,7 @@ export function getModelExplorerCatalog(): ModelExplorerEntry[] {
     { type: CreatureType.ARCHER, label: 'Archer' },
     { type: CreatureType.HEALER, label: 'Healer' },
     { type: CreatureType.BARBARIAN, label: 'Barbarian' },
-    { type: CreatureType.HEAVY_KNIGHTS, label: 'Heavy Knights' },
     { type: CreatureType.ARMORED_KNIGHT, label: 'Armored Knight' },
-    { type: CreatureType.BEHEMOTH, label: 'Behemoth' },
-    { type: CreatureType.HERO_COMMANDER, label: 'Hero Commander', isHero: true },
   ];
 
   return [
@@ -325,12 +329,26 @@ export function getModelExplorerCatalog(): ModelExplorerEntry[] {
       id: `unit_${CreatureType[ut.type].toLowerCase()}`,
       label: ut.label,
       category: 'Units' as const,
-      create: () =>
-        ut.type === CreatureType.PEASANT
-          ? createOverviewPeasantModel(707)
-          : ut.type === CreatureType.SPEARMAN
-            ? createOverviewSpearmanModel(809)
-            : buildArticulatedUnit3DMesh(ut.type, 0, Boolean(ut.isHero)),
+      create: () => {
+        switch (ut.type) {
+          case CreatureType.PEASANT:
+            return createOverviewPeasantModel(707);
+          case CreatureType.SPEARMAN:
+            return createOverviewSpearmanModel(809);
+          case CreatureType.ARCHER:
+            return createOverviewArcherModel(907);
+          case CreatureType.CROSSBOWMAN:
+            return createOverviewCrossbowmanModel(1009);
+          case CreatureType.SWORDSMAN:
+            return createOverviewSwordsmanModel(1103);
+          case CreatureType.MACEMAN:
+            return createOverviewMacemanModel(1201);
+          case CreatureType.ARMORED_KNIGHT:
+            return createOverviewArmoredKnightModel(1301);
+          default:
+            return buildArticulatedUnit3DMesh(ut.type, 0, Boolean(ut.isHero));
+        }
+      },
     })),
     // Battle-scene-only models (lazy loaded on click, unloaded on switch)
     {

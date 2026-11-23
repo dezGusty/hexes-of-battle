@@ -6,6 +6,11 @@ import { applyRiggedTeamAndBannerShader, getSharedWhiteTexture, parseColorToHex 
 
 export const OVERVIEW_PEASANT_GLB_PATH = 'models/units/peasant_rigged.glb';
 export const OVERVIEW_SPEARMAN_GLB_PATH = 'models/units/spearman_rigged.glb';
+export const OVERVIEW_ARCHER_GLB_PATH = 'models/units/archer_rigged.glb';
+export const OVERVIEW_CROSSBOWMAN_GLB_PATH = 'models/units/crossbowman_rigged.glb';
+export const OVERVIEW_SWORDSMAN_GLB_PATH = 'models/units/swordsman_rigged.glb';
+export const OVERVIEW_MACEMAN_GLB_PATH = 'models/units/maceman_rigged.glb';
+export const OVERVIEW_KNIGHT_GLB_PATH = 'models/units/armored_knight_rigged.glb';
 const IDLE_PROBABILITY = 0.85;
 const PEASANT_IDLE_CLIPS = ['idle_stance', 'idle_wipe_forehead', 'idle_shift_weight'] as const;
 const ALL_PEASANT_CLIP_NAMES = [
@@ -305,6 +310,46 @@ const spearmanHelpers = createOverviewRiggedUnitHelpers({
   allClipNames: ALL_SPEARMAN_CLIP_NAMES,
 });
 
+const archerHelpers = createOverviewRiggedUnitHelpers({
+  glbPath: OVERVIEW_ARCHER_GLB_PATH,
+  groupName: 'OverviewArcher',
+  placeholderName: 'ArcherGlbPlaceholder',
+  idleClipNames: ['idle_stance'],
+  allClipNames: ['idle_stance', 'combat_move_advance', 'combat_attack_ranged', 'combat_attack_poke', 'combat_defensive_stance', 'death'],
+});
+
+const crossbowmanHelpers = createOverviewRiggedUnitHelpers({
+  glbPath: OVERVIEW_CROSSBOWMAN_GLB_PATH,
+  groupName: 'OverviewCrossbowman',
+  placeholderName: 'CrossbowmanGlbPlaceholder',
+  idleClipNames: ['idle_stance'],
+  allClipNames: ['idle_stance', 'combat_move_advance', 'combat_attack_ranged', 'reload', 'combat_attack_poke', 'combat_defensive_stance', 'death'],
+});
+
+const swordsmanHelpers = createOverviewRiggedUnitHelpers({
+  glbPath: OVERVIEW_SWORDSMAN_GLB_PATH,
+  groupName: 'OverviewSwordsman',
+  placeholderName: 'SwordsmanGlbPlaceholder',
+  idleClipNames: ['idle_stance', 'idle_raise_sword'],
+  allClipNames: ['idle_stance', 'idle_raise_sword', 'combat_move_advance', 'combat_attack_poke', 'combat_defensive_stance', 'death'],
+});
+
+const macemanHelpers = createOverviewRiggedUnitHelpers({
+  glbPath: OVERVIEW_MACEMAN_GLB_PATH,
+  groupName: 'OverviewMaceman',
+  placeholderName: 'MacemanGlbPlaceholder',
+  idleClipNames: ['idle_stance'],
+  allClipNames: ['idle_stance', 'combat_move_advance', 'combat_attack_poke', 'combat_defensive_stance', 'death'],
+});
+
+const knightHelpers = createOverviewRiggedUnitHelpers({
+  glbPath: OVERVIEW_KNIGHT_GLB_PATH,
+  groupName: 'OverviewArmoredKnight',
+  placeholderName: 'ArmoredKnightGlbPlaceholder',
+  idleClipNames: ['idle_stance'],
+  allClipNames: ['idle_stance', 'combat_move_advance', 'combat_attack_poke', 'combat_defensive_stance', 'death'],
+});
+
 /**
  * Preloads `models/units/peasant_rigged.glb` once so global overview armies
  * and the battle map share the single rigged, textured peasant model.
@@ -341,4 +386,44 @@ export function createOverviewSpearmanModel(
   options?: OverviewPeasantOptions
 ): THREE.Group {
   return spearmanHelpers.createModel(seed, options);
+}
+
+export function preloadOverviewArcherGlb(basePath: string = ''): Promise<CachedRiggedGlb | null> {
+  return archerHelpers.preload(basePath);
+}
+
+export function createOverviewArcherModel(seed = 907, options?: OverviewPeasantOptions): THREE.Group {
+  return archerHelpers.createModel(seed, options);
+}
+
+export function preloadOverviewCrossbowmanGlb(basePath: string = ''): Promise<CachedRiggedGlb | null> {
+  return crossbowmanHelpers.preload(basePath);
+}
+
+export function createOverviewCrossbowmanModel(seed = 1009, options?: OverviewPeasantOptions): THREE.Group {
+  return crossbowmanHelpers.createModel(seed, options);
+}
+
+export function preloadOverviewSwordsmanGlb(basePath: string = ''): Promise<CachedRiggedGlb | null> {
+  return swordsmanHelpers.preload(basePath);
+}
+
+export function createOverviewSwordsmanModel(seed = 1103, options?: OverviewPeasantOptions): THREE.Group {
+  return swordsmanHelpers.createModel(seed, options);
+}
+
+export function preloadOverviewMacemanGlb(basePath: string = ''): Promise<CachedRiggedGlb | null> {
+  return macemanHelpers.preload(basePath);
+}
+
+export function createOverviewMacemanModel(seed = 1201, options?: OverviewPeasantOptions): THREE.Group {
+  return macemanHelpers.createModel(seed, options);
+}
+
+export function preloadOverviewArmoredKnightGlb(basePath: string = ''): Promise<CachedRiggedGlb | null> {
+  return knightHelpers.preload(basePath);
+}
+
+export function createOverviewArmoredKnightModel(seed = 1301, options?: OverviewPeasantOptions): THREE.Group {
+  return knightHelpers.createModel(seed, options);
 }

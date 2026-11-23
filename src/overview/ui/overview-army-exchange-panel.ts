@@ -22,7 +22,7 @@ const HP_BAR_H = 36;
 
 const CREATURE_DISPLAY_NAMES: Record<number, string> = {
   [CreatureType.PEASANT]: 'Peasant',
-  [CreatureType.PEASANT_ARCHER]: 'Peasant Archer',
+  [CreatureType.PEASANT_ARCHER]: 'Archer',
   [CreatureType.SWORDSMAN]: 'Swordsman',
   [CreatureType.SPEARMAN]: 'Spearman',
   [CreatureType.CROSSBOWMAN]: 'Crossbowman',

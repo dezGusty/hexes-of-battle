@@ -87,7 +87,7 @@ export const FOREST_TREE_TARGET_HEIGHT = AVERAGE_UNIT_3D_HEIGHT * 0.75; // 0.90
  */
 export const SUPPORTED_3D_UNIT_KEYS: readonly string[] = [
   'peasant',
-  'peasant_archer',
+  'archer',
   'swordsman',
   'spearman',
   'crossbowman',
@@ -105,16 +105,17 @@ export const IGNORED_3D_UNIT_KEYS: readonly string[] = [
 ];
 
 export function normalizeUnitKey(type: CreatureType | string | number): string {
-  const raw = String(type).toLowerCase().trim().replace(/-/g, '_');
+  const raw = String(type).toLowerCase().trim().replace(/[\s-]+/g, '_');
   switch (raw) {
     case '0':
     case 'peasant':
       return 'peasant';
     case '1':
     case '5':
-    case 'peasant_archer':
     case 'archer':
-      return 'peasant_archer';
+    case 'peasantarcher':
+    case 'archer':
+      return 'archer';
     case '2':
     case 'swordsman':
     case 'swordman':
@@ -164,15 +165,15 @@ export function isUnit3DModelSupported(type: CreatureType | string | number): bo
 
 export const UNIT_GLB_PATHS: Record<string, string> = {
   peasant: 'models/units/peasant_rigged.glb',
-  peasant_archer: 'models/units/peasant_archer.glb',
-  swordsman: 'models/units/swordsman.glb',
+  archer: 'models/units/archer_rigged.glb',
+  swordsman: 'models/units/swordsman_rigged.glb',
   spearman: 'models/units/spearman_rigged.glb',
-  crossbowman: 'models/units/crossbowman.glb',
+  crossbowman: 'models/units/crossbowman_rigged.glb',
   barbarian: 'models/units/barbarian.glb',
   slinger: 'models/units/slinger.glb',
   healer: 'models/units/healer.glb',
-  maceman: 'models/units/maceman.glb',
-  armored_knight: 'models/units/armored_knight.glb',
+  maceman: 'models/units/maceman_rigged.glb',
+  armored_knight: 'models/units/armored_knight_rigged.glb',
 };
 
 /**
@@ -713,7 +714,7 @@ function prepareHumanoidHierarchyBeforeCompaction(
       } else if (rawName.includes('head') || rawName.includes('tine') || rawName.includes('cross') || parentName === 'weapon') {
         applyHumanoidUVMapping(mesh.geometry, 'peasant_pitchfork_head');
       }
-    } else if (unitKey === 'peasant_archer') {
+    } else if (unitKey === 'archer') {
       if (mesh.name === 'Head') {
         applyHumanoidUVMapping(mesh.geometry, 'archer_head_face');
         mesh.material = makeMat(0xffffff, 0.74, 0.05);
@@ -953,7 +954,7 @@ function getUnitLimbMaterial(
         default:
           return getHumanoidPartMaterial('peasant_cloth', 0.86, 0.02);
       }
-    case 'peasant_archer':
+    case 'archer':
       switch (limbName) {
         case 'Head':
           return getHumanoidPartMaterial('archer_face', 0.74, 0.05);
@@ -1305,7 +1306,7 @@ export function compactArticulatedUnitHierarchy(
   const isBarbarian = effectiveUnitKey === 'barbarian';
   const isHumanoidTextured =
     effectiveUnitKey === 'peasant' ||
-    effectiveUnitKey === 'peasant_archer' ||
+    effectiveUnitKey === 'archer' ||
     effectiveUnitKey === 'spearman' ||
     effectiveUnitKey === 'swordsman' ||
     effectiveUnitKey === 'healer' ||
@@ -1510,8 +1511,16 @@ export function instantiateGlbUnitTemplate(
       }
     });
 
-    if (unitKey === 'peasant' || unitKey === 'spearman') {
-      clonedSkinned.scale.setScalar(1.85);
+    if (
+      unitKey === 'peasant' ||
+      unitKey === 'archer' ||
+      unitKey === 'swordsman' ||
+      unitKey === 'spearman' ||
+      unitKey === 'crossbowman' ||
+      unitKey === 'maceman' ||
+      unitKey === 'armored_knight'
+    ) {
+      clonedSkinned.scale.setScalar(unitKey === 'armored_knight' ? 1.55 : 1.85);
       clonedSkinned.rotation.y = Math.PI / 2;
     }
 
@@ -1993,7 +2002,7 @@ export function buildArticulatedUnit3DMesh(
     unitKey === 'crossbowman' ||
     unitKey === 'spearman' ||
     unitKey === 'barbarian' ||
-    unitKey === 'peasant_archer';
+    unitKey === 'archer';
 
   let torsoMat = matCloth;
   let legMat = matCloth;
@@ -2015,7 +2024,7 @@ export function buildArticulatedUnit3DMesh(
     torsoMat = matDarkLeather;
     legMat = matCloth;
     armMat = matLeather;
-  } else if (unitKey === 'peasant_archer') {
+  } else if (unitKey === 'archer') {
     torsoMat = matLeather;
   } else if (unitKey === 'barbarian') {
     torsoMat = matSkin;
@@ -2157,7 +2166,7 @@ export function buildArticulatedUnit3DMesh(
       break;
     }
 
-    case 'peasant_archer': {
+    case 'archer': {
       // Hunter hat & feather
       const matHunterGreen = makeMat(0x234d20, 0.82, 0.04);
       const capGeo = new THREE.ConeGeometry(0.135, 0.18, 16);

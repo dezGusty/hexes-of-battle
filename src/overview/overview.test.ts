@@ -1110,7 +1110,12 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
     expect(nextWind.angleRad).not.toBe(initialWind.angleRad);
     expect(nextWind.strength).not.toBe(initialWind.strength);
     expect(posAttr.getZ(posAttr.count - 1)).not.toBe(tipZBefore);
-    expect(sampleUnit!.rotation.y).not.toBe(unitRotBefore);
+    const isRiggedOverviewUnit = typeof sampleUnit!.userData?.updateAnimation === 'function';
+    if (!isRiggedOverviewUnit) {
+      expect(sampleUnit!.rotation.y).not.toBe(unitRotBefore);
+    } else {
+      expect(sampleUnit!.userData.peasantController).toBeDefined();
+    }
 
     // Low/no wind: flag drops along the pole into a cone shape
     board.updateFlagWindMeshes(0.2);
@@ -2345,5 +2350,49 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
     expect(overviewSpearman).toBeTruthy();
     expect(overviewSpearman.userData.teamColorHex).toBe(0xc62828);
     expect(overviewSpearman.userData.bannerName).toBe('banner5.png');
+
+    // Verify archer, crossbowman, swordsman, maceman, and armored knight use rigged overview models with color/banner bound
+    const multiVisual = createOverviewCombinedArmyVisual(
+      {
+        id: 'army_all_rigged',
+        ownerPlayerId: 'player1',
+        coords: { x: 3, y: 0 },
+        movementPoints: 4,
+        maxMovementPoints: 4,
+        squads: [
+          { creatureType: CreatureType.ARCHER, count: 6, hpPercent: 1 },
+          { creatureType: CreatureType.CROSSBOWMAN, count: 6, hpPercent: 1 },
+          { creatureType: CreatureType.SWORDSMAN, count: 6, hpPercent: 1 },
+          { creatureType: CreatureType.MACEMAN, count: 6, hpPercent: 1 },
+          { creatureType: CreatureType.ARMORED_KNIGHT, count: 4, hpPercent: 1 },
+        ],
+      },
+      '#2e7d32',
+      'banner9.png'
+    );
+    for (const objName of ['OverviewArcher', 'OverviewCrossbowman', 'OverviewSwordsman', 'OverviewMaceman', 'OverviewArmoredKnight']) {
+      const obj = multiVisual.getObjectByName(objName)!;
+      expect(obj).toBeTruthy();
+      expect(obj.userData.teamColorHex).toBe(0x2e7d32);
+      expect(obj.userData.bannerName).toBe('banner9.png');
+    }
+
+    // Verify Peasant Archer on the global map also uses OverviewArcher (never procedural Peasant Archer)
+    const paVisual = createOverviewCombinedArmyVisual(
+      {
+        id: 'army_pa',
+        ownerPlayerId: 'player1',
+        coords: { x: 4, y: 0 },
+        movementPoints: 4,
+        maxMovementPoints: 4,
+        squads: [{ creatureType: CreatureType.PEASANT_ARCHER, count: 8, hpPercent: 1 }],
+      },
+      '#1565c0',
+      'banner2.png'
+    );
+    const paObj = paVisual.getObjectByName('OverviewArcher')!;
+    expect(paObj).toBeTruthy();
+    expect(paObj.userData.teamColorHex).toBe(0x1565c0);
+    expect(paObj.userData.bannerName).toBe('banner2.png');
   });
 });

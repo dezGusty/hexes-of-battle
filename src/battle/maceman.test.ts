@@ -138,13 +138,13 @@ describe("Mace Man Unit & Armor Penetration Perk Validation", () => {
       expect(isUnit3DModelSupported(CreatureType.MACEMAN)).toBe(true);
       expect(isUnit3DModelSupported("maceman")).toBe(true);
       expect(SUPPORTED_3D_UNIT_KEYS).toContain("maceman");
-      expect(UNIT_GLB_PATHS.maceman).toBe("models/units/maceman.glb");
+      expect(UNIT_GLB_PATHS.maceman).toBe("models/units/maceman_rigged.glb");
     });
 
     it("should have binary glTF 2.0 (.glb) and Blender (.blend) files exported on disk", () => {
       const rootDir = path.resolve(__dirname, "../..");
-      const glbPath = path.join(rootDir, "public/models/units/maceman.glb");
-      const blendPath = path.join(rootDir, "assets/blender/maceman.blend");
+      const glbPath = path.join(rootDir, "public/models/units/maceman_rigged.glb");
+      const blendPath = path.join(rootDir, "assets/blender/maceman_rigged.blend");
 
       expect(fs.existsSync(glbPath)).toBe(true);
       expect(fs.existsSync(blendPath)).toBe(true);
