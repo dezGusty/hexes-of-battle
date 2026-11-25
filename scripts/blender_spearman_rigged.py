@@ -82,7 +82,7 @@ def make_skin_material():
 
 
 def create_gambeson_texture(size: int = 256):
-    """Generates a seamless quilted diamond-stitched gambeson linen texture."""
+    """Generates a worn beige/tan wool-linen quilted gambeson with black cross-stitching and heavy embossing."""
     img = bpy.data.images.new("tex_spearman_gambeson", width=size, height=size, alpha=False)
     pixels = [0.0] * (size * size * 4)
     rng = random.Random(42)
@@ -91,21 +91,79 @@ def create_gambeson_texture(size: int = 256):
         v = y / size
         for x in range(size):
             u = x / size
-            # Diamond quilting pattern (two diagonal seam grids)
-            d1 = abs(((u * 6.0 + v * 6.0) % 1.0) - 0.5) * 2.0
-            d2 = abs(((u * 6.0 - v * 6.0) % 1.0) - 0.5) * 2.0
-            seam = max(0.0, 1.0 - min(d1, d2) * 7.5)
-            puff = min(1.0, (min(d1, d2) ** 0.55) * 1.15)
-            # Subtle woven linen cross-threads
-            weave = 0.03 * math.sin(u * math.pi * 64.0) * math.sin(v * math.pi * 64.0)
-            grain = (rng.random() - 0.5) * 0.035
+            # Diamond cross-stitch grid
+            p1 = (u * 6.0 + v * 6.0)
+            p2 = (u * 6.0 - v * 6.0)
+            d1 = abs((p1 % 1.0) - 0.5) * 2.0
+            d2 = abs((p2 % 1.0) - 0.5) * 2.0
+            d_min = min(d1, d2)
 
-            lum = 0.72 + 0.18 * puff - 0.34 * seam + weave + grain
-            lum = max(0.25, min(0.96, lum))
+            # Black cross-stitch seam with subtle stitch-dash modulation
+            stitch_dash = 0.75 + 0.25 * math.sin((p1 if d1 < d2 else p2) * math.pi * 14.0)
+            seam = max(0.0, 1.0 - d_min * 8.5) * stitch_dash
+
+            # Heavy embossed puff between stitches
+            puff = min(1.0, (d_min ** 0.42) * 1.22)
+            # Coarse wool & linen cross-weave + worn mottling
+            weave = 0.045 * math.sin(u * math.pi * 72.0) * math.sin(v * math.pi * 72.0)
+            wear = 0.06 * math.sin(u * math.pi * 8.0 + 0.7) * math.cos(v * math.pi * 10.0)
+            grain = (rng.random() - 0.5) * 0.055
+
+            base_lum = max(0.28, min(0.84, 0.50 + 0.24 * puff + weave + wear + grain))
+            # Mix toward black cross-stitch along seams
+            r = base_lum * 0.92 * (1.0 - seam) + 0.06 * seam
+            g = base_lum * 0.78 * (1.0 - seam) + 0.05 * seam
+            b = base_lum * 0.58 * (1.0 - seam) + 0.05 * seam
+
             idx = (y * size + x) * 4
-            pixels[idx] = lum
-            pixels[idx + 1] = lum * 0.96
-            pixels[idx + 2] = lum * 0.88
+            pixels[idx] = max(0.03, min(0.95, r))
+            pixels[idx + 1] = max(0.03, min(0.95, g))
+            pixels[idx + 2] = max(0.03, min(0.95, b))
+            pixels[idx + 3] = 1.0
+
+    img.pixels.foreach_set(pixels)
+    img.pack()
+    return img
+
+
+def _gambeson_height(u: float, v: float) -> float:
+    p1 = (u * 6.0 + v * 6.0)
+    p2 = (u * 6.0 - v * 6.0)
+    d1 = abs((p1 % 1.0) - 0.5) * 2.0
+    d2 = abs((p2 % 1.0) - 0.5) * 2.0
+    d_min = min(d1, d2)
+    puff = min(1.0, (d_min ** 0.42) * 1.22)
+    weave = 0.03 * math.sin(u * math.pi * 72.0) * math.sin(v * math.pi * 72.0)
+    return puff + weave
+
+
+def create_gambeson_normal_texture(size: int = 256):
+    """Generates a strong tangent-space normal map for the quilted gambeson."""
+    img = bpy.data.images.new("tex_spearman_gambeson_normal", width=size, height=size, alpha=False)
+    img.colorspace_settings.name = "Non-Color"
+    pixels = [0.0] * (size * size * 4)
+    eps = 1.0 / size
+    strength = 4.5  # strong embossing relief
+
+    for y in range(size):
+        v = y / size
+        for x in range(size):
+            u = x / size
+            h_l = _gambeson_height(u - eps, v)
+            h_r = _gambeson_height(u + eps, v)
+            h_d = _gambeson_height(u, v - eps)
+            h_u = _gambeson_height(u, v + eps)
+            dx = (h_r - h_l) * strength
+            dy = (h_u - h_d) * strength
+            nx, ny, nz = -dx, -dy, 1.0
+            inv_len = 1.0 / math.sqrt(nx * nx + ny * ny + nz * nz)
+            nx *= inv_len
+            ny *= inv_len
+            nz *= inv_len
+            idx = (y * size + x) * 4
+            pixels[idx] = nx * 0.5 + 0.5
+            pixels[idx + 1] = ny * 0.5 + 0.5
+            pixels[idx + 2] = nz * 0.5 + 0.5
             pixels[idx + 3] = 1.0
 
     img.pixels.foreach_set(pixels)
@@ -114,18 +172,43 @@ def create_gambeson_texture(size: int = 256):
 
 
 def make_gambeson_material():
-    mat = make_material("SpearmanGambeson", (0.85, 0.80, 0.72, 1.0), metallic=0.0, roughness=0.88)
+    mat = make_material("SpearmanGambeson", (0.64, 0.54, 0.40, 1.0), metallic=0.0, roughness=0.90)
     tex_img = create_gambeson_texture(256)
+    norm_img = create_gambeson_normal_texture(256)
     nt = mat.node_tree
     bsdf = nt.nodes.get("Principled BSDF")
     tex_node = nt.nodes.new("ShaderNodeTexImage")
     tex_node.image = tex_img
     nt.links.new(tex_node.outputs["Color"], bsdf.inputs["Base Color"])
-    bump = nt.nodes.new("ShaderNodeBump")
-    bump.inputs["Strength"].default_value = 0.28
-    bump.inputs["Distance"].default_value = 0.008
-    nt.links.new(tex_node.outputs["Color"], bump.inputs["Height"])
-    nt.links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
+
+    norm_tex = nt.nodes.new("ShaderNodeTexImage")
+    norm_tex.image = norm_img
+    norm_map = nt.nodes.new("ShaderNodeNormalMap")
+    norm_map.inputs["Strength"].default_value = 1.8
+    nt.links.new(norm_tex.outputs["Color"], norm_map.inputs["Color"])
+    nt.links.new(norm_map.outputs["Normal"], bsdf.inputs["Normal"])
+    return mat
+
+
+def make_trousers_material():
+    mat = make_material("SpearmanTrousers", (0.62, 0.62, 0.64, 1.0), metallic=0.0, roughness=0.90)
+    img = bpy.data.images.new("tex_spearman_trousers", width=64, height=64, alpha=False)
+    pixels = [0.0] * (64 * 64 * 4)
+    for y in range(64):
+        for x in range(64):
+            lum = 0.62 + 0.03 * math.sin(x * 0.8 + y * 0.8)
+            idx = (y * 64 + x) * 4
+            pixels[idx] = lum
+            pixels[idx + 1] = lum
+            pixels[idx + 2] = lum
+            pixels[idx + 3] = 1.0
+    img.pixels.foreach_set(pixels)
+    img.pack()
+    nt = mat.node_tree
+    bsdf = nt.nodes.get("Principled BSDF")
+    tex_node = nt.nodes.new("ShaderNodeTexImage")
+    tex_node.image = img
+    nt.links.new(tex_node.outputs["Color"], bsdf.inputs["Base Color"])
     return mat
 
 
@@ -155,18 +238,8 @@ def create_chainmail_texture(size: int = 128):
 
 
 def make_chainmail_material():
-    mat = make_material("SpearmanChainmail", (0.42, 0.45, 0.49, 1.0), metallic=0.72, roughness=0.46)
-    tex_img = create_chainmail_texture(128)
-    nt = mat.node_tree
-    bsdf = nt.nodes.get("Principled BSDF")
-    tex_node = nt.nodes.new("ShaderNodeTexImage")
-    tex_node.image = tex_img
-    nt.links.new(tex_node.outputs["Color"], bsdf.inputs["Base Color"])
-    bump = nt.nodes.new("ShaderNodeBump")
-    bump.inputs["Strength"].default_value = 0.42
-    bump.inputs["Distance"].default_value = 0.006
-    nt.links.new(tex_node.outputs["Color"], bump.inputs["Height"])
-    nt.links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
+    # Solid neutral base so applyRiggedTeamAndBannerShader renders the aventail in solid player color
+    mat = make_material("SpearmanChainmail", (0.61, 0.61, 0.61, 1.0), metallic=0.18, roughness=0.62)
     return mat
 
 
@@ -976,7 +1049,8 @@ def build_and_export():
     mats = {
         "skin": make_skin_material(),
         "tunic": make_gambeson_material(),
-        "trousers": make_material("SpearmanTrousers", (0.24, 0.20, 0.17, 1.0), metallic=0.0, roughness=0.92),
+        "trousers": make_trousers_material(),
+        "belt": make_material("SpearmanBelt", (0.61, 0.61, 0.61, 1.0), metallic=0.05, roughness=0.78),
         "leather": make_material("SpearmanLeather", (0.28, 0.18, 0.10, 1.0), metallic=0.04, roughness=0.82),
         "iron": make_plate_armor_material(),
         "chainmail": make_chainmail_material(),
@@ -993,12 +1067,12 @@ def build_and_export():
         create_mesh_obj("Body_TorsoHead", tagged_bm(build_torso_neck_head_bm(), (0.0, 0.0, 0.0, 1.0)), mats["skin"]),
         create_mesh_obj("Body_Arm_L", tagged_bm(build_arm_bm(+1.0), (0.0, 0.0, 0.0, 1.0)), mats["skin"]),
         create_mesh_obj("Body_Arm_R", tagged_bm(build_arm_bm(-1.0), (0.0, 0.0, 0.0, 1.0)), mats["skin"]),
-        create_mesh_obj("Garb_Tunic", tagged_bm(build_tunic_bm(), (1.0, 0.0, 0.0, 1.0)), mats["tunic"]),
-        create_mesh_obj("Garb_Belt", tagged_bm(build_belt_bm(), (0.0, 0.0, 0.0, 1.0)), mats["leather"]),
-        create_mesh_obj("Garb_Trousers", tagged_bm(build_trousers_bm(), (0.0, 0.0, 0.0, 1.0)), mats["trousers"]),
+        create_mesh_obj("Garb_Tunic", tagged_bm(build_tunic_bm(), (0.0, 0.0, 0.0, 1.0)), mats["tunic"]),
+        create_mesh_obj("Garb_Belt", tagged_bm(build_belt_bm(), (1.0, 0.0, 0.0, 1.0)), mats["belt"]),
+        create_mesh_obj("Garb_Trousers", tagged_bm(build_trousers_bm(), (1.0, 0.0, 0.0, 1.0)), mats["trousers"]),
         create_mesh_obj("Garb_Boots", tagged_bm(build_boots_bm(), (0.0, 0.0, 0.0, 1.0)), mats["leather"]),
         create_mesh_obj("Helmet_Kettle", tagged_bm(build_kettle_helmet_bm(), (0.0, 0.0, 0.0, 1.0)), mats["iron"]),
-        create_mesh_obj("Helmet_Chainmail", tagged_bm(build_helmet_chainmail_bm(), (0.0, 0.0, 0.0, 1.0)), mats["chainmail"]),
+        create_mesh_obj("Helmet_Chainmail", tagged_bm(build_helmet_chainmail_bm(), (1.0, 0.0, 0.0, 1.0)), mats["chainmail"]),
     ]
 
     bpy.ops.object.select_all(action="DESELECT")
