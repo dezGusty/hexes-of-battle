@@ -81,9 +81,20 @@ export class SquadVisual3D {
   private moveTargetIndex: number = 0;
   private moveSpeed: number = 5.0; // units per second
   public moveCyclesPerHex: number = 1;
+  private activeMoveCyclesPerHex: number = 1;
+  private currentSegmentDist: number = 1.732;
+  private walkStepCycleAccum: number = 0;
+  public onWalkStep?: (squad: SquadVisual3D) => void;
   public deathSpeedMultiplier: number = 1;
   private onMoveComplete?: () => void;
   private pendingPostMoveActions: Array<() => void> = [];
+  private meleeSequenceState: {
+    phase: 'advancing' | 'striking' | 'returning';
+    originPos: THREE.Vector3;
+    finalFacing: HexDirection;
+    strikeTimerMs: number;
+    attackDurationMs: number;
+  } | null = null;
 
   // Death animation & corpse state
   private dyingModelIndices: Set<number> = new Set();
@@ -685,9 +696,15 @@ export class SquadVisual3D {
     this.moveTargetIndex = 0;
     this.isMoving = true;
     this.onMoveComplete = onComplete;
+    this.activeMoveCyclesPerHex = moveCyclesPerHexOverride ?? this.moveCyclesPerHex;
+    this.currentSegmentDist = Math.max(0.1, this.rootGroup.position.distanceTo(this.movePath[0]));
+    this.walkStepCycleAccum = 0;
 
     this.updateWalkTimeScaleForRemainingPath(moveCyclesPerHexOverride);
     this.playAnimation('walk');
+    if (this.hasMoveAnimation()) {
+      this.onWalkStep?.(this);
+    }
   }
 
   public enqueuePostMoveAction(action: () => void): void {
@@ -696,6 +713,57 @@ export class SquadVisual3D {
       return;
     }
     this.pendingPostMoveActions.push(action);
+  }
+
+  public isInMeleeAttackSequence(): boolean {
+    return this.meleeSequenceState !== null;
+  }
+
+  /**
+   * Executes a melee squad attack sequence:
+   * 1. Walk past the hex edge toward `targetWorldPos` (consistent move speed + walk anim)
+   * 2. Face target, play `attack_melee`, and invoke `onStrike` (sound + damage)
+   * 3. Turn toward `originPos`, walk back to the attacking hex, and rotate back to `finalFacing`
+   */
+  public performMeleeAttackSequence(
+    targetWorldPos: THREE.Vector3,
+    finalFacing: HexDirection,
+    onStrike: () => void,
+    attackDurationMs: number = 450
+  ): void {
+    const originPos = this.rootGroup.position.clone();
+    const dist = originPos.distanceTo(targetWorldPos);
+    if (dist <= 1e-3) {
+      this.setFacing(finalFacing);
+      this.playAnimation('attack_melee', attackDurationMs);
+      onStrike();
+      return;
+    }
+
+    const lungeRatio = 0.60; // passes the hex edge (0.50) into melee strike range
+    const lungePos = originPos.clone().lerp(targetWorldPos, lungeRatio);
+    const stepCycles = Math.max(0.25, this.moveCyclesPerHex * lungeRatio);
+
+    this.meleeSequenceState = {
+      phase: 'advancing',
+      originPos,
+      finalFacing,
+      strikeTimerMs: 0,
+      attackDurationMs,
+    };
+
+    this.moveToPath(
+      [lungePos],
+      () => {
+        if (!this.meleeSequenceState) return;
+        this.meleeSequenceState.phase = 'striking';
+        this.meleeSequenceState.strikeTimerMs = 0;
+        this.setFacing(finalFacing);
+        this.playAnimation('attack_melee', attackDurationMs);
+        onStrike();
+      },
+      stepCycles
+    );
   }
 
   public update(deltaMs: number, camera: THREE.Camera): void {
@@ -760,26 +828,63 @@ export class SquadVisual3D {
       }
     }
 
-    // Process movement along path
-    if (this.isMoving && this.moveTargetIndex < this.movePath.length) {
+    // Process melee lunge-strike-return state timer
+    if (this.meleeSequenceState?.phase === 'striking') {
+      this.meleeSequenceState.strikeTimerMs += deltaMs;
+      if (this.meleeSequenceState.strikeTimerMs >= this.meleeSequenceState.attackDurationMs) {
+        const seq = this.meleeSequenceState;
+        seq.phase = 'returning';
+        const lungeRatio = 0.60;
+        const stepCycles = Math.max(0.25, this.moveCyclesPerHex * lungeRatio);
+        this.moveToPath(
+          [seq.originPos],
+          () => {
+            const finalDir = seq.finalFacing !== HexDirection.NONE ? seq.finalFacing : this.currentFacing;
+            this.meleeSequenceState = null;
+            this.setFacing(finalDir);
+            this.playAnimation('idle');
+          },
+          stepCycles
+        );
+      }
+    } else if (this.isMoving && this.moveTargetIndex < this.movePath.length) {
       const target = this.movePath[this.moveTargetIndex];
       const step = (this.moveSpeed * deltaMs) / 1000;
       const dist = this.rootGroup.position.distanceTo(target);
+      const movedDist = Math.min(step, dist);
+
+      if (this.hasMoveAnimation() && this.currentSegmentDist > 0.05) {
+        this.walkStepCycleAccum += (movedDist / this.currentSegmentDist) * this.activeMoveCyclesPerHex;
+        while (this.walkStepCycleAccum >= 1.0) {
+          this.walkStepCycleAccum -= 1.0;
+          // Avoid firing an extra step right as the squad finishes its final step
+          if (dist > step || this.moveTargetIndex + 1 < this.movePath.length) {
+            this.onWalkStep?.(this);
+          }
+        }
+      }
 
       if (dist <= step) {
         this.rootGroup.position.copy(target);
         this.moveTargetIndex++;
-        if (this.moveTargetIndex >= this.movePath.length) {
+        if (this.moveTargetIndex < this.movePath.length) {
+          this.currentSegmentDist = Math.max(
+            0.1,
+            this.rootGroup.position.distanceTo(this.movePath[this.moveTargetIndex])
+          );
+        } else {
           this.isMoving = false;
           this.models.forEach((m) => m.setMoveAnimationTimeScale?.(1));
-          this.setFacing(this.creature.facingDirection !== HexDirection.NONE ? this.creature.facingDirection : this.currentFacing);
+          const onComplete = this.onMoveComplete;
+          this.onMoveComplete = undefined;
           if (this.pendingPostMoveActions.length > 0) {
             const actions = this.pendingPostMoveActions.splice(0);
             for (const act of actions) act();
-          } else {
+          } else if (!this.meleeSequenceState) {
+            this.setFacing(this.creature.facingDirection !== HexDirection.NONE ? this.creature.facingDirection : this.currentFacing);
             this.playAnimation('idle');
           }
-          if (this.onMoveComplete) this.onMoveComplete();
+          if (onComplete) onComplete();
         }
       } else {
         const dir = new THREE.Vector3().subVectors(target, this.rootGroup.position).normalize();

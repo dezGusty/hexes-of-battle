@@ -6,14 +6,17 @@ import { disposeBattleRender3DCaches } from "../render3d/render3d-resource-manag
 import { HexMap } from "../shared/hex-map";
 import {
   configureArrowVolleySounds,
+  configureMovementStepSounds,
   configureSoundGroups,
   configureUISounds,
+  configureUnitMovementSounds,
   ISoundSystem,
   PixiSoundSystem,
   setActiveUISoundSystem,
   SoundCategory,
   SoundType,
 } from "../battle/sound-system";
+import { Creature } from "../battle/creature";
 import { MoraleState } from "../battle/combat-rules";
 import { ArmyControlType, Battle } from "../battle";
 import { BattleActionType } from "../battle/battle-action";
@@ -82,6 +85,18 @@ export class BattleScene3D implements Scene {
       (context.templates.combatConfig as any)?.arrow_volley;
     if (arrowVolleyCfg !== undefined) {
       configureArrowVolleySounds(arrowVolleyCfg, this.soundSystem);
+    }
+    const unitMoveCfg =
+      context.templates.soundsConfig?.unitMovementSounds ??
+      context.templates.soundsConfig?.unit_movement_sounds;
+    if (unitMoveCfg !== undefined) {
+      configureUnitMovementSounds(unitMoveCfg, this.soundSystem);
+    }
+    const moveStepCfg =
+      context.templates.soundsConfig?.movementSteps ??
+      context.templates.soundsConfig?.movement_steps;
+    if (moveStepCfg !== undefined) {
+      configureMovementStepSounds(moveStepCfg, this.soundSystem);
     }
 
     this.creatureRepository.setAbilities(context.templates.abilityTypes);
@@ -496,7 +511,11 @@ export class BattleScene3D implements Scene {
       this.view.hexBoard.setWindState(windState.angleRad, windState.strength);
     };
 
-    this.battle.hookMovingUnit = (_creature, _nextStep) => {
+    this.battle.hookMovingUnit = (creature, _nextStep) => {
+      const unitKey = Creature.CREATURE_NAMES[creature?.creatureType] ?? '';
+      if (unitKey && this.soundSystem.hasUnitMovementSound?.(unitKey)) {
+        return;
+      }
       this.soundSystem.play(SoundCategory.SOUND, SoundType.MOVE, true);
     };
 

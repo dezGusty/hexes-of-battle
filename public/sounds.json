@@ -20,7 +20,41 @@
       "47495__kwandalist__steinwurf_1.ogg",
       "47495__kwandalist__steinwurf_2.ogg",
       "47495__kwandalist__steinwurf_3.ogg"
+    ],
+    "infantry_sounds": [
+      "steps_1.ogg",
+      "steps_2.ogg",
+      "steps_3.ogg",
+      "steps_4.ogg"
     ]
+  },
+  "unitMovementSounds": {
+    "peasant": "infantry_sounds",
+    "peasant-archer": "infantry_sounds",
+    "swordsman": "infantry_sounds",
+    "spearman": "infantry_sounds",
+    "crossbowman": "infantry_sounds",
+    "archer": "infantry_sounds",
+    "barbarian": "infantry_sounds",
+    "hero-commander": "infantry_sounds",
+    "slinger": "infantry_sounds",
+    "healer": "infantry_sounds",
+    "maceman": "infantry_sounds",
+    "armored-knight": "infantry_sounds",
+    "heavy-knights": null
+  },
+  "movementSteps": {
+    "max_step_sounds": 4,
+    "vary_pitch": true,
+    "vary_speed": true,
+    "pitch_variation_range": 0.08,
+    "speed_variation_range": 0.08,
+    "scale_volume_by_squad_size": true,
+    "min_squad_volume_factor": 0.35,
+    "max_squad_volume_factor": 0.85,
+    "reference_squad_size": 12,
+    "stagger_delay_ms": 45,
+    "stagger_jitter_ms": 25
   },
   "arrowVolley": {
     "max_volley_sounds": 10,

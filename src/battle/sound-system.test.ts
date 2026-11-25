@@ -943,5 +943,65 @@ describe('SoundSystem Architecture & Decoupling', () => {
         expect(call[0]).toMatch(/^47495__kwandalist__steinwurf_[123]\.ogg$/);
       }
     });
+
+    it('should configure infantry_sounds movement group in sounds.json for infantry units, exclude cavalry, and play staggered multi-source steps', () => {
+      vi.useFakeTimers();
+      try {
+        const expectedStepSounds = ['steps_1.ogg', 'steps_2.ogg', 'steps_3.ogg', 'steps_4.ogg'];
+        expect((soundsJson.soundGroups as any).infantry_sounds).toEqual(expectedStepSounds);
+        expect(soundSystem.getSoundGroup('infantry_sounds')).toEqual(expectedStepSounds);
+
+        // Infantry units are mapped to infantry_sounds; cavalry (heavy-knights) is excluded
+        expect(soundSystem.getUnitMovementSoundGroup('swordsman')).toBe('infantry_sounds');
+        expect(soundSystem.getUnitMovementSoundGroup('Spearman')).toBe('infantry_sounds');
+        expect(soundSystem.getUnitMovementSoundGroup('Mace Man')).toBe('infantry_sounds');
+        expect(soundSystem.hasUnitMovementSound('peasant')).toBe(true);
+        expect(soundSystem.hasUnitMovementSound('armored-knight')).toBe(true);
+        expect(soundSystem.hasUnitMovementSound('heavy-knights')).toBe(false);
+        expect(soundSystem.hasUnitMovementSound('Heavy Knights')).toBe(false);
+
+        // Excluded cavalry plays 0 step sounds
+        mockSoundPlay.mockClear();
+        expect(soundSystem.playUnitMovementSteps('heavy-knights', 4, 4)).toBe(0);
+        expect(mockSoundPlay).not.toHaveBeenCalled();
+
+        // Infantry squad of 8 models plays up to max_step_sounds (4) with staggered delays
+        soundSystem.configureMovementStepSounds({
+          max_step_sounds: 4,
+          stagger_delay_ms: 40,
+          stagger_jitter_ms: 0,
+        });
+        let seq = 0;
+        soundSystem.setRandomProvider(() => {
+          const vals = [0.05, 0.35, 0.65, 0.95];
+          return vals[seq++ % vals.length];
+        });
+
+        mockSoundPlay.mockClear();
+        const playedCount = soundSystem.playUnitMovementSteps('swordsman', 8, 8);
+        expect(playedCount).toBe(4);
+        // First source plays immediately; remaining 3 are staggered by 40ms each
+        expect(mockSoundPlay).toHaveBeenCalledTimes(1);
+        expect(mockSoundPlay.mock.calls[0][0]).toMatch(/^steps_[1-4]\.ogg$/);
+
+        vi.advanceTimersByTime(120);
+        expect(mockSoundPlay).toHaveBeenCalledTimes(4);
+        for (const call of mockSoundPlay.mock.calls) {
+          expect(call[0]).toMatch(/^steps_[1-4]\.ogg$/);
+        }
+
+        // Per-unit reconfiguration (e.g. assigning horse sounds to heavy-knights later)
+        soundSystem.registerSoundGroup('cavalry_horse', ['horse_1.ogg', 'horse_2.ogg']);
+        soundSystem.configureUnitMovementSounds({ 'heavy-knights': 'cavalry_horse' });
+        expect(soundSystem.hasUnitMovementSound('heavy-knights')).toBe(true);
+        mockSoundPlay.mockClear();
+        expect(soundSystem.playUnitMovementSteps('heavy-knights', 2, 4)).toBe(2);
+        vi.advanceTimersByTime(100);
+        expect(mockSoundPlay).toHaveBeenCalledTimes(2);
+        expect(mockSoundPlay.mock.calls[0][0]).toMatch(/^horse_[12]\.ogg$/);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });

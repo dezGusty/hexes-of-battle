@@ -311,6 +311,17 @@ export class HexesEngine {
         if (arrowVolleyCfg !== undefined) {
           this.soundSystem.configureArrowVolleySounds(arrowVolleyCfg);
         }
+        const unitMoveCfg =
+          this.templates.soundsConfig.unitMovementSounds ??
+          this.templates.soundsConfig.unit_movement_sounds;
+        if (unitMoveCfg !== undefined) {
+          this.soundSystem.configureUnitMovementSounds(unitMoveCfg);
+        }
+        const moveStepCfg =
+          this.templates.soundsConfig.movementSteps ?? this.templates.soundsConfig.movement_steps;
+        if (moveStepCfg !== undefined) {
+          this.soundSystem.configureMovementStepSounds(moveStepCfg);
+        }
       }
     } catch {
       // Use defaults if not found

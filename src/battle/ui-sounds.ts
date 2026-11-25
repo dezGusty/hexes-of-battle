@@ -37,6 +37,35 @@ const defaultHudConfig: any = tryLoadPublicJsonFromDisk('public/hud.json') ?? {
       '47495__kwandalist__steinwurf_2.ogg',
       '47495__kwandalist__steinwurf_3.ogg',
     ],
+    infantry_sounds: ['steps_1.ogg', 'steps_2.ogg', 'steps_3.ogg', 'steps_4.ogg'],
+  },
+  unitMovementSounds: {
+    peasant: 'infantry_sounds',
+    'peasant-archer': 'infantry_sounds',
+    swordsman: 'infantry_sounds',
+    spearman: 'infantry_sounds',
+    crossbowman: 'infantry_sounds',
+    archer: 'infantry_sounds',
+    barbarian: 'infantry_sounds',
+    'hero-commander': 'infantry_sounds',
+    slinger: 'infantry_sounds',
+    healer: 'infantry_sounds',
+    maceman: 'infantry_sounds',
+    'armored-knight': 'infantry_sounds',
+    'heavy-knights': null,
+  },
+  movementSteps: {
+    max_step_sounds: 4,
+    vary_pitch: true,
+    vary_speed: true,
+    pitch_variation_range: 0.08,
+    speed_variation_range: 0.08,
+    scale_volume_by_squad_size: true,
+    min_squad_volume_factor: 0.35,
+    max_squad_volume_factor: 0.85,
+    reference_squad_size: 12,
+    stagger_delay_ms: 45,
+    stagger_jitter_ms: 25,
   },
   arrowVolley: {
     max_volley_sounds: 10,
@@ -63,6 +92,35 @@ const defaultSoundsConfig: any = tryLoadPublicJsonFromDisk('public/sounds.json')
       '47495__kwandalist__steinwurf_2.ogg',
       '47495__kwandalist__steinwurf_3.ogg',
     ],
+    infantry_sounds: ['steps_1.ogg', 'steps_2.ogg', 'steps_3.ogg', 'steps_4.ogg'],
+  },
+  unitMovementSounds: {
+    peasant: 'infantry_sounds',
+    'peasant-archer': 'infantry_sounds',
+    swordsman: 'infantry_sounds',
+    spearman: 'infantry_sounds',
+    crossbowman: 'infantry_sounds',
+    archer: 'infantry_sounds',
+    barbarian: 'infantry_sounds',
+    'hero-commander': 'infantry_sounds',
+    slinger: 'infantry_sounds',
+    healer: 'infantry_sounds',
+    maceman: 'infantry_sounds',
+    'armored-knight': 'infantry_sounds',
+    'heavy-knights': null,
+  },
+  movementSteps: {
+    max_step_sounds: 4,
+    vary_pitch: true,
+    vary_speed: true,
+    pitch_variation_range: 0.08,
+    speed_variation_range: 0.08,
+    scale_volume_by_squad_size: true,
+    min_squad_volume_factor: 0.35,
+    max_squad_volume_factor: 0.85,
+    reference_squad_size: 12,
+    stagger_delay_ms: 45,
+    stagger_jitter_ms: 25,
   },
   arrowVolley: {
     max_volley_sounds: 10,
@@ -192,11 +250,74 @@ export const DEFAULT_ARROW_VOLLEY_SOUND_CONFIG: NormalizedArrowVolleySoundConfig
   stagger_delay_ms: 0,
 };
 
+export type UnitMovementSoundsConfig = Record<string, string | null | false>;
+
+export interface MovementStepSoundConfig {
+  max_step_sounds?: number;
+  maxStepSounds?: number;
+  vary_pitch?: boolean;
+  varyPitch?: boolean;
+  pitch_variation_range?: number;
+  pitchVariationRange?: number;
+  vary_speed?: boolean;
+  varySpeed?: boolean;
+  speed_variation_range?: number;
+  speedVariationRange?: number;
+  scale_volume_by_squad_size?: boolean;
+  scaleVolumeBySquadSize?: boolean;
+  min_squad_volume_factor?: number;
+  minSquadVolumeFactor?: number;
+  max_squad_volume_factor?: number;
+  maxSquadVolumeFactor?: number;
+  reference_squad_size?: number;
+  referenceSquadSize?: number;
+  volume_multiplier?: number;
+  volumeMultiplier?: number;
+  stagger_delay_ms?: number;
+  staggerDelayMs?: number;
+  stagger_jitter_ms?: number;
+  staggerJitterMs?: number;
+}
+
+export interface NormalizedMovementStepSoundConfig {
+  max_step_sounds: number;
+  vary_pitch: boolean;
+  pitch_variation_range: number;
+  vary_speed: boolean;
+  speed_variation_range: number;
+  scale_volume_by_squad_size: boolean;
+  min_squad_volume_factor: number;
+  max_squad_volume_factor: number;
+  reference_squad_size: number;
+  volume_multiplier: number;
+  stagger_delay_ms: number;
+  stagger_jitter_ms: number;
+}
+
+export const DEFAULT_MOVEMENT_STEP_SOUND_CONFIG: NormalizedMovementStepSoundConfig = {
+  max_step_sounds: 4,
+  vary_pitch: true,
+  pitch_variation_range: 0.08,
+  vary_speed: true,
+  speed_variation_range: 0.08,
+  scale_volume_by_squad_size: true,
+  min_squad_volume_factor: 0.35,
+  max_squad_volume_factor: 0.85,
+  reference_squad_size: 12,
+  volume_multiplier: 1.0,
+  stagger_delay_ms: 45,
+  stagger_jitter_ms: 25,
+};
+
 export interface SoundsConfig {
   soundGroups?: SoundGroupsConfig;
   groups?: SoundGroupsConfig;
   arrowVolley?: ArrowVolleySoundConfig;
   arrow_volley?: ArrowVolleySoundConfig;
+  unitMovementSounds?: UnitMovementSoundsConfig;
+  unit_movement_sounds?: UnitMovementSoundsConfig;
+  movementSteps?: MovementStepSoundConfig;
+  movement_steps?: MovementStepSoundConfig;
   events?: Partial<Record<string, string | null | false>>;
   ui?: UISoundsConfig;
   sounds?: UISoundsConfig;
@@ -379,13 +500,19 @@ export function getDefaultArrowVolleyConfigFromJson(): NormalizedArrowVolleySoun
   return normalizeArrowVolleyConfig(mergedRaw, DEFAULT_ARROW_VOLLEY_SOUND_CONFIG);
 }
 
-export function computeArrowVolleyVolume(
-  shooterCount: number,
+export function computeSquadScaledVolume(
+  activeCount: number,
   baseVolume: number,
-  config: NormalizedArrowVolleySoundConfig,
+  config: {
+    scale_volume_by_squad_size: boolean;
+    reference_squad_size: number;
+    min_squad_volume_factor: number;
+    max_squad_volume_factor: number;
+    volume_multiplier: number;
+  },
   maxSquadSize?: number
 ): number {
-  const clampedCount = Math.max(1, shooterCount);
+  const clampedCount = Math.max(1, activeCount);
   let squadFactor = 1.0;
   if (config.scale_volume_by_squad_size) {
     const refSize = Math.max(2, config.reference_squad_size);
@@ -402,9 +529,112 @@ export function computeArrowVolleyVolume(
   return Math.max(0, Math.min(1, baseVolume * squadFactor * config.volume_multiplier));
 }
 
+export function computeArrowVolleyVolume(
+  shooterCount: number,
+  baseVolume: number,
+  config: NormalizedArrowVolleySoundConfig,
+  maxSquadSize?: number
+): number {
+  return computeSquadScaledVolume(shooterCount, baseVolume, config, maxSquadSize);
+}
+
+export function normalizeUnitMovementSoundKey(key: string): string {
+  return key.trim().toLowerCase().replace(/[\s_]+/g, '-');
+}
+
+export function normalizeUnitMovementSoundsConfig(
+  raw?: UnitMovementSoundsConfig | null
+): Record<string, string | null> {
+  const result: Record<string, string | null> = {};
+  if (!raw || typeof raw !== 'object') {
+    return result;
+  }
+  for (const [unitKey, groupVal] of Object.entries(raw)) {
+    const normalizedKey = normalizeUnitMovementSoundKey(unitKey);
+    if (!normalizedKey) continue;
+    if (groupVal === null || groupVal === false) {
+      result[normalizedKey] = null;
+    } else if (typeof groupVal === 'string') {
+      const trimmed = groupVal.trim();
+      const lower = trimmed.toLowerCase();
+      if (trimmed === '' || lower === 'none' || lower === 'off' || lower === 'false' || lower === 'null') {
+        result[normalizedKey] = null;
+      } else {
+        result[normalizedKey] = trimmed;
+      }
+    }
+  }
+  return result;
+}
+
+export function getDefaultUnitMovementSoundsFromJson(): Record<string, string | null> {
+  const mergedRaw: UnitMovementSoundsConfig = {
+    ...((defaultCombatConfig as any)?.unitMovementSounds ?? (defaultCombatConfig as any)?.unit_movement_sounds ?? {}),
+    ...((defaultHudConfig as any)?.unitMovementSounds ?? (defaultHudConfig as any)?.unit_movement_sounds ?? {}),
+    ...((defaultSoundsConfig as any)?.unitMovementSounds ?? (defaultSoundsConfig as any)?.unit_movement_sounds ?? {}),
+  };
+  return normalizeUnitMovementSoundsConfig(mergedRaw);
+}
+
+export function normalizeMovementStepConfig(
+  raw?: MovementStepSoundConfig | null,
+  base: NormalizedMovementStepSoundConfig = DEFAULT_MOVEMENT_STEP_SOUND_CONFIG
+): NormalizedMovementStepSoundConfig {
+  if (!raw || typeof raw !== 'object') {
+    return { ...base };
+  }
+  const maxSteps = raw.max_step_sounds ?? raw.maxStepSounds ?? base.max_step_sounds;
+  const varyPitch = raw.vary_pitch ?? raw.varyPitch ?? base.vary_pitch;
+  const pitchRange = raw.pitch_variation_range ?? raw.pitchVariationRange ?? base.pitch_variation_range;
+  const varySpeed = raw.vary_speed ?? raw.varySpeed ?? base.vary_speed;
+  const speedRange = raw.speed_variation_range ?? raw.speedVariationRange ?? base.speed_variation_range;
+  const scaleBySquad = raw.scale_volume_by_squad_size ?? raw.scaleVolumeBySquadSize ?? base.scale_volume_by_squad_size;
+  const minSquadVol = raw.min_squad_volume_factor ?? raw.minSquadVolumeFactor ?? base.min_squad_volume_factor;
+  const maxSquadVol = raw.max_squad_volume_factor ?? raw.maxSquadVolumeFactor ?? base.max_squad_volume_factor;
+  const refSquadSize = raw.reference_squad_size ?? raw.referenceSquadSize ?? base.reference_squad_size;
+  const volMult = raw.volume_multiplier ?? raw.volumeMultiplier ?? base.volume_multiplier;
+  const staggerMs = raw.stagger_delay_ms ?? raw.staggerDelayMs ?? base.stagger_delay_ms;
+  const jitterMs = raw.stagger_jitter_ms ?? raw.staggerJitterMs ?? base.stagger_jitter_ms;
+
+  return {
+    max_step_sounds: Math.max(0, Math.floor(Number.isFinite(maxSteps) ? maxSteps : base.max_step_sounds)),
+    vary_pitch: Boolean(varyPitch),
+    pitch_variation_range: Math.max(0, Number.isFinite(pitchRange) ? pitchRange : base.pitch_variation_range),
+    vary_speed: Boolean(varySpeed),
+    speed_variation_range: Math.max(0, Number.isFinite(speedRange) ? speedRange : base.speed_variation_range),
+    scale_volume_by_squad_size: Boolean(scaleBySquad),
+    min_squad_volume_factor: Math.max(0, Math.min(1, Number.isFinite(minSquadVol) ? minSquadVol : base.min_squad_volume_factor)),
+    max_squad_volume_factor: Math.max(0, Math.min(2, Number.isFinite(maxSquadVol) ? maxSquadVol : base.max_squad_volume_factor)),
+    reference_squad_size: Math.max(1, Math.floor(Number.isFinite(refSquadSize) ? refSquadSize : base.reference_squad_size)),
+    volume_multiplier: Math.max(0, Number.isFinite(volMult) ? volMult : base.volume_multiplier),
+    stagger_delay_ms: Math.max(0, Number.isFinite(staggerMs) ? staggerMs : base.stagger_delay_ms),
+    stagger_jitter_ms: Math.max(0, Number.isFinite(jitterMs) ? jitterMs : base.stagger_jitter_ms),
+  };
+}
+
+export function getDefaultMovementStepConfigFromJson(): NormalizedMovementStepSoundConfig {
+  const mergedRaw: MovementStepSoundConfig = {
+    ...((defaultCombatConfig as any)?.movementSteps ?? (defaultCombatConfig as any)?.movement_steps ?? {}),
+    ...((defaultHudConfig as any)?.movementSteps ?? (defaultHudConfig as any)?.movement_steps ?? {}),
+    ...((defaultSoundsConfig as any)?.movementSteps ?? (defaultSoundsConfig as any)?.movement_steps ?? {}),
+  };
+  return normalizeMovementStepConfig(mergedRaw, DEFAULT_MOVEMENT_STEP_SOUND_CONFIG);
+}
+
+export function computeMovementStepVolume(
+  modelCount: number,
+  baseVolume: number,
+  config: NormalizedMovementStepSoundConfig,
+  maxSquadSize?: number
+): number {
+  return computeSquadScaledVolume(modelCount, baseVolume, config, maxSquadSize);
+}
+
 let activeUISoundsConfig: UISoundsConfig = getDefaultUISoundsFromHudJson();
 let activeSoundGroupsConfig: Record<string, string[]> = getDefaultSoundGroupsFromJson();
 let activeArrowVolleyConfig: NormalizedArrowVolleySoundConfig = getDefaultArrowVolleyConfigFromJson();
+let activeUnitMovementSoundsConfig: Record<string, string | null> = getDefaultUnitMovementSoundsFromJson();
+let activeMovementStepConfig: NormalizedMovementStepSoundConfig = getDefaultMovementStepConfigFromJson();
 let activeUISoundSystem: ISoundSystem | undefined;
 let activeUISoundSettings: BattleSettings | undefined;
 let defaultSoundSystemFactory:
@@ -437,6 +667,77 @@ export function setActiveSoundGroupsConfigInternal(groups: Record<string, string
 
 export function setActiveArrowVolleyConfigInternal(config: NormalizedArrowVolleySoundConfig): void {
   activeArrowVolleyConfig = { ...config };
+}
+
+export function setActiveUnitMovementSoundsInternal(config: Record<string, string | null>): void {
+  activeUnitMovementSoundsConfig = { ...config };
+}
+
+export function setActiveMovementStepConfigInternal(config: NormalizedMovementStepSoundConfig): void {
+  activeMovementStepConfig = { ...config };
+}
+
+export function configureUnitMovementSounds(
+  config?: UnitMovementSoundsConfig | null,
+  soundSystem?: ISoundSystem
+): Record<string, string | null> {
+  if (soundSystem) {
+    activeUISoundSystem = soundSystem;
+  }
+  if (config === null) {
+    activeUnitMovementSoundsConfig = {};
+  } else if (config) {
+    activeUnitMovementSoundsConfig = {
+      ...activeUnitMovementSoundsConfig,
+      ...normalizeUnitMovementSoundsConfig(config),
+    };
+  }
+  if (activeUISoundSystem?.configureUnitMovementSounds) {
+    activeUISoundSystem.configureUnitMovementSounds(config);
+  }
+  return { ...activeUnitMovementSoundsConfig };
+}
+
+export function resetUnitMovementSoundsConfig(): Record<string, string | null> {
+  activeUnitMovementSoundsConfig = getDefaultUnitMovementSoundsFromJson();
+  if (activeUISoundSystem?.configureUnitMovementSounds) {
+    activeUISoundSystem.configureUnitMovementSounds(activeUnitMovementSoundsConfig);
+  }
+  return { ...activeUnitMovementSoundsConfig };
+}
+
+export function getUnitMovementSoundsConfig(): Record<string, string | null> {
+  return { ...activeUnitMovementSoundsConfig };
+}
+
+export function configureMovementStepSounds(
+  config?: MovementStepSoundConfig | null,
+  soundSystem?: ISoundSystem
+): NormalizedMovementStepSoundConfig {
+  if (soundSystem) {
+    activeUISoundSystem = soundSystem;
+  }
+  if (config === null) {
+    activeMovementStepConfig = { ...DEFAULT_MOVEMENT_STEP_SOUND_CONFIG };
+  } else if (config) {
+    activeMovementStepConfig = normalizeMovementStepConfig(config, activeMovementStepConfig);
+  }
+  if (activeUISoundSystem?.configureMovementStepSounds) {
+    activeUISoundSystem.configureMovementStepSounds(activeMovementStepConfig);
+  }
+  return { ...activeMovementStepConfig };
+}
+
+export function resetMovementStepSoundsConfig(): NormalizedMovementStepSoundConfig {
+  activeMovementStepConfig = getDefaultMovementStepConfigFromJson();
+  if (activeUISoundSystem?.configureMovementStepSounds) {
+    activeUISoundSystem.configureMovementStepSounds(activeMovementStepConfig);
+  }
+  return { ...activeMovementStepConfig };
+}
+
+export function getMovementStepSoundsConfig(): NormalizedMovementStepSoundConfig {
+  return { ...activeMovementStepConfig };
 }
 
 export function configureArrowVolleySounds(

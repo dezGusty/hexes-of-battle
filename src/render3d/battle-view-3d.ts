@@ -402,6 +402,16 @@ export class BattleView3D {
       const worldPos = this.hexBoard.hexToWorldWithElevation(creature.position.x, creature.position.y, true);
       squad.rootGroup.position.copy(worldPos);
       squad.setFacing(creature.facingDirection);
+      squad.onWalkStep = (movingSquad) => {
+        if (!this.soundSystem?.playUnitMovementSteps) return;
+        const unitKey = Creature.CREATURE_NAMES[movingSquad.creature.creatureType] ?? '';
+        if (!unitKey) return;
+        this.soundSystem.playUnitMovementSteps(
+          unitKey,
+          movingSquad.creature.aliveModelCount,
+          movingSquad.creature.stats.model_count
+        );
+      };
 
       this.sceneManager.scene.add(squad.rootGroup);
       this.squadVisuals.set(creature.GUID.toString(), squad);
@@ -648,13 +658,12 @@ export class BattleView3D {
         },
       });
     } else {
-      // Melee attack: if attacker is still walking to the adjacent hex, defer attack animation until arrival
-      const executeMeleeVisuals = () => {
-        if (attackerSquad) {
-          attackerSquad.setFacing(attacker.facingDirection);
-          attackerSquad.playAnimation('attack_melee', 450);
-        }
+      // Melee attack: advance past hex edge -> strike (with sound) -> turn & return to origin hex -> face enemy
+      const targetWorldPos = defenderSquad
+        ? defenderSquad.rootGroup.position.clone()
+        : this.hexBoard.hexToWorldWithElevation(defender.position.x, defender.position.y, true);
 
+      const triggerStrikeEffects = () => {
         if (this.soundSystem) {
           this.soundSystem.play(SoundCategory.SOUND, SoundType.SWORD, true);
         }
@@ -665,10 +674,23 @@ export class BattleView3D {
         }, 180 / animMultiplier);
       };
 
+      const startMeleeSequence = () => {
+        if (attackerSquad) {
+          attackerSquad.performMeleeAttackSequence(
+            targetWorldPos,
+            attacker.facingDirection,
+            triggerStrikeEffects,
+            450
+          );
+        } else {
+          triggerStrikeEffects();
+        }
+      };
+
       if (attackerSquad && attackerSquad.isCurrentlyMoving()) {
-        attackerSquad.enqueuePostMoveAction(executeMeleeVisuals);
+        attackerSquad.enqueuePostMoveAction(startMeleeSequence);
       } else {
-        executeMeleeVisuals();
+        startMeleeSequence();
       }
     }
   }
@@ -767,15 +789,17 @@ export class BattleView3D {
       this.squadVisuals.forEach((squad, guidStr) => {
         const creature = this.battle.creatures.find((c) => c.GUID.toString() === guidStr);
         if (creature && creature.isAlive && creature.aliveModelCount > 0) {
-          const worldPos = this.hexBoard.hexToWorldWithElevation(creature.position.x, creature.position.y, true);
-          if (squad.hasMoveAnimation()) {
-            squad.enqueueMoveStep(worldPos);
-            if (!squad.isCurrentlyMoving()) {
+          if (!squad.isInMeleeAttackSequence()) {
+            const worldPos = this.hexBoard.hexToWorldWithElevation(creature.position.x, creature.position.y, true);
+            if (squad.hasMoveAnimation()) {
+              squad.enqueueMoveStep(worldPos);
+              if (!squad.isCurrentlyMoving()) {
+                squad.setFacing(creature.facingDirection);
+              }
+            } else {
+              squad.rootGroup.position.copy(worldPos);
               squad.setFacing(creature.facingDirection);
             }
-          } else {
-            squad.rootGroup.position.copy(worldPos);
-            squad.setFacing(creature.facingDirection);
           }
           squad.updateStats(this.settings.hex.showDamageIndicators);
         } else {

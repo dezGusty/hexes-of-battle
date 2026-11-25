@@ -5,29 +5,44 @@ import {
   bindButtonUISound,
   bindSliderUISound,
   computeArrowVolleyVolume,
+  computeMovementStepVolume,
   configureArrowVolleySounds,
+  configureMovementStepSounds,
   configureSoundGroups,
   configureUISounds,
+  configureUnitMovementSounds,
   DEFAULT_ARROW_VOLLEY_SOUND_CONFIG,
+  DEFAULT_MOVEMENT_STEP_SOUND_CONFIG,
   getActiveUISoundSystem,
   getArrowVolleySoundsConfig,
   getDefaultSoundEventsFromJson,
+  getMovementStepSoundsConfig,
   getSoundGroupsConfig,
   getUISoundsConfig,
+  getUnitMovementSoundsConfig,
+  MovementStepSoundConfig,
   normalizeArrowVolleyConfig,
   NormalizedArrowVolleySoundConfig,
+  NormalizedMovementStepSoundConfig,
+  normalizeMovementStepConfig,
   normalizeSoundGroupList,
+  normalizeUnitMovementSoundKey,
+  normalizeUnitMovementSoundsConfig,
   playUISound,
   registerDefaultUISoundSystemFactory,
   resetArrowVolleySoundsConfig,
+  resetMovementStepSoundsConfig,
   resetSoundGroupsConfig,
   resetUISoundsConfig,
+  resetUnitMovementSoundsConfig,
   resolveAudioFileUrl,
   resolveUISoundPath,
   setActiveArrowVolleyConfigInternal,
+  setActiveMovementStepConfigInternal,
   setActiveSoundGroupsConfigInternal,
   setActiveUISoundConfigInternal,
   setActiveUISoundSystem,
+  setActiveUnitMovementSoundsInternal,
   SoundCategory,
   SoundGroupEntryConfig,
   SoundGroupsConfig,
@@ -37,6 +52,7 @@ import {
   UI_SOUND_TYPES,
   UISoundCategory,
   UISoundsConfig,
+  UnitMovementSoundsConfig,
 } from './ui-sounds';
 
 export type {
@@ -46,17 +62,25 @@ export type {
   SoundGroupsConfig,
   ArrowVolleySoundConfig,
   NormalizedArrowVolleySoundConfig,
+  MovementStepSoundConfig,
+  NormalizedMovementStepSoundConfig,
+  UnitMovementSoundsConfig,
   SoundsConfig,
 };
 export {
   SoundCategory,
   SoundType,
   DEFAULT_ARROW_VOLLEY_SOUND_CONFIG,
+  DEFAULT_MOVEMENT_STEP_SOUND_CONFIG,
   resolveUISoundPath,
   resolveAudioFileUrl,
   normalizeSoundGroupList,
   normalizeArrowVolleyConfig,
+  normalizeMovementStepConfig,
+  normalizeUnitMovementSoundKey,
+  normalizeUnitMovementSoundsConfig,
   computeArrowVolleyVolume,
+  computeMovementStepVolume,
   configureUISounds,
   resetUISoundsConfig,
   getUISoundsConfig,
@@ -66,6 +90,12 @@ export {
   configureArrowVolleySounds,
   resetArrowVolleySoundsConfig,
   getArrowVolleySoundsConfig,
+  configureMovementStepSounds,
+  resetMovementStepSoundsConfig,
+  getMovementStepSoundsConfig,
+  configureUnitMovementSounds,
+  resetUnitMovementSoundsConfig,
+  getUnitMovementSoundsConfig,
   setActiveUISoundSystem,
   getActiveUISoundSystem,
   playUISound,
@@ -120,6 +150,18 @@ export interface ISoundSystem {
     maxSquadSize?: number,
     options?: PlaySoundOptions
   ): number;
+  configureUnitMovementSounds?(config?: UnitMovementSoundsConfig | null): void;
+  getUnitMovementSoundsConfig?(): Record<string, string | null>;
+  getUnitMovementSoundGroup?(unitKey: string): string | undefined;
+  hasUnitMovementSound?(unitKey: string): boolean;
+  configureMovementStepSounds?(config?: MovementStepSoundConfig | null): void;
+  getMovementStepSoundsConfig?(): NormalizedMovementStepSoundConfig;
+  playUnitMovementSteps?(
+    unitKey: string,
+    modelCount?: number,
+    maxSquadSize?: number,
+    options?: PlaySoundOptions
+  ): number;
   configureUISounds?(config?: UISoundsConfig | null): void;
   getUISoundsConfig?(): UISoundsConfig;
   loadUISounds?(): Promise<void>;
@@ -137,6 +179,8 @@ export class PixiSoundSystem implements ISoundSystem {
   private soundGroups: Map<string, string[]>;
   private uiSoundsConfig: UISoundsConfig;
   private arrowVolleyConfig: NormalizedArrowVolleySoundConfig;
+  private unitMovementSounds: Record<string, string | null>;
+  private movementStepConfig: NormalizedMovementStepSoundConfig;
   private randomFn: () => number = Math.random;
 
   constructor(
@@ -144,7 +188,9 @@ export class PixiSoundSystem implements ISoundSystem {
     customSoundMap?: Partial<Record<SoundType, string>>,
     uiSoundsConfig?: UISoundsConfig | null,
     soundGroupsConfig?: SoundGroupsConfig | null,
-    arrowVolleyConfig?: ArrowVolleySoundConfig | null
+    arrowVolleyConfig?: ArrowVolleySoundConfig | null,
+    unitMovementSoundsConfig?: UnitMovementSoundsConfig | null,
+    movementStepConfig?: MovementStepSoundConfig | null
   ) {
     this.settings = settings;
     this.uiSoundsConfig = { ...getUISoundsConfig() };
@@ -152,6 +198,14 @@ export class PixiSoundSystem implements ISoundSystem {
       arrowVolleyConfig !== undefined
         ? normalizeArrowVolleyConfig(arrowVolleyConfig, getArrowVolleySoundsConfig())
         : { ...getArrowVolleySoundsConfig() };
+    this.unitMovementSounds =
+      unitMovementSoundsConfig !== undefined
+        ? normalizeUnitMovementSoundsConfig(unitMovementSoundsConfig)
+        : { ...getUnitMovementSoundsConfig() };
+    this.movementStepConfig =
+      movementStepConfig !== undefined
+        ? normalizeMovementStepConfig(movementStepConfig, getMovementStepSoundsConfig())
+        : { ...getMovementStepSoundsConfig() };
     this.soundGroups = new Map<string, string[]>();
 
     const defaultEvents = getDefaultSoundEventsFromJson();
@@ -340,6 +394,149 @@ export class PixiSoundSystem implements ISoundSystem {
     return this.playRangedVolley(SoundType.STONE, shooterCount, maxSquadSize, options);
   }
 
+  private computeInstanceSpeed(
+    cfg: {
+      vary_pitch: boolean;
+      pitch_variation_range: number;
+      vary_speed: boolean;
+      speed_variation_range: number;
+    },
+    baseSpeed: number,
+    fluctuate?: boolean
+  ): number {
+    let speedOffset = 0;
+    if (cfg.vary_pitch && cfg.vary_speed) {
+      const pitchDelta = (this.randomFn() * 2 - 1) * cfg.pitch_variation_range;
+      const speedDelta = (this.randomFn() * 2 - 1) * cfg.speed_variation_range;
+      speedOffset = (pitchDelta + speedDelta) * 0.5;
+    } else if (cfg.vary_pitch) {
+      speedOffset = (this.randomFn() * 2 - 1) * cfg.pitch_variation_range;
+    } else if (cfg.vary_speed) {
+      speedOffset = (this.randomFn() * 2 - 1) * cfg.speed_variation_range;
+    } else if (fluctuate) {
+      speedOffset = (this.randomFn() * 2 - 1) * 0.1;
+    }
+    return Math.max(0.25, Math.min(3.0, baseSpeed + speedOffset));
+  }
+
+  public configureUnitMovementSounds(config?: UnitMovementSoundsConfig | null): void {
+    if (config === null) {
+      this.unitMovementSounds = {};
+    } else if (config) {
+      this.unitMovementSounds = {
+        ...this.unitMovementSounds,
+        ...normalizeUnitMovementSoundsConfig(config),
+      };
+    }
+    setActiveUnitMovementSoundsInternal(this.unitMovementSounds);
+    setActiveUISoundSystem(this, this.settings);
+  }
+
+  public getUnitMovementSoundsConfig(): Record<string, string | null> {
+    return { ...this.unitMovementSounds };
+  }
+
+  public getUnitMovementSoundGroup(unitKey: string): string | undefined {
+    const normalized = normalizeUnitMovementSoundKey(unitKey);
+    if (!normalized) return undefined;
+    const direct = this.unitMovementSounds[normalized];
+    if (direct === null) return undefined;
+    if (typeof direct === 'string' && direct !== '') return direct;
+    // Also check collapsed form (e.g. "Mace Man" -> "mace-man" -> "maceman")
+    const collapsed = normalized.replace(/-/g, '');
+    const collapsedVal = this.unitMovementSounds[collapsed];
+    if (typeof collapsedVal === 'string' && collapsedVal !== '') return collapsedVal;
+    return undefined;
+  }
+
+  public hasUnitMovementSound(unitKey: string): boolean {
+    const groupName = this.getUnitMovementSoundGroup(unitKey);
+    if (!groupName) return false;
+    const list = this.soundGroups.get(groupName) ?? this.getSoundGroup(groupName);
+    return Array.isArray(list) && list.length > 0;
+  }
+
+  public configureMovementStepSounds(config?: MovementStepSoundConfig | null): void {
+    if (config === null) {
+      this.movementStepConfig = { ...DEFAULT_MOVEMENT_STEP_SOUND_CONFIG };
+    } else if (config) {
+      this.movementStepConfig = normalizeMovementStepConfig(config, this.movementStepConfig);
+    }
+    setActiveMovementStepConfigInternal(this.movementStepConfig);
+    setActiveUISoundSystem(this, this.settings);
+  }
+
+  public getMovementStepSoundsConfig(): NormalizedMovementStepSoundConfig {
+    return { ...this.movementStepConfig };
+  }
+
+  /**
+   * Plays unit movement step sounds from the configured group for `unitKey`,
+   * layered across multiple sources with small delay/pitch/speed variations.
+   */
+  public playUnitMovementSteps(
+    unitKey: string,
+    modelCount: number = 1,
+    maxSquadSize?: number,
+    options?: PlaySoundOptions
+  ): number {
+    if (this.settings && !this.settings.sound.soundOn) {
+      return 0;
+    }
+    const groupName = this.getUnitMovementSoundGroup(unitKey);
+    if (!groupName) {
+      return 0;
+    }
+    const maxSounds = Math.max(0, Math.floor(this.movementStepConfig.max_step_sounds));
+    if (maxSounds <= 0) {
+      return 0;
+    }
+
+    const normalizedModels = Math.max(1, Math.floor(Number.isFinite(modelCount) ? modelCount : 1));
+    const count = Math.min(normalizedModels, maxSounds);
+    const baseVolume = options?.volume ?? this.settings?.sound.soundVolume ?? 0.75;
+    const squadVolume = computeMovementStepVolume(
+      normalizedModels,
+      baseVolume,
+      this.movementStepConfig,
+      maxSquadSize
+    );
+    const sourceVolume = squadVolume / Math.sqrt(Math.max(1, count));
+    const baseSpeed = options?.speed ?? 1.0;
+
+    let playedCount = 0;
+    for (let i = 0; i < count; i++) {
+      const chosenSound = this.pickSoundFromGroup(groupName);
+      if (!chosenSound) {
+        continue;
+      }
+      const instanceSpeed = this.computeInstanceSpeed(this.movementStepConfig, baseSpeed, options?.fluctuate);
+      const jitter =
+        this.movementStepConfig.stagger_jitter_ms > 0
+          ? this.randomFn() * this.movementStepConfig.stagger_jitter_ms
+          : 0;
+      const delayMs =
+        i === 0 ? 0 : Math.max(0, Math.round(i * this.movementStepConfig.stagger_delay_ms + jitter));
+
+      const triggerPlay = () => {
+        try {
+          sound.play(chosenSound, { speed: instanceSpeed, volume: sourceVolume });
+        } catch (err) {
+          console.warn(`[PixiSoundSystem] Failed to play movement step '${chosenSound}':`, err);
+        }
+      };
+
+      if (delayMs > 0 && typeof setTimeout === 'function') {
+        setTimeout(triggerPlay, delayMs);
+      } else {
+        triggerPlay();
+      }
+      playedCount++;
+    }
+
+    return playedCount;
+  }
+
   public playRangedVolley(
     soundType: SoundType,
     shooterCount: number = 1,
@@ -368,23 +565,7 @@ export class PixiSoundSystem implements ISoundSystem {
 
     let playedCount = 0;
     for (let i = 0; i < count; i++) {
-      let speedOffset = 0;
-      const varyPitch = this.arrowVolleyConfig.vary_pitch;
-      const varySpeed = this.arrowVolleyConfig.vary_speed;
-
-      if (varyPitch && varySpeed) {
-        const pitchDelta = (this.randomFn() * 2 - 1) * this.arrowVolleyConfig.pitch_variation_range;
-        const speedDelta = (this.randomFn() * 2 - 1) * this.arrowVolleyConfig.speed_variation_range;
-        speedOffset = (pitchDelta + speedDelta) * 0.5;
-      } else if (varyPitch) {
-        speedOffset = (this.randomFn() * 2 - 1) * this.arrowVolleyConfig.pitch_variation_range;
-      } else if (varySpeed) {
-        speedOffset = (this.randomFn() * 2 - 1) * this.arrowVolleyConfig.speed_variation_range;
-      } else if (options?.fluctuate) {
-        speedOffset = (this.randomFn() * 2 - 1) * 0.1;
-      }
-
-      const instanceSpeed = Math.max(0.25, Math.min(3.0, baseSpeed + speedOffset));
+      const instanceSpeed = this.computeInstanceSpeed(this.arrowVolleyConfig, baseSpeed, options?.fluctuate);
       const delayMs = i * Math.max(0, this.arrowVolleyConfig.stagger_delay_ms);
 
       if (delayMs > 0 && typeof setTimeout === 'function') {

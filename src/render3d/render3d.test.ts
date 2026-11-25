@@ -5380,5 +5380,106 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(dummyModel.playAnimation).toHaveBeenLastCalledWith('attack_melee', 450);
       squad.dispose();
     });
+
+    it('should lunge past hex edge with walk anim, strike with sound, turn around to walk back, and face target again', async () => {
+      const { SquadVisual3D } = await import('./units/squad-visual-3d');
+      const attacker = new Creature(CreatureType.SWORDSMAN);
+      attacker.position = { x: 0, y: 0 };
+      attacker.facingDirection = HexDirection.EAST;
+
+      const dummyModel = {
+        format: UnitVisualFormat.FULL_3D_RIGID,
+        object3D: new THREE.Group(),
+        mesh: new THREE.Mesh(),
+        material: new THREE.MeshStandardMaterial(),
+        playAnimation: vi.fn(),
+        update: vi.fn(),
+        setFacing: vi.fn((dir: HexDirection) => {
+          if (dir === HexDirection.EAST) dummyModel.object3D.rotation.y = 0;
+        }),
+        setCasualtyFade: vi.fn(),
+        hasMoveAnimation: () => true,
+        getMoveAnimationDurationSec: () => 0.8,
+        setMoveAnimationTimeScale: vi.fn(),
+        dispose: vi.fn(),
+      };
+
+      const squad = new SquadVisual3D(attacker, [dummyModel as any]);
+      squad.rootGroup.position.set(0, 0, 0);
+      const targetPos = new THREE.Vector3(2.0, 0, 0); // hex edge at x = 1.0, lunge goes to x = 1.2
+      const onStrike = vi.fn();
+      const cam = new THREE.PerspectiveCamera();
+
+      squad.performMeleeAttackSequence(targetPos, HexDirection.EAST, onStrike, 450);
+
+      // 1. Advancing past hex edge with walk animation
+      expect(squad.isInMeleeAttackSequence()).toBe(true);
+      expect(dummyModel.playAnimation).toHaveBeenLastCalledWith('walk', 500);
+      squad.update(100, cam); // x = 0.5
+      expect(onStrike).not.toHaveBeenCalled();
+
+      // 2. Reach strike point past hex edge (x = 1.2 at 5 u/s = 240ms total) -> strike & sound
+      squad.update(200, cam);
+      expect(squad.rootGroup.position.x).toBeCloseTo(1.2, 3);
+      expect(onStrike).toHaveBeenCalledTimes(1);
+      expect(dummyModel.playAnimation).toHaveBeenLastCalledWith('attack_melee', 450);
+
+      // 3. After attack duration (450ms) -> turn around toward origin (yaw ~ PI) and walk back
+      squad.update(460, cam);
+      expect(dummyModel.playAnimation).toHaveBeenLastCalledWith('walk', 500);
+      squad.update(60, cam); // mid-return
+      expect(Math.abs(dummyModel.object3D.rotation.y)).toBeCloseTo(Math.PI, 2);
+
+      // 4. Arrive back at origin hex -> face original target (EAST) and return to idle
+      squad.update(300, cam);
+      expect(squad.isInMeleeAttackSequence()).toBe(false);
+      expect(squad.rootGroup.position.x).toBeCloseTo(0, 3);
+      expect(dummyModel.setFacing).toHaveBeenLastCalledWith(HexDirection.EAST);
+      expect(dummyModel.playAnimation).toHaveBeenLastCalledWith('idle', 500);
+      squad.dispose();
+    });
+
+    it('should invoke SquadVisual3D.onWalkStep during walk movement and melee lunge/return', async () => {
+      const { SquadVisual3D } = await import('./units/squad-visual-3d');
+      const attacker = new Creature(CreatureType.SWORDSMAN);
+      attacker.position = { x: 0, y: 0 };
+      attacker.facingDirection = HexDirection.EAST;
+
+      const dummyModel = {
+        format: UnitVisualFormat.FULL_3D_RIGID,
+        object3D: new THREE.Group(),
+        mesh: new THREE.Mesh(),
+        material: new THREE.MeshStandardMaterial(),
+        playAnimation: vi.fn(),
+        update: vi.fn(),
+        setFacing: vi.fn(),
+        setCasualtyFade: vi.fn(),
+        hasMoveAnimation: () => true,
+        getMoveAnimationDurationSec: () => 0.8,
+        setMoveAnimationTimeScale: vi.fn(),
+        dispose: vi.fn(),
+      };
+
+      const squad = new SquadVisual3D(attacker, [dummyModel as any]);
+      squad.rootGroup.position.set(0, 0, 0);
+      const onWalkStep = vi.fn();
+      squad.onWalkStep = onWalkStep;
+      const cam = new THREE.PerspectiveCamera();
+
+      // Normal 1-hex move triggers onWalkStep at walk start
+      squad.moveToPath([new THREE.Vector3(1.732, 0, 0)]);
+      expect(onWalkStep).toHaveBeenCalledTimes(1);
+      squad.update(400, cam);
+      expect(squad.isCurrentlyMoving()).toBe(false);
+
+      // Melee lunge-strike-return triggers onWalkStep on advance and on return
+      onWalkStep.mockClear();
+      squad.performMeleeAttackSequence(new THREE.Vector3(3.732, 0, 0), HexDirection.EAST, () => {}, 450);
+      expect(onWalkStep).toHaveBeenCalledTimes(1); // advance
+      squad.update(300, cam); // arrive at strike point
+      squad.update(460, cam); // finish strike, begin return
+      expect(onWalkStep).toHaveBeenCalledTimes(2); // return
+      squad.dispose();
+    });
   });
 });
