@@ -331,7 +331,7 @@ const swordsmanHelpers = createOverviewRiggedUnitHelpers({
   groupName: 'OverviewSwordsman',
   placeholderName: 'SwordsmanGlbPlaceholder',
   idleClipNames: ['idle_stance', 'idle_raise_sword'],
-  allClipNames: ['idle_stance', 'idle_raise_sword', 'combat_move_advance', 'combat_attack_poke', 'combat_defensive_stance', 'death'],
+  allClipNames: ['idle_stance', 'idle_raise_sword', 'combat_move_advance', 'attack_swing', 'combat_attack_poke', 'combat_defensive_stance', 'death'],
 });
 
 const macemanHelpers = createOverviewRiggedUnitHelpers({

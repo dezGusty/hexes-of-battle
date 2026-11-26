@@ -5288,7 +5288,7 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       const specs = [
         { key: 'archer', base: 'archer_rigged', anims: ['idle_stance', 'combat_move_advance', 'combat_attack_ranged', 'combat_attack_poke', 'combat_defensive_stance', 'death'] },
         { key: 'crossbowman', base: 'crossbowman_rigged', anims: ['idle_stance', 'combat_move_advance', 'combat_attack_ranged', 'reload', 'combat_attack_poke', 'combat_defensive_stance', 'death'] },
-        { key: 'swordsman', base: 'swordsman_rigged', anims: ['idle_stance', 'combat_move_advance', 'combat_attack_poke', 'combat_defensive_stance', 'death'] },
+        { key: 'swordsman', base: 'swordsman_rigged', anims: ['idle_stance', 'combat_move_advance', 'attack_swing', 'combat_attack_poke', 'combat_defensive_stance', 'death'] },
         { key: 'maceman', base: 'maceman_rigged', anims: ['idle_stance', 'combat_move_advance', 'combat_attack_poke', 'combat_defensive_stance', 'death'] },
         { key: 'armored_knight', base: 'armored_knight_rigged', anims: ['idle_stance', 'combat_move_advance', 'combat_attack_poke', 'combat_defensive_stance', 'death'] },
       ];

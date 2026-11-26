@@ -73,6 +73,7 @@ export class MeshRigidVisual implements IUnitVisual {
     const idleClip = findClip('idle_stance', /^idle/i);
     const walkClip = findClip('combat_move_advance', /move|walk|advance/i);
     const attackClip =
+      findClip('attack_swing', /attack_swing/i) ??
       findClip('combat_attack_poke', /attack_poke|attack_melee|melee/i) ??
       findClip('combat_attack_poke', /attack|poke/i);
     const rangedAttackClip =
