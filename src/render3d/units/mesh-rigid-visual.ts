@@ -272,6 +272,12 @@ export class MeshRigidVisual implements IUnitVisual {
 
     if (this.glbMixer) {
       const next = this.glbActions[state] ?? this.glbActions.idle;
+      if (next && (state === 'attack_ranged' || state === 'attack_melee')) {
+        const clipMs = Math.ceil((next.getClip()?.duration ?? 0) * 1000);
+        if (clipMs > this.animDuration) {
+          this.animDuration = clipMs;
+        }
+      }
       const scale = state === 'walk' ? this.moveTimeScale : state === 'die' ? this.deathTimeScale : 1;
       if (next && next !== this.activeGlbAction) {
         next.reset().setEffectiveTimeScale(scale).setEffectiveWeight(1).play();

@@ -520,7 +520,29 @@ export class BattleView3D {
     this.hexBoard.clearEnemyRangePerimeter();
   }
 
+  private static readonly DEFAULT_ANIMATION_FPS = 24;
+  public static readonly PROJECTILE_ARC_ANGLE_DEG = 35;
+  public static readonly PROJECTILE_DURATION_MS = 320; // 50% faster than previous 480ms
+
+  private static computeProjectileApexHeight(dist: number): number {
+    const tanAngle = Math.tan((BattleView3D.PROJECTILE_ARC_ANGLE_DEG * Math.PI) / 180);
+    return Math.max(0.5, (dist * tanAngle) / 4);
+  }
+
+  private getRangedProjectileDelayMs(attacker: Creature | undefined): number {
+    if (!attacker) return 0;
+    if (typeof attacker.rangedProjectileDelayMs === 'number' && attacker.rangedProjectileDelayMs > 0) {
+      return attacker.rangedProjectileDelayMs;
+    }
+    if (typeof attacker.rangedProjectileDelayFrames === 'number' && attacker.rangedProjectileDelayFrames > 0) {
+      return Math.round((attacker.rangedProjectileDelayFrames / BattleView3D.DEFAULT_ANIMATION_FPS) * 1000);
+    }
+    return 0;
+  }
+
   public showRangedAttackVisuals(data: RangedAttackData): void {
+    const releaseDelayBaseMs = this.getRangedProjectileDelayMs(data.attacker);
+
     const fireVolley = () => {
       const attackerSquad = this.squadVisuals.get(data.attacker.GUID.toString());
       const sourcePos = attackerSquad
@@ -529,62 +551,73 @@ export class BattleView3D {
 
       if (attackerSquad) {
         attackerSquad.setFacing(data.attacker.facingDirection);
-        attackerSquad.playAnimation('attack_ranged', 400);
+        attackerSquad.playAnimation('attack_ranged', Math.max(400, releaseDelayBaseMs + 500));
       }
 
-      const isSlinger = data.attacker?.creatureType === CreatureType.SLINGER;
-      if (this.soundSystem) {
-        const rangedSoundType = isSlinger ? SoundType.STONE : SoundType.ARROW;
-        const shooterCount = Math.max(
-          1,
-          data.attacker?.aliveModelCount ?? data.projectiles?.length ?? 1
-        );
-        const maxSquadSize = Math.max(
-          shooterCount,
-          data.attacker?.maxModels ?? data.attacker?.stats?.model_count ?? shooterCount
-        );
-        if (isSlinger && this.soundSystem.playStoneVolley) {
-          this.soundSystem.playStoneVolley(shooterCount, maxSquadSize);
-        } else if (this.soundSystem.playRangedVolley) {
-          this.soundSystem.playRangedVolley(rangedSoundType, shooterCount, maxSquadSize);
-        } else if (this.soundSystem.playArrowVolley) {
-          this.soundSystem.playArrowVolley(shooterCount, maxSquadSize, undefined, rangedSoundType);
-        } else {
-          this.soundSystem.play(SoundCategory.SOUND, rangedSoundType, true);
+      const spawnProjectilesAndSound = () => {
+        const isSlinger = data.attacker?.creatureType === CreatureType.SLINGER;
+        if (this.soundSystem) {
+          const rangedSoundType = isSlinger ? SoundType.STONE : SoundType.ARROW;
+          const shooterCount = Math.max(
+            1,
+            data.attacker?.aliveModelCount ?? data.projectiles?.length ?? 1
+          );
+          const maxSquadSize = Math.max(
+            shooterCount,
+            data.attacker?.maxModels ?? data.attacker?.stats?.model_count ?? shooterCount
+          );
+          if (isSlinger && this.soundSystem.playStoneVolley) {
+            this.soundSystem.playStoneVolley(shooterCount, maxSquadSize);
+          } else if (this.soundSystem.playRangedVolley) {
+            this.soundSystem.playRangedVolley(rangedSoundType, shooterCount, maxSquadSize);
+          } else if (this.soundSystem.playArrowVolley) {
+            this.soundSystem.playArrowVolley(shooterCount, maxSquadSize, undefined, rangedSoundType);
+          } else {
+            this.soundSystem.play(SoundCategory.SOUND, rangedSoundType, true);
+          }
         }
-      }
 
-      // Build array of individual projectile trajectories with distinct destination hexes
-      const projectiles = data.projectiles.map((p) => {
-        const hitSquad = p.hitCreature ? this.squadVisuals.get(p.hitCreature.GUID.toString()) : undefined;
-        const targetPos = hitSquad
-          ? hitSquad.rootGroup.position.clone()
-          : this.hexBoard.hexToWorldWithElevation(p.targetHex.x, p.targetHex.y);
+        // Build array of individual projectile trajectories with distinct destination hexes
+        const projectiles = data.projectiles.map((p) => {
+          const hitSquad = p.hitCreature ? this.squadVisuals.get(p.hitCreature.GUID.toString()) : undefined;
+          const targetPos = hitSquad
+            ? hitSquad.rootGroup.position.clone()
+            : this.hexBoard.hexToWorldWithElevation(p.targetHex.x, p.targetHex.y);
 
-        return {
-          targetPos,
-          sourcePos,
+          return {
+            targetPos,
+            sourcePos,
+          };
+        });
+
+        const onImpact = () => {
+          data.targetDamages.forEach(({ target, damage, flankStatus }) => {
+            const targetSquad = this.squadVisuals.get(target.GUID.toString());
+            this.applyDamageVisuals(targetSquad, damage, flankStatus);
+          });
         };
-      });
 
-      const onImpact = () => {
-        data.targetDamages.forEach(({ target, damage, flankStatus }) => {
-          const targetSquad = this.squadVisuals.get(target.GUID.toString());
-          this.applyDamageVisuals(targetSquad, damage, flankStatus);
+        const avgTargetPos = projectiles.length > 0 ? projectiles[0].targetPos : sourcePos;
+        const dist = sourcePos.distanceTo(avgTargetPos);
+
+        this.projectileSystem.spawnVolley({
+          sourcePos,
+          projectiles,
+          projectileType: isSlinger ? 'stone' : 'arrow',
+          durationMs: BattleView3D.PROJECTILE_DURATION_MS,
+          apexHeight: BattleView3D.computeProjectileApexHeight(dist),
+          onImpact,
         });
       };
 
-      const avgTargetPos = projectiles.length > 0 ? projectiles[0].targetPos : sourcePos;
-      const dist = sourcePos.distanceTo(avgTargetPos);
-
-      this.projectileSystem.spawnVolley({
-        sourcePos,
-        projectiles,
-        projectileType: isSlinger ? 'stone' : 'arrow',
-        durationMs: 480,
-        apexHeight: Math.max(1.8, dist * 0.38),
-        onImpact,
-      });
+      const scaledReleaseDelayMs = releaseDelayBaseMs / this.getAnimationSpeedMultiplier();
+      if (scaledReleaseDelayMs > 0) {
+        setTimeout(() => {
+          spawnProjectilesAndSound();
+        }, scaledReleaseDelayMs);
+      } else {
+        spawnProjectilesAndSound();
+      }
     };
 
     const animMultiplier = this.getAnimationSpeedMultiplier();
@@ -597,7 +630,7 @@ export class BattleView3D {
     if (timeDelta < 350 / animMultiplier) {
       setTimeout(() => {
         fireVolley();
-      }, 450 / animMultiplier);
+      }, Math.max(450, releaseDelayBaseMs + 250) / animMultiplier);
     } else {
       fireVolley();
     }
@@ -615,6 +648,7 @@ export class BattleView3D {
 
     if (attackType === BattleActionType.ATTACK_RANGED) {
       // Single-target fallback or legacy call
+      const releaseDelayBaseMs = this.getRangedProjectileDelayMs(attacker);
       const sourcePos = attackerSquad
         ? attackerSquad.rootGroup.position.clone()
         : this.hexBoard.hexToWorldWithElevation(attacker.position.x, attacker.position.y);
@@ -624,39 +658,50 @@ export class BattleView3D {
 
       if (attackerSquad) {
         attackerSquad.setFacing(attacker.facingDirection);
-        attackerSquad.playAnimation('attack_ranged', 400);
+        attackerSquad.playAnimation('attack_ranged', Math.max(400, releaseDelayBaseMs + 500));
       }
 
-      const isSlinger = attacker?.creatureType === CreatureType.SLINGER;
-      if (this.soundSystem) {
-        const rangedSoundType = isSlinger ? SoundType.STONE : SoundType.ARROW;
-        const shooterCount = Math.max(1, attacker.aliveModelCount ?? 1);
-        const maxSquadSize = Math.max(
-          shooterCount,
-          attacker.maxModels ?? attacker.stats?.model_count ?? shooterCount
-        );
-        if (isSlinger && this.soundSystem.playStoneVolley) {
-          this.soundSystem.playStoneVolley(shooterCount, maxSquadSize);
-        } else if (this.soundSystem.playRangedVolley) {
-          this.soundSystem.playRangedVolley(rangedSoundType, shooterCount, maxSquadSize);
-        } else if (this.soundSystem.playArrowVolley) {
-          this.soundSystem.playArrowVolley(shooterCount, maxSquadSize, undefined, rangedSoundType);
-        } else {
-          this.soundSystem.play(SoundCategory.SOUND, rangedSoundType, true);
+      const spawnProjectilesAndSound = () => {
+        const isSlinger = attacker?.creatureType === CreatureType.SLINGER;
+        if (this.soundSystem) {
+          const rangedSoundType = isSlinger ? SoundType.STONE : SoundType.ARROW;
+          const shooterCount = Math.max(1, attacker.aliveModelCount ?? 1);
+          const maxSquadSize = Math.max(
+            shooterCount,
+            attacker.maxModels ?? attacker.stats?.model_count ?? shooterCount
+          );
+          if (isSlinger && this.soundSystem.playStoneVolley) {
+            this.soundSystem.playStoneVolley(shooterCount, maxSquadSize);
+          } else if (this.soundSystem.playRangedVolley) {
+            this.soundSystem.playRangedVolley(rangedSoundType, shooterCount, maxSquadSize);
+          } else if (this.soundSystem.playArrowVolley) {
+            this.soundSystem.playArrowVolley(shooterCount, maxSquadSize, undefined, rangedSoundType);
+          } else {
+            this.soundSystem.play(SoundCategory.SOUND, rangedSoundType, true);
+          }
         }
-      }
 
-      this.projectileSystem.spawnVolley({
-        sourcePos,
-        targetPos,
-        projectileType: isSlinger ? 'stone' : 'arrow',
-        durationMs: 480,
-        apexHeight: Math.max(1.8, sourcePos.distanceTo(targetPos) * 0.38),
-        volleyCount: Math.min(8, Math.max(3, attacker.aliveModelCount)),
-        onImpact: () => {
-          this.applyDamageVisuals(defenderSquad, damage, flankStatus);
-        },
-      });
+        this.projectileSystem.spawnVolley({
+          sourcePos,
+          targetPos,
+          projectileType: isSlinger ? 'stone' : 'arrow',
+          durationMs: BattleView3D.PROJECTILE_DURATION_MS,
+          apexHeight: BattleView3D.computeProjectileApexHeight(sourcePos.distanceTo(targetPos)),
+          volleyCount: Math.min(8, Math.max(3, attacker.aliveModelCount)),
+          onImpact: () => {
+            this.applyDamageVisuals(defenderSquad, damage, flankStatus);
+          },
+        });
+      };
+
+      const scaledReleaseDelayMs = releaseDelayBaseMs / this.getAnimationSpeedMultiplier();
+      if (scaledReleaseDelayMs > 0) {
+        setTimeout(() => {
+          spawnProjectilesAndSound();
+        }, scaledReleaseDelayMs);
+      } else {
+        spawnProjectilesAndSound();
+      }
     } else {
       // Melee attack: advance past hex edge -> strike (with sound) -> turn & return to origin hex -> face enemy
       const targetWorldPos = defenderSquad

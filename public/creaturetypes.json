@@ -134,6 +134,7 @@
     "model_hp": 4,
     "tier": 1,
     "flying": false,
+    "ranged_projectile_delay_frames": 15,
     "stats": {
       "ammo": 12,
       "attack_melee_low": 4,

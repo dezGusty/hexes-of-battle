@@ -5286,7 +5286,7 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       const { UNIT_GLB_PATHS } = await import('./units/unit-mesh-builder');
 
       const specs = [
-        { key: 'archer', base: 'archer_rigged', anims: ['idle_stance', 'combat_move_advance', 'combat_attack_ranged', 'combat_attack_poke', 'combat_defensive_stance', 'death'] },
+        { key: 'archer', base: 'archer_rigged', anims: ['idle_stance', 'idle_raise_hands', 'combat_move_advance', 'combat_attack_ranged', 'combat_attack_poke', 'combat_defensive_stance', 'death'] },
         { key: 'crossbowman', base: 'crossbowman_rigged', anims: ['idle_stance', 'combat_move_advance', 'combat_attack_ranged', 'reload', 'combat_attack_poke', 'combat_defensive_stance', 'death'] },
         { key: 'swordsman', base: 'swordsman_rigged', anims: ['idle_stance', 'combat_move_advance', 'attack_swing', 'combat_attack_poke', 'combat_defensive_stance', 'death'] },
         { key: 'maceman', base: 'maceman_rigged', anims: ['idle_stance', 'combat_move_advance', 'combat_attack_poke', 'combat_defensive_stance', 'death'] },
@@ -5480,6 +5480,87 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       squad.update(460, cam); // finish strike, begin return
       expect(onWalkStep).toHaveBeenCalledTimes(2); // return
       squad.dispose();
+    });
+
+    it('should delay ranged projectile creation using creaturetypes.json ranged_projectile_delay_frames scaled by animation speed', async () => {
+      vi.useFakeTimers();
+      try {
+        const { readFileSync } = await import('node:fs');
+        const { CreatureRepository } = await import('../battle/creature-repository');
+        const { BattleView3D } = await import('./battle-view-3d');
+
+        const templates = JSON.parse(readFileSync('public/creaturetypes.json', 'utf8'));
+        const repo = new CreatureRepository();
+        repo.setCreatureTemplates(templates);
+
+        const archer = repo.createCreature(CreatureType.ARCHER);
+        expect(archer.rangedProjectileDelayFrames).toBeGreaterThan(0);
+        const expectedDelayMs = Math.round(((archer.rangedProjectileDelayFrames ?? 0) / 24) * 1000);
+        archer.position = { x: 0, y: 0 };
+        archer.facingDirection = HexDirection.EAST;
+
+        const target = repo.createCreature(CreatureType.PEASANT);
+        target.position = { x: 3, y: 0 };
+
+        const playAnimation = vi.fn();
+        const setFacing = vi.fn();
+        const spawnVolley = vi.fn();
+        const squadMap = new Map<string, any>([
+          [archer.GUID.toString(), { rootGroup: new THREE.Group(), playAnimation, setFacing }],
+          [target.GUID.toString(), { rootGroup: new THREE.Group() }],
+        ]);
+        squadMap.get(target.GUID.toString()).rootGroup.position.set(5, 0, 0);
+
+        let speedMultiplier = 1;
+        const fakeView: any = {
+          squadVisuals: squadMap,
+          hexBoard: { hexToWorldWithElevation: () => new THREE.Vector3() },
+          projectileSystem: { spawnVolley },
+          lastRangedAttackTimes: new Map<string, number>(),
+          getAnimationSpeedMultiplier: () => speedMultiplier,
+          getRangedProjectileDelayMs: (BattleView3D.prototype as any).getRangedProjectileDelayMs,
+          applyDamageVisuals: vi.fn(),
+        };
+
+        const rangedData: any = {
+          attacker: archer,
+          projectiles: [{ targetHex: target.position, hitCreature: target }],
+          targetDamages: [{ target, damage: 10, flankStatus: HexFlankStatus.NONE }],
+        };
+
+        // 1x speed
+        BattleView3D.prototype.showRangedAttackVisuals.call(fakeView, rangedData);
+        expect(playAnimation).toHaveBeenCalledWith('attack_ranged', Math.max(400, expectedDelayMs + 500));
+        expect(spawnVolley).not.toHaveBeenCalled();
+
+        vi.advanceTimersByTime(expectedDelayMs - 1);
+        expect(spawnVolley).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(2);
+        expect(spawnVolley).toHaveBeenCalledTimes(1);
+
+        // 2x speed
+        spawnVolley.mockClear();
+        playAnimation.mockClear();
+        fakeView.lastRangedAttackTimes.clear();
+        speedMultiplier = 2;
+
+        BattleView3D.prototype.showRangedAttackVisuals.call(fakeView, rangedData);
+        expect(playAnimation).toHaveBeenCalledTimes(1);
+        expect(spawnVolley).not.toHaveBeenCalled();
+
+        vi.advanceTimersByTime(Math.floor(expectedDelayMs / 2) - 1);
+        expect(spawnVolley).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(3);
+        expect(spawnVolley).toHaveBeenCalledTimes(1);
+
+        // Verify 35-degree arc and 50% faster flight duration (320ms vs previous 480ms)
+        const spawnArgs = spawnVolley.mock.calls[0][0];
+        expect(spawnArgs.durationMs).toBe(320);
+        const expectedApex = (5 * Math.tan((35 * Math.PI) / 180)) / 4;
+        expect(spawnArgs.apexHeight).toBeCloseTo(expectedApex, 4);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

@@ -54,6 +54,8 @@ export class CreatureRepository {
     const result = new Creature(creatureType, { ...templateStats }, []);
     result.displayName = creatureTemplate.display_name;
     result.portrait = creatureTemplate.portrait;
+    result.rangedProjectileDelayFrames = creatureTemplate.ranged_projectile_delay_frames;
+    result.rangedProjectileDelayMs = creatureTemplate.ranged_projectile_delay_ms;
     result.stats.model_count = creatureTemplate.model_count ?? result.stats.model_count;
     result.stats.model_hp = creatureTemplate.model_hp ?? result.stats.model_hp;
     result.stats.tier = creatureTemplate.tier ?? result.stats.tier;

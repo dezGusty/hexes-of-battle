@@ -136,8 +136,9 @@ export class ProjectileSystem3D {
         ));
 
         const dist = start.distanceTo(end);
-        const apex = proj.apexHeight ?? (params.apexHeight > 0 ? params.apexHeight : Math.max(1.5, dist * 0.35));
-        const duration = proj.durationMs ?? (params.durationMs > 0 ? params.durationMs : Math.max(400, dist * 120));
+        const defaultApex = Math.max(0.5, (dist * Math.tan((35 * Math.PI) / 180)) / 4);
+        const apex = proj.apexHeight ?? (params.apexHeight > 0 ? params.apexHeight : defaultApex);
+        const duration = proj.durationMs ?? (params.durationMs > 0 ? params.durationMs : Math.max(267, dist * 80));
 
         const mesh = this.createProjectileMesh(params.projectileType);
         mesh.position.copy(start);
@@ -188,8 +189,9 @@ export class ProjectileSystem3D {
     const fallbackTarget = params.targetPos ?? params.sourcePos;
     const volleyCount = params.volleyCount ?? 5;
     const dist = params.sourcePos.distanceTo(fallbackTarget);
-    const apex = params.apexHeight > 0 ? params.apexHeight : Math.max(1.5, dist * 0.35);
-    const baseDuration = params.durationMs > 0 ? params.durationMs : Math.max(400, dist * 120);
+    const defaultApex = Math.max(0.5, (dist * Math.tan((35 * Math.PI) / 180)) / 4);
+    const apex = params.apexHeight > 0 ? params.apexHeight : defaultApex;
+    const baseDuration = params.durationMs > 0 ? params.durationMs : Math.max(267, dist * 80);
 
     for (let i = 0; i < volleyCount; i++) {
       const isPrimary = i === 0;

@@ -134,6 +134,8 @@ export class CreatureTemplate {
   tier: number = 1;
   is_hero: boolean = false;
   flying: boolean = false;
+  ranged_projectile_delay_frames?: number;
+  ranged_projectile_delay_ms?: number;
   traits: string[] = [];
   stats: CreatureStats = new CreatureStats();
   ability_ids: string[] = [];
@@ -195,6 +197,8 @@ export class Creature {
   }
   public displayName?: string;
   public portrait?: string;
+  public rangedProjectileDelayFrames?: number;
+  public rangedProjectileDelayMs?: number;
   public get name(): string {
     return this.displayName ?? Creature.CREATURE_NAMES[this.creatureType] ?? "Unknown";
   }

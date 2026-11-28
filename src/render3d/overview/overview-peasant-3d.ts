@@ -314,8 +314,8 @@ const archerHelpers = createOverviewRiggedUnitHelpers({
   glbPath: OVERVIEW_ARCHER_GLB_PATH,
   groupName: 'OverviewArcher',
   placeholderName: 'ArcherGlbPlaceholder',
-  idleClipNames: ['idle_stance'],
-  allClipNames: ['idle_stance', 'combat_move_advance', 'combat_attack_ranged', 'combat_attack_poke', 'combat_defensive_stance', 'death'],
+  idleClipNames: ['idle_stance', 'idle_raise_hands'],
+  allClipNames: ['idle_stance', 'idle_raise_hands', 'combat_move_advance', 'combat_attack_ranged', 'combat_attack_poke', 'combat_defensive_stance', 'death'],
 });
 
 const crossbowmanHelpers = createOverviewRiggedUnitHelpers({
