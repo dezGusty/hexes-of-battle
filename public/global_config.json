@@ -2,15 +2,45 @@
   "players": [
     {
       "id": "player",
-      "name": "Player",
+      "name": "The Count of Ekkina",
       "isAI": false,
       "color": "#3498bb",
       "banner": "banner11.png"
     }
   ],
+  "enemyFactions": [
+    {
+      "id": "grand_duke",
+      "name": "Knights of the Grand Duke",
+      "isAI": true,
+      "color": "#b83227",
+      "banner": "banner2.png"
+    },
+    {
+      "id": "ironvale",
+      "name": "House of Ironvale",
+      "isAI": true,
+      "color": "#6c3483",
+      "banner": "banner7.png"
+    },
+    {
+      "id": "ravenscroft",
+      "name": "Barony of Ravenscroft",
+      "isAI": true,
+      "color": "#1e8449",
+      "banner": "banner9.png"
+    },
+    {
+      "id": "pale_sun",
+      "name": "Order of the Pale Sun",
+      "isAI": true,
+      "color": "#d48806",
+      "banner": "banner14.png"
+    }
+  ],
   "neutral": {
     "name": "Neutral",
     "color": "#8c929a",
-    "banner": "banner4.png"
+    "banner": "banner17.png"
   }
 }

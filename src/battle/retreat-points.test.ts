@@ -540,7 +540,12 @@ describe('Configurable Fixed Retreat Points & Animated Flags', () => {
           'swordman_face.png': dummyTex,
         },
       } as any;
-      const panel = new PostBattlePanel(undefined, dummySheet);
+      const dummyBannersSheet = {
+        textures: {
+          'banner1.png': dummyTex,
+        },
+      } as any;
+      const panel = new PostBattlePanel(undefined, dummySheet, dummyBannersSheet);
       expect(panel.isVisible()).toBe(false);
 
       // Show panel
@@ -549,6 +554,11 @@ describe('Configurable Fixed Retreat Points & Animated Flags', () => {
       expect(panel.lastVictor).toBe(0);
       expect(panel.contentContainer.getChildByLabel('SquadIcon_0_0')).toBeDefined();
       expect(panel.contentContainer.getChildByLabel('SquadIcon_1_0')).toBeDefined();
+      // Winning side banner is displayed in the title section
+      expect(panel.contentContainer.getChildByLabel('VictorBanner')).toBeDefined();
+      // Duplicate top-right 'x' close button is removed; only bottom close button exists
+      expect(panel.contentContainer.getChildByLabel('CloseButton')).toBeNull();
+      expect(panel.contentContainer.getChildByLabel('BottomCloseButton')).toBeDefined();
 
       // Summaries should be cached and accessible
       const p1Sum = panel.getArmySummary(0);
@@ -630,14 +640,14 @@ describe('Configurable Fixed Retreat Points & Animated Flags', () => {
       expect(raw.player2Banner).toMatch(/^banner\d+\.png$/);
     });
 
-    it('should reference valid frames banner1.png through banner16.png defined in bannersspritesheet.json', () => {
+    it('should reference valid frames banner1.png through banner64.png defined in bannersspritesheet.json', () => {
       const sheetPath = path.resolve(process.cwd(), 'public/bannersspritesheet.json');
       expect(fs.existsSync(sheetPath)).toBe(true);
 
       const sheet = JSON.parse(fs.readFileSync(sheetPath, 'utf-8'));
       expect(sheet.meta.image).toBe('banners.png');
-      expect(sheet.meta.size.w).toBe(264);
-      expect(sheet.meta.size.h).toBe(264);
+      expect(sheet.meta.size.w).toBe(528);
+      expect(sheet.meta.size.h).toBe(528);
       expect(BANNERS_ATLAS_SIZE.w).toBe(sheet.meta.size.w);
       expect(BANNERS_ATLAS_SIZE.h).toBe(sheet.meta.size.h);
 
@@ -645,8 +655,8 @@ describe('Configurable Fixed Retreat Points & Animated Flags', () => {
       expect(fs.existsSync(imgPath)).toBe(true);
       expect(fs.statSync(imgPath).size).toBeGreaterThan(1000);
 
-      // Verify each of the 16 banners has a 64x64 square frame in the atlas
-      for (let i = 1; i <= 16; i++) {
+      // Verify each of the 64 banners has a 64x64 square frame in the 528x528 atlas
+      for (let i = 1; i <= 64; i++) {
         const name = `banner${i}.png`;
         expect(sheet.frames[name]).toBeDefined();
         expect(sheet.frames[name].frame.w).toBe(64);
@@ -722,25 +732,31 @@ describe('Configurable Fixed Retreat Points & Animated Flags', () => {
 
       const banner1Tex = createBannerSubTexture(atlasTex, 'banner1.png');
       expect(banner1Tex.name).toBe('banner1.png');
-      expect(banner1Tex.repeat.x).toBeCloseTo(64 / 264, 4);
-      expect(banner1Tex.repeat.y).toBeCloseTo(64 / 264, 4);
-      expect(banner1Tex.offset.x).toBeCloseTo(1 / 264, 4);
-      // y = 1 in 264x264 image: Three.js V = (264 - 1 - 64) / 264 = 199 / 264
-      expect(banner1Tex.offset.y).toBeCloseTo(199 / 264, 4);
+      expect(banner1Tex.repeat.x).toBeCloseTo(64 / 528, 4);
+      expect(banner1Tex.repeat.y).toBeCloseTo(64 / 528, 4);
+      expect(banner1Tex.offset.x).toBeCloseTo(1 / 528, 4);
+      // y = 1 in 528x528 image: Three.js V = (528 - 1 - 64) / 528 = 463 / 528
+      expect(banner1Tex.offset.y).toBeCloseTo(463 / 528, 4);
 
       const banner2Tex = createBannerSubTexture(atlasTex, 'banner2.png');
       expect(banner2Tex.name).toBe('banner2.png');
-      expect(banner2Tex.offset.x).toBeCloseTo(67 / 264, 4);
-      expect(banner2Tex.offset.y).toBeCloseTo(199 / 264, 4);
+      expect(banner2Tex.offset.x).toBeCloseTo(67 / 528, 4);
+      expect(banner2Tex.offset.y).toBeCloseTo(463 / 528, 4);
 
-      // banner5.png is row 1 (y = 67, x = 1) -> V = (264 - 67 - 64) / 264 = 133 / 264
+      // banner5.png is row 1 (y = 67, x = 1) -> V = (528 - 67 - 64) / 528 = 397 / 528
       const banner5Tex = createBannerSubTexture(atlasTex, 'banner5.png');
-      expect(banner5Tex.offset.x).toBeCloseTo(1 / 264, 4);
-      expect(banner5Tex.offset.y).toBeCloseTo(133 / 264, 4);
+      expect(banner5Tex.offset.x).toBeCloseTo(1 / 528, 4);
+      expect(banner5Tex.offset.y).toBeCloseTo(397 / 528, 4);
+
+      // banner17.png (neutral) is top-right quadrant (x = 265, y = 1)
+      const banner17Tex = createBannerSubTexture(atlasTex, 'banner17.png');
+      expect(banner17Tex.offset.x).toBeCloseTo(265 / 528, 4);
+      expect(banner17Tex.offset.y).toBeCloseTo(463 / 528, 4);
 
       banner1Tex.dispose();
       banner2Tex.dispose();
       banner5Tex.dispose();
+      banner17Tex.dispose();
       atlasTex.dispose();
     });
 
@@ -1013,6 +1029,169 @@ describe('Configurable Fixed Retreat Points & Animated Flags', () => {
       expect(idxNextRound).toBe(0);
       expect(battle.retreatActiveCreature()).toBe(true);
       expect(unit.position.x).toBeLessThan(posAfterTurn1.x);
+    });
+
+    it('orderRetreat moves front-line units even when back-line friendlies initially occupy hexes behind them', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      // Back-line wall occupying all 3 westward neighbors of frontUnit (at 2,3)
+      const backCenter = new Creature(CreatureType.PEASANT);
+      backCenter.position = { x: 1, y: 3 };
+      backCenter.armyAlignment = 0;
+
+      const backNorth = new Creature(CreatureType.PEASANT);
+      backNorth.position = { x: 1, y: 2 };
+      backNorth.armyAlignment = 0;
+
+      const backSouth = new Creature(CreatureType.PEASANT);
+      backSouth.position = { x: 1, y: 4 };
+      backSouth.armyAlignment = 0;
+
+      // Front unit placed AFTER back-line units in creatures array
+      const frontUnit = new Creature(CreatureType.SWORDSMAN);
+      frontUnit.position = { x: 2, y: 3 };
+      frontUnit.armyAlignment = 0;
+
+      const enemy = new Creature(CreatureType.PEASANT);
+      enemy.position = { x: 8, y: 3 };
+      enemy.armyAlignment = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [backCenter, backNorth, backSouth, frontUnit, enemy],
+      });
+
+      battle.orderRetreat(0);
+
+      // All 3 back-line units escape immediately, clearing the path for frontUnit
+      expect(battle.routedCreatures).toContain(backCenter);
+      expect(battle.routedCreatures).toContain(backNorth);
+      expect(battle.routedCreatures).toContain(backSouth);
+      // frontUnit must also have moved (and escaped since x=2 -> x=0 takes 2 moves)
+      expect(battle.routedCreatures).toContain(frontUnit);
+      expect(battle.isFinished()).toBe(true);
+    });
+
+    it('orderRetreat pathfinds around water/enemy obstacles when direct retreat hexes are blocked', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const terrainTiles = Array.from({ length: 10 }, () => Array(8).fill(0));
+      // Place a vertical water barrier directly west of the unit at x=3, y=2..4
+      terrainTiles[3][2] = 5; // TerrainType.WATER
+      terrainTiles[3][3] = 5;
+      terrainTiles[3][4] = 5;
+
+      const unit = new Creature(CreatureType.SWORDSMAN);
+      unit.position = { x: 4, y: 3 };
+      unit.armyAlignment = 0;
+      unit.stats.num_moves = 3;
+      unit.stats.remaining_movement = 3;
+      unit.stats.stamina = 20;
+
+      const enemy = new Creature(CreatureType.PEASANT);
+      enemy.position = { x: 8, y: 3 };
+      enemy.armyAlignment = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles,
+        retreatPoints: {
+          0: [{ x: 0, y: 3 }],
+          1: [{ x: 9, y: 3 }],
+        },
+        creatures: [unit, enemy],
+      });
+
+      battle.orderRetreat(0);
+
+      // Unit must NOT freeze at (4, 3); it should detour around the water barrier
+      expect(unit.position.x !== 4 || unit.position.y !== 3).toBe(true);
+
+      // Over subsequent turns it navigates all the way around and escapes
+      for (let i = 0; i < 10 && !battle.isFinished(); i++) {
+        battle.nextTurn();
+      }
+      expect(battle.routedCreatures).toContain(unit);
+      expect(battle.isFinished()).toBe(true);
+    });
+
+    it('orderRetreat lets depleted (0 stamina) units rest at turn end and resume retreating on the next turn', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      const exhaustedUnit = new Creature(CreatureType.SWORDSMAN);
+      exhaustedUnit.position = { x: 4, y: 3 };
+      exhaustedUnit.armyAlignment = 0;
+      exhaustedUnit.stats.stamina = 0;
+      exhaustedUnit.stats.max_stamina = 14;
+      exhaustedUnit.updateExhaustionState();
+
+      const enemy = new Creature(CreatureType.PEASANT);
+      enemy.position = { x: 9, y: 7 };
+      enemy.armyAlignment = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [exhaustedUnit, enemy],
+      });
+
+      battle.orderRetreat(0);
+      // Could not move on turn 1 because stamina is 0
+      expect(exhaustedUnit.position.x).toBe(4);
+
+      // End army 0 turn -> rest-by-default recovers stamina; then enemy turn -> army 0 turn 2 -> moves!
+      battle.nextTurn(); // Army 0 ends (rests!) -> Army 1
+      expect(exhaustedUnit.stats.stamina).toBeGreaterThan(0);
+      battle.nextTurn(); // Army 1 ends -> Army 0 starts -> retreats!
+      expect(exhaustedUnit.position.x).toBeLessThan(4);
+    });
+
+    it('orderRetreat allows a 2-move unit to step onto high-cost terrain like Hills (moveCost 3) and Swamps (moveCost 4) on its retreat path', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+
+      // Fill columns 0..2 with Hills (TerrainType.HILL = 2, moveCost = 3)
+      const terrainTiles = Array.from({ length: 10 }, () => Array(8).fill(0));
+      for (let x = 0; x <= 2; x++) {
+        for (let y = 0; y < 8; y++) {
+          terrainTiles[x][y] = 2; // HILL (moveCost = 3)
+        }
+      }
+
+      const slowUnit = new Creature(CreatureType.SWORDSMAN);
+      slowUnit.position = { x: 2, y: 3 };
+      slowUnit.armyAlignment = 0;
+      slowUnit.stats.num_moves = 2; // Strictly less than Hill's moveCost (3)
+      slowUnit.stats.remaining_movement = 2;
+      slowUnit.stats.stamina = 14;
+
+      const enemy = new Creature(CreatureType.PEASANT);
+      enemy.position = { x: 8, y: 3 };
+      enemy.armyAlignment = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles,
+        creatures: [slowUnit, enemy],
+      });
+
+      battle.orderRetreat(0);
+      // Must step onto the adjacent Hill hex (x = 1) even though num_moves (2) < Hill moveCost (3)
+      expect(slowUnit.position.x).toBe(1);
+
+      // Next round: steps onto the retreat edge Hill hex (x = 0) and escapes
+      battle.nextTurn(); // Army 1
+      battle.nextTurn(); // Army 0
+      expect(battle.routedCreatures).toContain(slowUnit);
+      expect(battle.isFinished()).toBe(true);
     });
   });
 });

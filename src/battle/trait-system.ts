@@ -456,7 +456,7 @@ export function calculateDamageWithTraits(params: DamageCalculationParams): Dama
 
   // 1.5. Armor Penetration (Attacker Perk: Melee & Ranged)
   let effectiveTargetArmor = targetArmor;
-  if (creatureHasTrait(attacker, "ArmorPenetration")) {
+  if (effectiveTargetArmor > 0 && creatureHasTrait(attacker, "ArmorPenetration")) {
     const apConfig = traitsConfig.armorPenetration ?? DEFAULT_TRAITS_CONFIG.armorPenetration;
     const ignorePct = apConfig?.armorIgnoredPercent ?? 0.5;
     const flatRed = apConfig?.armorReduction ?? 0;

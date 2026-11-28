@@ -16,6 +16,15 @@ export class TopSidePanel {
   private leftArmyText?: Text = undefined;
   private rightArmyText?: Text = undefined;
   private metalworkFrame?: Graphics = undefined;
+  private turnBadgeBg?: Graphics = undefined;
+  public turnCounterText?: Text = undefined;
+
+  public setTurnNumber(turnNumberZeroBased: number): void {
+    const displayTurn = Math.max(1, Math.floor(turnNumberZeroBased) + 1);
+    if (this.turnCounterText) {
+      this.turnCounterText.text = `Turn ${displayTurn}`;
+    }
+  }
 
   setActiveArmyIndex(index: number) {
     if (index === 0) {
@@ -129,15 +138,37 @@ export class TopSidePanel {
     windowBg.tint = 0x9a8e7a;
     this.window.addChild(windowBg);
 
-    // Medieval metalwork trim with center heraldic eagle & flanking lions
+    // Medieval metalwork trim with flanking lions and centered turn counter badge
     this.metalworkFrame = new Graphics();
     this.metalworkFrame.eventMode = 'none';
     this.metalworkFrame.roundRect(2, 5, 1196, TopSidePanel.DEFAULT_BANNER_SIZE - 8, 4);
     this.metalworkFrame.stroke({ color: MEDIEVAL_PALETTE.bronzeMid, width: 1.5, alpha: 0.85 });
-    drawBestiaryRelief(this.metalworkFrame, 'eagle', 600, 21, 0.72, false, MEDIEVAL_PALETTE.goldBright);
-    drawBestiaryRelief(this.metalworkFrame, 'lion', 562, 22, 0.58, false, MEDIEVAL_PALETTE.bronzeLight);
-    drawBestiaryRelief(this.metalworkFrame, 'lion', 638, 22, 0.58, true, MEDIEVAL_PALETTE.bronzeLight);
+    drawBestiaryRelief(this.metalworkFrame, 'lion', 524, 22, 0.58, false, MEDIEVAL_PALETTE.bronzeLight);
+    drawBestiaryRelief(this.metalworkFrame, 'lion', 676, 22, 0.58, true, MEDIEVAL_PALETTE.bronzeLight);
     this.window.addChild(this.metalworkFrame);
+
+    // Centered turn counter badge between the two army names
+    this.turnBadgeBg = new Graphics();
+    this.turnBadgeBg.eventMode = 'none';
+    this.turnBadgeBg
+      .roundRect(600 - 58, 8, 116, 25, 6)
+      .fill({ color: 0x131922, alpha: 0.9 })
+      .stroke({ color: MEDIEVAL_PALETTE.goldBright, width: 1.5, alpha: 0.9 });
+    this.window.addChild(this.turnBadgeBg);
+
+    this.turnCounterText = new Text({
+      text: 'Turn 1',
+      style: {
+        fill: '#f4d37a',
+        fontFamily: 'Georgia, serif',
+        fontSize: 15,
+        fontWeight: 'bold',
+        align: 'center',
+      },
+    });
+    this.turnCounterText.anchor.set(0.5);
+    this.turnCounterText.position.set(600, 20.5);
+    this.window.addChild(this.turnCounterText);
 
     this.bannerLeftBg = new NineSliceSprite({
       texture: this.uiSheet.textures['progress_bg.png'],

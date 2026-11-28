@@ -88,6 +88,7 @@ describe('3D Multi-Scene Architecture & Resource Lifecycle', () => {
 
     await manager.loadCoreAssets(assets);
     expect(assets.unitsSheet).toBeDefined();
+    expect(assets.bannersSheet).toBeDefined();
 
     await manager.loadBattleAssets(assets);
     expect(manager.isBattleAssetsLoaded()).toBe(true);
@@ -100,7 +101,7 @@ describe('3D Multi-Scene Architecture & Resource Lifecycle', () => {
     expect(assets.hexagonSheet).toBeUndefined();
     expect(assets.terrainSheet).toBeUndefined();
     expect(assets.unitsSheet).toBeDefined();
-    expect(assets.bannersSheet).toBeUndefined();
+    expect(assets.bannersSheet).toBeDefined();
     expect(unloadSpy).toHaveBeenCalled();
 
     loadSpy.mockRestore();

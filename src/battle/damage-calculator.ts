@@ -54,6 +54,54 @@ export function resolveTargetDefense(
 }
 
 /**
+ * Computes the isolated/surrounded armor penalty for a defending unit:
+ * - If the defender has ANY alive friendly unit adjacent to it, penalty is 0.
+ * - Otherwise, armor is reduced by 1 for each adjacent alive enemy unit beyond the 1st
+ *   (e.g., 2 adjacent enemies -> -1 armor, 3 adjacent enemies -> -2 armor).
+ *
+ * Optionally accepts a virtual position for an attacking unit (for melee move-and-attack previews).
+ */
+export function computeSurroundedArmorPenalty(
+  defender: Creature,
+  hexMap: HexMap,
+  creatures?: Creature[],
+  attacker?: Creature,
+  virtualAttackerPos?: Coords | null
+): { penalty: number; adjacentEnemies: number; adjacentFriendlies: number } {
+  if (!creatures || creatures.length === 0) {
+    return { penalty: 0, adjacentEnemies: 0, adjacentFriendlies: 0 };
+  }
+
+  let adjacentFriendlies = 0;
+  let adjacentEnemies = 0;
+
+  for (const unit of creatures) {
+    if (!unit || !unit.isAlive || unit === defender) continue;
+    const pos =
+      attacker && virtualAttackerPos && unit === attacker
+        ? virtualAttackerPos
+        : unit.pos;
+    if (hexMap.getDistance(pos, defender.pos) === 1) {
+      if (unit.armyAlignment === defender.armyAlignment) {
+        adjacentFriendlies++;
+      } else {
+        adjacentEnemies++;
+      }
+    }
+  }
+
+  if (adjacentFriendlies > 0) {
+    return { penalty: 0, adjacentEnemies, adjacentFriendlies };
+  }
+
+  return {
+    penalty: Math.max(0, adjacentEnemies - 1),
+    adjacentEnemies,
+    adjacentFriendlies,
+  };
+}
+
+/**
  * Computes live creature stats at a hypothetical board location, applying the location's
  * terrain buffs (and removing existing terrain buffs) without mutating the creature.
  */
@@ -151,6 +199,7 @@ export interface AttackExecutionParams {
   rng?: SeedableRNG;
   customMultiplier?: number;
   traveledHexes?: number;
+  surroundedArmorPenalty?: number;
   commit?: boolean;
 }
 
@@ -172,6 +221,7 @@ export function executeAttackCalculation(params: AttackExecutionParams): {
     rng,
     customMultiplier = 1.0,
     traveledHexes = 0,
+    surroundedArmorPenalty = 0,
     commit = true,
   } = params;
 
@@ -184,7 +234,7 @@ export function executeAttackCalculation(params: AttackExecutionParams): {
 
   const attackFromDir = reverseDirection(attacker.facingDirection);
   const { flankStatus, facingBonus } = resolveFlankAndFacingBonus(defender.facingDirection, attackFromDir, combatConfig);
-  const targetArmor = resolveTargetDefense(defender, attackType);
+  const targetArmor = resolveTargetDefense(defender, attackType) - surroundedArmorPenalty;
 
   const traitResult = calculateDamageWithTraits({
     attacker,
@@ -260,6 +310,7 @@ export interface DamagePreviewContext {
   hexMap: HexMap;
   combatConfig: CombatConfig;
   traitsConfig: TraitsConfig;
+  creatures?: Creature[];
   approachHex?: Coords;
   meleePreference?: boolean;
   ability?: Ability;
@@ -283,6 +334,7 @@ export function computeDamagePreview(ctx: DamagePreviewContext): DamagePreviewRe
     hexMap,
     combatConfig,
     traitsConfig,
+    creatures,
     approachHex,
     meleePreference = false,
     ability,
@@ -345,7 +397,8 @@ export function computeDamagePreview(ctx: DamagePreviewContext): DamagePreviewRe
       const attackerStats = computeVirtualLiveStatsAt(attacker, attacker.pos, attTerrain, combatConfig);
       const attackerMultiplier = attacker.getDamageOutputMultiplier();
       const { low: singleLow, high: singleHigh } = getAttackerDamageBounds(attackerStats, BattleActionType.ATTACK_RANGED, attackerMultiplier);
-      const targetArmor = resolveTargetDefense(defender, BattleActionType.ATTACK_RANGED);
+      const qdSurrounded = computeSurroundedArmorPenalty(defender, hexMap, creatures);
+      const targetArmor = resolveTargetDefense(defender, BattleActionType.ATTACK_RANGED) - qdSurrounded.penalty;
 
       const traitResultMin = calculateDamageWithTraits({
         attacker,
@@ -422,6 +475,9 @@ export function computeDamagePreview(ctx: DamagePreviewContext): DamagePreviewRe
       }
 
       defenderModifiers.push(`Defense: ${targetArmor}`);
+      if (qdSurrounded.penalty > 0) {
+        defenderModifiers.push(`Isolated (${qdSurrounded.adjacentEnemies} enemies): -${qdSurrounded.penalty} Armor`);
+      }
       const defTerrain = getTerrainAtFn ? getTerrainAtFn(targetHex) : 0;
       const defBuff = combatConfig.terrain.buffs[defTerrain];
       if (defBuff && defBuff.defense_ranged) {
@@ -723,7 +779,14 @@ export function computeDamagePreview(ctx: DamagePreviewContext): DamagePreviewRe
   }
 
   const { low: scaledLow, high: scaledHigh } = getAttackerDamageBounds(attackerStats, attackType, attackerMultiplier);
-  const targetArmor = resolveTargetDefense(defender, attackType);
+  const surroundedInfo = computeSurroundedArmorPenalty(
+    defender,
+    hexMap,
+    creatures,
+    attacker,
+    !isRanged ? originHex : null
+  );
+  const targetArmor = resolveTargetDefense(defender, attackType) - surroundedInfo.penalty;
 
   const traitResultMin = calculateDamageWithTraits({
     attacker,
@@ -799,6 +862,9 @@ export function computeDamagePreview(ctx: DamagePreviewContext): DamagePreviewRe
   }
 
   defenderModifiers.push(`Defense: ${targetArmor}`);
+  if (surroundedInfo.penalty > 0) {
+    defenderModifiers.push(`Isolated (${surroundedInfo.adjacentEnemies} enemies): -${surroundedInfo.penalty} Armor`);
+  }
   const defTerrain = getTerrainAtFn ? getTerrainAtFn(targetHex) : 0;
   const defBuff = combatConfig.terrain.buffs[defTerrain];
   if (defBuff) {

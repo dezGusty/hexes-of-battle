@@ -57,8 +57,13 @@ export const DEFAULT_MUSIC_CONFIG: MusicConfig = {
   ],
   battle: [
     {
+      alias: 'track_ehoi',
+      url: 'audio/music/battle_Ehoi.ogg',
+      title: 'Ehoi',
+    },
+    {
       alias: 'track_dark_whispers',
-      url: 'audio/dark_whispers.ogg',
+      url: 'audio/music/battle_dark_whispers.ogg',
       title: 'Dark Whispers',
     },
   ],
@@ -239,10 +244,10 @@ export class MusicManager {
         complete: loopSingle
           ? undefined
           : () => {
-              if (this.currentTrack?.alias === nextTrack.alias) {
-                void this.playNextTrack(this.lastSettings);
-              }
-            },
+            if (this.currentTrack?.alias === nextTrack.alias) {
+              void this.playNextTrack(this.lastSettings);
+            }
+          },
       });
     } catch {
       // Ignore audio load/play errors in offline or headless environments

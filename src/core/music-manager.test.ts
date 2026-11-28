@@ -29,10 +29,12 @@ function createMockBackend() {
 }
 
 describe('MusicManager & music.json configuration', () => {
-  it('loads public/music.json with separated global (6 tracks) and battle (1 track) playlists', () => {
+  it('loads public/music.json with separated global (6 tracks) and battle (2+ tracks) playlists', () => {
     const raw = JSON.parse(readFileSync('public/music.json', 'utf8')) as MusicConfig;
-    expect(raw.battle).toHaveLength(1);
-    expect(raw.battle[0].url).toBe('audio/dark_whispers.ogg');
+    expect(raw.battle.length).toBeGreaterThanOrEqual(2);
+    const battleUrls = raw.battle.map((t) => t.url);
+    expect(battleUrls).toContain('audio/music/battle_Ehoi.ogg');
+    expect(battleUrls).toContain('audio/music/battle_dark_whispers.ogg');
 
     expect(raw.global).toHaveLength(6);
     const urls = raw.global.map((t) => t.url);
@@ -77,12 +79,22 @@ describe('MusicManager & music.json configuration', () => {
     const secondTrack = manager.getCurrentTrack()!;
     expect(secondTrack.alias).not.toBe(firstTrack.alias);
 
-    // Switch to battle mode -> unloads global track and lazily loads dark_whispers
+    // Switch to battle mode -> unloads global track and lazily loads one of the configured battle tracks
     await manager.setMode('battle', settings);
     expect(backend.remove).toHaveBeenCalledWith(secondTrack.alias);
     expect(loaded.size).toBe(1);
-    expect(manager.getCurrentTrack()?.alias).toBe('track_dark_whispers');
-    expect(loaded.has('track_dark_whispers')).toBe(true);
+    const firstBattleTrack = manager.getCurrentTrack()!;
+    expect(['track_ehoi', 'track_dark_whispers']).toContain(firstBattleTrack.alias);
+    expect(loaded.has(firstBattleTrack.alias)).toBe(true);
+
+    // Simulate first battle track finishing -> unloads it and plays the other battle track
+    completeCallbacks.get(firstBattleTrack.alias)?.();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(backend.remove).toHaveBeenCalledWith(firstBattleTrack.alias);
+    expect(loaded.size).toBe(1);
+    const secondBattleTrack = manager.getCurrentTrack()!;
+    expect(secondBattleTrack.alias).not.toBe(firstBattleTrack.alias);
+    expect(['track_ehoi', 'track_dark_whispers']).toContain(secondBattleTrack.alias);
   });
 
   it('stops and unloads when volume becomes 0 and lazily reloads when raised above 0', async () => {
@@ -93,21 +105,24 @@ describe('MusicManager & music.json configuration', () => {
     settings.sound.musicVolume = 0.5;
 
     await manager.setMode('battle', settings);
-    expect(loaded.has('track_dark_whispers')).toBe(true);
+    const initialAlias = manager.getCurrentTrack()!.alias;
+    expect(['track_ehoi', 'track_dark_whispers']).toContain(initialAlias);
+    expect(loaded.has(initialAlias)).toBe(true);
 
     settings.sound.musicVolume = 0;
     settings.sound.musicOn = false;
     await manager.updateVolume(settings);
-    expect(backend.stop).toHaveBeenCalledWith('track_dark_whispers');
+    expect(backend.stop).toHaveBeenCalledWith(initialAlias);
     expect(loaded.size).toBe(0);
 
     settings.sound.musicVolume = 0.6;
     settings.sound.musicOn = true;
     await manager.updateVolume(settings);
-    expect(loaded.has('track_dark_whispers')).toBe(true);
+    const reloadedAlias = manager.getCurrentTrack()!.alias;
+    expect(loaded.has(reloadedAlias)).toBe(true);
     expect(backend.play).toHaveBeenLastCalledWith(
-      'track_dark_whispers',
-      expect.objectContaining({ loop: true, volume: 0.6 })
+      reloadedAlias,
+      expect.objectContaining({ loop: false, volume: 0.6 })
     );
   });
 

@@ -26,6 +26,15 @@
       "steps_2.ogg",
       "steps_3.ogg",
       "steps_4.ogg"
+    ],
+    "army_issue_attack": [
+      "army_issue_attack.ogg"
+    ],
+    "army_select_own": [
+      "army_select_own.ogg"
+    ],
+    "army_select_enemy": [
+      "army_select_enemy.ogg"
     ]
   },
   "unitMovementSounds": {
@@ -76,6 +85,9 @@
     "SWORD": "sword",
     "ARROW": "arrow",
     "STONE": "stone",
+    "ARMY_ISSUE_ATTACK": "army_issue_attack",
+    "ARMY_SELECT_OWN": "army_select_own",
+    "ARMY_SELECT_ENEMY": "army_select_enemy",
     "BATTLE_MUSIC": "track_dark_whispers"
   },
   "ui": {

@@ -839,10 +839,12 @@ describe("Damage Preview & Hover Tooltip System", () => {
 
       const forestInfo = buildTerrainTooltipInfo(TerrainType.FOREST, DEFAULT_COMBAT_CONFIG);
       expect(forestInfo.name).toBe("FOREST");
-      expect(forestInfo.modifiers.some((m) => m.text.includes("+1 Ranged Def") && !m.isDebuff)).toBe(true);
+      expect(forestInfo.modifiers.some((m) => m.text.includes("+2 Ranged Def") && !m.isDebuff)).toBe(true);
 
       const hillInfo = buildTerrainTooltipInfo(TerrainType.HILL, DEFAULT_COMBAT_CONFIG);
       expect(hillInfo.name).toBe("HILL");
+      expect(hillInfo.modifiers.some((m) => m.text.includes("+2 Melee Atk"))).toBe(true);
+      expect(hillInfo.modifiers.some((m) => m.text.includes("+2 Ranged Atk"))).toBe(true);
       expect(hillInfo.modifiers.some((m) => m.text.includes("+1 Range"))).toBe(true);
 
       const swampInfo = buildTerrainTooltipInfo(TerrainType.SWAMP, DEFAULT_COMBAT_CONFIG);
@@ -918,6 +920,123 @@ describe("Damage Preview & Hover Tooltip System", () => {
       const updateTerrainFn = (BattleView3D.prototype as any).updateTerrainTooltipHover;
       updateTerrainFn.call(view3DContext);
       expect(mockHud.showTerrainTooltip).toHaveBeenCalledWith({ x: 2, y: 2 }, 400, 300);
+    });
+  });
+
+  describe("7. Updated Terrain Modifiers (Forest +2 Ranged Def, Hill +2 Atk) & Isolated Surrounded Armor Penalty", () => {
+    it("should grant Forest +2 ranged defense and Hill +2 melee & ranged attack (preserving other hill bonuses)", async () => {
+      const { readFileSync } = await import("node:fs");
+      const rawCfg = JSON.parse(readFileSync("public/combat_config.json", "utf8"));
+      expect(rawCfg.terrain.buffs["1"].defense_ranged).toBe(2);
+      expect(rawCfg.terrain.buffs["2"].attack_melee_low).toBe(2);
+      expect(rawCfg.terrain.buffs["2"].attack_melee_high).toBe(2);
+      expect(rawCfg.terrain.buffs["2"].attack_ranged_low).toBe(2);
+      expect(rawCfg.terrain.buffs["2"].attack_ranged_high).toBe(2);
+      expect(rawCfg.terrain.buffs["2"].defense_melee).toBe(1);
+      expect(rawCfg.terrain.buffs["2"].range).toBe(1);
+
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+      const terrainTiles = Array.from({ length: 10 }, () => Array(8).fill(TerrainType.PLAIN));
+      terrainTiles[2][3] = TerrainType.HILL;
+      terrainTiles[5][3] = TerrainType.FOREST;
+
+      const archer = new Creature(CreatureType.PEASANT_ARCHER);
+      archer.armyAlignment = 0;
+      archer.position = { x: 2, y: 3 };
+      const defender = new Creature(CreatureType.SWORDSMAN);
+      defender.armyAlignment = 1;
+      defender.position = { x: 5, y: 3 };
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles,
+        creatures: [archer, defender],
+      });
+      battle.selectNextUnitAndGetIndex();
+
+      const preview = battle.calculateDamagePreview(defender.position);
+      expect(preview).not.toBeNull();
+      expect(preview!.attackerModifiers).toContain("Hill: +2 Ranged Atk");
+      expect(preview!.defenderModifiers).toContain("Forest: +2 Def");
+      expect(preview!.targetArmor).toBe(defender.stats.defense_ranged + 2);
+    });
+
+    it("should reduce isolated defender armor by 1 per adjacent enemy beyond the 1st, unless a friendly unit is adjacent, in both previews and actual damage", () => {
+      const hexMap = new HexMap(10, 8);
+      const makeBattle = (
+        enemyPositions: Array<{ x: number; y: number }>,
+        friendlyPositions: Array<{ x: number; y: number }>
+      ) => {
+        const battle = new Battle(hexMap);
+        const defender = new Creature(CreatureType.ARMORED_KNIGHT);
+        defender.armyAlignment = 1;
+        defender.position = { x: 4, y: 3 };
+        defender.stats.defense_melee = 4;
+        defender.stats.defense_ranged = 3;
+        defender.facingDirection = HexDirection.WEST;
+
+        const enemies = enemyPositions.map((pos) => {
+          const e = new Creature(CreatureType.PEASANT);
+          e.armyAlignment = 0;
+          e.position = { ...pos };
+          e.stats.attack_melee_low = 10;
+          e.stats.attack_melee_high = 10;
+          e.facingDirection = hexMap.getDirectionForNeighbour(pos, { x: 4, y: 3 });
+          return e;
+        });
+        const friendlies = friendlyPositions.map((pos) => {
+          const f = new Creature(CreatureType.PEASANT);
+          f.armyAlignment = 1;
+          f.position = { ...pos };
+          return f;
+        });
+
+        battle.initializeFromConfig({
+          mapWidth: 10,
+          mapHeight: 8,
+          terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(TerrainType.PLAIN)),
+          creatures: [enemies[0], ...enemies.slice(1), defender, ...friendlies],
+        });
+        battle.selectNextUnitAndGetIndex();
+        return { battle, attacker: enemies[0], defender };
+      };
+
+      const neighbors = hexMap.getNeighbours({ x: 4, y: 3 });
+      // 1 adjacent enemy -> no penalty (armor 4)
+      const case1 = makeBattle([neighbors[0]], []);
+      const prev1 = case1.battle.calculateDamagePreview(case1.defender.position);
+      expect(prev1!.targetArmor).toBe(4);
+      expect(prev1!.defenderModifiers.some((m) => m.includes("Isolated"))).toBe(false);
+
+      // 2 adjacent enemies, 0 friendlies -> -1 armor (armor 3)
+      const case2 = makeBattle([neighbors[0], neighbors[1]], []);
+      const prev2 = case2.battle.calculateDamagePreview(case2.defender.position);
+      expect(prev2!.targetArmor).toBe(3);
+      expect(prev2!.defenderModifiers).toContain("Isolated (2 enemies): -1 Armor");
+      expect(prev2!.minDamage).toBe(prev1!.minDamage + 1);
+
+      // 3 adjacent enemies, 0 friendlies -> -2 armor (armor 2)
+      const case3 = makeBattle([neighbors[0], neighbors[1], neighbors[2]], []);
+      const prev3 = case3.battle.calculateDamagePreview(case3.defender.position);
+      expect(prev3!.targetArmor).toBe(2);
+      expect(prev3!.defenderModifiers).toContain("Isolated (3 enemies): -2 Armor");
+      expect(prev3!.minDamage).toBe(prev1!.minDamage + 2);
+
+      // Verify actual applied melee damage matches preview exactly for 3 adjacent enemies
+      const hpBefore = case3.defender.stats.remaining_health;
+      (case3.battle as any).applyAttackDamage(case3.attacker, case3.defender, BattleActionType.ATTACK_MELEE);
+      const actualDamage = hpBefore - case3.defender.stats.remaining_health;
+      expect(actualDamage).toBe(prev3!.minDamage);
+
+      // 4 adjacent enemies + 1 adjacent friendly -> NOT affected (armor 4)
+      const case4 = makeBattle(
+        [neighbors[0], neighbors[1], neighbors[2], neighbors[3]],
+        [neighbors[4]]
+      );
+      const prev4 = case4.battle.calculateDamagePreview(case4.defender.position);
+      expect(prev4!.targetArmor).toBe(4);
+      expect(prev4!.defenderModifiers.some((m) => m.includes("Isolated"))).toBe(false);
     });
   });
 });

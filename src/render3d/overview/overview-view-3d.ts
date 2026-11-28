@@ -13,6 +13,7 @@ export interface OverviewView3DCallbacks {
   onSelectHex?: (coords: Coords) => void;
   onSelectSettlement?: (regionId: string) => void;
   onMoveArmy?: (armyId: string, targetCoords: Coords) => void;
+  onHoverRegion?: (regionId: string | null) => void;
   onPointerMove?: (stageCoords: Coords) => void;
   getStageInfo?: () => { offset: Coords; scale: Coords };
   isMenuBlockingInput?: () => boolean;
@@ -206,7 +207,12 @@ export class OverviewView3D {
 
   public hoverAtHex(coords: Coords | null): void {
     const hoveredHex = coords ? this.campaign.getHex(coords) : null;
-    this.board.setHoveredRegion(hoveredHex?.regionId ?? null);
+    const isVisibleHex = Boolean(
+      coords && this.campaign.getVisibleHexKeys().has(`${coords.x},${coords.y}`)
+    );
+    const hoveredRegionId = isVisibleHex ? (hoveredHex?.regionId ?? null) : null;
+    this.board.setHoveredRegion(hoveredRegionId);
+    this.callbacks.onHoverRegion?.(hoveredRegionId);
 
     const key = coords ? `${coords.x},${coords.y}` : null;
     if (key === this.lastHoveredHexKey) return;
@@ -346,11 +352,32 @@ export class OverviewView3D {
 
   public syncAll(): void {
     this.board.rebuildLandmarks();
+    this.board.rebuildSettlementLabels();
     this.board.syncArmies();
     if (this.selectedArmyId) {
       const reachable = this.campaign.getReachableHexes(this.selectedArmyId);
       this.board.setReachableHexes(reachable.keys());
     }
+  }
+
+  public animateArmyAlongPath(
+    armyId: string,
+    path: Coords[],
+    options?: {
+      msPerHex?: number;
+      onStep?: (coords: Coords, stepIndex: number) => void;
+      onComplete?: () => void;
+    }
+  ): boolean {
+    const speedMult = this.settings.getOverviewAnimationSpeedMultiplier?.() ?? 1;
+    const baseMsPerHex = options?.msPerHex ?? 360;
+    this.board.setMovePath([]);
+    this.board.setReachableHexes([]);
+    return this.board.animateArmyAlongPath(armyId, path, {
+      msPerHex: Math.max(80, baseMsPerHex / Math.max(0.25, speedMult)),
+      onStep: options?.onStep,
+      onComplete: options?.onComplete,
+    });
   }
 
   public setKeyPressed(key: string, pressed: boolean): void {

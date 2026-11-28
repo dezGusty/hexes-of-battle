@@ -2,7 +2,12 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { applyUnitRimLighting } from '../units/unit-rim-lighting';
-import { applyRiggedTeamAndBannerShader, getSharedWhiteTexture, parseColorToHex } from '../units/unit-mesh-builder';
+import {
+  applyRiggedTeamAndBannerShader,
+  getSharedWhiteTexture,
+  parseColorToHex,
+  syncRiggedTeamAndBannerUniforms,
+} from '../units/unit-mesh-builder';
 
 export const OVERVIEW_PEASANT_GLB_PATH = 'models/units/peasant_rigged.glb';
 export const OVERVIEW_SPEARMAN_GLB_PATH = 'models/units/spearman_rigged.glb';
@@ -147,6 +152,8 @@ function createOverviewRiggedUnitHelpers(spec: OverviewRiggedUnitSpec) {
                 applyRiggedTeamAndBannerShader(cachedMat, teamColorHex, resolvedBanner, hasUv1);
               }
               matMap.set(matKey, cachedMat);
+            } else if (hasMaskColor) {
+              syncRiggedTeamAndBannerUniforms(cachedMat, teamColorHex, resolvedBanner);
             }
             return cachedMat;
           });
@@ -202,20 +209,56 @@ function createOverviewRiggedUnitHelpers(spec: OverviewRiggedUnitSpec) {
 
     const r0 = nextRand(seed * 48271 + 17);
     const r1 = nextRand(r0.next);
-    let state: 'none' | 'playing' = 'none';
+    let state: 'none' | 'playing' | 'moving' = 'none';
     let duration = 5.5 + r0.value * 4.5;
     let elapsed = r1.value * duration;
     let rngState = r1.next;
+
+    const setMoving = (moving: boolean) => {
+      if (moving) {
+        if (state === 'moving') return;
+        const moveAction = actions['combat_move_advance'];
+        if (moveAction) {
+          moveAction.reset();
+          moveAction.setLoop(THREE.LoopRepeat, Infinity);
+          moveAction.clampWhenFinished = false;
+          moveAction.setEffectiveTimeScale(1.25);
+          moveAction.setEffectiveWeight(1);
+          moveAction.play();
+          if (activeAction && activeAction !== moveAction) {
+            activeAction.crossFadeTo(moveAction, 0.12, false);
+          }
+          activeAction = moveAction;
+        }
+        state = 'moving';
+      } else if (state === 'moving') {
+        state = 'none';
+        elapsed = 0;
+        duration = 2.0 + r0.value * 3.0;
+        setStaticStancePose();
+      }
+    };
 
     const controller = {
       actions,
       mixer,
       playAnimation: (name: string, fade?: number) => playAnimation(name, fade),
+      setMoving,
       update: (dt: number) => mixer.update(dt),
     };
     group.userData.peasantController = controller;
+    group.userData.setMoving = setMoving;
+
+    if (group.userData.pendingMoving === true) {
+      setMoving(true);
+    }
 
     group.userData.updateAnimation = (dt: number) => {
+      if (state === 'moving') {
+        mixer.update(dt);
+        return;
+      }
+
       elapsed += dt;
 
       if (elapsed >= duration) {
@@ -346,8 +389,8 @@ const knightHelpers = createOverviewRiggedUnitHelpers({
   glbPath: OVERVIEW_KNIGHT_GLB_PATH,
   groupName: 'OverviewArmoredKnight',
   placeholderName: 'ArmoredKnightGlbPlaceholder',
-  idleClipNames: ['idle_stance'],
-  allClipNames: ['idle_stance', 'combat_move_advance', 'combat_attack_poke', 'combat_defensive_stance', 'death'],
+  idleClipNames: ['idle_stance', 'idle_rearing'],
+  allClipNames: ['idle_stance', 'idle_rearing', 'combat_move_advance', 'combat_attack_poke', 'combat_defensive_stance', 'death'],
 });
 
 /**

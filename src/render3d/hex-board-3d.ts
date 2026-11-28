@@ -437,17 +437,22 @@ export class HexBoard3D {
         opacity: 0.88,
       });
 
-      await loadTex('banners.png')
-        .catch(() => loadTex(`${basePath}banners.png`))
-        .then((bannersTex) => {
-          bannersTex.minFilter = THREE.LinearFilter;
-          bannersTex.magFilter = THREE.LinearFilter;
-          bannersTex.generateMipmaps = false;
-          bannersTex.needsUpdate = true;
-          this.bannersTexture = bannersTex;
-          setSharedBannersTexture(bannersTex);
-        })
-        .catch(() => { });
+      const existingBannersTex = getSharedBannersTexture();
+      if (existingBannersTex) {
+        this.bannersTexture = existingBannersTex;
+      } else {
+        await loadTex('banners.png?v=528')
+          .catch(() => loadTex(`${basePath}banners.png?v=528`))
+          .then((bannersTex) => {
+            bannersTex.minFilter = THREE.LinearFilter;
+            bannersTex.magFilter = THREE.LinearFilter;
+            bannersTex.generateMipmaps = false;
+            bannersTex.needsUpdate = true;
+            this.bannersTexture = bannersTex;
+            setSharedBannersTexture(bannersTex);
+          })
+          .catch(() => { });
+      }
 
       this.rebuildBoard();
     } catch (e) {

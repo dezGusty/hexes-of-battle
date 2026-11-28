@@ -105,8 +105,8 @@ export class BattleHud2D {
   private screenWidth: number = UnitStatsPanel.NATIVE_WIDTH;
   private screenHeight: number = UnitStatsPanel.NATIVE_HEIGHT;
   private armyNames: [string, string] = [
-    "The Count of Ekkina's 1st Army",
-    "Knights of The Grand Duke"
+    "The Count of Ekkina",
+    "Knights of the Grand Duke"
   ];
 
   constructor(
@@ -125,6 +125,8 @@ export class BattleHud2D {
     this.playerCpuPlayer = CPUPlayerFactory.create(this.autoBattlePersonality, this.battle);
     if (armyNames) {
       this.armyNames = armyNames;
+    } else if (battle.armyNames) {
+      this.armyNames = battle.armyNames;
     }
     if (gameVersion) {
       this.gameVersion = gameVersion;
@@ -399,7 +401,11 @@ export class BattleHud2D {
       this.battleMenuPanel.hide();
     }
 
-    this.postBattlePanel = new PostBattlePanel(this.uiPlusRenderGroup, this.assets.unitsSheet);
+    this.postBattlePanel = new PostBattlePanel(
+      this.uiPlusRenderGroup,
+      this.assets.unitsSheet,
+      this.assets.bannersSheet
+    );
 
     this.commonControls.menuButton?.onPress.connect(() => {
       this.battleMenuPanel?.toggleVisibility();
@@ -606,6 +612,7 @@ export class BattleHud2D {
     this.topSidePanel.setLeftArmyName(this.getFormattedArmyName(0));
     this.topSidePanel.setRightArmyName(this.getFormattedArmyName(1));
     this.topSidePanel.setActiveArmyIndex(0);
+    this.topSidePanel.setTurnNumber(this.battle.turnNumber);
   }
 
   public getBannerTextureForArmyIndex(armyIndex: number): Texture | undefined {
@@ -624,6 +631,7 @@ export class BattleHud2D {
 
     if (this.topSidePanel) {
       this.topSidePanel.setActiveArmyIndex(armyIdx);
+      this.topSidePanel.setTurnNumber(turnNum);
     }
     if (this.commonControls?.nextTurnButton) {
       this.commonControls.nextTurnButton.filters = [];
@@ -632,10 +640,6 @@ export class BattleHud2D {
 
   public showVictoryBanner(victorArmyIndex: number): void {
     const isDraw = victorArmyIndex < 0;
-    const message = isDraw ? "Battle Ended in a Draw" : `Victory for Army ${victorArmyIndex + 1}`;
-    const texture = this.getBannerTextureForArmyIndex(isDraw ? 0 : victorArmyIndex);
-    this.turnChangeDisplay.addEndOfBattle(message, this.uiPlusRenderGroup, { x: 500, y: 350 }, texture);
-
     if (this.topSidePanel && !isDraw) {
       this.topSidePanel.setActiveArmyIndex(victorArmyIndex);
     }
@@ -645,7 +649,11 @@ export class BattleHud2D {
 
   public showPostBattleScreen(victorArmyIndex?: number): void {
     if (this.postBattlePanel && this.battle) {
-      this.postBattlePanel.show(this.battle, victorArmyIndex);
+      const victor =
+        victorArmyIndex !== undefined ? victorArmyIndex : this.battle.checkVictoryConditions();
+      const bannerTexture =
+        victor >= 0 ? this.getBannerTextureForArmyIndex(victor) : undefined;
+      this.postBattlePanel.show(this.battle, victor, bannerTexture);
     }
   }
 
@@ -1117,7 +1125,13 @@ export class BattleHud2D {
   }
 
   public updateTargetAcquirementHint(): void {
-    if (this.battle.input_state === InputState.SELECT_ABILITY_TARGET && this.battle.abilityToApply) {
+    const isHumanTurn =
+      this.battle.army_control[this.battle.currentArmyIndex] === ArmyControlType.PLAYER;
+    if (
+      isHumanTurn &&
+      this.battle.input_state === InputState.SELECT_ABILITY_TARGET &&
+      this.battle.abilityToApply
+    ) {
       const abilityName = this.battle.abilityToApply.tooltipName || this.battle.abilityToApply.name || 'skill';
       this.showTargetAcquirementHint(abilityName);
     } else {

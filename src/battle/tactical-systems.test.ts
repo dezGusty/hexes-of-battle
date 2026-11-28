@@ -196,7 +196,7 @@ describe("Tactical Systems Validation", () => {
       expect(firstRest).toBe(true);
       battle.stepInstant();
 
-      expect(unit.stats.stamina).toBe(8); // 3 + 5 = 8
+      expect(unit.stats.stamina).toBe(9); // 3 + 6 = 9
       expect(unit.stats.remaining_movement).toBe(0);
       expect(unit.stats.remaining_attacks).toBe(0);
       expect(unit.stats.has_rested).toBe(true);
@@ -204,7 +204,7 @@ describe("Tactical Systems Validation", () => {
       // Attempting to rest again in the same turn must be rejected
       const secondRest = battle.restActiveCreature();
       expect(secondRest).toBe(false);
-      expect(unit.stats.stamina).toBe(8);
+      expect(unit.stats.stamina).toBe(9);
     });
 
     it("should not allow rest if the unit already moved, attacked, or is at full stamina", () => {
@@ -260,8 +260,8 @@ describe("Tactical Systems Validation", () => {
       // End Army 0's turn
       battle.nextTurn();
 
-      // idleUnit performed no actions -> recovered 5 stamina (4 + 5 = 9)
-      expect(idleUnit.stats.stamina).toBe(9);
+      // idleUnit performed no actions -> recovered 6 stamina (4 + 6 = 10)
+      expect(idleUnit.stats.stamina).toBe(10);
       expect(idleUnit.stats.has_rested).toBe(true);
 
       // activeUnit moved -> did not get rest recovery
@@ -688,7 +688,7 @@ describe("Tactical Systems Validation", () => {
       expect(rested).toBe(true);
       battle.stepInstant();
 
-      expect(unit.stats.stamina).toBe(9); // 4 + 5 = 9
+      expect(unit.stats.stamina).toBe(10); // 4 + 6 = 10
       expect(unit.stats.morale).toBe(9);   // 8 + 1 = 9
     });
 

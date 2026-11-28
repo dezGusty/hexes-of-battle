@@ -126,6 +126,7 @@ export class OverviewSelectionPanel {
 
     const ownerLabel = (ownerId: string | null | undefined) =>
       ownerId === 'player' ? 'Player' : ownerId ? formatLabel(ownerId) : 'Neutral';
+    const regionName = region?.name ?? hex.regionId;
 
     const lines: string[] = [];
 
@@ -136,7 +137,7 @@ export class OverviewSelectionPanel {
           : army.ownerPlayerId === null
             ? 'Neutral Army'
             : 'Rival Army';
-      this.subtitleText.text = `Hex (${coords.x}, ${coords.y}) • ${army.squads.length} Squads`;
+      this.subtitleText.text = `Region: ${regionName} • Hex (${coords.x}, ${coords.y}) • ${army.squads.length} Squads`;
       lines.push(`Move: ${army.movementPoints} / ${army.maxMovementPoints}`);
       if (army.ownerPlayerId === 'player') {
         lines.push('Right-click a highlighted hex to move');
@@ -144,26 +145,26 @@ export class OverviewSelectionPanel {
       lines.push(`Forces: ${summarizeSquads(army)}`);
       if (hex.isSettlement && region) {
         lines.push(
-          `Garrisoned at ${formatLabel(region.settlementTier ?? 'settlement')} (${ownerLabel(region.ownerPlayerId)})`
+          `Garrisoned at ${region.name} (${formatLabel(region.settlementTier ?? 'settlement')}, ${ownerLabel(region.ownerPlayerId)})`
         );
       }
     } else if (hex.isSettlement && region) {
       const tier = formatLabel(region.settlementTier ?? 'settlement');
-      this.titleText.text = `${tier} (${region.id})`;
+      this.titleText.text = `${region.name} (${tier})`;
       this.subtitleText.text = `Owner: ${ownerLabel(region.ownerPlayerId)} • Hex (${coords.x}, ${coords.y})`;
       lines.push(`Population: ${region.population}`);
       lines.push(`Defense: ${formatLabel(region.defenseTier)}`);
       lines.push(`Preset: ${formatLabel(region.preset)}`);
     } else if (hex.resourceBuilding) {
       this.titleText.text = formatLabel(hex.resourceBuilding);
-      this.subtitleText.text = `Region: ${hex.regionId} (${ownerLabel(region?.ownerPlayerId)}) • (${coords.x}, ${coords.y})`;
+      this.subtitleText.text = `Region: ${regionName} (${ownerLabel(region?.ownerPlayerId)}) • (${coords.x}, ${coords.y})`;
       lines.push(`Assigned Workers: ${hex.assignedWorkers}`);
       lines.push(`Terrain: ${formatLabel(hex.terrain)}`);
     } else if (hex.isAgriculturalPlot) {
       const opt = hex.agricultureOption ?? 'none';
       const crop = opt === 'none' ? 'Unassigned' : formatLabel(opt);
       this.titleText.text = `Agricultural Plot (${crop})`;
-      this.subtitleText.text = `Region: ${hex.regionId} (${ownerLabel(region?.ownerPlayerId)}) • (${coords.x}, ${coords.y})`;
+      this.subtitleText.text = `Region: ${regionName} (${ownerLabel(region?.ownerPlayerId)}) • (${coords.x}, ${coords.y})`;
       lines.push(`Assigned Workers: ${hex.assignedWorkers}`);
       lines.push(`Terrain: ${formatLabel(hex.terrain)}`);
     }

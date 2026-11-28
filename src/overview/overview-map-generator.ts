@@ -2,6 +2,7 @@ import { SeedableRNG } from '../shared/prng';
 import { Coords } from '../shared';
 import { HexMap } from '../shared/hex-map';
 import { CreatureType } from '../battle/creature';
+import defaultRegionsJson from '../../public/regions.json';
 import {
   ArmySquad,
   createEmptyResourcePool,
@@ -15,11 +16,14 @@ import {
   OverviewHex,
   OverviewPlayer,
   OverviewTerrainType,
+  RegionNamesConfig,
   RegionPreset,
   RegionState,
   ResourceBuildingType,
   SettlementTier,
 } from './overview-types';
+
+export const DEFAULT_REGION_NAMES: RegionNamesConfig = defaultRegionsJson as RegionNamesConfig;
 
 export const REGION_SIZE = 6;
 
@@ -793,13 +797,50 @@ function createStarterGarrison(isPlayer: boolean, rng: SeedableRNG): ArmySquad[]
   return pool.slice(0, count);
 }
 
+export const DEFAULT_PLAYER_FACTION_NAME = 'The Count of Ekkina';
+export const MAX_FACTION_NAME_LENGTH = 32;
+const PLAYER_FACTION_STORAGE_KEY = 'hob_player_faction_v1';
+
+export interface SavedPlayerFaction {
+  name?: string;
+  color?: string;
+  banner?: string;
+}
+
+export function loadSavedPlayerFaction(): SavedPlayerFaction | null {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    const raw = localStorage.getItem(PLAYER_FACTION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as SavedPlayerFaction;
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export function savePlayerFactionToStorage(faction: SavedPlayerFaction): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(PLAYER_FACTION_STORAGE_KEY, JSON.stringify(faction));
+  } catch {
+    // Ignore storage errors in restricted/headless environments
+  }
+}
+
 function resolveGlobalPlayersConfig(globalConfig?: GlobalConfig): OverviewPlayer[] {
+  const savedPlayer = loadSavedPlayerFaction();
+  const customPlayerName =
+    savedPlayer?.name && savedPlayer.name.trim().length > 0
+      ? savedPlayer.name.trim().slice(0, MAX_FACTION_NAME_LENGTH)
+      : undefined;
+
   const defaultPlayer: OverviewPlayer = {
     id: 'player',
-    name: 'Player',
+    name: customPlayerName ?? DEFAULT_PLAYER_FACTION_NAME,
     isAI: false,
-    color: '#3498db',
-    banner: 'banner7.png',
+    color: savedPlayer?.color ?? '#3498bb',
+    banner: savedPlayer?.banner ?? 'banner11.png',
     resources: createEmptyResourcePool({
       money: 300,
       food: 100,
@@ -814,37 +855,49 @@ function resolveGlobalPlayersConfig(globalConfig?: GlobalConfig): OverviewPlayer
     return [defaultPlayer];
   }
 
-  const rawPlayers: GlobalPlayerConfig[] = Array.isArray(globalConfig.players)
+  const basePlayers: GlobalPlayerConfig[] = Array.isArray(globalConfig.players)
     ? globalConfig.players
     : globalConfig.players && typeof globalConfig.players === 'object'
       ? Object.entries(globalConfig.players).map(([id, cfg]) => ({ id, ...cfg }))
       : [];
 
-  if (rawPlayers.length === 0) {
-    return [
-      {
-        ...defaultPlayer,
-        color: globalConfig.playerColors?.player ?? globalConfig.playerColors?.player1 ?? defaultPlayer.color,
-        banner: globalConfig.playerBanners?.player ?? globalConfig.playerBanners?.player1 ?? defaultPlayer.banner,
-      },
-    ];
-  }
+  const enemyFactions: GlobalPlayerConfig[] = (globalConfig.enemyFactions ?? []).filter(
+    (ef) => !basePlayers.some((p) => p.id === ef.id)
+  );
+
+  const rawPlayers: GlobalPlayerConfig[] =
+    basePlayers.length > 0
+      ? [...basePlayers, ...enemyFactions]
+      : [
+          {
+            id: 'player',
+            name: DEFAULT_PLAYER_FACTION_NAME,
+            isAI: false,
+            color: globalConfig.playerColors?.player ?? globalConfig.playerColors?.player1 ?? '#3498bb',
+            banner: globalConfig.playerBanners?.player ?? globalConfig.playerBanners?.player1 ?? 'banner11.png',
+          },
+          ...enemyFactions,
+        ];
 
   return rawPlayers.map((p, idx) => {
     const id = p.id || (idx === 0 ? 'player' : `player_${idx + 1}`);
-    const isHuman = id === 'player' ? (p.isAI ?? false) : (p.isAI ?? true);
+    const isAI = id === 'player' ? (p.isAI ?? false) : (p.isAI ?? true);
+    const isHumanPlayer = id === 'player' && !isAI;
+    const baseName = p.name ?? (id === 'player' ? DEFAULT_PLAYER_FACTION_NAME : `Faction ${idx + 1}`);
     return {
       id,
-      name: p.name ?? (id === 'player' ? 'Player' : `Player ${idx + 1}`),
-      isAI: isHuman,
+      name: (isHumanPlayer && customPlayerName) ? customPlayerName : baseName,
+      isAI,
       color:
-        p.color ??
-        globalConfig.playerColors?.[id] ??
-        (idx === 0 ? '#3498db' : '#c73636'),
+        (isHumanPlayer && savedPlayer?.color) ||
+        p.color ||
+        globalConfig.playerColors?.[id] ||
+        (idx === 0 ? '#3498bb' : '#c73636'),
       banner:
-        p.banner ??
-        globalConfig.playerBanners?.[id] ??
-        (idx === 0 ? 'banner7.png' : 'banner12.png'),
+        (isHumanPlayer && savedPlayer?.banner) ||
+        p.banner ||
+        globalConfig.playerBanners?.[id] ||
+        (idx === 0 ? 'banner11.png' : 'banner12.png'),
       resources: createEmptyResourcePool(
         id === 'player'
           ? {
@@ -868,18 +921,67 @@ function resolveGlobalPlayersConfig(globalConfig?: GlobalConfig): OverviewPlayer
 }
 
 /**
+ * Picks deterministic, unique region names from `regions.json` (or a custom RegionNamesConfig).
+ * Home regions owned by a player/rival (`ownerPlayerId !== null`) draw from `reserved`,
+ * while unowned/neutral regions draw from `common`.
+ */
+export function selectRegionNamesForSpecs(
+  specs: RegionGenerationSpec[],
+  seed: number,
+  regionNamesConfig?: RegionNamesConfig
+): string[] {
+  const cfg = regionNamesConfig ?? DEFAULT_REGION_NAMES;
+  const rng = new SeedableRNG(seed + 7919);
+
+  const shuffle = (items: readonly string[]): string[] => {
+    const arr = [...items];
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = rng.range(0, i);
+      const tmp = arr[i];
+      arr[i] = arr[j];
+      arr[j] = tmp;
+    }
+    return arr;
+  };
+
+  const reservedPool = shuffle(cfg.reserved ?? DEFAULT_REGION_NAMES.reserved);
+  const commonPool = shuffle(cfg.common ?? DEFAULT_REGION_NAMES.common);
+  const used = new Set<string>();
+
+  const takeNext = (primary: string[], fallback: string[], idx: number): string => {
+    for (const pool of [primary, fallback]) {
+      while (pool.length > 0) {
+        const candidate = pool.shift()!;
+        if (!used.has(candidate)) {
+          used.add(candidate);
+          return candidate;
+        }
+      }
+    }
+    return `Region ${idx + 1}`;
+  };
+
+  return specs.map((spec, idx) =>
+    spec.ownerPlayerId !== null
+      ? takeNext(reservedPool, commonPool, idx)
+      : takeNext(commonPool, reservedPool, idx)
+  );
+}
+
+/**
  * Creates the 2x2 region starter map for playtesting:
  * 1 player-controlled region (6-squad army) + 3 neutral regions (5-7 squad armies each),
  * with victory condition set to Conquer All Regions.
  */
 export function createStarterOverviewMap(
   seed: number = 42,
-  globalConfig?: GlobalConfig
+  globalConfig?: GlobalConfig,
+  regionNamesConfig?: RegionNamesConfig
 ): GeneratedOverviewMap {
   const specs: RegionGenerationSpec[] = [
     {
       id: 'region_0_0',
-      name: 'Westmarch (Player)',
+      name: '',
       gridCoords: { x: 0, y: 0 },
       preset: 'grassland',
       ownerPlayerId: 'player',
@@ -888,7 +990,7 @@ export function createStarterOverviewMap(
     },
     {
       id: 'region_1_0',
-      name: 'Pinewood (Neutral)',
+      name: '',
       gridCoords: { x: 1, y: 0 },
       preset: 'forest',
       ownerPlayerId: null,
@@ -897,7 +999,7 @@ export function createStarterOverviewMap(
     },
     {
       id: 'region_0_1',
-      name: 'Greenvale (Neutral)',
+      name: '',
       gridCoords: { x: 0, y: 1 },
       preset: 'grassland',
       ownerPlayerId: null,
@@ -906,7 +1008,7 @@ export function createStarterOverviewMap(
     },
     {
       id: 'region_1_1',
-      name: 'Mirefen (Neutral)',
+      name: '',
       gridCoords: { x: 1, y: 1 },
       preset: 'swamp',
       ownerPlayerId: null,
@@ -914,6 +1016,11 @@ export function createStarterOverviewMap(
       initialPopulation: 400,
     },
   ];
+
+  const chosenNames = selectRegionNamesForSpecs(specs, seed, regionNamesConfig);
+  specs.forEach((spec, idx) => {
+    spec.name = chosenNames[idx];
+  });
 
   const generated = generateOverviewMap(specs, {
     mapRegionWidth: 2,

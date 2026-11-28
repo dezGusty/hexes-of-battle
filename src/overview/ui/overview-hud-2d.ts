@@ -23,6 +23,8 @@ import {
   ResourceIconKey,
 } from './overview-resource-icons';
 import { OverviewSelectionPanel } from './overview-selection-panel';
+import { OverviewRegionHoverBanner } from './overview-region-hover-banner';
+import { FactionCustomizationPanel } from './faction-customization-panel';
 import { createOverviewButton, OverviewUiButton } from './overview-ui-helpers';
 import { SettlementPanel } from './settlement-panel';
 
@@ -43,6 +45,7 @@ export interface OverviewHud2DOptions {
   onLoadCampaign?: (campaign: OverviewCampaign) => void;
   battlePromptCallbacks?: BattlePromptCallbacks;
   onExchangeDone?: () => void;
+  onFactionChanged?: () => void;
 }
 
 export class OverviewHud2D {
@@ -57,9 +60,12 @@ export class OverviewHud2D {
   public readonly merchantPanel: MerchantTradePanel;
   public readonly settlementPanel: SettlementPanel;
   public readonly selectionPanel: OverviewSelectionPanel;
+  public readonly regionHoverBanner: OverviewRegionHoverBanner;
+  public readonly factionPanel: FactionCustomizationPanel;
   public readonly battlePromptPanel: OverviewBattlePromptPanel;
   public readonly armyExchangePanel: OverviewArmyExchangePanel;
   public readonly modelExplorerPanel: ModelExplorerPanel;
+  public readonly factionButton: OverviewUiButton;
   public readonly merchantButton: OverviewUiButton;
   public readonly endTurnButton: OverviewUiButton;
   public readonly manageSettlementButton: OverviewUiButton;
@@ -120,6 +126,19 @@ export class OverviewHud2D {
     });
     this.resourceBadges = badges;
 
+    this.factionButton = createOverviewButton(
+      'Faction',
+      145,
+      44,
+      () => {
+        if (this.campaign) {
+          this.factionPanel.show(this.campaign);
+        }
+      },
+      { fillColor: 0x3b2d4a, fontSize: 17 }
+    );
+    this.factionButton.container.position.set(1070, 9);
+
     this.manageSettlementButton = createOverviewButton(
       'Settlement',
       145,
@@ -174,6 +193,7 @@ export class OverviewHud2D {
     this.menuButton.container.position.set(1730, 9);
 
     this.container.addChild(
+      this.factionButton.container,
       this.manageSettlementButton.container,
       this.merchantButton.container,
       this.endTurnButton.container,
@@ -191,6 +211,15 @@ export class OverviewHud2D {
         this.settlementPanel.show(this.campaign, regionId);
       }
     });
+    this.regionHoverBanner = new OverviewRegionHoverBanner(this.container);
+    this.factionPanel = new FactionCustomizationPanel(
+      this.uiPlusRenderGroup,
+      () => {
+        this.refresh();
+        options.onFactionChanged?.();
+      },
+      options.assets?.bannersSheet
+    );
     this.battlePromptPanel = new OverviewBattlePromptPanel(
       this.uiPlusRenderGroup,
       options.battlePromptCallbacks ?? {
@@ -393,7 +422,10 @@ export class OverviewHud2D {
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
       this.boundEscapeHandler = (e: KeyboardEvent) => {
         if (e.key !== 'Escape' || e.defaultPrevented) return;
-        if (this.menuPanel?.isVisible()) {
+        if (this.factionPanel.isVisible()) {
+          e.preventDefault();
+          this.factionPanel.hide();
+        } else if (this.menuPanel?.isVisible()) {
           e.preventDefault();
           this.menuPanel.hide();
         } else if (
@@ -412,6 +444,22 @@ export class OverviewHud2D {
   public showSelectionAtHex(coords: Coords): void {
     if (!this.campaign) return;
     this.selectionPanel.showAtHex(this.campaign, coords);
+  }
+
+  public setHoveredRegion(regionId: string | null): void {
+    if (!this.campaign || !regionId) {
+      this.regionHoverBanner.hide();
+      return;
+    }
+    const region = this.campaign.getRegionById(regionId);
+    if (!region) {
+      this.regionHoverBanner.hide();
+      return;
+    }
+    this.regionHoverBanner.showRegion(
+      region,
+      this.campaign.getFactionColor(region.ownerPlayerId)
+    );
   }
 
   public clearSelection(): void {
@@ -473,6 +521,8 @@ export class OverviewHud2D {
     this.modelExplorerPanel.dispose();
     this.menuPanel?.destroy();
     this.selectionPanel.destroy();
+    this.regionHoverBanner.destroy();
+    this.factionPanel.destroy();
     this.merchantPanel.destroy();
     this.settlementPanel.destroy();
     this.container.removeFromParent();

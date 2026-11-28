@@ -10,7 +10,12 @@ import {
   calculateRegionTurnEconomy,
   MAX_SQUADS_PER_ARMY,
 } from './overview-economy';
-import { GeneratedOverviewMap } from './overview-map-generator';
+import {
+  DEFAULT_PLAYER_FACTION_NAME,
+  GeneratedOverviewMap,
+  MAX_FACTION_NAME_LENGTH,
+  savePlayerFactionToStorage,
+} from './overview-map-generator';
 import {
   createEmptyResourcePool,
   DEFAULT_ARMY_SIGHT_RANGE,
@@ -523,12 +528,21 @@ export class OverviewCampaign {
     const attackerBanner = this.getFactionBanner(attacker.ownerPlayerId);
     const defenderBanner = this.getFactionBanner(defender.ownerPlayerId);
 
+    const attackerHex = this.getHex(attacker.coords);
+    const attackerRegion = attackerHex ? this.getRegionById(attackerHex.regionId) : undefined;
+    const defenderRegion =
+      targetRegion ?? (defenderHex ? this.getRegionById(defenderHex.regionId) : undefined);
+
+    const attackerName = this.getBattleFactionName(attacker.ownerPlayerId, attackerRegion);
+    const defenderName = this.getBattleFactionName(defender.ownerPlayerId, defenderRegion);
+
     return {
       mapWidth,
       mapHeight,
       creatures,
       armyControl: [ArmyControlType.PLAYER, ArmyControlType.AI],
       aiPersonality: CPUPersonalityType.AGGRESSIVE,
+      armyNames: [attackerName, defenderName],
       majorTerrainType,
       playerColors: {
         player1: attackerColor,
@@ -543,6 +557,52 @@ export class OverviewCampaign {
         1: defenderBanner,
       },
     };
+  }
+
+  /**
+   * Resolves the battle display name for a faction from the global map state.
+   * Neutrals are shown with their regional location (e.g. "Militia of Falkenmoor").
+   */
+  public getBattleFactionName(ownerPlayerId: string | null, region?: RegionState): string {
+    if (ownerPlayerId === null) {
+      return region?.name ? `Militia of ${region.name}` : 'Local Militia';
+    }
+    const player = this.getPlayer(ownerPlayerId);
+    if (player?.name && player.name.trim().length > 0) {
+      return player.name.trim();
+    }
+    return ownerPlayerId === 'player' ? DEFAULT_PLAYER_FACTION_NAME : ownerPlayerId;
+  }
+
+  /**
+   * Updates the human player's faction name (clamped to 32 chars), color, and banner,
+   * persisting the customization to localStorage.
+   */
+  public customizePlayerFaction(updates: {
+    name?: string;
+    color?: string;
+    banner?: string;
+  }): OverviewPlayer | undefined {
+    const player = this.getPlayer('player');
+    if (!player) return undefined;
+
+    if (updates.name !== undefined) {
+      const cleaned = updates.name.trim().slice(0, MAX_FACTION_NAME_LENGTH);
+      player.name = cleaned.length > 0 ? cleaned : DEFAULT_PLAYER_FACTION_NAME;
+    }
+    if (updates.color !== undefined && updates.color.trim().length > 0) {
+      player.color = updates.color.trim();
+    }
+    if (updates.banner !== undefined && updates.banner.trim().length > 0) {
+      player.banner = updates.banner.trim();
+    }
+
+    savePlayerFactionToStorage({
+      name: player.name,
+      color: player.color,
+      banner: player.banner,
+    });
+    return player;
   }
 
   public applyBattleResult(

@@ -2395,4 +2395,341 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
     expect(paObj.userData.teamColorHex).toBe(0x1565c0);
     expect(paObj.userData.bannerName).toBe('banner2.png');
   });
+
+  it('loads medieval region names from public/regions.json with reserved home-region names and common neutral names', async () => {
+    const regionsJson = JSON.parse(readFileSync('public/regions.json', 'utf8')) as {
+      reserved: string[];
+      common: string[];
+    };
+
+    expect(Array.isArray(regionsJson.reserved)).toBe(true);
+    expect(Array.isArray(regionsJson.common)).toBe(true);
+    expect(regionsJson.reserved.length).toBeGreaterThanOrEqual(8);
+    expect(regionsJson.common.length).toBeGreaterThanOrEqual(20);
+
+    // Ensure all names across reserved and common are unique
+    const allNames = [...regionsJson.reserved, ...regionsJson.common];
+    expect(new Set(allNames).size).toBe(allNames.length);
+
+    const generated = createStarterOverviewMap(321345, undefined, regionsJson);
+    const playerRegion = generated.regions.find((r) => r.ownerPlayerId === 'player')!;
+    const neutralRegions = generated.regions.filter((r) => r.ownerPlayerId === null);
+
+    expect(regionsJson.reserved).toContain(playerRegion.name);
+    expect(neutralRegions.length).toBe(3);
+    for (const r of neutralRegions) {
+      expect(regionsJson.common).toContain(r.name);
+    }
+    // All generated region names on the map are unique
+    expect(new Set(generated.regions.map((r) => r.name)).size).toBe(generated.regions.length);
+
+    // Custom RegionNamesConfig is respected
+    const custom = createStarterOverviewMap(99, undefined, {
+      reserved: ['CustomSeat'],
+      common: ['CommonOne', 'CommonTwo', 'CommonThree'],
+    });
+    expect(custom.regions.find((r) => r.ownerPlayerId === 'player')!.name).toBe('CustomSeat');
+    const customNeutralNames = custom.regions
+      .filter((r) => r.ownerPlayerId === null)
+      .map((r) => r.name)
+      .sort();
+    expect(customNeutralNames).toEqual(['CommonOne', 'CommonThree', 'CommonTwo']);
+
+    // Verify OverviewSelectionPanel shows the actual region name rather than internal regionId
+    const { OverviewSelectionPanel } = await import('./ui/overview-selection-panel');
+    const campaign = new OverviewCampaign(custom);
+    const parent = new Container();
+    const panel = new OverviewSelectionPanel(parent);
+    const neutralRegion = campaign.regions.find((r) => r.ownerPlayerId === null)!;
+    const resourceHex = campaign
+      .getRegionHexes(neutralRegion.id)
+      .find((h) => Boolean(h.resourceBuilding))!;
+    panel.showAtHex(campaign, resourceHex.coords);
+    const subtitle = (panel as any).subtitleText.text as string;
+    expect(subtitle).toContain(`Region: ${neutralRegion.name}`);
+    expect(subtitle).not.toContain(neutralRegion.id);
+    panel.destroy();
+  });
+
+  it('renders overhead settlement nameplates on OverviewBoard3D and shows top parchment scroll on region hover', () => {
+    const campaign = new OverviewCampaign(createStarterOverviewMap(321345));
+    const board = new OverviewBoard3D(campaign);
+
+    const regionsWithSettlements = campaign.regions.filter((r) => Boolean(r.settlementCoords));
+    expect(board.getSettlementLabelCount()).toBe(regionsWithSettlements.length);
+
+    const playerRegion = campaign.regions.find((r) => r.ownerPlayerId === 'player')!;
+    const playerLabel = board.settlementLabelsGroup.children.find(
+      (c) => c.name === `SettlementLabel_${playerRegion.id}`
+    );
+    expect(playerLabel).toBeDefined();
+    expect(playerLabel!.visible).toBe(true);
+    expect(playerLabel!.userData.regionName).toBe(playerRegion.name);
+
+    // Top-of-screen hover scroll in OverviewHud2D
+    const hudParent = new Container();
+    const hud = new OverviewHud2D(hudParent);
+    hud.bindCampaign(campaign);
+
+    expect(hud.regionHoverBanner.isVisible()).toBe(false);
+    hud.setHoveredRegion(playerRegion.id);
+    expect(hud.regionHoverBanner.isVisible()).toBe(true);
+    expect(hud.regionHoverBanner.getDisplayedRegionId()).toBe(playerRegion.id);
+    expect(hud.regionHoverBanner.getDisplayedTitle()).toBe(playerRegion.name);
+
+    hud.setHoveredRegion(null);
+    expect(hud.regionHoverBanner.isVisible()).toBe(false);
+
+    hud.destroy();
+    board.dispose();
+  });
+
+  it('animates overview armies smoothly along their path with move animation and step sounds instead of teleporting', () => {
+    const campaign = new OverviewCampaign(createStarterOverviewMap(321345));
+    const board = new OverviewBoard3D(campaign);
+    const playerArmy = campaign.armies.find((a) => a.ownerPlayerId === 'player')!;
+    const reachable = Array.from(campaign.getReachableHexes(playerArmy.id).keys())
+      .map((k) => {
+        const [x, y] = k.split(',').map(Number);
+        return { x, y };
+      })
+      .filter((c) => c.x !== playerArmy.coords.x || c.y !== playerArmy.coords.y);
+
+    // Pick a destination at least 2 hexes away so there are >= 3 path points
+    let targetPath: Array<{ x: number; y: number }> = [];
+    for (const c of reachable) {
+      const p = campaign.getPathToHex(playerArmy.id, c);
+      if (p.length >= 3) {
+        targetPath = p;
+        break;
+      }
+    }
+    expect(targetPath.length).toBeGreaterThanOrEqual(3);
+
+    const armyVisual = (board as any).armyGroups.get(playerArmy.id) as THREE.Group;
+    expect(armyVisual).toBeDefined();
+
+    // Spy on setMoving on a unit child inside the army visual
+    const movingCalls: boolean[] = [];
+    const unitChild = armyVisual.children[0];
+    unitChild.userData.setMoving = (m: boolean) => movingCalls.push(m);
+
+    const steps: number[] = [];
+    let completed = false;
+    const started = board.animateArmyAlongPath(playerArmy.id, targetPath, {
+      msPerHex: 200,
+      onStep: (_coords, idx) => steps.push(idx),
+      onComplete: () => {
+        completed = true;
+      },
+    });
+
+    expect(started).toBe(true);
+    expect(board.isArmyMoving(playerArmy.id)).toBe(true);
+    expect(movingCalls).toContain(true);
+    expect(steps).toEqual([0]);
+
+    const startWorld = board.hexToWorld(targetPath[0].x, targetPath[0].y);
+    const endWorld = board.hexToWorld(
+      targetPath[targetPath.length - 1].x,
+      targetPath[targetPath.length - 1].y
+    );
+
+    // Halfway through first segment: army should be between start and end (not teleported!)
+    board.update(100);
+    expect(completed).toBe(false);
+    expect(board.isArmyMoving(playerArmy.id)).toBe(true);
+    const midDistToEnd = Math.hypot(
+      armyVisual.position.x - endWorld.x,
+      armyVisual.position.z - endWorld.z
+    );
+    const midDistToStart = Math.hypot(
+      armyVisual.position.x - startWorld.x,
+      armyVisual.position.z - startWorld.z
+    );
+    expect(midDistToStart).toBeGreaterThan(0.1);
+    expect(midDistToEnd).toBeGreaterThan(0.1);
+
+    // Advance through remaining segments to complete the march
+    for (let i = 0; i < targetPath.length; i++) {
+      board.update(200);
+    }
+    expect(completed).toBe(true);
+    expect(board.isArmyMoving(playerArmy.id)).toBe(false);
+    expect(movingCalls[movingCalls.length - 1]).toBe(false);
+    expect(steps.length).toBe(targetPath.length - 1);
+    expect(armyVisual.position.x).toBeCloseTo(endWorld.x, 3);
+    expect(armyVisual.position.z).toBeCloseTo(endWorld.z, 3);
+
+    board.dispose();
+  });
+
+  it('plays army_issue_attack.ogg when issuing a battle engagement command on the global map', async () => {
+    const soundsJson = JSON.parse(readFileSync('public/sounds.json', 'utf8'));
+    expect(soundsJson.soundGroups.army_issue_attack).toEqual(['army_issue_attack.ogg']);
+    expect(soundsJson.events.ARMY_ISSUE_ATTACK).toBe('army_issue_attack');
+
+    const { SoundCategory, SoundType } = await import('../battle/ui-sounds');
+    const played: Array<{ category: unknown; type: unknown }> = [];
+    const mockSoundSystem: any = {
+      play: (category: unknown, type: unknown) => {
+        played.push({ category, type });
+      },
+      playUnitMovementSteps: () => {},
+    };
+
+    const scene = new OverviewScene3D();
+    const campaign = new OverviewCampaign(createStarterOverviewMap(321345));
+    const playerArmy = campaign.armies.find((a) => a.ownerPlayerId === 'player')!;
+    const neutralArmy = campaign.armies.find((a) => a.ownerPlayerId === null)!;
+
+    // Place player army adjacent to neutral army so issuing attack triggers Battle Engagement
+    playerArmy.coords = { x: Math.max(0, neutralArmy.coords.x - 1), y: neutralArmy.coords.y };
+    playerArmy.movementPoints = 4;
+
+    const showPromptCalls: any[] = [];
+    (scene as any).campaign = campaign;
+    (scene as any).context = { soundSystem: mockSoundSystem };
+    (scene as any).hud = {
+      battlePromptPanel: { showPrompt: (info: any) => showPromptCalls.push(info) },
+      refresh: () => {},
+      showSelectionAtHex: () => {},
+    };
+
+    scene.handleMoveArmy(playerArmy.id, neutralArmy.coords);
+
+    expect(showPromptCalls.length).toBe(1);
+    expect(played).toContainEqual({
+      category: SoundCategory.SOUND,
+      type: SoundType.ARMY_ISSUE_ATTACK,
+    });
+  });
+
+  it('plays army_select_own.ogg on own army click and army_select_enemy.ogg on enemy army click', async () => {
+    const soundsJson = JSON.parse(readFileSync('public/sounds.json', 'utf8'));
+    expect(soundsJson.soundGroups.army_select_own).toEqual(['army_select_own.ogg']);
+    expect(soundsJson.soundGroups.army_select_enemy).toEqual(['army_select_enemy.ogg']);
+    expect(soundsJson.events.ARMY_SELECT_OWN).toBe('army_select_own');
+    expect(soundsJson.events.ARMY_SELECT_ENEMY).toBe('army_select_enemy');
+
+    const { SoundCategory, SoundType } = await import('../battle/ui-sounds');
+    const played: Array<{ category: unknown; type: unknown }> = [];
+    const mockSoundSystem: any = {
+      play: (category: unknown, type: unknown) => {
+        played.push({ category, type });
+      },
+    };
+
+    const scene = new OverviewScene3D();
+    const campaign = new OverviewCampaign(createStarterOverviewMap(321345));
+    const playerArmy = campaign.armies.find((a) => a.ownerPlayerId === 'player')!;
+    const neutralArmy = campaign.armies.find((a) => a.ownerPlayerId === null)!;
+
+    (scene as any).campaign = campaign;
+    (scene as any).context = { soundSystem: mockSoundSystem };
+    (scene as any).hud = { showSelectionAtHex: () => {} };
+
+    scene.handleSelectHex(playerArmy.coords);
+    scene.handleSelectHex(neutralArmy.coords);
+
+    expect(played).toEqual([
+      { category: SoundCategory.SOUND, type: SoundType.ARMY_SELECT_OWN },
+      { category: SoundCategory.SOUND, type: SoundType.ARMY_SELECT_ENEMY },
+    ]);
+  });
+
+  it('loads player and enemy factions from global_config.json, supports 32-char player customization, and passes region-aware militia names to battle', async () => {
+    const globalCfg = JSON.parse(readFileSync('public/global_config.json', 'utf8'));
+    expect(globalCfg.players[0].name).toBe('The Count of Ekkina');
+    expect(Array.isArray(globalCfg.enemyFactions)).toBe(true);
+    expect(globalCfg.enemyFactions.length).toBeGreaterThanOrEqual(3);
+    for (const ef of globalCfg.enemyFactions) {
+      expect(ef.name).toBeTruthy();
+      expect(ef.color).toBeTruthy();
+      expect(ef.banner).toBeTruthy();
+    }
+
+    const campaign = new OverviewCampaign(createStarterOverviewMap(321345, globalCfg));
+    expect(campaign.getPlayer('player')?.name).toBe('The Count of Ekkina');
+    expect(campaign.getPlayer('grand_duke')?.name).toBe('Knights of the Grand Duke');
+
+    const { CreatureRepository } = await import('../battle/creature-repository');
+    const repo = new CreatureRepository();
+    repo.setAbilities(JSON.parse(readFileSync('public/abilitytypes.json', 'utf8')));
+    repo.setCreatureTemplates(JSON.parse(readFileSync('public/creaturetypes.json', 'utf8')));
+
+    const playerArmy = campaign.armies.find((a) => a.ownerPlayerId === 'player')!;
+    const neutralArmy = campaign.armies.find((a) => a.ownerPlayerId === null)!;
+    const neutralHex = campaign.getHex(neutralArmy.coords)!;
+    const neutralRegion = campaign.getRegionById(neutralHex.regionId)!;
+
+    // Default battle faction names: "The Count of Ekkina" vs "Militia of <RegionName>"
+    const defaultCfg = campaign.buildBattleConfigForEngagement(
+      playerArmy,
+      neutralArmy,
+      neutralRegion,
+      repo
+    );
+    expect(defaultCfg.armyNames).toEqual([
+      'The Count of Ekkina',
+      `Militia of ${neutralRegion.name}`,
+    ]);
+
+    // Customize player faction (with >32 chars to test clamping) and verify banner sprites & cursor ordering
+    const { Sprite, Texture } = await import('pixi.js');
+    const mockBannerTextures: Record<string, any> = {};
+    for (let i = 1; i <= 64; i++) {
+      mockBannerTextures[`banner${i}.png`] = Texture.WHITE;
+    }
+    const hudParent = new Container();
+    const hud = new OverviewHud2D(hudParent, undefined, {
+      assets: {
+        softCursorTextures: { default: Texture.WHITE },
+        bannersSheet: { textures: mockBannerTextures } as any,
+      },
+    });
+    hud.bindCampaign(campaign);
+    hud.factionPanel.show(campaign);
+    expect(hud.factionPanel.isVisible()).toBe(true);
+
+    // Ensure faction panel is behind the soft cursor layer (uiPlusRenderGroup < uiCursorRenderGroup)
+    const uiPlusIdx = hud.container.getChildIndex(hud.uiPlusRenderGroup);
+    const cursorIdx = hud.container.getChildIndex(hud.uiCursorRenderGroup);
+    expect(uiPlusIdx).toBeLessThan(cursorIdx);
+
+    // Ensure all 64 banners render as actual Sprite emblems when bannersSheet is loaded
+    expect(hud.factionPanel.bannersContainer.children.length).toBe(64);
+    for (const cell of hud.factionPanel.bannersContainer.children) {
+      const spriteChild = cell.children.find((c) => c instanceof Sprite);
+      expect(spriteChild).toBeDefined();
+    }
+
+    const overlongName = 'Order of the Golden Griffon of Highvale'; // 39 chars
+    hud.factionPanel.setDraftName(overlongName);
+    hud.factionPanel.setDraftColor('#c0392b');
+    hud.factionPanel.setDraftBanner('banner5.png');
+    hud.factionPanel.applyAndClose();
+
+    expect(hud.factionPanel.isVisible()).toBe(false);
+    expect(campaign.getPlayer('player')?.name).toBe(overlongName.slice(0, 32));
+    expect(campaign.getPlayer('player')?.name.length).toBe(32);
+    expect(campaign.getPlayer('player')?.color).toBe('#c0392b');
+    expect(campaign.getPlayer('player')?.banner).toBe('banner5.png');
+
+    // Battle config now receives the customized faction name, color, and banner
+    const customCfg = campaign.buildBattleConfigForEngagement(
+      playerArmy,
+      neutralArmy,
+      neutralRegion,
+      repo
+    );
+    expect(customCfg.armyNames).toEqual([
+      overlongName.slice(0, 32),
+      `Militia of ${neutralRegion.name}`,
+    ]);
+    expect(customCfg.playerColors?.player1).toBe('#c0392b');
+    expect(customCfg.player1Banner).toBe('banner5.png');
+
+    hud.destroy();
+  });
 });

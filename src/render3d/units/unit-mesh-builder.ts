@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 import { applyUnitRimLighting } from './unit-rim-lighting';
-import { getBannerAtlasUvTransform, getSharedBannersTexture, loadSharedBannersTexture } from '../decorations/retreat-flag-3d';
+import {
+  getBannerAtlasUvTransform,
+  getSharedBannersTexture,
+  loadSharedBannersTexture,
+  onSharedBannersTextureChange,
+} from '../decorations/retreat-flag-3d';
 import { getWindThresholds } from '../decorations/wind-system';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
@@ -383,6 +388,36 @@ export function parseColorToRgba(
 let proceduralUnitTemplateCache: Map<string, THREE.Mesh> = new Map();
 let glbUnitTemplateCache: WeakMap<THREE.Object3D, Map<string, THREE.Mesh>> = new WeakMap();
 let sharedGlbRiggedMaterialCache: WeakMap<THREE.Material, Map<string, THREE.MeshStandardMaterial>> = new WeakMap();
+const activeRiggedBannerMaterials: Set<THREE.MeshStandardMaterial> = new Set();
+
+onSharedBannersTextureChange((nextTex) => {
+  const fallbackTex = nextTex ?? getSharedWhiteTexture();
+  const hasReal = Boolean(nextTex);
+  activeRiggedBannerMaterials.forEach((mat) => {
+    const uniforms = mat.userData?.teamBannerUniforms;
+    if (uniforms) {
+      uniforms.uBannerAtlas.value = fallbackTex;
+      uniforms.uHasBanner.value = hasReal ? 1.0 : 0.0;
+    }
+  });
+});
+
+export function syncRiggedTeamAndBannerUniforms(
+  mat: THREE.MeshStandardMaterial,
+  teamColorHex: number,
+  bannerName: string
+): void {
+  const uniforms = mat.userData?.teamBannerUniforms;
+  if (!uniforms) return;
+  const resolvedTex = getSharedBannersTexture() ?? loadSharedBannersTexture();
+  const uvT = getBannerAtlasUvTransform(bannerName);
+  uniforms.uTeamColor.value.setHex(teamColorHex);
+  uniforms.uBannerAtlas.value = resolvedTex ?? getSharedWhiteTexture();
+  uniforms.uBannerUvTransform.value.set(uvT.repeatX, uvT.repeatY, uvT.offsetX, uvT.offsetY);
+  uniforms.uHasBanner.value = resolvedTex ? 1.0 : 0.0;
+  mat.userData.teamColorHex = teamColorHex;
+  mat.userData.bannerName = bannerName;
+}
 
 export function applyRiggedTeamAndBannerShader(
   mat: THREE.MeshStandardMaterial,
@@ -390,8 +425,9 @@ export function applyRiggedTeamAndBannerShader(
   bannerName: string,
   hasUv1: boolean
 ): void {
-  const bannerTex = getSharedBannersTexture() ?? loadSharedBannersTexture() ?? getSharedWhiteTexture();
-  const hasRealBanner = Boolean(getSharedBannersTexture());
+  const resolvedTex = getSharedBannersTexture() ?? loadSharedBannersTexture();
+  const bannerTex = resolvedTex ?? getSharedWhiteTexture();
+  const hasRealBanner = Boolean(resolvedTex);
   const uvT = getBannerAtlasUvTransform(bannerName);
 
   mat.vertexColors = false;
@@ -406,6 +442,7 @@ export function applyRiggedTeamAndBannerShader(
       uHasBanner: { value: hasRealBanner ? 1.0 : 0.0 },
     },
   };
+  activeRiggedBannerMaterials.add(mat);
 
   const prevOnBeforeCompile = mat.onBeforeCompile;
   const prevCacheKey = mat.customProgramCacheKey?.bind(mat);
@@ -487,6 +524,7 @@ export function configurePlayerColors(config?: PlayerColorsConfig | any): void {
 
   proceduralUnitTemplateCache.clear();
   glbUnitTemplateCache = new WeakMap();
+  sharedGlbRiggedMaterialCache = new WeakMap();
 }
 
 export function resetPlayerColorsToDefault(): void {
@@ -495,6 +533,7 @@ export function resetPlayerColorsToDefault(): void {
   currentPlayerColors.hero = DEFAULT_PLAYER_COLORS.hero;
   proceduralUnitTemplateCache.clear();
   glbUnitTemplateCache = new WeakMap();
+  sharedGlbRiggedMaterialCache = new WeakMap();
 }
 
 export function getPlayerColorsConfig(): { player1: number; player2: number; hero: number } {
@@ -1480,7 +1519,9 @@ export function instantiateGlbUnitTemplate(
         const hasUv1 = Boolean(mesh.geometry?.attributes?.uv1);
         if (mesh.material) {
           const origMats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-          const matKey = hasMaskColor ? `${armyAlignment}_${isHero ? 1 : 0}_${resolvedBanner}` : 'shared';
+          const matKey = hasMaskColor
+            ? `${armyAlignment}_${isHero ? 1 : 0}_${teamHex.toString(16)}_${resolvedBanner}`
+            : 'shared';
           const sharedMats = origMats.map((origMat) => {
             let matMap = sharedGlbRiggedMaterialCache.get(origMat);
             if (!matMap) {
@@ -1503,6 +1544,8 @@ export function instantiateGlbUnitTemplate(
                 cachedMat.color.setHex(teamHex);
               }
               matMap.set(matKey, cachedMat);
+            } else if (hasMaskColor) {
+              syncRiggedTeamAndBannerUniforms(cachedMat, teamHex, resolvedBanner);
             }
             return cachedMat;
           });
@@ -3786,6 +3829,8 @@ export function disposeUnitMeshBuilderCaches(): void {
   proceduralUnitTemplateCache.forEach((mesh) => disposeObject3DResources(mesh));
   proceduralUnitTemplateCache.clear();
   glbUnitTemplateCache = new WeakMap();
+  sharedGlbRiggedMaterialCache = new WeakMap();
+  activeRiggedBannerMaterials.clear();
 
   forestTreeTemplateCache.forEach((group) => disposeObject3DResources(group));
   forestTreeTemplateCache.clear();

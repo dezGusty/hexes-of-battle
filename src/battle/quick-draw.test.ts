@@ -962,6 +962,44 @@ describe('Quick draw Skill for Archers', () => {
       hud.destroy();
     });
 
+    it('should NOT display the target acquirement hint banner when an AI/CPU army is using a skill', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+      const settings = new BattleSettings();
+      const assets = { softCursorTextures: {} };
+
+      const playerUnit = new Creature(CreatureType.PEASANT);
+      playerUnit.position = { x: 2, y: 2 };
+      playerUnit.armyAlignment = 0;
+
+      const cpuArcher = new Creature(CreatureType.PEASANT_ARCHER);
+      cpuArcher.position = { x: 6, y: 2 };
+      cpuArcher.armyAlignment = 1;
+      cpuArcher.stats.stamina = 10;
+      cpuArcher.stats.remaining_ammo = 10;
+      cpuArcher.stats.remaining_attacks = 1;
+
+      battle.initializeFromConfig({
+        mapWidth: 10,
+        mapHeight: 8,
+        terrainTiles: Array.from({ length: 10 }, () => Array(8).fill(0)),
+        creatures: [playerUnit, cpuArcher],
+      });
+
+      const hud = new BattleHud2D(assets, settings, battle);
+
+      // Advance to enemy CPU turn (army 1, controlled by AI)
+      battle.nextTurn();
+      battle.selectNextUnitAndGetIndex();
+      battle.selectActiveAbilityForCurrentUnit(0);
+      expect((battle as any).input_state).toBe(3); // SELECT_ABILITY_TARGET
+
+      hud.updateTargetAcquirementHint();
+      expect(hud.targetAcquirementBanner?.visible).toBe(false);
+
+      hud.destroy();
+    });
+
     it('should leave target acquirement state and hide text hint banner when right-click is performed', () => {
       const hexMap = new HexMap(10, 8);
       const battle = new Battle(hexMap);

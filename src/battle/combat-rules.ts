@@ -205,8 +205,8 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
       "5": 5,
     },
     buffs: {
-      "1": { defense_ranged: 1 },
-      "2": { defense_melee: 1, attack_melee_low: 1, attack_melee_high: 1, attack_ranged_low: 1, attack_ranged_high: 1, range: 1 },
+      "1": { defense_ranged: 2 },
+      "2": { defense_melee: 1, attack_melee_low: 2, attack_melee_high: 2, attack_ranged_low: 2, attack_ranged_high: 2, range: 1 },
       "3": { defense_melee: -1, defense_ranged: -1 },
     },
   },
@@ -221,7 +221,7 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
       specialAbility: 3,
       rest: 0,
     },
-    restRecovery: 5,
+    restRecovery: 6,
     exhaustionThresholds: {
       freshMinPercent: 0.50,
       windedMinPercent: 0.20,

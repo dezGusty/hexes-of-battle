@@ -603,7 +603,7 @@ export class Creature {
     return false;
   }
 
-  public rest(amount: number = 5): number {
+  public rest(amount: number = 6): number {
     this.recoverMorale(1);
     return this.recoverStamina(amount);
   }

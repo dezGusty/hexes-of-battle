@@ -1,7 +1,6 @@
 import { Container } from "pixi.js";
-import * as THREE from "three";
 import { GameContext, Scene } from "../core/scene";
-import { setSharedBannersTexture } from "../render3d/decorations/retreat-flag-3d";
+import { initSharedBannersTextureFromPixi } from "../render3d/decorations/retreat-flag-3d";
 import { disposeBattleRender3DCaches } from "../render3d/render3d-resource-manager";
 import { HexMap } from "../shared/hex-map";
 import {
@@ -158,23 +157,7 @@ export class BattleScene3D implements Scene {
         : undefined;
     const spriteFrames = context.assets.unitsSheet?.data?.frames;
 
-    const rawBannersResource =
-      context.assets.bannersSheet?.textureSource?.source ??
-      context.assets.bannersSheet?.textureSource?.resource;
-    if (
-      rawBannersResource &&
-      (rawBannersResource instanceof HTMLImageElement ||
-        rawBannersResource instanceof HTMLCanvasElement ||
-        (typeof ImageBitmap !== 'undefined' && rawBannersResource instanceof ImageBitmap))
-    ) {
-      const bannersTex = new THREE.Texture(rawBannersResource as any);
-      bannersTex.colorSpace = THREE.SRGBColorSpace;
-      bannersTex.minFilter = THREE.LinearFilter;
-      bannersTex.magFilter = THREE.LinearFilter;
-      bannersTex.generateMipmaps = false;
-      bannersTex.needsUpdate = true;
-      setSharedBannersTexture(bannersTex);
-    }
+    initSharedBannersTextureFromPixi(context.assets.bannersSheet);
 
     const sharedRendererHost = gameElement ? context.getThreeRendererHost?.(gameElement) : undefined;
     this.view = new BattleView3D(
@@ -243,7 +226,7 @@ export class BattleScene3D implements Scene {
         if (active) {
           const ok = this.battle.restActiveCreature();
           if (ok) {
-            this.view.showRestVisuals(active, 5);
+            this.view.showRestVisuals(active, this.battle.combatConfig.stamina.restRecovery);
             this.battle.selectNextUnitAndGetIndex();
           }
         }
@@ -365,7 +348,7 @@ export class BattleScene3D implements Scene {
         if (active) {
           const ok = this.battle.restActiveCreature();
           if (ok) {
-            this.view.showRestVisuals(active, 5);
+            this.view.showRestVisuals(active, this.battle.combatConfig.stamina.restRecovery);
             this.battle.selectNextUnitAndGetIndex();
           }
         }
@@ -460,8 +443,12 @@ export class BattleScene3D implements Scene {
       this.hud.updateUnitStats(active);
     }
 
-    this.soundSystem.stop(SoundCategory.MUSIC);
-    this.soundSystem.play(SoundCategory.MUSIC, SoundType.BATTLE_MUSIC);
+    if (this.context?.musicManager && this.context?.settings) {
+      void this.context.musicManager.setMode('battle', this.context.settings);
+    } else {
+      this.soundSystem.stop(SoundCategory.MUSIC);
+      this.soundSystem.play(SoundCategory.MUSIC, SoundType.BATTLE_MUSIC);
+    }
   }
 
   private resetBattle(): void {

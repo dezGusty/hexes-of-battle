@@ -2310,6 +2310,61 @@ describe('3D Graphics Engine & Rendering Systems', () => {
 
       hexBoard.dispose();
     });
+
+    it('should hide default reachable hexes and range perimeter during enemy CPU turn unless inspected by human', () => {
+      const hexMap = new HexMap(10, 8);
+      const battle = new Battle(hexMap);
+      battle.initializeToSize(10, 8);
+      const hexBoard = new HexBoard3D(hexMap);
+
+      const cpuArcher = new Creature(CreatureType.ARCHER, {
+        ...Creature.DEFAULT_CREATURE_PROPS,
+        is_ranged: true,
+        range: 4,
+        ammo: 10,
+        remaining_ammo: 10,
+        num_moves: 3,
+        remaining_movement: 3,
+      });
+      cpuArcher.position = { x: 6, y: 4 };
+      cpuArcher.armyAlignment = 1;
+      battle.creatures.push(cpuArcher);
+      battle.activeCreatureIndex = 0;
+      battle.showReachableCellsForCreature(cpuArcher);
+
+      let isAi = true;
+      let inspectedEnemy: Creature | undefined = undefined;
+      const view: any = {
+        hexMap,
+        battle: Object.assign(battle, { isCurrentTurnAI: () => isAi }),
+        hexBoard,
+        hud: { getSelectedEnemyCreature: () => inspectedEnemy },
+        updateEnemyRangePerimeter: BattleView3D.prototype.updateEnemyRangePerimeter,
+      };
+
+      // During CPU turn with no human inspection: default reach & range are hidden
+      BattleView3D.prototype.updateActiveUnitSelection.call(view);
+      expect(hexBoard.rangePerimeterGroup.children.length).toBe(0);
+      expect(hexBoard.enemyRangePerimeterGroup.children.length).toBe(0);
+      expect(hexBoard.enemyMovementOverlayGroup.children.length).toBe(0);
+      expect(hexBoard.getOverlayMesh('5,4')).toBeUndefined();
+
+      // When human explicitly inspects the enemy unit during CPU turn: enemy range & orange movement show
+      inspectedEnemy = cpuArcher;
+      BattleView3D.prototype.updateActiveUnitSelection.call(view);
+      expect(hexBoard.rangePerimeterGroup.children.length).toBe(0);
+      expect(hexBoard.enemyRangePerimeterGroup.children.length).toBe(2);
+      expect(hexBoard.enemyMovementOverlayGroup.children.length).toBeGreaterThan(0);
+
+      // During human turn: default reach & range perimeter display normally
+      inspectedEnemy = undefined;
+      isAi = false;
+      BattleView3D.prototype.updateActiveUnitSelection.call(view);
+      expect(hexBoard.rangePerimeterGroup.children.length).toBe(2);
+      expect(hexBoard.getOverlayMesh('5,4')).toBeDefined();
+
+      hexBoard.dispose();
+    });
   });
 
   describe('11. 3D Unit Models (Blender Pipeline) & Low-Poly 3D Forest Terrain Trees', () => {
@@ -5228,6 +5283,16 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(u0.uBannerUvTransform.value.z).toBeCloseTo(expectedUv0.offsetX, 5);
       expect(u1.uBannerUvTransform.value.x).toBeCloseTo(expectedUv1.repeatX, 5);
       expect(u1.uBannerUvTransform.value.z).toBeCloseTo(expectedUv1.offsetX, 5);
+
+      // Updating the shared banners texture live-syncs active rigged materials (e.g. after async load)
+      const { setSharedBannersTexture } = await import('./decorations/retreat-flag-3d');
+      const freshAtlas = new THREE.Texture();
+      setSharedBannersTexture(freshAtlas);
+      expect(u0.uBannerAtlas.value).toBe(freshAtlas);
+      expect(u0.uHasBanner.value).toBe(1.0);
+      expect(u1.uBannerAtlas.value).toBe(freshAtlas);
+      setSharedBannersTexture(null);
+      freshAtlas.dispose();
     });
 
     it('should provide 512x512 battle terrain textures with 4 variants per terrain and taper enlarged heightfield toward 0 at edges', async () => {
@@ -5301,7 +5366,7 @@ describe('3D Graphics Engine & Rendering Systems', () => {
         { key: 'crossbowman', base: 'crossbowman_rigged', anims: ['idle_stance', 'combat_move_advance', 'combat_attack_ranged', 'reload', 'combat_attack_poke', 'combat_defensive_stance', 'death'] },
         { key: 'swordsman', base: 'swordsman_rigged', anims: ['idle_stance', 'combat_move_advance', 'attack_swing', 'combat_attack_poke', 'combat_defensive_stance', 'death'] },
         { key: 'maceman', base: 'maceman_rigged', anims: ['idle_stance', 'combat_move_advance', 'combat_attack_poke', 'combat_defensive_stance', 'death'] },
-        { key: 'armored_knight', base: 'armored_knight_rigged', anims: ['idle_stance', 'combat_move_advance', 'combat_attack_poke', 'combat_defensive_stance', 'death'] },
+        { key: 'armored_knight', base: 'armored_knight_rigged', anims: ['idle_stance', 'idle_rearing', 'combat_move_advance', 'combat_attack_poke', 'combat_defensive_stance', 'death'] },
       ];
 
       for (const spec of specs) {

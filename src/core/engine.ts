@@ -17,7 +17,7 @@ import { validateMoraleBreakpoints } from '../battle/combat-rules';
 import { configurePlayerColors } from '../render3d/units/unit-mesh-builder';
 import { configurePlayerBanners } from '../render3d/decorations/retreat-flag-3d';
 import { configureWindThresholds } from '../render3d/decorations/wind-system';
-import type { GlobalConfig } from '../overview/overview-types';
+import type { GlobalConfig, RegionNamesConfig } from '../overview/overview-types';
 
 export const GAME_VERSION: string = pkg.version;
 
@@ -204,6 +204,11 @@ export class HexesEngine {
     }
     try {
       this.templates.globalConfig = await JsonLoader.loadJson<GlobalConfig>('./global_config.json');
+    } catch {
+      // Fallback handled by overview map generator if not found
+    }
+    try {
+      this.templates.regionNamesConfig = await JsonLoader.loadJson<RegionNamesConfig>('./regions.json');
     } catch {
       // Fallback handled by overview map generator if not found
     }

@@ -134,6 +134,7 @@ export interface NeutralFactionConfig {
 
 export interface GlobalConfig {
   players?: GlobalPlayerConfig[] | Record<string, Partial<GlobalPlayerConfig>>;
+  enemyFactions?: GlobalPlayerConfig[];
   neutral?: Partial<NeutralFactionConfig>;
   neutralFaction?: Partial<NeutralFactionConfig>;
   playerColors?: Record<string, string>;
@@ -143,8 +144,13 @@ export interface GlobalConfig {
 export const DEFAULT_NEUTRAL_FACTION: NeutralFactionConfig = {
   name: 'Neutral',
   color: '#8c929a',
-  banner: 'banner16.png',
+  banner: 'banner17.png',
 };
+
+export interface RegionNamesConfig {
+  reserved: string[];
+  common: string[];
+}
 
 export interface OverviewCampaignConfig {
   mapRegionWidth: number;

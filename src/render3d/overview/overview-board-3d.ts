@@ -117,6 +117,7 @@ export class OverviewBoard3D {
   private readonly overlaysGroup = new THREE.Group();
   private readonly movePathGroup = new THREE.Group();
   private readonly hoveredRegionBordersGroup = new THREE.Group();
+  public readonly settlementLabelsGroup = new THREE.Group();
   private readonly fogGroup = new THREE.Group();
 
   public readonly tileMeshes: THREE.Mesh[] = [];
@@ -138,6 +139,19 @@ export class OverviewBoard3D {
   }> = [];
   private readonly roadCenters: Array<{ x: number; z: number; hasBridge: boolean }> = [];
   private readonly armyGroups: Map<string, THREE.Group> = new Map();
+  private readonly activeArmyMoves: Map<
+    string,
+    {
+      armyId: string;
+      path: Coords[];
+      waypoints: THREE.Vector3[];
+      segmentIndex: number;
+      segmentProgress: number;
+      msPerHex: number;
+      onStep?: (coords: Coords, stepIndex: number) => void;
+      onComplete?: () => void;
+    }
+  > = new Map();
   private readonly terrainMaterials = new Map<
     OverviewTerrainType,
     THREE.MeshStandardMaterial
@@ -201,6 +215,7 @@ export class OverviewBoard3D {
       this.meadowDecorGroup,
       this.coordsGroup,
       this.landmarksGroup,
+      this.settlementLabelsGroup,
       this.armiesGroup,
       this.overlaysGroup,
       this.movePathGroup,
@@ -213,6 +228,7 @@ export class OverviewBoard3D {
     this.rebuildMeadowDecorations();
     this.rebuildCoords();
     this.rebuildLandmarks();
+    this.rebuildSettlementLabels();
     this.syncArmies();
     this.buildFogOfWarLayers();
   }
@@ -1352,6 +1368,130 @@ export class OverviewBoard3D {
     for (const cow of this.animatedCows) {
       updateOverviewCowAnimation(cow, dt);
     }
+
+    // Advance any armies currently marching along their path
+    if (this.activeArmyMoves.size > 0) {
+      const completed: Array<{
+        armyId: string;
+        visual?: THREE.Group;
+        onComplete?: () => void;
+      }> = [];
+
+      for (const [armyId, move] of this.activeArmyMoves.entries()) {
+        const visual = this.armyGroups.get(armyId);
+        if (!visual || move.waypoints.length < 2) {
+          completed.push({ armyId, visual, onComplete: move.onComplete });
+          continue;
+        }
+
+        move.segmentProgress += deltaMS / Math.max(1, move.msPerHex);
+
+        while (
+          move.segmentProgress >= 1.0 &&
+          move.segmentIndex < move.waypoints.length - 2
+        ) {
+          move.segmentProgress -= 1.0;
+          move.segmentIndex++;
+          move.onStep?.(move.path[move.segmentIndex], move.segmentIndex);
+        }
+
+        if (
+          move.segmentIndex >= move.waypoints.length - 2 &&
+          move.segmentProgress >= 1.0
+        ) {
+          const finalPt = move.waypoints[move.waypoints.length - 1];
+          visual.position.copy(finalPt);
+          this.setArmyVisualMoving(visual, false);
+          completed.push({ armyId, visual, onComplete: move.onComplete });
+          continue;
+        }
+
+        const p0 = move.waypoints[move.segmentIndex];
+        const p1 = move.waypoints[move.segmentIndex + 1];
+        const t = Math.max(0, Math.min(1, move.segmentProgress));
+        const wx = p0.x + (p1.x - p0.x) * t;
+        const wz = p0.z + (p1.z - p0.z) * t;
+        const wy = Math.max(WATER_SURFACE_Y, this.sampleElevationAtWorld(wx, wz));
+        visual.position.set(wx, wy, wz);
+
+        const dx = p1.x - p0.x;
+        const dz = p1.z - p0.z;
+        if (dx * dx + dz * dz > 1e-6) {
+          visual.rotation.y = Math.atan2(dx, dz);
+        }
+      }
+
+      for (const done of completed) {
+        this.activeArmyMoves.delete(done.armyId);
+        if (done.visual) {
+          this.setArmyVisualMoving(done.visual, false);
+        }
+        done.onComplete?.();
+      }
+    }
+  }
+
+  private setArmyVisualMoving(visual: THREE.Group, moving: boolean): void {
+    visual.traverse((child) => {
+      if (typeof child.userData?.setMoving === 'function') {
+        (child.userData.setMoving as (m: boolean) => void)(moving);
+      } else if (child.userData?.peasantController?.setMoving) {
+        child.userData.peasantController.setMoving(moving);
+      } else if (child.name.startsWith('Overview')) {
+        child.userData.pendingMoving = moving;
+      }
+    });
+  }
+
+  public animateArmyAlongPath(
+    armyId: string,
+    path: Coords[],
+    options?: {
+      msPerHex?: number;
+      onStep?: (coords: Coords, stepIndex: number) => void;
+      onComplete?: () => void;
+    }
+  ): boolean {
+    const visual = this.armyGroups.get(armyId);
+    if (!visual || path.length < 2) {
+      options?.onComplete?.();
+      return false;
+    }
+
+    const waypoints: THREE.Vector3[] = [];
+    for (const c of path) {
+      const hex = this.campaign.getHex(c);
+      const wp = this.hexToWorld(c.x, c.y);
+      const y = hex ? this.getSurfaceY(hex) : this.sampleElevationAtWorld(wp.x, wp.z);
+      waypoints.push(new THREE.Vector3(wp.x, y, wp.z));
+    }
+
+    visual.position.copy(waypoints[0]);
+    const dx = waypoints[1].x - waypoints[0].x;
+    const dz = waypoints[1].z - waypoints[0].z;
+    if (dx * dx + dz * dz > 1e-6) {
+      visual.rotation.y = Math.atan2(dx, dz);
+    }
+
+    this.setArmyVisualMoving(visual, true);
+    options?.onStep?.(path[0], 0);
+
+    this.activeArmyMoves.set(armyId, {
+      armyId,
+      path: path.map((c) => ({ x: c.x, y: c.y })),
+      waypoints,
+      segmentIndex: 0,
+      segmentProgress: 0,
+      msPerHex: Math.max(80, options?.msPerHex ?? 360),
+      onStep: options?.onStep,
+      onComplete: options?.onComplete,
+    });
+    return true;
+  }
+
+  public isArmyMoving(armyId?: string): boolean {
+    if (armyId) return this.activeArmyMoves.has(armyId);
+    return this.activeArmyMoves.size > 0;
   }
 
   public updateFlagWindMeshes(overrideStrength?: number): void {
@@ -2075,6 +2215,129 @@ export class OverviewBoard3D {
     }
 
     this.fogMaskTexture.needsUpdate = true;
+
+    // Show overhead settlement nameplates only for discovered/visible settlements
+    for (const child of this.settlementLabelsGroup.children) {
+      const sc = child.userData?.settlementCoords as Coords | undefined;
+      if (sc) {
+        child.visible = visibleKeys.has(`${sc.x},${sc.y}`);
+      }
+    }
+  }
+
+  private createSettlementLabelTexture(
+    regionName: string,
+    tierLabel: string,
+    factionColor: string
+  ): THREE.CanvasTexture | null {
+    if (typeof document === 'undefined') return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = 320;
+    canvas.height = 76;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    const w = canvas.width;
+    const h = canvas.height;
+    const r = 10;
+
+    // Rounded dark medieval plaque with gold border
+    ctx.clearRect(0, 0, w, h);
+    ctx.beginPath();
+    ctx.moveTo(r, 2);
+    ctx.lineTo(w - r, 2);
+    ctx.quadraticCurveTo(w - 2, 2, w - 2, r);
+    ctx.lineTo(w - 2, h - r);
+    ctx.quadraticCurveTo(w - 2, h - 2, w - r, h - 2);
+    ctx.lineTo(r, h - 2);
+    ctx.quadraticCurveTo(2, h - 2, 2, h - r);
+    ctx.lineTo(2, r);
+    ctx.quadraticCurveTo(2, 2, r, 2);
+    ctx.closePath();
+
+    ctx.fillStyle = 'rgba(15, 21, 30, 0.86)';
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(212, 175, 55, 0.92)';
+    ctx.stroke();
+
+    // Faction color accent bar on the left
+    ctx.fillStyle = factionColor || '#8c929a';
+    ctx.fillRect(10, 12, 10, h - 24);
+
+    // Region name
+    ctx.fillStyle = '#f8f2e2';
+    ctx.font = 'bold 28px Georgia, serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
+    ctx.shadowBlur = 4;
+    ctx.fillText(regionName, w * 0.5 + 6, 28, w - 40);
+
+    // Settlement tier subtitle
+    ctx.fillStyle = '#d9c598';
+    ctx.font = 'bold 16px Georgia, serif';
+    ctx.shadowBlur = 2;
+    ctx.fillText(tierLabel, w * 0.5 + 6, 56, w - 40);
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.generateMipmaps = false;
+    return tex;
+  }
+
+  /**
+   * Builds billboarded overhead nameplates floating above each region's main settlement.
+   */
+  public rebuildSettlementLabels(): void {
+    this.disposeGroupChildren(this.settlementLabelsGroup);
+    this.settlementLabelsGroup.name = 'SettlementLabels';
+    const visibleKeys = this.campaign.getVisibleHexKeys();
+
+    for (const region of this.campaign.regions) {
+      if (!region.settlementCoords) continue;
+      const sc = region.settlementCoords;
+      const hex = this.campaign.getHex(sc);
+      if (!hex) continue;
+
+      const pos = this.hexToWorld(sc.x, sc.y);
+      const surfaceY = this.getSurfaceY(hex);
+      const tier = region.settlementTier
+        ? region.settlementTier.charAt(0).toUpperCase() + region.settlementTier.slice(1)
+        : 'Settlement';
+      const factionColor = this.campaign.getFactionColor(region.ownerPlayerId);
+
+      const tex = this.createSettlementLabelTexture(region.name, tier, factionColor);
+      const mat = new THREE.SpriteMaterial({
+        ...(tex ? { map: tex } : {}),
+        color: tex ? 0xffffff : 0xf0e4c8,
+        transparent: true,
+        depthTest: false,
+        depthWrite: false,
+      });
+
+      const sprite = new THREE.Sprite(mat);
+      sprite.name = `SettlementLabel_${region.id}`;
+      sprite.scale.set(2.1, 0.5, 1);
+      const heightAboveSurface = region.settlementTier === 'town' ? 1.65 : 1.35;
+      sprite.position.set(pos.x, surfaceY + heightAboveSurface, pos.z);
+      sprite.renderOrder = 20;
+      sprite.raycast = () => {};
+      sprite.visible = visibleKeys.has(`${sc.x},${sc.y}`);
+      sprite.userData = {
+        regionId: region.id,
+        regionName: region.name,
+        settlementCoords: { x: sc.x, y: sc.y },
+      };
+
+      this.settlementLabelsGroup.add(sprite);
+    }
+  }
+
+  public getSettlementLabelCount(): number {
+    return this.settlementLabelsGroup.children.length;
   }
 
   public getFogLayerCount(): number {
@@ -2442,6 +2705,7 @@ export class OverviewBoard3D {
     this.fogMaskTexture?.dispose();
     this.fogMaskTexture = null;
     this.disposeGroupChildren(this.hoveredRegionBordersGroup);
+    this.disposeGroupChildren(this.settlementLabelsGroup);
     this.disposeGroupChildren(this.movePathGroup);
     this.disposeGroupChildren(this.overlaysGroup);
     this.disposeGroupChildren(this.armiesGroup);

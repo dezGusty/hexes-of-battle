@@ -14,30 +14,43 @@ export interface RetreatFlagUserData {
 }
 
 /**
- * Coordinate mapping of all 16 banner frames in public/bannersspritesheet.json
- * Meta image is public/banners.png (264 x 264 pixels).
- * Each banner frame is 64 x 64 pixels arranged on a 4x4 grid.
+ * Coordinate mapping of all 64 banner frames in public/bannersspritesheet.json
+ * Meta image is public/banners.png (528 x 528 pixels).
+ * Each banner frame is 64 x 64 pixels arranged in four 4x4 quadrants (8x8 total):
+ *  - banner1..16:  top-left 4x4 quadrant (original 16 banners)
+ *  - banner17..32: top-right 4x4 quadrant (banner17 = neutral gray banner)
+ *  - banner33..48: bottom-left 4x4 quadrant
+ *  - banner49..64: bottom-right 4x4 quadrant
  */
-export const BANNER_FRAMES: Record<string, { x: number; y: number; w: number; h: number }> = {
-  'banner1.png': { x: 1, y: 1, w: 64, h: 64 },
-  'banner2.png': { x: 67, y: 1, w: 64, h: 64 },
-  'banner3.png': { x: 133, y: 1, w: 64, h: 64 },
-  'banner4.png': { x: 199, y: 1, w: 64, h: 64 },
-  'banner5.png': { x: 1, y: 67, w: 64, h: 64 },
-  'banner6.png': { x: 67, y: 67, w: 64, h: 64 },
-  'banner7.png': { x: 133, y: 67, w: 64, h: 64 },
-  'banner8.png': { x: 199, y: 67, w: 64, h: 64 },
-  'banner9.png': { x: 1, y: 133, w: 64, h: 64 },
-  'banner10.png': { x: 67, y: 133, w: 64, h: 64 },
-  'banner11.png': { x: 133, y: 133, w: 64, h: 64 },
-  'banner12.png': { x: 199, y: 133, w: 64, h: 64 },
-  'banner13.png': { x: 1, y: 199, w: 64, h: 64 },
-  'banner14.png': { x: 67, y: 199, w: 64, h: 64 },
-  'banner15.png': { x: 133, y: 199, w: 64, h: 64 },
-  'banner16.png': { x: 199, y: 199, w: 64, h: 64 },
-};
+function buildBannerFrames(): Record<string, { x: number; y: number; w: number; h: number }> {
+  const frames: Record<string, { x: number; y: number; w: number; h: number }> = {};
+  const quadrants: Array<[number, number]> = [
+    [0, 0],
+    [4, 0],
+    [0, 4],
+    [4, 4],
+  ];
+  let idx = 1;
+  for (const [qx, qy] of quadrants) {
+    for (let r = 0; r < 4; r++) {
+      for (let c = 0; c < 4; c++) {
+        frames[`banner${idx}.png`] = {
+          x: 1 + (qx + c) * 66,
+          y: 1 + (qy + r) * 66,
+          w: 64,
+          h: 64,
+        };
+        idx++;
+      }
+    }
+  }
+  return frames;
+}
 
-export const BANNERS_ATLAS_SIZE = { w: 264, h: 264 };
+export const BANNER_FRAMES: Record<string, { x: number; y: number; w: number; h: number }> =
+  buildBannerFrames();
+
+export const BANNERS_ATLAS_SIZE = { w: 528, h: 528 };
 
 export const DEFAULT_PLAYER_BANNERS = {
   player1: 'banner1.png',
@@ -149,19 +162,77 @@ function tryLoadInitialPlayerBannersFromDisk(): void {
 }
 tryLoadInitialPlayerBannersFromDisk();
 
+const sharedBannersTextureListeners = new Set<(texture: THREE.Texture | null) => void>();
+
+export function onSharedBannersTextureChange(
+  listener: (texture: THREE.Texture | null) => void
+): () => void {
+  sharedBannersTextureListeners.add(listener);
+  return () => sharedBannersTextureListeners.delete(listener);
+}
+
 export function setSharedBannersTexture(texture: THREE.Texture | null): void {
   sharedBannersTexture = texture;
+  sharedBannersTextureListeners.forEach((listener) => listener(texture));
 }
 
 export function getSharedBannersTexture(): THREE.Texture | null {
   return sharedBannersTexture;
 }
 
+export const BANNERS_ATLAS_URL = 'banners.png?v=528';
+
+/**
+ * Initializes the shared Three.js banners atlas texture directly from PixiJS's
+ * already-loaded `bannersSheet`, converting ImageBitmap to an offscreen canvas
+ * so WebGL honors `flipY = true` consistently with `getBannerAtlasUvTransform()`.
+ */
+export function initSharedBannersTextureFromPixi(bannersSheet?: any): THREE.Texture | null {
+  const rawResource =
+    bannersSheet?.textureSource?.source ??
+    bannersSheet?.textureSource?.resource;
+  if (
+    !rawResource ||
+    !(
+      rawResource instanceof HTMLImageElement ||
+      rawResource instanceof HTMLCanvasElement ||
+      (typeof ImageBitmap !== 'undefined' && rawResource instanceof ImageBitmap)
+    )
+  ) {
+    return null;
+  }
+
+  let textureSource: HTMLImageElement | HTMLCanvasElement | ImageBitmap = rawResource;
+  if (
+    typeof ImageBitmap !== 'undefined' &&
+    rawResource instanceof ImageBitmap &&
+    typeof document !== 'undefined'
+  ) {
+    const canvas = document.createElement('canvas');
+    canvas.width = rawResource.width;
+    canvas.height = rawResource.height;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.drawImage(rawResource, 0, 0);
+      textureSource = canvas;
+    }
+  }
+
+  const bannersTex = new THREE.Texture(textureSource as any);
+  bannersTex.colorSpace = THREE.SRGBColorSpace;
+  bannersTex.minFilter = THREE.LinearFilter;
+  bannersTex.magFilter = THREE.LinearFilter;
+  bannersTex.generateMipmaps = false;
+  bannersTex.needsUpdate = true;
+  setSharedBannersTexture(bannersTex);
+  return bannersTex;
+}
+
 export function loadSharedBannersTexture(): THREE.Texture | null {
   if (sharedBannersTexture) return sharedBannersTexture;
   if (typeof document === 'undefined' || typeof Image === 'undefined') return null;
   const loader = new THREE.TextureLoader();
-  const tex = loader.load('banners.png', (loaded) => {
+  const tex = loader.load(BANNERS_ATLAS_URL, (loaded) => {
     loaded.colorSpace = THREE.SRGBColorSpace;
     loaded.minFilter = THREE.LinearFilter;
     loaded.magFilter = THREE.LinearFilter;
@@ -172,7 +243,7 @@ export function loadSharedBannersTexture(): THREE.Texture | null {
   tex.minFilter = THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
   tex.generateMipmaps = false;
-  sharedBannersTexture = tex;
+  setSharedBannersTexture(tex);
   return tex;
 }
 

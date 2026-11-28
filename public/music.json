@@ -33,9 +33,9 @@
   ],
   "battle": [
     {
-      "alias": "track_dark_whispers",
-      "url": "audio/dark_whispers.ogg",
-      "title": "Dark Whispers"
+      "alias": "track_ehoi",
+      "url": "audio/music/battle_Ehoi.ogg",
+      "title": "Ehoi"
     }
   ]
 }

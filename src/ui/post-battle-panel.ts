@@ -285,7 +285,8 @@ export class PostBattlePanel {
 
   public constructor(
     private parentContainer?: Container,
-    private unitsSheet?: Spritesheet
+    private unitsSheet?: Spritesheet,
+    private bannersSheet?: Spritesheet
   ) {
     this.window.label = "PostBattlePanel";
     this.window.visible = false;
@@ -305,7 +306,11 @@ export class PostBattlePanel {
     }
   }
 
-  public show(battle: Battle, victorArmyIndex?: number): void {
+  public show(
+    battle: Battle,
+    victorArmyIndex?: number,
+    winningBannerTexture?: Texture
+  ): void {
     const victor =
       victorArmyIndex !== undefined ? victorArmyIndex : battle.checkVictoryConditions();
     this.lastVictor = victor;
@@ -314,7 +319,14 @@ export class PostBattlePanel {
     const p2Summary = computeArmyLosses(1, battle);
     this.lastSummaries = [p1Summary, p2Summary];
 
-    this.render(battle, victor, p1Summary, p2Summary);
+    let resolvedBanner = winningBannerTexture;
+    if (!resolvedBanner && victor >= 0 && this.bannersSheet?.textures) {
+      const bannerName = battle.getBannerForArmy(victor);
+      resolvedBanner =
+        this.bannersSheet.textures[bannerName] || this.bannersSheet.textures["banner1.png"];
+    }
+
+    this.render(battle, victor, p1Summary, p2Summary, resolvedBanner);
     this.window.visible = true;
   }
 
@@ -341,7 +353,8 @@ export class PostBattlePanel {
     _battle: Battle,
     victor: number,
     p1: ArmyLossesSummary,
-    p2: ArmyLossesSummary
+    p2: ArmyLossesSummary,
+    winningBannerTexture?: Texture
   ): void {
     this.bgGraphics.clear();
     this.contentContainer.removeChildren();
@@ -404,26 +417,24 @@ export class PostBattlePanel {
     victorText.position.set(panelW * 0.5, 66);
     this.contentContainer.addChild(victorText);
 
-    // Close button (✕) in top-right corner
-    const closeBtn = new Container();
-    closeBtn.label = "CloseButton";
-    closeBtn.eventMode = "static";
-    closeBtn.cursor = "pointer";
-    const closeBg = new Graphics();
-    closeBg.circle(panelW - 45, 42, 16).fill({ color: 0x2c3e50, alpha: 0.8 });
-    const closeText = new Text({
-      style: { fill: { color: "#ffffff", alpha: 1 }, fontSize: 16, fontWeight: "bold" },
-      text: "✕",
-    });
-    closeText.anchor.set(0.5);
-    closeText.position.set(panelW - 45, 42);
-    closeBtn.addChild(closeBg, closeText);
-    closeBtn.on("pointerover", () => playUISound("hover"));
-    closeBtn.on("pointerdown", () => {
-      playUISound("click");
-      this.hide();
-    });
-    this.contentContainer.addChild(closeBtn);
+    // Winning side's heraldic banner in the title section
+    if (winningBannerTexture && victor >= 0) {
+      const bannerSize = 56;
+      const bannerX = 42;
+      const bannerY = 34;
+
+      this.bgGraphics
+        .roundRect(bannerX - 3, bannerY - 3, bannerSize + 6, bannerSize + 6, 6)
+        .fill({ color: 0x0b0e14, alpha: 0.95 })
+        .stroke({ width: 2, color: 0xd4af37, alpha: 0.95 });
+
+      const bannerSprite = new Sprite(winningBannerTexture);
+      bannerSprite.label = "VictorBanner";
+      bannerSprite.position.set(bannerX, bannerY);
+      bannerSprite.width = bannerSize;
+      bannerSprite.height = bannerSize;
+      this.contentContainer.addChild(bannerSprite);
+    }
 
     // 3. Central Vertical Divider
     this.bgGraphics

@@ -437,56 +437,64 @@ export class BattleView3D {
 
   public updateActiveUnitSelection(): void {
     const active = this.battle.getActiveCreature();
+    const isAiTurn = Boolean(this.battle.isCurrentTurnAI?.());
     if (active && active.isAlive) {
       this.hexBoard.setSelectedUnitHex(active.position, active.facingDirection);
 
-      // Highlight walkable and attackable tiles
-      const walkable: Coords[] = [];
-      const attackable: Coords[] = [];
-
-      if (this.battle.input_state === InputState.SELECT_ABILITY_TARGET && this.battle.abilityToApply) {
-        for (let x = 0; x < this.hexMap.width; x++) {
-          for (let y = 0; y < this.hexMap.height; y++) {
-            const tileVal = this.battle.ability_reach_tiles[x]?.[y] ?? 0;
-            const targetVal = this.battle.ability_reach_targets[x]?.[y] ?? 0;
-            if (targetVal > 0 && this.battle.isTargetAllowedForAbility(this.battle.abilityToApply, active, { x, y })) {
-              attackable.push({ x, y });
-            } else if (tileVal > 0) {
-              walkable.push({ x, y });
-            }
-          }
-        }
-
-        // Render range perimeter for active skill (e.g. throw-javelin)
-        this.hexBoard.updateRangePerimeter(this.battle.ability_reach_tiles, 0xffaa33, 0.4);
+      if (isAiTurn) {
+        // During enemy (CPU) turns, do not show reachable hexes or range perimeter by default;
+        // overlays are only shown if explicitly inspected by the human player.
+        this.hexBoard.clearReachOverlays();
+        this.hexBoard.clearRangePerimeter();
       } else {
-        for (let x = 0; x < this.hexMap.width; x++) {
-          for (let y = 0; y < this.hexMap.height; y++) {
-            const pathVal = this.battle.pathfinding_tiles[x]?.[y] ?? 0;
-            const rangeVal = this.battle.rangereach_targets[x]?.[y] ?? 0;
+        // Highlight walkable and attackable tiles
+        const walkable: Coords[] = [];
+        const attackable: Coords[] = [];
 
-            if (pathVal > 0 && pathVal !== BattleHexMapPath.CELL_ENEMY) {
-              walkable.push({ x, y });
-            } else if (pathVal === BattleHexMapPath.CELL_ENEMY || rangeVal === BattleHexMapPath.CELL_ENEMY) {
-              attackable.push({ x, y });
+        if (this.battle.input_state === InputState.SELECT_ABILITY_TARGET && this.battle.abilityToApply) {
+          for (let x = 0; x < this.hexMap.width; x++) {
+            for (let y = 0; y < this.hexMap.height; y++) {
+              const tileVal = this.battle.ability_reach_tiles[x]?.[y] ?? 0;
+              const targetVal = this.battle.ability_reach_targets[x]?.[y] ?? 0;
+              if (targetVal > 0 && this.battle.isTargetAllowedForAbility(this.battle.abilityToApply, active, { x, y })) {
+                attackable.push({ x, y });
+              } else if (tileVal > 0) {
+                walkable.push({ x, y });
+              }
             }
+          }
+
+          // Render range perimeter for active skill (e.g. throw-javelin)
+          this.hexBoard.updateRangePerimeter(this.battle.ability_reach_tiles, 0xffaa33, 0.4);
+        } else {
+          for (let x = 0; x < this.hexMap.width; x++) {
+            for (let y = 0; y < this.hexMap.height; y++) {
+              const pathVal = this.battle.pathfinding_tiles[x]?.[y] ?? 0;
+              const rangeVal = this.battle.rangereach_targets[x]?.[y] ?? 0;
+
+              if (pathVal > 0 && pathVal !== BattleHexMapPath.CELL_ENEMY) {
+                walkable.push({ x, y });
+              } else if (pathVal === BattleHexMapPath.CELL_ENEMY || rangeVal === BattleHexMapPath.CELL_ENEMY) {
+                attackable.push({ x, y });
+              }
+            }
+          }
+
+          // Render range perimeter for ranged squad weapon attacks (e.g. archers)
+          if (
+            active.live_stats.is_ranged &&
+            active.live_stats.remaining_ammo > 0 &&
+            active.exhaustionState !== ExhaustionState.DEPLETED &&
+            !active.isPanickedOrRouting
+          ) {
+            this.hexBoard.updateRangePerimeter(this.battle.rangereach_tiles, 0x44aacc, 0.35);
+          } else {
+            this.hexBoard.clearRangePerimeter();
           }
         }
 
-        // Render range perimeter for ranged squad weapon attacks (e.g. archers)
-        if (
-          active.live_stats.is_ranged &&
-          active.live_stats.remaining_ammo > 0 &&
-          active.exhaustionState !== ExhaustionState.DEPLETED &&
-          !active.isPanickedOrRouting
-        ) {
-          this.hexBoard.updateRangePerimeter(this.battle.rangereach_tiles, 0x44aacc, 0.35);
-        } else {
-          this.hexBoard.clearRangePerimeter();
-        }
+        this.hexBoard.updateReachOverlays(walkable, attackable);
       }
-
-      this.hexBoard.updateReachOverlays(walkable, attackable);
     } else {
       this.hexBoard.setSelectedUnitHex(null);
       this.hexBoard.clearReachOverlays();

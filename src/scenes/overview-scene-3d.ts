@@ -4,13 +4,16 @@ import { BattleResult } from '../battle/battle-types';
 import { CPUPersonalityType } from '../battle/cpu-player';
 import { CPUPlayerFactory } from '../battle/cpu-player-factory';
 import { CreatureRepository } from '../battle/creature-repository';
+import { Creature } from '../battle/creature';
 import { OverviewReturnParams } from '../core/game-flow';
 import { GameContext, Scene } from '../core/scene';
+import { SoundCategory, SoundType } from '../battle/ui-sounds';
 import { OverviewCampaign } from '../overview/overview-campaign';
 import { createStarterOverviewMap } from '../overview/overview-map-generator';
 import { BattlePromptInfo } from '../overview/ui/overview-battle-prompt-panel';
 import { OverviewHud2D } from '../overview/ui/overview-hud-2d';
 import { OverviewView3D } from '../render3d/overview/overview-view-3d';
+import { initSharedBannersTextureFromPixi } from '../render3d/decorations/retreat-flag-3d';
 import { Coords } from '../shared';
 import { HexMap } from '../shared/hex-map';
 
@@ -52,7 +55,11 @@ export class OverviewScene3D implements Scene {
 
     if (!this.campaign) {
       this.campaign = new OverviewCampaign(
-        createStarterOverviewMap(321345, context.templates.globalConfig)
+        createStarterOverviewMap(
+          321345,
+          context.templates.globalConfig,
+          context.templates.regionNamesConfig
+        )
       );
     }
 
@@ -71,6 +78,8 @@ export class OverviewScene3D implements Scene {
         ? document.getElementById('game') ?? document.body
         : ({} as HTMLElement);
 
+    initSharedBannersTextureFromPixi(context.assets?.bannersSheet);
+
     const sharedRendererHost = gameElement
       ? context.getThreeRendererHost?.(gameElement)
       : undefined;
@@ -82,7 +91,7 @@ export class OverviewScene3D implements Scene {
         campaign,
         {
           onSelectHex: (coords) => {
-            this.hud?.showSelectionAtHex(coords);
+            this.handleSelectHex(coords);
           },
           onSelectSettlement: (regionId) => {
             if (this.campaign) {
@@ -91,6 +100,9 @@ export class OverviewScene3D implements Scene {
           },
           onMoveArmy: (armyId, targetCoords) => {
             this.handleMoveArmy(armyId, targetCoords);
+          },
+          onHoverRegion: (regionId) => {
+            this.hud?.setHoveredRegion(regionId);
           },
           onPointerMove: (stageCoords) => {
             this.hud?.updateCursorPosition(stageCoords);
@@ -105,6 +117,7 @@ export class OverviewScene3D implements Scene {
           isMenuBlockingInput: () =>
             Boolean(
               this.hud?.menuPanel?.isVisible() ||
+              this.hud?.factionPanel?.isVisible() ||
               this.hud?.battlePromptPanel?.isVisible() ||
               this.hud?.armyExchangePanel?.isVisible() ||
               this.hud?.modelExplorerPanel?.isVisible()
@@ -161,6 +174,10 @@ export class OverviewScene3D implements Scene {
           this.view?.syncAll();
           this.hud?.refresh();
         },
+        onFactionChanged: () => {
+          this.view?.syncAll();
+          this.hud?.refresh();
+        },
       }
     );
     this.hud.bindCampaign(this.campaign);
@@ -169,24 +186,73 @@ export class OverviewScene3D implements Scene {
     }
   }
 
+  public handleSelectHex(coords: Coords): void {
+    const army = this.campaign?.getArmyAt(coords);
+    if (army) {
+      const soundType =
+        army.ownerPlayerId === 'player'
+          ? SoundType.ARMY_SELECT_OWN
+          : SoundType.ARMY_SELECT_ENEMY;
+      this.context?.soundSystem?.play(SoundCategory.SOUND, soundType, false);
+    }
+    this.hud?.showSelectionAtHex(coords);
+  }
+
+  private playArmyMoveSounds(armyId: string): void {
+    const soundSystem = this.context?.soundSystem;
+    if (!soundSystem?.playUnitMovementSteps || !this.campaign) return;
+    const army = this.campaign.getArmyById(armyId);
+    if (!army || army.squads.length === 0) return;
+
+    const playedKeys = new Set<string>();
+    for (const squad of army.squads) {
+      const unitKey = Creature.CREATURE_NAMES[squad.creatureType] ?? '';
+      if (!unitKey || playedKeys.has(unitKey)) continue;
+      playedKeys.add(unitKey);
+      soundSystem.playUnitMovementSteps(unitKey, squad.count, Math.max(1, squad.count));
+      if (playedKeys.size >= 2) break;
+    }
+  }
+
   public handleMoveArmy(armyId: string, targetCoords: Coords): void {
     if (!this.campaign) return;
 
+    const preMovePath = this.campaign.getPathToHex(armyId, targetCoords);
+
     const engagement = this.campaign.prepareEngagementAt(armyId, targetCoords);
     if (engagement) {
+      this.context?.soundSystem?.play(SoundCategory.SOUND, SoundType.ARMY_ISSUE_ATTACK, false);
       if (engagement.movedDuringApproach) {
-        this.view?.syncAll();
+        const approachIdx = preMovePath.findIndex(
+          (c) => c.x === engagement.attacker.coords.x && c.y === engagement.attacker.coords.y
+        );
+        const approachPath =
+          approachIdx >= 1 ? preMovePath.slice(0, approachIdx + 1) : [];
+        if (this.view && approachPath.length >= 2) {
+          this.view.animateArmyAlongPath(armyId, approachPath, {
+            onStep: () => this.playArmyMoveSounds(armyId),
+            onComplete: () => {
+              this.view?.syncAll();
+              this.hud?.refresh();
+            },
+          });
+        } else {
+          this.view?.syncAll();
+        }
         this.hud?.refresh();
         this.hud?.showSelectionAtHex(engagement.attacker.coords);
       }
-      const attackerOwner = this.campaign.getPlayer(engagement.attacker.ownerPlayerId);
-      const defenderOwner = this.campaign.getPlayer(engagement.defender.ownerPlayerId);
+      const attackerHex = this.campaign.getHex(engagement.attacker.coords);
+      const attackerRegion = attackerHex ? this.campaign.getRegionById(attackerHex.regionId) : undefined;
+      const defenderHex = this.campaign.getHex(engagement.defender.coords);
+      const defenderRegion =
+        engagement.targetRegion ?? (defenderHex ? this.campaign.getRegionById(defenderHex.regionId) : undefined);
       const info: BattlePromptInfo = {
-        attackerName: attackerOwner?.name ?? 'Attacker',
-        defenderName: defenderOwner?.name ?? 'Neutral Garrison',
+        attackerName: this.campaign.getBattleFactionName(engagement.attacker.ownerPlayerId, attackerRegion),
+        defenderName: this.campaign.getBattleFactionName(engagement.defender.ownerPlayerId, defenderRegion),
         attackerSquadCount: engagement.attacker.squads.length,
         defenderSquadCount: engagement.defender.squads.length,
-        regionName: engagement.targetRegion?.name,
+        regionName: defenderRegion?.name,
       };
       this.pendingEngagement = {
         attackerArmyId: engagement.attacker.id,
@@ -202,7 +268,25 @@ export class OverviewScene3D implements Scene {
 
     const outcome = this.campaign.moveArmy(armyId, targetCoords, this.creatureRepository);
     if (outcome.moved) {
-      this.view?.syncAll();
+      const movedArmy = this.campaign.getArmyById(armyId);
+      const destCoords = movedArmy ? movedArmy.coords : targetCoords;
+      const endIdx = preMovePath.findIndex(
+        (c) => c.x === destCoords.x && c.y === destCoords.y
+      );
+      const walkPath =
+        endIdx >= 1 ? preMovePath.slice(0, endIdx + 1) : preMovePath;
+
+      if (this.view && movedArmy && walkPath.length >= 2) {
+        this.view.animateArmyAlongPath(armyId, walkPath, {
+          onStep: () => this.playArmyMoveSounds(armyId),
+          onComplete: () => {
+            this.view?.syncAll();
+            this.hud?.refresh();
+          },
+        });
+      } else {
+        this.view?.syncAll();
+      }
       this.hud?.refresh();
       if (outcome.exchangeArmyIds) {
         this.hud?.armyExchangePanel.show(
@@ -211,7 +295,7 @@ export class OverviewScene3D implements Scene {
           outcome.exchangeArmyIds.rightArmyId
         );
       } else {
-        this.hud?.showSelectionAtHex(targetCoords);
+        this.hud?.showSelectionAtHex(destCoords);
       }
     }
   }

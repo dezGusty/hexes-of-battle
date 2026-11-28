@@ -464,6 +464,7 @@ export class BattleView {
 
     if (this.topSidePanel) {
       this.topSidePanel.setActiveArmyIndex(armyIndex);
+      this.topSidePanel.setTurnNumber(turnNumber);
     }
     if (this.commonControls.nextTurnButton) {
       this.commonControls.nextTurnButton.filters = [];
@@ -472,11 +473,6 @@ export class BattleView {
 
   public showVictoryBanner(victorArmyIndex: number): void {
     const isDraw = victorArmyIndex < 0;
-    const message = isDraw ? "Battle Ended in a Draw" : `Victory for Army ${victorArmyIndex + 1}`;
-    const bannerName = this.getBannerTextureNameForArmyIndex(isDraw ? 0 : victorArmyIndex);
-    const texture = this.assets.bannersSheet?.textures[bannerName];
-    this.turnChangeDisplay.addEndOfBattle(message, this.uiPlusRenderGroup, { x: 500, y: 350 }, texture);
-
     if (this.topSidePanel && !isDraw) {
       this.topSidePanel.setActiveArmyIndex(victorArmyIndex);
     }
@@ -486,7 +482,11 @@ export class BattleView {
 
   public showPostBattleScreen(victorArmyIndex?: number): void {
     if (this.postBattlePanel) {
-      this.postBattlePanel.show(this.battle, victorArmyIndex);
+      const victor =
+        victorArmyIndex !== undefined ? victorArmyIndex : this.battle.checkVictoryConditions();
+      const bannerName = victor >= 0 ? this.getBannerTextureNameForArmyIndex(victor) : undefined;
+      const texture = bannerName ? this.assets.bannersSheet?.textures[bannerName] : undefined;
+      this.postBattlePanel.show(this.battle, victor, texture);
     }
   }
 
@@ -584,7 +584,11 @@ export class BattleView {
       this.battleMenuPanel.setHardwareCursorHidden(this.settings.hideHardwareCursor);
       this.battleMenuPanel.hide();
     }
-    this.postBattlePanel = new PostBattlePanel(this.uiPlusRenderGroup, this.assets.unitsSheet);
+    this.postBattlePanel = new PostBattlePanel(
+      this.uiPlusRenderGroup,
+      this.assets.unitsSheet,
+      this.assets.bannersSheet
+    );
     this.applyHardwareCursorVisibility(this.settings.hideHardwareCursor);
 
     const dockedButtons = new Set<any>([
@@ -764,6 +768,7 @@ export class BattleView {
       this.assets.bannersSheet?.textures[this.getBannerTextureNameForArmyIndex(1)]
     );
     this.updateArmyNames();
+    this.topSidePanel.setTurnNumber(this.battle.turnNumber);
   }
 
   private initializeMapGrid(): void {
@@ -922,7 +927,13 @@ export class BattleView {
   }
 
   public updateTargetAcquirementHint(): void {
-    if (this.battle.input_state === InputState.SELECT_ABILITY_TARGET && this.battle.abilityToApply) {
+    const isHumanTurn =
+      this.battle.army_control[this.battle.currentArmyIndex] === ArmyControlType.PLAYER;
+    if (
+      isHumanTurn &&
+      this.battle.input_state === InputState.SELECT_ABILITY_TARGET &&
+      this.battle.abilityToApply
+    ) {
       const abilityName = this.battle.abilityToApply.tooltipName || this.battle.abilityToApply.name || 'skill';
       this.showTargetAcquirementHint(abilityName);
     } else {
