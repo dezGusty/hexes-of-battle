@@ -7,12 +7,12 @@ import { CreatureRepository } from '../battle/creature-repository';
 import { Creature } from '../battle/creature';
 import { OverviewReturnParams } from '../core/game-flow';
 import { GameContext, Scene } from '../core/scene';
-import { SoundCategory, SoundType } from '../battle/ui-sounds';
+import { SoundCategory, SoundType, playUISound } from '../battle/ui-sounds';
 import { OverviewCampaign } from '../overview/overview-campaign';
 import { createStarterOverviewMap } from '../overview/overview-map-generator';
 import { BattlePromptInfo } from '../overview/ui/overview-battle-prompt-panel';
 import { OverviewHud2D } from '../overview/ui/overview-hud-2d';
-import { OverviewView3D } from '../render3d/overview/overview-view-3d';
+import { OverviewSelectionKind, OverviewView3D } from '../render3d/overview/overview-view-3d';
 import { initSharedBannersTextureFromPixi } from '../render3d/decorations/retreat-flag-3d';
 import { Coords } from '../shared';
 import { HexMap } from '../shared/hex-map';
@@ -90,8 +90,8 @@ export class OverviewScene3D implements Scene {
         gameElement,
         campaign,
         {
-          onSelectHex: (coords) => {
-            this.handleSelectHex(coords);
+          onSelectHex: (coords, focusKind) => {
+            this.handleSelectHex(coords, focusKind);
           },
           onSelectSettlement: (regionId) => {
             if (this.campaign) {
@@ -103,6 +103,20 @@ export class OverviewScene3D implements Scene {
           },
           onHoverRegion: (regionId) => {
             this.hud?.setHoveredRegion(regionId);
+          },
+          onHoverInteractable: (target) => {
+            if (target) {
+              playUISound('hover');
+            }
+          },
+          onMoveTargetModeChange: (active) => {
+            this.hud?.setMoveTargetModeActive(active);
+            if (this.view?.selectedHexCoords) {
+              this.hud?.showSelectionAtHex(
+                this.view.selectedHexCoords,
+                this.view.selectedEntityKind ?? undefined
+              );
+            }
           },
           onPointerMove: (stageCoords) => {
             this.hud?.updateCursorPosition(stageCoords);
@@ -122,6 +136,8 @@ export class OverviewScene3D implements Scene {
               this.hud?.armyExchangePanel?.isVisible() ||
               this.hud?.modelExplorerPanel?.isVisible()
             ),
+          isPointerOverHud: (stageCoords) =>
+            Boolean(this.hud?.isPointOverHud(stageCoords)),
         },
         sharedRendererHost,
         context.settings
@@ -178,6 +194,9 @@ export class OverviewScene3D implements Scene {
           this.view?.syncAll();
           this.hud?.refresh();
         },
+        onToggleMoveMode: (armyId) => {
+          this.view?.toggleMoveTargetMode(armyId);
+        },
       }
     );
     this.hud.bindCampaign(this.campaign);
@@ -186,16 +205,18 @@ export class OverviewScene3D implements Scene {
     }
   }
 
-  public handleSelectHex(coords: Coords): void {
+  public handleSelectHex(coords: Coords, focusKind?: OverviewSelectionKind): void {
     const army = this.campaign?.getArmyAt(coords);
-    if (army) {
+    if (army && focusKind !== 'settlement') {
       const soundType =
         army.ownerPlayerId === 'player'
           ? SoundType.ARMY_SELECT_OWN
           : SoundType.ARMY_SELECT_ENEMY;
       this.context?.soundSystem?.play(SoundCategory.SOUND, soundType, false);
+    } else if (focusKind === 'settlement') {
+      playUISound('click');
     }
-    this.hud?.showSelectionAtHex(coords);
+    this.hud?.showSelectionAtHex(coords, focusKind);
   }
 
   private playArmyMoveSounds(armyId: string): void {

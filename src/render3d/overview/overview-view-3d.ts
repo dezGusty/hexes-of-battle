@@ -8,15 +8,21 @@ import { ThreeRendererHost } from '../three-renderer-host';
 import { ThreeSceneManager } from '../three-scene-manager';
 import { setUnitRimLightingEnabled, isUnitRimLightingEnabled } from '../units/unit-rim-lighting';
 import { OverviewBoard3D } from './overview-board-3d';
+import { OverviewHoverTarget } from './overview-hover-outline';
+
+export type OverviewSelectionKind = 'army' | 'settlement' | 'other';
 
 export interface OverviewView3DCallbacks {
-  onSelectHex?: (coords: Coords) => void;
+  onSelectHex?: (coords: Coords, focusKind?: OverviewSelectionKind) => void;
   onSelectSettlement?: (regionId: string) => void;
   onMoveArmy?: (armyId: string, targetCoords: Coords) => void;
   onHoverRegion?: (regionId: string | null) => void;
+  onHoverInteractable?: (target: OverviewHoverTarget | null) => void;
+  onMoveTargetModeChange?: (active: boolean) => void;
   onPointerMove?: (stageCoords: Coords) => void;
   getStageInfo?: () => { offset: Coords; scale: Coords };
   isMenuBlockingInput?: () => boolean;
+  isPointerOverHud?: (stageCoords: Coords) => boolean;
 }
 
 export class OverviewView3D {
@@ -26,6 +32,10 @@ export class OverviewView3D {
   public readonly ambientAudio: OverviewAmbientAudio;
   public readonly sceneDebugger?: ThreeSceneDebugger;
   public selectedArmyId: string | null = null;
+  public selectedSettlementRegionId: string | null = null;
+  public selectedHexCoords: Coords | null = null;
+  public selectedEntityKind: OverviewSelectionKind | null = null;
+  public isMoveTargetMode: boolean = false;
   public cameraPanSpeed: number = 16.0;
   public cameraRotateSpeed: number = 2.2;
 
@@ -36,6 +46,7 @@ export class OverviewView3D {
   private pointerButton = 0;
   private pressedKeys: Set<string> = new Set();
   private lastHoveredHexKey: string | null = null;
+  private lastHoveredInteractableKey: string | null = null;
 
   private boundPointerDown?: (e: PointerEvent) => void;
   private boundPointerMove?: (e: PointerEvent) => void;
@@ -98,6 +109,8 @@ export class OverviewView3D {
     this.boundContextMenu = (e: MouseEvent) => e.preventDefault();
     this.boundPointerDown = (e: PointerEvent) => {
       if (this.callbacks.isMenuBlockingInput?.()) return;
+      const stageCoords = this.getStageCoords(e.clientX, e.clientY);
+      if (this.callbacks.isPointerOverHud?.(stageCoords)) return;
       this.isPointerDown = true;
       this.isDragging = false;
       this.pointerButton = e.button;
@@ -115,6 +128,10 @@ export class OverviewView3D {
       }
 
       if (!this.isPointerDown) {
+        if (this.callbacks.isPointerOverHud?.(stageCoords)) {
+          this.hoverAtHex(null);
+          return;
+        }
         if (typeof this.sceneManager.canvas?.getBoundingClientRect === 'function') {
           const hits = this.sceneManager.raycastFromScreen(
             e.clientX,
@@ -151,9 +168,14 @@ export class OverviewView3D {
         this.isDragging = false;
         return;
       }
+      const wasPointerDownOnMap = this.isPointerDown;
       const wasDragging = this.isDragging;
       this.isPointerDown = false;
       this.isDragging = false;
+      const stageCoords = this.getStageCoords(e.clientX, e.clientY);
+      if (!wasPointerDownOnMap || this.callbacks.isPointerOverHud?.(stageCoords)) {
+        return;
+      }
       if (!wasDragging && (e.button === 0 || e.button === 2)) {
         this.handleHexClick(e.clientX, e.clientY, e.button);
       }
@@ -165,6 +187,11 @@ export class OverviewView3D {
 
     this.boundKeyDown = (e: KeyboardEvent) => {
       if (this.callbacks.isMenuBlockingInput?.()) return;
+      if (e.key === 'Escape' && this.isMoveTargetMode) {
+        e.preventDefault();
+        this.setMoveTargetMode(false);
+        return;
+      }
       const key = e.key.toLowerCase();
       if (['w', 'a', 's', 'd', 'q', 'e'].includes(key)) {
         this.pressedKeys.add(key);
@@ -205,6 +232,85 @@ export class OverviewView3D {
     this.selectOrMoveAtHex(coords, button);
   }
 
+  private resolveHoverInteractableAtHex(coords: Coords | null, isVisibleHex: boolean): OverviewHoverTarget | null {
+    if (!coords || !isVisibleHex) return null;
+    const hex = this.campaign.getHex(coords);
+    if (!hex) return null;
+
+    const army = this.campaign.getArmyAt(coords);
+    const visibleArmy =
+      army && army.squads.length > 0 && (army.ownerPlayerId === 'player' || isVisibleHex)
+        ? army
+        : null;
+    const region = this.campaign.getRegionById(hex.regionId);
+    const hasSettlement = Boolean(hex.isSettlement && region?.settlementTier);
+
+    // If both an army and settlement share this hex, highlight whichever one the next click will select
+    if (visibleArmy && hasSettlement && region) {
+      const sameAsSelected =
+        this.selectedHexCoords !== null &&
+        this.selectedHexCoords.x === coords.x &&
+        this.selectedHexCoords.y === coords.y;
+      if (sameAsSelected && this.selectedEntityKind === 'army') {
+        return {
+          kind: 'settlement',
+          regionId: region.id,
+          ownerPlayerId: region.ownerPlayerId,
+        };
+      }
+      return {
+        kind: 'army',
+        armyId: visibleArmy.id,
+        ownerPlayerId: visibleArmy.ownerPlayerId,
+      };
+    }
+
+    if (visibleArmy) {
+      return {
+        kind: 'army',
+        armyId: visibleArmy.id,
+        ownerPlayerId: visibleArmy.ownerPlayerId,
+      };
+    }
+
+    if (hasSettlement && region) {
+      return {
+        kind: 'settlement',
+        regionId: region.id,
+        ownerPlayerId: region.ownerPlayerId,
+      };
+    }
+
+    return null;
+  }
+
+  public setMoveTargetMode(active: boolean): void {
+    const next = Boolean(active && this.selectedArmyId);
+    if (this.isMoveTargetMode === next) return;
+    this.isMoveTargetMode = next;
+    if (next && this.selectedArmyId) {
+      const reachable = this.campaign.getReachableHexes(this.selectedArmyId);
+      this.board.setReachableHexes(reachable.keys());
+    }
+    this.callbacks.onMoveTargetModeChange?.(next);
+  }
+
+  public toggleMoveTargetMode(armyId?: string): boolean {
+    if (armyId && armyId !== this.selectedArmyId) {
+      const army = this.campaign.getArmyById(armyId);
+      if (army && army.ownerPlayerId === 'player') {
+        this.selectedArmyId = army.id;
+        this.selectedSettlementRegionId = null;
+        this.selectedHexCoords = { ...army.coords };
+        this.selectedEntityKind = 'army';
+        const reachable = this.campaign.getReachableHexes(army.id);
+        this.board.setReachableHexes(reachable.keys());
+      }
+    }
+    this.setMoveTargetMode(!this.isMoveTargetMode);
+    return this.isMoveTargetMode;
+  }
+
   public hoverAtHex(coords: Coords | null): void {
     const hoveredHex = coords ? this.campaign.getHex(coords) : null;
     const isVisibleHex = Boolean(
@@ -213,6 +319,18 @@ export class OverviewView3D {
     const hoveredRegionId = isVisibleHex ? (hoveredHex?.regionId ?? null) : null;
     this.board.setHoveredRegion(hoveredRegionId);
     this.callbacks.onHoverRegion?.(hoveredRegionId);
+
+    const interactable = this.resolveHoverInteractableAtHex(coords, isVisibleHex);
+    const interactableKey = interactable
+      ? interactable.kind === 'army'
+        ? `army:${interactable.armyId}`
+        : `settlement:${interactable.regionId}`
+      : null;
+    if (interactableKey !== this.lastHoveredInteractableKey) {
+      this.lastHoveredInteractableKey = interactableKey;
+      this.board.setHoveredInteractable(interactable);
+      this.callbacks.onHoverInteractable?.(interactable);
+    }
 
     const key = coords ? `${coords.x},${coords.y}` : null;
     if (key === this.lastHoveredHexKey) return;
@@ -231,20 +349,92 @@ export class OverviewView3D {
     this.lastHoveredHexKey = null;
     this.board.setMovePath([]);
 
-    // 1. Check if a player army is on this hex
+    const hex = this.campaign.getHex(coords);
     const army = this.campaign.getArmyAt(coords);
-    if (army && army.ownerPlayerId === 'player') {
-      this.selectedArmyId = army.id;
-      const reachable = this.campaign.getReachableHexes(army.id);
-      this.board.setReachableHexes(reachable.keys());
-      this.callbacks.onSelectHex?.(coords);
+    const region = hex ? this.campaign.getRegionById(hex.regionId) : undefined;
+    const hasSettlement = Boolean(hex?.isSettlement && region);
+
+    // Clicking a hex while in Move target mode executes the move if reachable
+    if (this.isMoveTargetMode && this.selectedArmyId) {
+      const reachable = this.campaign.getReachableHexes(this.selectedArmyId);
+      const key = `${coords.x},${coords.y}`;
+      if (reachable.has(key)) {
+        this.moveSelectedArmyToHex(coords);
+        return;
+      }
+      this.setMoveTargetMode(false);
+    }
+
+    const sameHexAsCurrent =
+      this.selectedHexCoords !== null &&
+      this.selectedHexCoords.x === coords.x &&
+      this.selectedHexCoords.y === coords.y;
+
+    // Shared Army + Settlement hex: cycle 1st click -> army, 2nd click -> settlement, 3rd click -> army
+    if (army && hasSettlement && region) {
+      if (sameHexAsCurrent && this.selectedEntityKind === 'army') {
+        this.selectedArmyId = null;
+        this.selectedSettlementRegionId = region.id;
+        this.selectedHexCoords = { ...coords };
+        this.selectedEntityKind = 'settlement';
+        this.setMoveTargetMode(false);
+        this.board.setReachableHexes([]);
+        this.callbacks.onSelectHex?.(coords, 'settlement');
+        return;
+      }
+
+      this.selectedSettlementRegionId = null;
+      this.selectedHexCoords = { ...coords };
+      this.selectedEntityKind = 'army';
+      if (army.ownerPlayerId === 'player') {
+        this.selectedArmyId = army.id;
+        const reachable = this.campaign.getReachableHexes(army.id);
+        this.board.setReachableHexes(reachable.keys());
+      } else {
+        this.selectedArmyId = null;
+        this.board.setReachableHexes([]);
+      }
+      this.callbacks.onSelectHex?.(coords, 'army');
       return;
     }
 
-    // 2. Otherwise, clear army selection and notify hex selection (for settlement/building/neutral army panel)
+    // Army-only hex
+    if (army) {
+      this.selectedSettlementRegionId = null;
+      this.selectedHexCoords = { ...coords };
+      this.selectedEntityKind = 'army';
+      if (army.ownerPlayerId === 'player') {
+        this.selectedArmyId = army.id;
+        const reachable = this.campaign.getReachableHexes(army.id);
+        this.board.setReachableHexes(reachable.keys());
+      } else {
+        this.selectedArmyId = null;
+        this.board.setReachableHexes([]);
+      }
+      this.callbacks.onSelectHex?.(coords, 'army');
+      return;
+    }
+
+    // Settlement-only hex
+    if (hasSettlement && region) {
+      this.selectedArmyId = null;
+      this.selectedSettlementRegionId = region.id;
+      this.selectedHexCoords = { ...coords };
+      this.selectedEntityKind = 'settlement';
+      this.setMoveTargetMode(false);
+      this.board.setReachableHexes([]);
+      this.callbacks.onSelectHex?.(coords, 'settlement');
+      return;
+    }
+
+    // Other hex (resource building, agricultural plot, or empty)
     this.selectedArmyId = null;
+    this.selectedSettlementRegionId = null;
+    this.selectedHexCoords = { ...coords };
+    this.selectedEntityKind = 'other';
+    this.setMoveTargetMode(false);
     this.board.setReachableHexes([]);
-    this.callbacks.onSelectHex?.(coords);
+    this.callbacks.onSelectHex?.(coords, 'other');
   }
 
   public moveSelectedArmyToHex(coords: Coords): void {
@@ -254,10 +444,15 @@ export class OverviewView3D {
     if (reachable.has(key)) {
       const movingId = this.selectedArmyId;
       this.selectedArmyId = null;
+      this.selectedSettlementRegionId = null;
+      this.selectedEntityKind = null;
+      this.setMoveTargetMode(false);
       this.lastHoveredHexKey = null;
       this.board.setMovePath([]);
       this.board.setReachableHexes([]);
       this.callbacks.onMoveArmy?.(movingId, coords);
+    } else if (this.isMoveTargetMode) {
+      this.setMoveTargetMode(false);
     }
   }
 

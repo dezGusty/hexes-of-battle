@@ -2732,4 +2732,119 @@ describe('Overview Map Phase 4: OverviewScene3D, Battle Handoff & Campaign Victo
 
     hud.destroy();
   });
+
+  it('highlights hovered armies/settlements with 3D outlines, plays hover SFX, cycles shared hex selection (army -> settlement -> army), and supports left-click Move button', async () => {
+    const campaign = new OverviewCampaign(createStarterOverviewMap(555123));
+    const playerArmy = campaign.armies.find((a) => a.ownerPlayerId === 'player')!;
+    const playerRegion = campaign.regions.find(
+      (r) => r.ownerPlayerId === 'player' && r.settlementCoords
+    )!;
+    const sharedCoords = { ...playerRegion.settlementCoords! };
+    // Place player army directly on the player's settlement hex
+    playerArmy.coords = { ...sharedCoords };
+
+    const playedSounds: Array<{ category: SoundCategory; sound: SoundType }> = [];
+    const mockSoundSystem = {
+      play: (category: SoundCategory, sound: SoundType) => {
+        playedSounds.push({ category, sound });
+      },
+      stop: () => {},
+      playMusic: () => {},
+      stopMusic: () => {},
+      setMusicVolume: () => {},
+      setSoundVolume: () => {},
+    };
+
+    const mockRendererHost = {
+      renderer: {
+        domElement: {},
+        setSize: () => {},
+        setPixelRatio: () => {},
+        setClearColor: () => {},
+        setScissorTest: () => {},
+        getSize: () => ({ width: 800, height: 600 }),
+        shadowMap: { enabled: false, type: 0 },
+        render: () => {},
+        dispose: () => {},
+      },
+      renderToContainer: () => {},
+      detachFromContainer: () => {},
+    } as any;
+
+    const scene = new OverviewScene3D();
+    await scene.enter({
+      eventBus: new EventBus(),
+      templates: {},
+      soundSystem: mockSoundSystem as any,
+      settings: new BattleSettings(),
+      getThreeRendererHost: () => mockRendererHost,
+      initialCampaign: campaign,
+    } as any);
+
+    // Ensure the scene uses our placed army on the settlement hex
+    const activeCampaign = scene.campaign!;
+    const activeArmy = activeCampaign.armies.find((a) => a.ownerPlayerId === 'player')!;
+    const activeRegion = activeCampaign.regions.find(
+      (r) => r.ownerPlayerId === 'player' && r.settlementCoords
+    )!;
+    const settlementHex = { ...activeRegion.settlementCoords! };
+    activeArmy.coords = { ...settlementHex };
+    scene.view!.syncAll();
+
+    // 1. Hover over the army+settlement hex -> attaches 3D outline & plays UI hover sound
+    playedSounds.length = 0;
+    scene.view!.hoverAtHex(settlementHex);
+    expect(scene.view!.board.getHoveredInteractable()?.kind).toBe('army');
+    expect(scene.view!.board.getActiveHoverOutlineCount()).toBeGreaterThan(0);
+    expect(playedSounds.some((s) => s.sound === SoundType.UI_HOVER)).toBe(true);
+
+    // Unhover -> removes 3D outline meshes
+    scene.view!.hoverAtHex(null);
+    expect(scene.view!.board.getHoveredInteractable()).toBeNull();
+    expect(scene.view!.board.getActiveHoverOutlineCount()).toBe(0);
+
+    // 2. Shared hex click cycling: 1st click -> army, 2nd click -> settlement, 3rd click -> army
+    scene.view!.selectAtHex(settlementHex);
+    expect(scene.view!.selectedEntityKind).toBe('army');
+    expect(scene.view!.selectedArmyId).toBe(activeArmy.id);
+    expect(scene.hud!.selectionPanel.getActiveFocusKind()).toBe('army');
+    expect(scene.hud!.selectionPanel.squadIconsContainer.visible).toBe(true);
+    expect(scene.hud!.selectionPanel.squadIconsContainer.children.length).toBe(
+      activeArmy.squads.length
+    );
+    expect(scene.hud!.selectionPanel.moveButton.container.visible).toBe(true);
+
+    // 2nd left-click on same hex -> selects settlement
+    scene.view!.selectAtHex(settlementHex);
+    expect(scene.view!.selectedEntityKind).toBe('settlement');
+    expect(scene.view!.selectedArmyId).toBeNull();
+    expect(scene.view!.selectedSettlementRegionId).toBe(activeRegion.id);
+    expect(scene.hud!.selectionPanel.getActiveFocusKind()).toBe('settlement');
+    expect(scene.hud!.selectionPanel.moveButton.container.visible).toBe(false);
+    expect(scene.hud!.selectionPanel.manageButton.container.visible).toBe(true);
+
+    // 3rd left-click on same hex -> selects army again
+    scene.view!.selectAtHex(settlementHex);
+    expect(scene.view!.selectedEntityKind).toBe('army');
+    expect(scene.view!.selectedArmyId).toBe(activeArmy.id);
+
+    // 3. Clicking Move button enables left-click destination movement
+    const reachableKeys = Array.from(activeCampaign.getReachableHexes(activeArmy.id).keys()).filter(
+      (k) => k !== `${settlementHex.x},${settlementHex.y}`
+    );
+    expect(reachableKeys.length).toBeGreaterThan(0);
+    const [destX, destY] = reachableKeys[0].split(',').map(Number);
+
+    scene.hud!.selectionPanel.moveButton.container.emit('pointertap', {} as any);
+    expect(scene.view!.isMoveTargetMode).toBe(true);
+    expect(scene.hud!.moveHintBanner.visible).toBe(true);
+
+    // Left-click destination hex moves the army (same as right-click)
+    scene.view!.selectOrMoveAtHex({ x: destX, y: destY }, 0);
+    expect(scene.view!.isMoveTargetMode).toBe(false);
+    expect(scene.hud!.moveHintBanner.visible).toBe(false);
+    expect(activeArmy.coords).toEqual({ x: destX, y: destY });
+
+    await scene.exit();
+  });
 });

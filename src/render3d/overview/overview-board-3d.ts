@@ -11,6 +11,12 @@ import {
 } from '../units/unit-mesh-builder';
 import { getWindThresholds } from '../decorations/wind-system';
 import {
+  attachHoverOutlineToGroup,
+  detachHoverOutlines,
+  getHoverOutlineColorForOwner,
+  OverviewHoverTarget,
+} from './overview-hover-outline';
+import {
   createOverviewAgricultureModel,
   createOverviewBridgeModel,
   createOverviewCombinedArmyVisual,
@@ -139,6 +145,9 @@ export class OverviewBoard3D {
   }> = [];
   private readonly roadCenters: Array<{ x: number; z: number; hasBridge: boolean }> = [];
   private readonly armyGroups: Map<string, THREE.Group> = new Map();
+  private readonly settlementGroups: Map<string, THREE.Group> = new Map();
+  private hoveredInteractable: OverviewHoverTarget | null = null;
+  private activeHoverOutlines: THREE.Object3D[] = [];
   private readonly activeArmyMoves: Map<
     string,
     {
@@ -1361,7 +1370,8 @@ export class OverviewBoard3D {
         baseScale * (1 + breath * 0.035),
         baseScale * (1 - breath * 0.025)
       );
-      unit.position.y = Math.max(0, bob);
+      const baseY = (unit.userData.baseLocalY as number) ?? 0;
+      unit.position.y = baseY + Math.max(0, bob);
       unit.rotation.y = Math.sin(this.windTime * 0.9 + phase) * 0.06;
     }
 
@@ -1401,6 +1411,7 @@ export class OverviewBoard3D {
         ) {
           const finalPt = move.waypoints[move.waypoints.length - 1];
           visual.position.copy(finalPt);
+          this.groundArmyVisualOnTerrain(visual);
           this.setArmyVisualMoving(visual, false);
           completed.push({ armyId, visual, onComplete: move.onComplete });
           continue;
@@ -1419,6 +1430,7 @@ export class OverviewBoard3D {
         if (dx * dx + dz * dz > 1e-6) {
           visual.rotation.y = Math.atan2(dx, dz);
         }
+        this.groundArmyVisualOnTerrain(visual);
       }
 
       for (const done of completed) {
@@ -1951,7 +1963,9 @@ export class OverviewBoard3D {
   }
 
   public rebuildLandmarks(): void {
+    detachHoverOutlines(this.activeHoverOutlines);
     this.disposeGroupChildren(this.landmarksGroup);
+    this.settlementGroups.clear();
 
     for (let x = 0; x < this.mapWidth; x++) {
       for (let y = 0; y < this.mapHeight; y++) {
@@ -1968,6 +1982,7 @@ export class OverviewBoard3D {
           );
           model.position.set(pos.x, surfaceY, pos.z);
           this.landmarksGroup.add(model);
+          this.settlementGroups.set(region.id, model);
         } else if (hex.resourceBuilding) {
           const model = createOverviewResourceBuildingModel(hex.resourceBuilding);
           model.position.set(pos.x, surfaceY, pos.z);
@@ -2077,7 +2092,30 @@ export class OverviewBoard3D {
     collect(this.armiesGroup);
   }
 
+  private groundArmyVisualOnTerrain(visual: THREE.Group): void {
+    const cx = visual.position.x;
+    const cz = visual.position.z;
+    const centerY = Math.max(WATER_SURFACE_Y, this.sampleElevationAtWorld(cx, cz));
+    visual.position.y = centerY;
+
+    const rotY = visual.rotation.y;
+    const cosY = Math.cos(rotY);
+    const sinY = Math.sin(rotY);
+
+    for (const child of visual.children) {
+      const lx = child.position.x;
+      const lz = child.position.z;
+      const wx = cx + lx * cosY + lz * sinY;
+      const wz = cz - lx * sinY + lz * cosY;
+      const groundY = Math.max(WATER_SURFACE_Y, this.sampleElevationAtWorld(wx, wz));
+      const localY = groundY - centerY;
+      child.userData.baseLocalY = localY;
+      child.position.y = localY;
+    }
+  }
+
   public syncArmies(): void {
+    detachHoverOutlines(this.activeHoverOutlines);
     this.disposeGroupChildren(this.armiesGroup);
     this.armyGroups.clear();
 
@@ -2089,19 +2127,61 @@ export class OverviewBoard3D {
       const hex = this.campaign.getHex(army.coords);
       if (!hex) continue;
       const pos = this.hexToWorld(army.coords.x, army.coords.y);
-      const surfaceY = this.getSurfaceY(hex);
 
       const visual = createOverviewCombinedArmyVisual(
         army,
         this.campaign.getFactionColor(army.ownerPlayerId),
         this.campaign.getFactionBanner(army.ownerPlayerId)
       );
-      visual.position.set(pos.x, surfaceY, pos.z);
+      visual.position.set(pos.x, 0, pos.z);
+      this.groundArmyVisualOnTerrain(visual);
       this.armiesGroup.add(visual);
       this.armyGroups.set(army.id, visual);
     }
     this.refreshAnimatedReferences();
     this.updateFogOfWar();
+    if (this.hoveredInteractable) {
+      const target = this.hoveredInteractable;
+      this.hoveredInteractable = null;
+      this.setHoveredInteractable(target);
+    }
+  }
+
+  public getHoveredInteractable(): OverviewHoverTarget | null {
+    return this.hoveredInteractable;
+  }
+
+  public getActiveHoverOutlineCount(): number {
+    return this.activeHoverOutlines.length;
+  }
+
+  public setHoveredInteractable(target: OverviewHoverTarget | null): void {
+    const same =
+      (target === null && this.hoveredInteractable === null) ||
+      (target !== null &&
+        this.hoveredInteractable !== null &&
+        target.kind === this.hoveredInteractable.kind &&
+        ((target.kind === 'army' &&
+          this.hoveredInteractable.kind === 'army' &&
+          target.armyId === this.hoveredInteractable.armyId) ||
+          (target.kind === 'settlement' &&
+            this.hoveredInteractable.kind === 'settlement' &&
+            target.regionId === this.hoveredInteractable.regionId)));
+    if (same) return;
+
+    detachHoverOutlines(this.activeHoverOutlines);
+    this.hoveredInteractable = target;
+    if (!target) return;
+
+    const group =
+      target.kind === 'army'
+        ? this.armyGroups.get(target.armyId)
+        : this.settlementGroups.get(target.regionId);
+    if (!group) return;
+
+    const color = getHoverOutlineColorForOwner(target.kind, target.ownerPlayerId);
+    const thickness = target.kind === 'army' ? 0.028 : 0.04;
+    this.activeHoverOutlines = attachHoverOutlineToGroup(group, color, thickness);
   }
 
   private buildFogOfWarLayers(): void {
@@ -2627,6 +2707,9 @@ export class OverviewBoard3D {
         opacity: 0.92,
         side: THREE.DoubleSide,
         depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
       });
       this.pathArrowMaterial.userData.isSharedAsset = true;
     }
@@ -2638,13 +2721,14 @@ export class OverviewBoard3D {
     if (path.length < 2) return;
 
     const mat = this.getPathArrowMaterial();
+    const arrowClearance = 0.075;
+
     for (let i = 0; i < path.length; i++) {
       const curr = path[i];
       const hex = this.campaign.getHex(curr);
       if (!hex) continue;
 
       const posCurr = this.hexToWorld(curr.x, curr.y);
-      const y = this.getSurfaceY(hex) + 0.055;
       let kind: OverviewPathSegmentKind;
       let inDir: THREE.Vector2;
 
@@ -2676,11 +2760,30 @@ export class OverviewBoard3D {
         kind = classifyOverviewPathTurn(inDir, outDir);
       }
 
-      const geo = this.getPathArrowGeometry(kind);
+      // Clone base arrow ribbon and project every vertex onto the continuous terrain heightfield
+      const geo = this.getPathArrowGeometry(kind).clone();
+      geo.userData = { ...geo.userData, isSharedAsset: false };
+      const rotY = -Math.atan2(inDir.y, inDir.x);
+      const cosY = Math.cos(rotY);
+      const sinY = Math.sin(rotY);
+      const posAttr = geo.getAttribute('position') as THREE.BufferAttribute;
+
+      for (let v = 0; v < posAttr.count; v++) {
+        const lx = posAttr.getX(v);
+        const lz = posAttr.getZ(v);
+        // Three.js rotation.y = rotY transforms (x, z) -> (x*cos + z*sin, -x*sin + z*cos)
+        const wx = posCurr.x + lx * cosY + lz * sinY;
+        const wz = posCurr.z - lx * sinY + lz * cosY;
+        const wy = this.sampleElevationAtWorld(wx, wz) + arrowClearance;
+        posAttr.setXYZ(v, wx, wy, wz);
+      }
+      posAttr.needsUpdate = true;
+      geo.computeVertexNormals();
+      geo.computeBoundingSphere();
+
       const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(posCurr.x, y, posCurr.z);
-      mesh.rotation.y = -Math.atan2(inDir.y, inDir.x);
       mesh.userData.pathKind = kind;
+      mesh.renderOrder = 3;
       this.movePathGroup.add(mesh);
     }
   }
@@ -2708,6 +2811,9 @@ export class OverviewBoard3D {
     this.disposeGroupChildren(this.settlementLabelsGroup);
     this.disposeGroupChildren(this.movePathGroup);
     this.disposeGroupChildren(this.overlaysGroup);
+    detachHoverOutlines(this.activeHoverOutlines);
+    this.hoveredInteractable = null;
+    this.settlementGroups.clear();
     this.disposeGroupChildren(this.armiesGroup);
     this.disposeGroupChildren(this.landmarksGroup);
     this.disposeGroupChildren(this.coordsGroup);

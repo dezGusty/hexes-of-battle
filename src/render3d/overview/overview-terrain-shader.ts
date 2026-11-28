@@ -651,9 +651,20 @@ vec2 worldXZToHexCoord(vec2 worldXZ) {
 
   vec4 hl = fetchHighlightCell(hexCoord);
   if (hl.r > 0.5) {
-    float ring = smoothstep(0.64, 0.70, hexEdgeDist) * (1.0 - smoothstep(0.86, 0.92, hexEdgeDist));
-    float fill = 1.0 - smoothstep(0.88, 0.96, hexEdgeDist);
-    blendedRgb = mix(blendedRgb, vec3(0.28, 0.85, 0.52), fill * 0.12 + ring * 0.65);
+    // Blue-ish rounded hexagon highlight matching the battle scene's walkable reach style
+    vec3 hProj = vec3(
+      abs(dot(localXZ, edgeNorms[0])),
+      abs(dot(localXZ, edgeNorms[1])),
+      abs(dot(localXZ, edgeNorms[2]))
+    ) / apothem;
+    vec3 hPow = hProj * hProj;
+    hPow = hPow * hPow;
+    hPow = hPow * hPow; // ^8
+    float roundedHexDist = pow(hPow.x + hPow.y + hPow.z, 0.125);
+    float fill = 1.0 - smoothstep(0.84, 0.90, roundedHexDist);
+    float rim = smoothstep(0.80, 0.85, roundedHexDist) * (1.0 - smoothstep(0.88, 0.92, roundedHexDist));
+    blendedRgb = mix(blendedRgb, vec3(0.20, 0.67, 0.80), fill * 0.34);
+    blendedRgb = mix(blendedRgb, vec3(0.42, 0.84, 0.96), rim * 0.45);
   }
   if (hl.g > 0.5) {
     float hoverRing = smoothstep(0.80, 0.86, hexEdgeDist) * (1.0 - smoothstep(0.93, 0.98, hexEdgeDist));

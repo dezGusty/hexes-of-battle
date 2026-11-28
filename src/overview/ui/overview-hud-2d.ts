@@ -22,6 +22,7 @@ import {
   OverviewResourceTooltip,
   ResourceIconKey,
 } from './overview-resource-icons';
+import { OverviewSelectionKind } from '../../render3d/overview/overview-view-3d';
 import { OverviewSelectionPanel } from './overview-selection-panel';
 import { OverviewRegionHoverBanner } from './overview-region-hover-banner';
 import { FactionCustomizationPanel } from './faction-customization-panel';
@@ -46,6 +47,7 @@ export interface OverviewHud2DOptions {
   battlePromptCallbacks?: BattlePromptCallbacks;
   onExchangeDone?: () => void;
   onFactionChanged?: () => void;
+  onToggleMoveMode?: (armyId: string) => void;
 }
 
 export class OverviewHud2D {
@@ -61,6 +63,8 @@ export class OverviewHud2D {
   public readonly settlementPanel: SettlementPanel;
   public readonly selectionPanel: OverviewSelectionPanel;
   public readonly regionHoverBanner: OverviewRegionHoverBanner;
+  public readonly moveHintBanner = new Container();
+  private readonly moveHintText: Text;
   public readonly factionPanel: FactionCustomizationPanel;
   public readonly battlePromptPanel: OverviewBattlePromptPanel;
   public readonly armyExchangePanel: OverviewArmyExchangePanel;
@@ -206,12 +210,44 @@ export class OverviewHud2D {
       this.resourceTooltip
     );
     this.settlementPanel = new SettlementPanel(this.container, () => this.refresh());
-    this.selectionPanel = new OverviewSelectionPanel(this.container, (regionId) => {
-      if (this.campaign) {
-        this.settlementPanel.show(this.campaign, regionId);
-      }
+    this.selectionPanel = new OverviewSelectionPanel(this.container, {
+      onManageRegion: (regionId) => {
+        if (this.campaign) {
+          this.settlementPanel.show(this.campaign, regionId);
+        }
+      },
+      onToggleMoveMode: (armyId) => {
+        options.onToggleMoveMode?.(armyId);
+      },
+      unitsSheet: options.assets?.unitsSheet,
     });
     this.regionHoverBanner = new OverviewRegionHoverBanner(this.container);
+
+    // Move-targeting hint banner (matching battle scene's skill target acquirement banner)
+    const hintW = 680;
+    const hintH = 40;
+    this.moveHintBanner.label = 'MoveHintBanner';
+    this.moveHintBanner.position.set(960, 148);
+    this.moveHintBanner.eventMode = 'none';
+    this.moveHintBanner.visible = false;
+    const moveHintBg = new Graphics()
+      .roundRect(-hintW * 0.5, -hintH * 0.5, hintW, hintH, 8)
+      .fill({ color: 0x162238, alpha: 0.92 })
+      .stroke({ width: 1.5, color: 0xd4af37, alpha: 0.9 });
+    this.moveHintText = new Text({
+      text: 'Move Army: Left-click on a highlighted hex to move, Right-click or Esc to cancel',
+      style: {
+        fill: '#ffea75',
+        fontFamily: 'Georgia, serif',
+        fontSize: 16,
+        fontWeight: 'bold',
+        align: 'center',
+      },
+    });
+    this.moveHintText.anchor.set(0.5);
+    this.moveHintBanner.addChild(moveHintBg, this.moveHintText);
+    this.uiPlusRenderGroup.addChild(this.moveHintBanner);
+
     this.factionPanel = new FactionCustomizationPanel(
       this.uiPlusRenderGroup,
       () => {
@@ -441,9 +477,21 @@ export class OverviewHud2D {
     }
   }
 
-  public showSelectionAtHex(coords: Coords): void {
+  public showSelectionAtHex(coords: Coords, focusKind?: OverviewSelectionKind): void {
     if (!this.campaign) return;
-    this.selectionPanel.showAtHex(this.campaign, coords);
+    this.selectionPanel.showAtHex(this.campaign, coords, focusKind);
+  }
+
+  public setMoveTargetModeActive(active: boolean): void {
+    this.selectionPanel.setMoveModeActive(active);
+    this.moveHintBanner.visible = active;
+  }
+
+  public isPointOverHud(stageCoords: Coords): boolean {
+    if (stageCoords.y <= 64) return true;
+    if (this.selectionPanel.containsStagePoint(stageCoords)) return true;
+    if (this.settlementPanel.isVisible() || this.merchantPanel.isVisible()) return true;
+    return false;
   }
 
   public setHoveredRegion(regionId: string | null): void {
