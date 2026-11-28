@@ -113,6 +113,7 @@ export class HexBoard3D {
   private pathPreviewGroup: THREE.Group = new THREE.Group();
   public readonly rangePerimeterGroup: THREE.Group = new THREE.Group();
   public readonly enemyRangePerimeterGroup: THREE.Group = new THREE.Group();
+  public readonly enemyMovementOverlayGroup: THREE.Group = new THREE.Group();
 
   private showGrid: boolean = true;
   private borderThickness: number = 2.5;
@@ -237,6 +238,8 @@ export class HexBoard3D {
     this.group.add(this.rangePerimeterGroup);
     this.enemyRangePerimeterGroup.name = 'EnemyRangePerimeter';
     this.group.add(this.enemyRangePerimeterGroup);
+    this.enemyMovementOverlayGroup.name = 'EnemyMovementOverlays';
+    this.group.add(this.enemyMovementOverlayGroup);
     this.group.add(this.gridBordersGroup);
     this.group.add(this.coordsGroup);
     this.group.add(this.forestTreesGroup);
@@ -2285,6 +2288,17 @@ float hillTerrainNoise(vec2 p) {
       }
     }
 
+    // Subtle breathing pulse on range perimeter light glow ribbons
+    const glowPulse = 0.34 + 0.12 * Math.sin(this.windTime * 2.6);
+    for (const group of [this.rangePerimeterGroup, this.enemyRangePerimeterGroup]) {
+      for (let i = 0; i < group.children.length; i++) {
+        const child = group.children[i] as THREE.Mesh;
+        if (child.userData?.isRangeGlow && child.material) {
+          (child.material as THREE.MeshBasicMaterial).opacity = glowPulse;
+        }
+      }
+    }
+
     if (this.animatedWindmillSails.length > 0) {
       const sailDeltaAngle = (2 * Math.PI * deltaMS) / 14000;
       for (let i = 0; i < this.animatedWindmillSails.length; i++) {
@@ -2691,13 +2705,49 @@ float hillTerrainNoise(vec2 p) {
     this.updateReachOverlays([], []);
   }
 
+  /**
+   * Highlights walkable movement range hexes for a selected/inspected enemy unit
+   * using semi-transparent orange hexagons projected onto the terrain.
+   */
+  public updateEnemyMovementOverlays(
+    walkableCells: Coords[],
+    colorHex: number = 0xff8c22,
+    opacity: number = 0.28
+  ): void {
+    this.clearEnemyMovementOverlays();
+
+    walkableCells.forEach((c) => {
+      const pos = this.hexToWorld(c.x, c.y);
+      const elev = this.getHexElevation(c.x, c.y);
+      const mesh = this.createProjectedHexMesh(pos.x, pos.z, elev, this.hexRadius * 0.96, colorHex, opacity);
+      mesh.name = `EnemyReach_Walkable[${c.x},${c.y}]`;
+      mesh.position.set(pos.x, elev + 0.026, pos.z);
+      this.enemyMovementOverlayGroup.add(mesh);
+    });
+  }
+
+  public clearEnemyMovementOverlays(): void {
+    while (this.enemyMovementOverlayGroup.children.length > 0) {
+      const mesh = this.enemyMovementOverlayGroup.children[0] as THREE.Mesh;
+      this.enemyMovementOverlayGroup.remove(mesh);
+      if (mesh.geometry) mesh.geometry.dispose();
+      if (mesh.material) {
+        if (Array.isArray(mesh.material)) {
+          mesh.material.forEach((m) => m.dispose());
+        } else {
+          mesh.material.dispose();
+        }
+      }
+    }
+  }
+
   public getOverlayMesh(key: string): THREE.Mesh | undefined {
     return this.overlayMeshes.get(key);
   }
 
   /**
-   * Renders a semi-transparent perimeter wall and glowing boundary rim along the outer perimeter
-   * of a given range matrix (e.g. ranged squad weapon attack range or active ranged skill reach).
+   * Renders a continuous terrain-hugging border ribbon with a soft luminous glow
+   * along the outer perimeter of a given range matrix (matching the global map region border style).
    */
   public updateRangePerimeter(
     rangeMatrix: number[][],
@@ -2714,13 +2764,13 @@ float hillTerrainNoise(vec2 p) {
       colorHex,
       wallHeight,
       'RangePerimeterWall',
-      'RangePerimeterLines'
+      'RangePerimeterGlow'
     );
   }
 
   /**
-   * Renders a semi-transparent perimeter wall and rim lines along the outer attack range
-   * perimeter of an enemy archer when selected in the enemy stats panel.
+   * Renders a continuous terrain-hugging border ribbon with a soft luminous glow
+   * along the outer attack range perimeter of an enemy unit when inspected.
    */
   public updateEnemyRangePerimeter(
     rangeMatrix: number[][],
@@ -2737,7 +2787,7 @@ float hillTerrainNoise(vec2 p) {
       colorHex,
       wallHeight,
       'EnemyRangePerimeterWall',
-      'EnemyRangePerimeterLines'
+      'EnemyRangePerimeterGlow'
     );
   }
 
@@ -2745,9 +2795,9 @@ float hillTerrainNoise(vec2 p) {
     targetGroup: THREE.Group,
     rangeMatrix: number[][],
     colorHex: number,
-    wallHeight: number,
-    wallName: string,
-    linesName: string
+    _wallHeight: number,
+    borderName: string,
+    glowName: string
   ): void {
     const edgeDirections: HexDirection[] = [
       HexDirection.EAST,       // Edge 0: Corner 5 (330°) to Corner 0 (30°)
@@ -2758,20 +2808,28 @@ float hillTerrainNoise(vec2 p) {
       HexDirection.NORTHEAST,  // Edge 5: Corner 4 (270°) to Corner 5 (330°)
     ];
 
-    const wallPositions: number[] = [];
-    const linePositions: number[] = [];
+    interface Edge2D {
+      ax: number;
+      az: number;
+      bx: number;
+      bz: number;
+      startKey: string;
+      endKey: string;
+      used: boolean;
+    }
+
+    const ptKey = (px: number, pz: number) =>
+      `${Math.round(px * 1000)},${Math.round(pz * 1000)}`;
+
+    const edges: Edge2D[] = [];
+    const byStart = new Map<string, Edge2D[]>();
+    const R = this.hexRadius;
 
     for (let x = 0; x < this.hexMap.width; x++) {
       for (let y = 0; y < this.hexMap.height; y++) {
         if ((rangeMatrix[x]?.[y] ?? 0) <= 0) continue;
 
         const center = this.hexToWorld(x, y);
-        const elev = this.getHexElevation(x, y);
-        const isHill = this.isHill(x, y);
-        const isSwamp = this.isSwamp(x, y);
-        const R = (isHill ? this.getHillMesaRadius(x, y) : (isSwamp ? this.getSwampInsetRadius(x, y) : this.hexRadius)) * 0.98;
-        const yBase = elev + 0.02;
-        const yTop = yBase + wallHeight;
 
         for (let e = 0; e < 6; e++) {
           const dir = edgeDirections[e];
@@ -2790,72 +2848,212 @@ float hillTerrainNoise(vec2 p) {
             const a1 = ((k1 * 60 + 30) * Math.PI) / 180;
             const a2 = ((k2 * 60 + 30) * Math.PI) / 180;
 
-            const c1x = center.x + R * Math.cos(a1);
-            const c1z = center.z + R * Math.sin(a1);
-            const c2x = center.x + R * Math.cos(a2);
-            const c2z = center.z + R * Math.sin(a2);
+            const ax = center.x + R * Math.cos(a1);
+            const az = center.z + R * Math.sin(a1);
+            const bx = center.x + R * Math.cos(a2);
+            const bz = center.z + R * Math.sin(a2);
 
-            // Wall quad (two triangles, double-sided)
-            // Triangle 1: (c1, yBase), (c2, yBase), (c2, yTop)
-            wallPositions.push(c1x, yBase, c1z);
-            wallPositions.push(c2x, yBase, c2z);
-            wallPositions.push(c2x, yTop, c2z);
-            // Triangle 2: (c1, yBase), (c2, yTop), (c1, yTop)
-            wallPositions.push(c1x, yBase, c1z);
-            wallPositions.push(c2x, yTop, c2z);
-            wallPositions.push(c1x, yTop, c1z);
-
-            // Top glowing rim line
-            linePositions.push(c1x, yTop, c1z);
-            linePositions.push(c2x, yTop, c2z);
-
-            // Base contour line
-            linePositions.push(c1x, yBase, c1z);
-            linePositions.push(c2x, yBase, c2z);
-
-            // Vertical corner posts
-            linePositions.push(c1x, yBase, c1z);
-            linePositions.push(c1x, yTop, c1z);
-            linePositions.push(c2x, yBase, c2z);
-            linePositions.push(c2x, yTop, c2z);
+            const edge: Edge2D = {
+              ax,
+              az,
+              bx,
+              bz,
+              startKey: ptKey(ax, az),
+              endKey: ptKey(bx, bz),
+              used: false,
+            };
+            edges.push(edge);
+            const list = byStart.get(edge.startKey) ?? [];
+            list.push(edge);
+            byStart.set(edge.startKey, list);
           }
         }
       }
     }
 
-    if (wallPositions.length > 0) {
-      const wallGeo = new THREE.BufferGeometry();
-      wallGeo.setAttribute('position', new THREE.Float32BufferAttribute(wallPositions, 3));
-      wallGeo.computeVertexNormals();
+    if (edges.length === 0) return;
 
-      const wallMat = new THREE.MeshBasicMaterial({
-        color: colorHex,
-        transparent: true,
-        opacity: 0.22,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-      });
-
-      const wallMesh = new THREE.Mesh(wallGeo, wallMat);
-      wallMesh.name = wallName;
-      wallMesh.raycast = () => { };
-      targetGroup.add(wallMesh);
-
-      const lineGeo = new THREE.BufferGeometry();
-      lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(linePositions, 3));
-
-      const lineMat = new THREE.LineBasicMaterial({
-        color: colorHex,
-        transparent: true,
-        opacity: 0.85,
-        depthWrite: false,
-      });
-
-      const lineSegments = new THREE.LineSegments(lineGeo, lineMat);
-      lineSegments.name = linesName;
-      lineSegments.raycast = () => { };
-      targetGroup.add(lineSegments);
+    // Stitch directed edges into continuous closed boundary loops (same approach as OverviewBoard3D)
+    const loops: Array<Array<{ x: number; z: number }>> = [];
+    for (const startEdge of edges) {
+      if (startEdge.used) continue;
+      const loop: Array<{ x: number; z: number }> = [];
+      let curr: Edge2D | undefined = startEdge;
+      let guard = 0;
+      while (curr && !curr.used && guard <= edges.length) {
+        guard++;
+        curr.used = true;
+        loop.push({ x: curr.ax, z: curr.az });
+        const candidates = byStart.get(curr.endKey);
+        curr = candidates?.find((ed) => !ed.used);
+      }
+      if (loop.length >= 3) {
+        loops.push(loop);
+      }
     }
+
+    if (loops.length === 0) return;
+
+    const coreHalfWidth = 0.055;
+    const coreHeightOffset = 0.048;
+    const glowHalfWidth = 0.20;
+    const glowHeightOffset = 0.040;
+
+    const corePositions: number[] = [];
+    const coreIndices: number[] = [];
+    const glowPositions: number[] = [];
+    const glowColors: number[] = [];
+    const glowIndices: number[] = [];
+
+    const glowColor = new THREE.Color(colorHex);
+
+    for (const rawLoop of loops) {
+      // Smooth sharp 120-deg hex corners with 2 passes of Chaikin corner-cutting
+      let smoothed = rawLoop;
+      for (let pass = 0; pass < 2; pass++) {
+        const nextLoop: Array<{ x: number; z: number }> = [];
+        const n = smoothed.length;
+        for (let i = 0; i < n; i++) {
+          const p0 = smoothed[i];
+          const p1 = smoothed[(i + 1) % n];
+          nextLoop.push({
+            x: p0.x * 0.75 + p1.x * 0.25,
+            z: p0.z * 0.75 + p1.z * 0.25,
+          });
+          nextLoop.push({
+            x: p0.x * 0.25 + p1.x * 0.75,
+            z: p0.z * 0.25 + p1.z * 0.75,
+          });
+        }
+        smoothed = nextLoop;
+      }
+
+      // Subdivide long segments so the border hugs terrain elevation continuously across hills & slopes
+      const denseLoop: Array<{ x: number; z: number }> = [];
+      const m = smoothed.length;
+      for (let i = 0; i < m; i++) {
+        const p0 = smoothed[i];
+        const p1 = smoothed[(i + 1) % m];
+        const dist = Math.hypot(p1.x - p0.x, p1.z - p0.z);
+        const steps = Math.max(1, Math.ceil(dist / 0.14));
+        for (let s = 0; s < steps; s++) {
+          const t = s / steps;
+          denseLoop.push({
+            x: p0.x + (p1.x - p0.x) * t,
+            z: p0.z + (p1.z - p0.z) * t,
+          });
+        }
+      }
+
+      const count = denseLoop.length;
+      if (count < 3) continue;
+
+      const coreBaseVert = corePositions.length / 3;
+      const glowBaseVert = glowPositions.length / 3;
+
+      for (let i = 0; i <= count; i++) {
+        const pPrev = denseLoop[(i - 1 + count) % count];
+        const pCurr = denseLoop[i % count];
+        const pNext = denseLoop[(i + 1) % count];
+
+        const tx = pNext.x - pPrev.x;
+        const tz = pNext.z - pPrev.z;
+        const len = Math.max(1e-5, Math.hypot(tx, tz));
+        const nx = -tz / len;
+        const nz = tx / len;
+
+        // Core crisp border ribbon (2 vertices per cross-section)
+        for (const side of [-1, 1]) {
+          const wx = pCurr.x + nx * side * coreHalfWidth;
+          const wz = pCurr.z + nz * side * coreHalfWidth;
+          const wy = this.sampleElevationAtWorld(wx, wz) + coreHeightOffset;
+          corePositions.push(wx, wy, wz);
+        }
+
+        // Soft outer light-glow ribbon (3 vertices per cross-section: outer-left -> center -> outer-right)
+        // Vertex colors fade smoothly to black at edges so AdditiveBlending creates a soft halo with no hard seam
+        const glowOffsets: ReadonlyArray<[number, number]> = [
+          [-glowHalfWidth, 0.0],
+          [0.0, 1.0],
+          [glowHalfWidth, 0.0],
+        ];
+        for (const [offset, intensity] of glowOffsets) {
+          const wx = pCurr.x + nx * offset;
+          const wz = pCurr.z + nz * offset;
+          const wy = this.sampleElevationAtWorld(wx, wz) + glowHeightOffset;
+          glowPositions.push(wx, wy, wz);
+          glowColors.push(
+            glowColor.r * intensity,
+            glowColor.g * intensity,
+            glowColor.b * intensity
+          );
+        }
+      }
+
+      for (let i = 0; i < count; i++) {
+        const c0 = coreBaseVert + i * 2;
+        const c1 = c0 + 1;
+        const c2 = c0 + 2;
+        const c3 = c2 + 1;
+        coreIndices.push(c0, c1, c2, c1, c3, c2);
+
+        const g0 = glowBaseVert + i * 3;
+        const g1 = g0 + 1;
+        const g2 = g0 + 2;
+        const g3 = g0 + 3;
+        const g4 = g0 + 4;
+        const g5 = g0 + 5;
+        // Left fade strip (g0..g1..g3..g4) and right fade strip (g1..g2..g4..g5)
+        glowIndices.push(g0, g1, g3, g1, g4, g3);
+        glowIndices.push(g1, g2, g4, g2, g5, g4);
+      }
+    }
+
+    if (corePositions.length === 0) return;
+
+    const coreGeo = new THREE.BufferGeometry();
+    coreGeo.setAttribute('position', new THREE.Float32BufferAttribute(corePositions, 3));
+    coreGeo.setIndex(coreIndices);
+    coreGeo.computeVertexNormals();
+
+    const coreMat = new THREE.MeshBasicMaterial({
+      color: colorHex,
+      transparent: true,
+      opacity: 0.92,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      toneMapped: false,
+    });
+
+    const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+    coreMesh.name = borderName;
+    coreMesh.renderOrder = 6;
+    coreMesh.raycast = () => { };
+    targetGroup.add(coreMesh);
+
+    const glowGeo = new THREE.BufferGeometry();
+    glowGeo.setAttribute('position', new THREE.Float32BufferAttribute(glowPositions, 3));
+    glowGeo.setAttribute('color', new THREE.Float32BufferAttribute(glowColors, 3));
+    glowGeo.setIndex(glowIndices);
+    glowGeo.computeVertexNormals();
+
+    const glowMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.38,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      toneMapped: false,
+    });
+
+    const glowMesh = new THREE.Mesh(glowGeo, glowMat);
+    glowMesh.name = glowName;
+    glowMesh.renderOrder = 5;
+    glowMesh.userData.isRangeGlow = true;
+    glowMesh.raycast = () => { };
+    targetGroup.add(glowMesh);
   }
 
   public clearRangePerimeter(): void {
@@ -3517,6 +3715,7 @@ float hillTerrainNoise(vec2 p) {
     this.clearReachOverlays();
     this.clearRangePerimeter();
     this.clearEnemyRangePerimeter();
+    this.clearEnemyMovementOverlays();
     this.clearAttackPreview();
     this.clearPathPreview();
 

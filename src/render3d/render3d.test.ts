@@ -2060,29 +2060,32 @@ describe('3D Graphics Engine & Rendering Systems', () => {
 
       expect(hexBoard.rangePerimeterGroup.children.length).toBe(2);
       const wall = hexBoard.rangePerimeterGroup.children.find((c) => c.name === 'RangePerimeterWall') as THREE.Mesh;
-      const lines = hexBoard.rangePerimeterGroup.children.find((c) => c.name === 'RangePerimeterLines') as THREE.LineSegments;
+      const glow = hexBoard.rangePerimeterGroup.children.find((c) => c.name === 'RangePerimeterGlow') as THREE.Mesh;
 
       expect(wall).toBeDefined();
-      expect(lines).toBeDefined();
+      expect(glow).toBeDefined();
 
-      // Geometry checks
+      // Geometry checks (continuous terrain-hugging ribbons)
       const wallPosAttr = wall.geometry.getAttribute('position');
-      expect(wallPosAttr.count).toBeGreaterThan(0); // non-empty triangles
+      expect(wallPosAttr.count).toBeGreaterThan(0);
 
-      const linePosAttr = lines.geometry.getAttribute('position');
-      expect(linePosAttr.count).toBeGreaterThan(0); // non-empty line vertices
+      const glowPosAttr = glow.geometry.getAttribute('position');
+      expect(glowPosAttr.count).toBeGreaterThan(0);
+      expect(glow.geometry.getAttribute('color')).toBeDefined();
 
       // Material checks
       const wallMat = wall.material as THREE.MeshBasicMaterial;
       expect(wallMat.transparent).toBe(true);
       expect(wallMat.depthWrite).toBe(false);
-      expect(wallMat.opacity).toBeCloseTo(0.22);
+      expect(wallMat.opacity).toBeCloseTo(0.92);
       expect(wallMat.color.getHex()).toBe(0x44aacc);
 
-      const lineMat = lines.material as THREE.LineBasicMaterial;
-      expect(lineMat.transparent).toBe(true);
-      expect(lineMat.depthWrite).toBe(false);
-      expect(lineMat.opacity).toBeCloseTo(0.85);
+      const glowMat = glow.material as THREE.MeshBasicMaterial;
+      expect(glowMat.transparent).toBe(true);
+      expect(glowMat.depthWrite).toBe(false);
+      expect(glowMat.blending).toBe(THREE.AdditiveBlending);
+      expect(glowMat.vertexColors).toBe(true);
+      expect(glow.userData.isRangeGlow).toBe(true);
 
       // Clearing perimeter
       hexBoard.clearRangePerimeter();
@@ -2113,7 +2116,7 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       const wall = hexBoard.rangePerimeterGroup.children.find((c) => c.name === 'RangePerimeterWall') as THREE.Mesh;
       const wallMat = wall.material as THREE.MeshBasicMaterial;
       expect(wallMat.color.getHex()).toBe(0xffaa33);
-      expect(wallMat.opacity).toBeCloseTo(0.22);
+      expect(wallMat.opacity).toBeCloseTo(0.92);
 
       hexBoard.dispose();
     });
@@ -2135,20 +2138,21 @@ describe('3D Graphics Engine & Rendering Systems', () => {
 
       expect(hexBoard.enemyRangePerimeterGroup.children.length).toBe(2);
       const wall = hexBoard.enemyRangePerimeterGroup.children.find((c) => c.name === 'EnemyRangePerimeterWall') as THREE.Mesh;
-      const lines = hexBoard.enemyRangePerimeterGroup.children.find((c) => c.name === 'EnemyRangePerimeterLines') as THREE.LineSegments;
+      const glow = hexBoard.enemyRangePerimeterGroup.children.find((c) => c.name === 'EnemyRangePerimeterGlow') as THREE.Mesh;
 
       expect(wall).toBeDefined();
-      expect(lines).toBeDefined();
+      expect(glow).toBeDefined();
 
       const wallMat = wall.material as THREE.MeshBasicMaterial;
       expect(wallMat.color.getHex()).toBe(0xff4444);
       expect(wallMat.transparent).toBe(true);
-      expect(wallMat.opacity).toBeCloseTo(0.22);
+      expect(wallMat.opacity).toBeCloseTo(0.92);
 
-      const lineMat = lines.material as THREE.LineBasicMaterial;
-      expect(lineMat.color.getHex()).toBe(0xff4444);
-      expect(lineMat.transparent).toBe(true);
-      expect(lineMat.opacity).toBeCloseTo(0.85);
+      const glowMat = glow.material as THREE.MeshBasicMaterial;
+      expect(glowMat.transparent).toBe(true);
+      expect(glowMat.blending).toBe(THREE.AdditiveBlending);
+      expect(glowMat.vertexColors).toBe(true);
+      expect(glow.userData.isRangeGlow).toBe(true);
 
       // Clear enemy perimeter
       hexBoard.clearEnemyRangePerimeter();
@@ -2282,20 +2286,27 @@ describe('3D Graphics Engine & Rendering Systems', () => {
       expect(hexBoard.enemyRangePerimeterGroup.children.length).toBe(2);
       const enemyWall = hexBoard.enemyRangePerimeterGroup.children.find((c) => c.name === 'EnemyRangePerimeterWall') as THREE.Mesh;
       expect((enemyWall.material as THREE.MeshBasicMaterial).color.getHex()).toBe(0xff4444);
+      expect(hexBoard.enemyMovementOverlayGroup.children.length).toBeGreaterThan(0);
+      const archerMoveHex = hexBoard.enemyMovementOverlayGroup.children[0] as THREE.Mesh;
+      expect((archerMoveHex.material as THREE.MeshBasicMaterial).color.getHex()).toBe(0xff8c22);
+      expect((archerMoveHex.material as THREE.MeshBasicMaterial).transparent).toBe(true);
 
-      // 3. Select enemy melee unit (swordsman): range perimeter should clear
+      // 3. Select enemy melee unit (swordsman): range perimeter clears, orange movement overlays display
       hud.showEnemyStats(enemySwordsman);
       expect(hud.getSelectedEnemyCreature()).toBe(enemySwordsman);
       expect(hexBoard.enemyRangePerimeterGroup.children.length).toBe(0);
+      expect(hexBoard.enemyMovementOverlayGroup.children.length).toBeGreaterThan(0);
 
-      // 4. Reselect enemy archer: perimeter displays again
+      // 4. Reselect enemy archer: perimeter and movement overlays display again
       hud.showEnemyStats(enemyArcher);
       expect(hexBoard.enemyRangePerimeterGroup.children.length).toBe(2);
+      expect(hexBoard.enemyMovementOverlayGroup.children.length).toBeGreaterThan(0);
 
-      // 5. Hide enemy stats panel: perimeter is cleared
+      // 5. Hide enemy stats panel: both perimeter and movement overlays are cleared
       hud.hideEnemyStats();
       expect(hud.getSelectedEnemyCreature()).toBeUndefined();
       expect(hexBoard.enemyRangePerimeterGroup.children.length).toBe(0);
+      expect(hexBoard.enemyMovementOverlayGroup.children.length).toBe(0);
 
       hexBoard.dispose();
     });

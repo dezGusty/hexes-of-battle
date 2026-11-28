@@ -673,6 +673,67 @@ export class Battle {
     return matrix;
   }
 
+  /**
+   * Computes all walkable hex coordinates within a creature's movement range
+   * without mutating the active unit's pathfinding cache.
+   */
+  public getMovementReachForCreature(creature: Creature): Coords[] {
+    if (!creature || !creature.isAlive) {
+      return [];
+    }
+    const maxMove =
+      creature.exhaustionState === ExhaustionState.DEPLETED
+        ? 0
+        : (creature.live_stats.remaining_movement > 0
+            ? creature.live_stats.remaining_movement
+            : creature.live_stats.num_moves);
+    if (maxMove <= 0) {
+      return [];
+    }
+
+    const terrainCostsRecord: Record<number, number> = {};
+    const allTerrains = [
+      TerrainType.PLAIN,
+      TerrainType.FOREST,
+      TerrainType.HILL,
+      TerrainType.SWAMP,
+      TerrainType.WATER,
+    ];
+    for (const t of allTerrains) {
+      terrainCostsRecord[t] = this.getMoveCostForTerrain(t, creature);
+    }
+
+    this.cacheCreaturesToHexMap();
+
+    const tempPathMatrix = NumMatrix.createZeroMatrix(this.hexMap.width, this.hexMap.height);
+    const otherArmyIndex = creature.armyAlignment === 0 ? 1 : 0;
+
+    BattleHexMapPath.cacheWalkableAndMeleeReachableCells(
+      this.hexMap,
+      creature.position,
+      maxMove,
+      tempPathMatrix,
+      terrainCostsRecord,
+      {
+        occupation_tiles: this.cached_occupation_tiles,
+        terrain_tiles: this.terrain_tiles,
+        creatures: this.creatures,
+      },
+      { markUnitsInArmies: [otherArmyIndex] }
+    );
+
+    const walkable: Coords[] = [];
+    for (let x = 0; x < this.hexMap.width; x++) {
+      for (let y = 0; y < this.hexMap.height; y++) {
+        const val = tempPathMatrix[x]?.[y] ?? 0;
+        if (val > 0 && val !== BattleHexMapPath.CELL_ENEMY) {
+          walkable.push({ x, y });
+        }
+      }
+    }
+    return walkable;
+  }
+
   public getReachableMeleeEnemies(): ReachData[] {
     let pathfindingData: ReachData[] = [];
     for (let i = 0; i < this.pathfinding_tiles.length; i++) {

@@ -492,32 +492,37 @@ export class BattleView3D {
       this.hexBoard.clearReachOverlays();
       this.hexBoard.clearRangePerimeter();
       this.hexBoard.clearEnemyRangePerimeter();
+      this.hexBoard.clearEnemyMovementOverlays();
     }
 
     this.updateEnemyRangePerimeter();
   }
 
   /**
-   * Renders or clears the attack range outline/perimeter of the currently selected enemy archer/ranged squad.
+   * Renders or clears the attack range outline/perimeter and movement range overlays
+   * of the currently selected enemy squad.
    */
   public updateEnemyRangePerimeter(enemyCreature?: Creature | null): void {
     const creature = enemyCreature ?? this.hud?.getSelectedEnemyCreature();
-    if (
-      creature &&
-      creature.isAlive &&
-      creature.live_stats?.is_ranged &&
-      creature.live_stats.remaining_ammo > 0 &&
-      !creature.isPanickedOrRouting
-    ) {
-      const enemyRangeMatrix = this.battle.getRangeMatrixForCreature(creature);
-      this.hexBoard.updateEnemyRangePerimeter(enemyRangeMatrix, 0xff4444, 0.35);
+    if (creature && creature.isAlive && !creature.isPanickedOrRouting) {
+      if (creature.live_stats?.is_ranged && creature.live_stats.remaining_ammo > 0) {
+        const enemyRangeMatrix = this.battle.getRangeMatrixForCreature(creature);
+        this.hexBoard.updateEnemyRangePerimeter(enemyRangeMatrix, 0xff4444, 0.35);
+      } else {
+        this.hexBoard.clearEnemyRangePerimeter();
+      }
+
+      const enemyMoveCells = this.battle.getMovementReachForCreature(creature);
+      this.hexBoard.updateEnemyMovementOverlays(enemyMoveCells, 0xff8c22, 0.28);
     } else {
       this.hexBoard.clearEnemyRangePerimeter();
+      this.hexBoard.clearEnemyMovementOverlays();
     }
   }
 
   public clearEnemyRangePerimeter(): void {
     this.hexBoard.clearEnemyRangePerimeter();
+    this.hexBoard.clearEnemyMovementOverlays();
   }
 
   private static readonly DEFAULT_ANIMATION_FPS = 24;
